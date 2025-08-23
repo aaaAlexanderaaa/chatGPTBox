@@ -65,10 +65,16 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
         return
       }
 
-      answer += data.choices[0].text
+      const choice = data.choices?.[0]
+      if (!choice) {
+        console.debug('No choice in response data')
+        return
+      }
+
+      answer += choice.text
       port.postMessage({ answer: answer, done: false, session: null })
 
-      if (data.choices[0]?.finish_reason) {
+      if (choice.finish_reason) {
         finish()
         return
       }
@@ -190,7 +196,12 @@ export async function generateAnswersWithChatgptApiCompat(
 
       if (isO1Model) {
         // For o1 models (non-streaming), get the complete response
-        const content = data.choices[0]?.message?.content
+        const choice = data.choices?.[0]
+        if (!choice) {
+          console.debug('No choice in response data for o1 model')
+          return
+        }
+        const content = choice.message?.content
         if (content) {
           answer = content
           port.postMessage({ answer: answer, done: false, session: null })
@@ -198,9 +209,14 @@ export async function generateAnswersWithChatgptApiCompat(
         }
       } else {
         // For non-o1 models (streaming), handle delta content
-        const delta = data.choices[0]?.delta?.content
-        const content = data.choices[0]?.message?.content
-        const text = data.choices[0]?.text
+        const choice = data.choices?.[0]
+        if (!choice) {
+          console.debug('No choice in response data')
+          return
+        }
+        const delta = choice.delta?.content
+        const content = choice.message?.content
+        const text = choice.text
         if (delta !== undefined) {
           answer += delta
         } else if (content) {
@@ -210,7 +226,7 @@ export async function generateAnswersWithChatgptApiCompat(
         }
         port.postMessage({ answer: answer, done: false, session: null })
 
-        if (data.choices[0]?.finish_reason) {
+        if (choice.finish_reason) {
           finish()
           return
         }

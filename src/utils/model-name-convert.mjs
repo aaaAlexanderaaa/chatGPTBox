@@ -165,7 +165,22 @@ export function isInApiModeGroup(apiModeGroup, configOrSession) {
   return groupValue === apiModeGroup
 }
 
-export function isUsingO1Model(configOrSession) {
+export function isUsingReasoningModel(configOrSession) {
   const modelValue = getModelValue(configOrSession)
-  return modelValue && (modelValue === 'o1-preview' || modelValue === 'o1-mini')
+  return (
+    modelValue &&
+    (modelValue === 'o1-preview' ||
+      modelValue === 'o1-mini' ||
+      modelValue === 'o3-preview' ||
+      modelValue === 'o3-mini' ||
+      modelValue === 'o4-mini' ||
+      modelValue === 'gpt-5' ||
+      modelValue === 'gpt-5-mini' ||
+      modelValue === 'gpt-5-nano')
+  )
+}
+
+// Keep backward compatibility
+export function isUsingO1Model(configOrSession) {
+  return isUsingReasoningModel(configOrSession)
 }
