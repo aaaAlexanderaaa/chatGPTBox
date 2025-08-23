@@ -179,8 +179,3 @@ export function isUsingReasoningModel(configOrSession) {
       modelValue === 'gpt-5-nano')
   )
 }
-
-// Keep backward compatibility
-export function isUsingO1Model(configOrSession) {
-  return isUsingReasoningModel(configOrSession)
-}

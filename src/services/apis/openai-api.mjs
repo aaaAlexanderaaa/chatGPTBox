@@ -5,7 +5,7 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
-import { getModelValue, isUsingO1Model } from '../../utils/model-name-convert.mjs'
+import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -122,7 +122,7 @@ export async function generateAnswersWithChatgptApiCompat(
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const model = getModelValue(session)
-  const isO1Model = isUsingO1Model(session)
+  const isReasoningModel = isUsingReasoningModel(session)
 
   const config = await getUserConfig()
   const prompt = getConversationPairs(
@@ -130,8 +130,8 @@ export async function generateAnswersWithChatgptApiCompat(
     false,
   )
 
-  // Filter out system messages for o1 models (only user and assistant are allowed)
-  const filteredPrompt = isO1Model
+  // Filter out system messages for reasoning models (only user and assistant are allowed)
+  const filteredPrompt = isReasoningModel
     ? prompt.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
     : prompt
 
@@ -146,26 +146,26 @@ export async function generateAnswersWithChatgptApiCompat(
     port.postMessage({ answer: null, done: true, session: session })
   }
 
-  // Build request body with o1-specific parameters
+  // Build request body with reasoning model-specific parameters
   const requestBody = {
     messages: filteredPrompt,
     model,
     ...extraBody,
   }
 
-  if (isO1Model) {
-    // o1 models use max_completion_tokens instead of max_tokens
+  if (isReasoningModel) {
+    // Reasoning models use max_completion_tokens instead of max_tokens
     requestBody.max_completion_tokens = config.maxResponseTokenLength
-    // o1 models don't support streaming during beta
+    // Reasoning models don't support streaming during beta
     requestBody.stream = false
-    // o1 models have fixed parameters during beta
+    // Reasoning models have fixed parameters during beta
     requestBody.temperature = 1
     requestBody.top_p = 1
     requestBody.n = 1
     requestBody.presence_penalty = 0
     requestBody.frequency_penalty = 0
   } else {
-    // Non-o1 models use the existing behavior
+    // Non-reasoning models use the existing behavior
     requestBody.stream = true
     requestBody.max_tokens = config.maxResponseTokenLength
     requestBody.temperature = config.temperature
@@ -194,11 +194,11 @@ export async function generateAnswersWithChatgptApiCompat(
         return
       }
 
-      if (isO1Model) {
-        // For o1 models (non-streaming), get the complete response
+      if (isReasoningModel) {
+        // For reasoning models (non-streaming), get the complete response
         const choice = data.choices?.[0]
         if (!choice) {
-          console.debug('No choice in response data for o1 model')
+          console.debug('No choice in response data for reasoning model')
           return
         }
         const content = choice.message?.content
@@ -208,7 +208,7 @@ export async function generateAnswersWithChatgptApiCompat(
           finish()
         }
       } else {
-        // For non-o1 models (streaming), handle delta content
+        // For non-reasoning models (streaming), handle delta content
         const choice = data.choices?.[0]
         if (!choice) {
           console.debug('No choice in response data')
