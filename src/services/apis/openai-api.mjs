@@ -130,21 +130,21 @@ export async function generateAnswersWithChatgptApiCompat(
     false,
   )
 
-  // Always filter out system messages; for reasoning models, only allow user and assistant
-  const promptWithoutSystem = prompt.filter((msg) => msg.role !== 'system')
+  // Filter messages based on model type
   const filteredPrompt = isReasoningModel
-    ? promptWithoutSystem.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-    : promptWithoutSystem
+    ? prompt.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+    : prompt
 
   filteredPrompt.push({ role: 'user', content: question })
 
   let answer = ''
   let finished = false
   const finish = () => {
+    if (finished) return
     finished = true
     pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: null, done: true, session: session })
+    port.postMessage({ answer: null, done: true, session })
   }
 
   // Build request body with reasoning model-specific parameters
@@ -202,10 +202,12 @@ export async function generateAnswersWithChatgptApiCompat(
           console.debug('No choice in response data for reasoning model')
           return
         }
-        const content = choice.message?.content
-        if (content) {
+        const content = choice.message?.content ?? choice.text
+        if (content !== undefined && content !== null) {
           answer = content
-          port.postMessage({ answer: answer, done: false, session: null })
+          port.postMessage({ answer, done: false, session: null })
+        }
+        if (choice.finish_reason || content !== undefined) {
           finish()
         }
       } else {
@@ -225,7 +227,7 @@ export async function generateAnswersWithChatgptApiCompat(
         } else if (text) {
           answer += text
         }
-        port.postMessage({ answer: answer, done: false, session: null })
+        port.postMessage({ answer, done: false, session: null })
 
         if (choice.finish_reason) {
           finish()
