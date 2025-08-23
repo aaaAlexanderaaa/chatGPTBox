@@ -169,11 +169,7 @@ export function isUsingReasoningModel(configOrSession) {
   const modelValue = getModelValue(configOrSession)
   return (
     modelValue &&
-    (modelValue === 'o1-preview' ||
-      modelValue === 'o1-mini' ||
-      modelValue === 'o3-preview' ||
-      modelValue === 'o3-mini' ||
-      modelValue === 'o4-mini' ||
+    (modelValue === 'o4-mini' ||
       modelValue === 'gpt-5' ||
       modelValue === 'gpt-5-mini' ||
       modelValue === 'gpt-5-nano')
