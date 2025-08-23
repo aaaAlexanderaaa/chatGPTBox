@@ -130,10 +130,11 @@ export async function generateAnswersWithChatgptApiCompat(
     false,
   )
 
-  // Filter out system messages for reasoning models (only user and assistant are allowed)
+  // Always filter out system messages; for reasoning models, only allow user and assistant
+  const promptWithoutSystem = prompt.filter((msg) => msg.role !== 'system')
   const filteredPrompt = isReasoningModel
-    ? prompt.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-    : prompt
+    ? promptWithoutSystem.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+    : promptWithoutSystem
 
   filteredPrompt.push({ role: 'user', content: question })
 
