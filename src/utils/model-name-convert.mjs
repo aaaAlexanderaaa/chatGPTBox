@@ -164,3 +164,8 @@ export function isInApiModeGroup(apiModeGroup, configOrSession) {
   const [, { value: groupValue }] = foundGroup
   return groupValue === apiModeGroup
 }
+
+export function isUsingO1Model(configOrSession) {
+  const modelValue = getModelValue(configOrSession)
+  return modelValue && (modelValue === 'o1-preview' || modelValue === 'o1-mini')
+}

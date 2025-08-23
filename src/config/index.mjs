@@ -65,6 +65,8 @@ export const chatgptApiModelKeys = [
   'chatgptApi4_1',
   'chatgptApi4_1_mini',
   'chatgptApi4_1_nano',
+  'chatgptApiO1Preview',
+  'chatgptApiO1Mini',
 ]
 export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
@@ -255,6 +257,9 @@ export const Models = {
   chatgptApi4_1: { value: 'gpt-4.1', desc: 'ChatGPT (GPT-4.1)' },
   chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'ChatGPT (GPT-4.1 mini)' },
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'ChatGPT (GPT-4.1 nano)' },
+
+  chatgptApiO1Preview: { value: 'o1-preview', desc: 'ChatGPT (o1-preview)' },
+  chatgptApiO1Mini: { value: 'o1-mini', desc: 'ChatGPT (o1-mini)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
   claude12Api: { value: 'claude-instant-1.2', desc: 'Claude.ai (API, Claude Instant 1.2)' },
@@ -541,6 +546,8 @@ export const defaultConfig = {
     'openRouter_anthropic_claude_sonnet4',
     'openRouter_google_gemini_2_5_pro',
     'openRouter_openai_o3',
+    'chatgptApiO1Preview',
+    'chatgptApiO1Mini',
   ],
   customApiModes: [
     {

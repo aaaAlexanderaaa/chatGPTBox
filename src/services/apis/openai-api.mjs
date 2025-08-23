@@ -5,7 +5,7 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
-import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { getModelValue, isUsingO1Model } from '../../utils/model-name-convert.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -116,13 +116,20 @@ export async function generateAnswersWithChatgptApiCompat(
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const model = getModelValue(session)
+  const isO1Model = isUsingO1Model(session)
 
   const config = await getUserConfig()
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
   )
-  prompt.push({ role: 'user', content: question })
+
+  // Filter out system messages for o1 models (only user and assistant are allowed)
+  const filteredPrompt = isO1Model
+    ? prompt.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+    : prompt
+
+  filteredPrompt.push({ role: 'user', content: question })
 
   let answer = ''
   let finished = false
@@ -132,6 +139,32 @@ export async function generateAnswersWithChatgptApiCompat(
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: null, done: true, session: session })
   }
+
+  // Build request body with o1-specific parameters
+  const requestBody = {
+    messages: filteredPrompt,
+    model,
+    ...extraBody,
+  }
+
+  if (isO1Model) {
+    // o1 models use max_completion_tokens instead of max_tokens
+    requestBody.max_completion_tokens = config.maxResponseTokenLength
+    // o1 models don't support streaming during beta
+    requestBody.stream = false
+    // o1 models have fixed parameters during beta
+    requestBody.temperature = 1
+    requestBody.top_p = 1
+    requestBody.n = 1
+    requestBody.presence_penalty = 0
+    requestBody.frequency_penalty = 0
+  } else {
+    // Non-o1 models use the existing behavior
+    requestBody.stream = true
+    requestBody.max_tokens = config.maxResponseTokenLength
+    requestBody.temperature = config.temperature
+  }
+
   await fetchSSE(`${baseUrl}/chat/completions`, {
     method: 'POST',
     signal: controller.signal,
@@ -139,14 +172,7 @@ export async function generateAnswersWithChatgptApiCompat(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      messages: prompt,
-      model,
-      stream: true,
-      max_tokens: config.maxResponseTokenLength,
-      temperature: config.temperature,
-      ...extraBody,
-    }),
+    body: JSON.stringify(requestBody),
     onMessage(message) {
       console.debug('sse message', message)
       if (finished) return
@@ -162,21 +188,32 @@ export async function generateAnswersWithChatgptApiCompat(
         return
       }
 
-      const delta = data.choices[0]?.delta?.content
-      const content = data.choices[0]?.message?.content
-      const text = data.choices[0]?.text
-      if (delta !== undefined) {
-        answer += delta
-      } else if (content) {
-        answer = content
-      } else if (text) {
-        answer += text
-      }
-      port.postMessage({ answer: answer, done: false, session: null })
+      if (isO1Model) {
+        // For o1 models (non-streaming), get the complete response
+        const content = data.choices[0]?.message?.content
+        if (content) {
+          answer = content
+          port.postMessage({ answer: answer, done: false, session: null })
+          finish()
+        }
+      } else {
+        // For non-o1 models (streaming), handle delta content
+        const delta = data.choices[0]?.delta?.content
+        const content = data.choices[0]?.message?.content
+        const text = data.choices[0]?.text
+        if (delta !== undefined) {
+          answer += delta
+        } else if (content) {
+          answer = content
+        } else if (text) {
+          answer += text
+        }
+        port.postMessage({ answer: answer, done: false, session: null })
 
-      if (data.choices[0]?.finish_reason) {
-        finish()
-        return
+        if (data.choices[0]?.finish_reason) {
+          finish()
+          return
+        }
       }
     },
     async onStart() {},
