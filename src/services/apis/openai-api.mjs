@@ -219,7 +219,6 @@ export async function generateAnswersWithChatgptApiCompat(
         }
         if (content !== undefined && content !== null) {
           answer = String(content)
-        }
           port.postMessage({ answer, done: false, session: null })
         }
         if (choice.finish_reason || content !== undefined) {
