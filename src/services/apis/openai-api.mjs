@@ -165,6 +165,11 @@ export async function generateAnswersWithChatgptApiCompat(
     requestBody.n = 1
     requestBody.presence_penalty = 0
     requestBody.frequency_penalty = 0
+    // Disallow tools/functions/function calling in reasoning mode
+    delete requestBody.tools
+    delete requestBody.tool_choice
+    delete requestBody.functions
+    delete requestBody.function_call
   } else {
     // Non-reasoning models use the existing behavior
     requestBody.stream = true

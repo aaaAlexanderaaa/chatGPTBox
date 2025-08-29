@@ -169,8 +169,8 @@ export function isUsingReasoningModel(configOrSession) {
   const modelValue = getModelValue(configOrSession)
   if (!modelValue) return false
 
-  // Explicitly match o1, o3, or o4 with optional dash and suffix (e.g., o1, o1-preview, o3-mini, o4-mini)
-  if (/^(o1|o3|o4)(?:-|$)/.test(modelValue)) {
+  // Explicitly match o1, o3, or o4 as standalone or with a dash and valid suffix (e.g., o1, o1-preview, o3-mini, o4-mini)
+  if (/^(o1|o3|o4)(?:$|-[a-zA-Z][\w-]*)$/.test(modelValue)) {
     return true
   }
 
