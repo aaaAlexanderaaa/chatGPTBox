@@ -290,8 +290,13 @@ async function prepareForRightClickMenu() {
         prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
       } else if (data.itemId.startsWith('custom_')) {
         // Handle custom selection tools from context menu
-        const customIndex = parseInt(data.itemId.replace('custom_', ''))
-        if (customIndex >= 0 && customIndex < userConfig.customSelectionTools.length) {
+        const customIndex = parseInt(data.itemId.replace('custom_', ''), 10)
+        if (
+          !isNaN(customIndex) &&
+          customIndex >= 0 &&
+          userConfig.customSelectionTools &&
+          customIndex < userConfig.customSelectionTools.length
+        ) {
           const customTool = userConfig.customSelectionTools[customIndex]
           if (customTool.active && customTool.name) {
             prompt = customTool.prompt.replace('{{selection}}', data.selectionText)
