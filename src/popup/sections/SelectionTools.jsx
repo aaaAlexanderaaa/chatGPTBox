@@ -4,6 +4,7 @@ import PropTypes from 'prop-types'
 import { useState } from 'react'
 import { defaultConfig } from '../../config/index.mjs'
 import { PencilIcon, TrashIcon } from '@primer/octicons-react'
+import Browser from 'webextension-polyfill'
 
 SelectionTools.propTypes = {
   config: PropTypes.object.isRequired,
@@ -36,7 +37,7 @@ export function SelectionTools({ config, updateConfig }) {
           {t('Cancel')}
         </button>
         <button
-          onClick={(e) => {
+          onClick={async (e) => {
             e.preventDefault()
             if (!editingTool.name) {
               setErrorMessage(t('Name is required'))
@@ -47,14 +48,17 @@ export function SelectionTools({ config, updateConfig }) {
               return
             }
             if (editingIndex === -1) {
-              updateConfig({
+              await updateConfig({
                 customSelectionTools: [...config.customSelectionTools, editingTool],
               })
             } else {
               const customSelectionTools = [...config.customSelectionTools]
               customSelectionTools[editingIndex] = editingTool
-              updateConfig({ customSelectionTools })
+              await updateConfig({ customSelectionTools })
             }
+            Browser.runtime.sendMessage({
+              type: 'REFRESH_MENU',
+            })
             setEditing(false)
           }}
         >
@@ -102,11 +106,14 @@ export function SelectionTools({ config, updateConfig }) {
           <input
             type="checkbox"
             checked={config.activeSelectionTools.includes(key)}
-            onChange={(e) => {
+            onChange={async (e) => {
               const checked = e.target.checked
               const activeSelectionTools = config.activeSelectionTools.filter((i) => i !== key)
               if (checked) activeSelectionTools.push(key)
-              updateConfig({ activeSelectionTools })
+              await updateConfig({ activeSelectionTools })
+              Browser.runtime.sendMessage({
+                type: 'REFRESH_MENU',
+              })
             }}
           />
           {t(toolsConfig[key].label)}
@@ -122,10 +129,13 @@ export function SelectionTools({ config, updateConfig }) {
               <input
                 type="checkbox"
                 checked={tool.active}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const customSelectionTools = [...config.customSelectionTools]
                   customSelectionTools[index] = { ...tool, active: e.target.checked }
-                  updateConfig({ customSelectionTools })
+                  await updateConfig({ customSelectionTools })
+                  Browser.runtime.sendMessage({
+                    type: 'REFRESH_MENU',
+                  })
                 }}
               />
               {tool.name}
@@ -145,11 +155,14 @@ export function SelectionTools({ config, updateConfig }) {
                 </div>
                 <div
                   style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.preventDefault()
                     const customSelectionTools = [...config.customSelectionTools]
                     customSelectionTools.splice(index, 1)
-                    updateConfig({ customSelectionTools })
+                    await updateConfig({ customSelectionTools })
+                    Browser.runtime.sendMessage({
+                      type: 'REFRESH_MENU',
+                    })
                   }}
                 >
                   <TrashIcon />
