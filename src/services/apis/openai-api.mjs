@@ -202,9 +202,24 @@ export async function generateAnswersWithChatgptApiCompat(
           console.debug('No choice in response data for reasoning model')
           return
         }
-        const content = choice.message?.content ?? choice.text
+        let content = choice.message?.content ?? choice.text
+        if (Array.isArray(content)) {
+          // Prefer output_text segments; fallback to any string content
+          const parts = content
+            .map((p) => {
+              if (typeof p === 'string') return p
+              if (p && typeof p === 'object') {
+                if (typeof p.output_text === 'string') return p.output_text
+                if (typeof p.text === 'string') return p.text
+              }
+              return ''
+            })
+            .filter(Boolean)
+          content = parts.join('')
+        }
         if (content !== undefined && content !== null) {
-          answer = content
+          answer = String(content)
+        }
           port.postMessage({ answer, done: false, session: null })
         }
         if (choice.finish_reason || content !== undefined) {
