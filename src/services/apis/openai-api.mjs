@@ -8,6 +8,37 @@ import { getCompletionPromptBase, pushRecord, setAbortController } from './share
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
 
 /**
+ * Extract content from structured response arrays for reasoning models
+ * @param {Array} contentArray - Array of content segments
+ * @returns {string} - Extracted text content
+ */
+function extractContentFromArray(contentArray) {
+  if (!Array.isArray(contentArray)) {
+    console.debug('Content is not an array, returning empty string')
+    return ''
+  }
+
+  try {
+    const parts = contentArray
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (part && typeof part === 'object') {
+          // Prefer output_text segments; fallback to text property
+          if (typeof part.output_text === 'string') return part.output_text
+          if (typeof part.text === 'string') return part.text
+        }
+        return ''
+      })
+      .filter(Boolean)
+
+    return parts.join('')
+  } catch (error) {
+    console.debug('Error extracting content from array:', error)
+    return ''
+  }
+}
+
+/**
  * @param {Browser.Runtime.Port} port
  * @param {string} question
  * @param {Session} session
@@ -177,12 +208,17 @@ export async function generateAnswersWithChatgptApiCompat(
     requestBody.temperature = config.temperature
   }
 
+  // Validate API key
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    throw new Error('Invalid API key provided')
+  }
+
   await fetchSSE(`${baseUrl}/chat/completions`, {
     method: 'POST',
     signal: controller.signal,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey.trim()}`,
     },
     body: JSON.stringify(requestBody),
     onMessage(message) {
@@ -207,26 +243,25 @@ export async function generateAnswersWithChatgptApiCompat(
           console.debug('No choice in response data for reasoning model')
           return
         }
+
         let content = choice.message?.content ?? choice.text
+
+        // Handle structured response arrays for reasoning models
         if (Array.isArray(content)) {
-          // Prefer output_text segments; fallback to any string content
-          const parts = content
-            .map((p) => {
-              if (typeof p === 'string') return p
-              if (p && typeof p === 'object') {
-                if (typeof p.output_text === 'string') return p.output_text
-                if (typeof p.text === 'string') return p.text
-              }
-              return ''
-            })
-            .filter(Boolean)
-          content = parts.join('')
+          content = extractContentFromArray(content)
         }
-        if (content !== undefined && content !== null) {
-          answer = String(content)
-          port.postMessage({ answer, done: false, session: null })
+
+        // Ensure content is a string and not empty
+        if (content && typeof content === 'string') {
+          const trimmedContent = content.trim()
+          if (trimmedContent) {
+            answer = trimmedContent
+            port.postMessage({ answer, done: false, session: null })
+          }
         }
-        if (choice.finish_reason || content !== undefined) {
+
+        // Only finish when we have a proper finish reason
+        if (choice.finish_reason) {
           finish()
         }
       } else {

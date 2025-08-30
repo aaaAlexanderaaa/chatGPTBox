@@ -169,12 +169,16 @@ export function isUsingReasoningModel(configOrSession) {
   const modelValue = getModelValue(configOrSession)
   if (!modelValue) return false
 
-  // Explicitly match o1, o3, or o4 as standalone or with a dash and valid suffix (e.g., o1, o1-preview, o3-mini, o4-mini)
-  if (/^(o1|o3|o4)(?:$|-[a-zA-Z][\w-]*)$/.test(modelValue)) {
+  // Match o1, o3, or o4 models with optional standard OpenAI suffixes
+  // Allows: o1, o1-preview, o1-mini, o3, o3-mini, o4, o4-mini, etc.
+  // Prevents: o10, o30, o40, o1x, o3x, o4x, and other invalid patterns
+  if (/^o[134](?:$|-(?:preview|mini|turbo|instruct|nano|small|medium|large))$/.test(modelValue)) {
     return true
   }
 
   // Match gpt-5* pattern but exclude gpt-5-chat-* variants
+  // Allows: gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-preview, gpt-5-turbo
+  // Prevents: gpt-5-chat-latest, gpt-5-chat, etc.
   if (modelValue.startsWith('gpt-5') && !modelValue.startsWith('gpt-5-chat')) {
     return true
   }
