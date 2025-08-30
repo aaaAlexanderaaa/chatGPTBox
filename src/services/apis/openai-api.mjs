@@ -33,7 +33,7 @@ function extractContentFromArray(contentArray) {
 
     return parts.join('')
   } catch (error) {
-    console.debug('Error extracting content from array:', error)
+    console.error('Error extracting content from array:', error)
     return ''
   }
 }
@@ -162,8 +162,12 @@ export async function generateAnswersWithChatgptApiCompat(
   )
 
   // Filter messages based on model type
+  // Reasoning models only support 'user' and 'assistant' roles during beta period
   const filteredPrompt = isReasoningModel
-    ? prompt.filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+    ? prompt.filter((msg) => {
+        const role = msg?.role
+        return role === 'user' || role === 'assistant'
+      })
     : prompt
 
   filteredPrompt.push({ role: 'user', content: question })
@@ -185,6 +189,7 @@ export async function generateAnswersWithChatgptApiCompat(
     ...extraBody,
   }
 
+  // Apply model-specific configurations
   if (isReasoningModel) {
     // Reasoning models use max_completion_tokens instead of max_tokens
     requestBody.max_completion_tokens = config.maxResponseTokenLength
@@ -196,11 +201,12 @@ export async function generateAnswersWithChatgptApiCompat(
     requestBody.n = 1
     requestBody.presence_penalty = 0
     requestBody.frequency_penalty = 0
-    // Disallow tools/functions/function calling in reasoning mode
+    // Remove unsupported parameters for reasoning models
     delete requestBody.tools
     delete requestBody.tool_choice
     delete requestBody.functions
     delete requestBody.function_call
+    delete requestBody.max_tokens // Ensure max_tokens is not present
   } else {
     // Non-reasoning models use the existing behavior
     requestBody.stream = true
@@ -208,9 +214,11 @@ export async function generateAnswersWithChatgptApiCompat(
     requestBody.temperature = config.temperature
   }
 
-  // Validate API key
+  // Validate API key with detailed error message
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-    throw new Error('Invalid API key provided')
+    throw new Error(
+      'Invalid or empty API key provided. Please check your OpenAI API key configuration.',
+    )
   }
 
   await fetchSSE(`${baseUrl}/chat/completions`, {
@@ -236,14 +244,15 @@ export async function generateAnswersWithChatgptApiCompat(
         return
       }
 
+      // Validate response structure early
+      const choice = data.choices?.[0]
+      if (!choice) {
+        console.debug('No choice in response data')
+        return
+      }
+
       if (isReasoningModel) {
         // For reasoning models (non-streaming), get the complete response
-        const choice = data.choices?.[0]
-        if (!choice) {
-          console.debug('No choice in response data for reasoning model')
-          return
-        }
-
         let content = choice.message?.content ?? choice.text
 
         // Handle structured response arrays for reasoning models
@@ -258,6 +267,14 @@ export async function generateAnswersWithChatgptApiCompat(
             answer = trimmedContent
             port.postMessage({ answer, done: false, session: null })
           }
+        } else if (content) {
+          // Handle unexpected content types gracefully
+          console.debug('Unexpected content type for reasoning model:', typeof content)
+          const stringContent = String(content).trim()
+          if (stringContent) {
+            answer = stringContent
+            port.postMessage({ answer, done: false, session: null })
+          }
         }
 
         // Only finish when we have a proper finish reason
@@ -266,11 +283,6 @@ export async function generateAnswersWithChatgptApiCompat(
         }
       } else {
         // For non-reasoning models (streaming), handle delta content
-        const choice = data.choices?.[0]
-        if (!choice) {
-          console.debug('No choice in response data')
-          return
-        }
         const delta = choice.delta?.content
         const content = choice.message?.content
         const text = choice.text
