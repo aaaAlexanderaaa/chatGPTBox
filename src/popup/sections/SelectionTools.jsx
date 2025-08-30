@@ -18,6 +18,13 @@ const defaultTool = {
   active: true,
 }
 
+// Helper function to refresh context menu
+const refreshContextMenu = () => {
+  Browser.runtime.sendMessage({
+    type: 'REFRESH_MENU',
+  })
+}
+
 export function SelectionTools({ config, updateConfig }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
@@ -56,9 +63,7 @@ export function SelectionTools({ config, updateConfig }) {
               customSelectionTools[editingIndex] = editingTool
               await updateConfig({ customSelectionTools })
             }
-            Browser.runtime.sendMessage({
-              type: 'REFRESH_MENU',
-            })
+            refreshContextMenu()
             setEditing(false)
           }}
         >
@@ -111,9 +116,7 @@ export function SelectionTools({ config, updateConfig }) {
               const activeSelectionTools = config.activeSelectionTools.filter((i) => i !== key)
               if (checked) activeSelectionTools.push(key)
               await updateConfig({ activeSelectionTools })
-              Browser.runtime.sendMessage({
-                type: 'REFRESH_MENU',
-              })
+              refreshContextMenu()
             }}
           />
           {t(toolsConfig[key].label)}
@@ -133,9 +136,7 @@ export function SelectionTools({ config, updateConfig }) {
                   const customSelectionTools = [...config.customSelectionTools]
                   customSelectionTools[index] = { ...tool, active: e.target.checked }
                   await updateConfig({ customSelectionTools })
-                  Browser.runtime.sendMessage({
-                    type: 'REFRESH_MENU',
-                  })
+                  refreshContextMenu()
                 }}
               />
               {tool.name}
@@ -160,9 +161,7 @@ export function SelectionTools({ config, updateConfig }) {
                     const customSelectionTools = [...config.customSelectionTools]
                     customSelectionTools.splice(index, 1)
                     await updateConfig({ customSelectionTools })
-                    Browser.runtime.sendMessage({
-                      type: 'REFRESH_MENU',
-                    })
+                    refreshContextMenu()
                   }}
                 >
                   <TrashIcon />

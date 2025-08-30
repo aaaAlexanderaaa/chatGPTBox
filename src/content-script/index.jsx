@@ -291,9 +291,11 @@ async function prepareForRightClickMenu() {
       } else if (data.itemId.startsWith('custom_')) {
         // Handle custom selection tools from context menu
         const customIndex = parseInt(data.itemId.replace('custom_', ''), 10)
-        const customTool = userConfig.customSelectionTools?.[customIndex]
-        if (customTool?.active && customTool?.name) {
-          prompt = customTool.prompt.replace('{{selection}}', data.selectionText)
+        if (!isNaN(customIndex) && customIndex >= 0) {
+          const customTool = userConfig.customSelectionTools?.[customIndex]
+          if (customTool?.active && customTool?.name) {
+            prompt = customTool.prompt.replace('{{selection}}', data.selectionText)
+          }
         }
       } else if (data.itemId in menuConfig) {
         const menuItem = menuConfig[data.itemId]

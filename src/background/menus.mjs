@@ -85,8 +85,8 @@ export function refreshMenu() {
     }
 
     // Add custom selection tools that are active
-    userConfig.customSelectionTools.forEach((tool, i) => {
-      if (tool.active && tool.name) {
+    userConfig.customSelectionTools?.forEach((tool, i) => {
+      if (tool?.active && tool?.name) {
         Browser.contextMenus.create({
           id: menuId + 'custom_' + i,
           parentId: menuId,
