@@ -585,6 +585,7 @@ export const defaultConfig = {
       iconKey: 'explain',
       prompt: 'sample prompt: {{selection}}',
       active: false,
+      usePageContext: false,
     },
   ],
   activeSiteAdapters: [

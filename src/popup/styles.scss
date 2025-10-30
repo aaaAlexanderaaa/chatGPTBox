@@ -76,15 +76,247 @@
   display: inline-block;
   position: relative;
   list-style: none;
-  padding: 6px 12px 0;
+  padding: 10px 16px;
   cursor: pointer;
-  border-radius: 5px;
-  margin-right: 5px;
+  border-radius: 8px;
+  margin-right: 6px;
+  margin-bottom: 4px;
   font-size: 14px;
+  font-weight: 500;
   background-color: var(--theme-color);
   color: var(--font-color);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+
+  &:hover {
+    background: var(--active-color);
+    opacity: 0.9;
+  }
 
   &--selected {
     background: var(--active-color);
+    border-color: #3b82f6;
+    font-weight: 600;
+  }
+}
+
+// Selection Tools - Simple & Clean
+.selection-tools-container {
+  width: 100%;
+}
+
+.tools-section {
+  margin-bottom: 20px;
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 12px 0 8px 0;
+    color: var(--font-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+
+  input[type='checkbox'] {
+    margin-right: 8px;
+  }
+
+  .tool-name {
+    font-size: 14px;
+    color: var(--font-color);
+  }
+}
+
+.custom-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-tool-card {
+  padding: 10px;
+  background: var(--active-color);
+  border-radius: 4px;
+
+  .tool-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .tool-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+  }
+
+  .tool-card-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--font-color);
+  }
+
+  .tool-card-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tool-card-body {
+    .tool-prompt {
+      font-size: 12px;
+      color: var(--font-color);
+      opacity: 0.7;
+      padding: 6px;
+      background: var(--theme-color);
+      border-radius: 3px;
+      margin-bottom: 6px;
+      font-family: monospace;
+    }
+
+    .tool-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--muted-color);
+      color: white;
+      border-radius: 3px;
+    }
+  }
+}
+
+// Editor Form - Simple
+.custom-tool-editor {
+  background: var(--active-color);
+  border-radius: 4px;
+  margin: 10px 0;
+  padding: 12px;
+
+  .form-group {
+    margin-bottom: 10px;
+  }
+
+  .form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--font-color);
+
+    .required {
+      color: #ef4444;
+    }
+  }
+
+  .form-input,
+  .form-select,
+  .form-textarea {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--muted-border-color);
+    border-radius: 3px;
+    font-size: 13px;
+    background: var(--theme-color);
+    color: var(--font-color);
+
+    &:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+  }
+
+  .form-textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: monospace;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+
+    input[type='checkbox'] {
+      margin-top: 2px;
+    }
+  }
+
+  .hint-text {
+    font-size: 11px;
+    color: var(--muted-color);
+    margin-top: 4px;
+  }
+
+  .error-message {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 8px;
+    border-radius: 3px;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+
+  [data-theme='dark'] & .error-message {
+    background: rgba(220, 38, 38, 0.1);
+    color: #fca5a5;
+  }
+}
+
+// Buttons - Simple
+.button-group {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 3px;
+  font-size: 13px;
+  cursor: pointer;
+
+  &.button-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  &.button-secondary {
+    background: var(--secondary);
+    color: white;
+  }
+
+  &.button-small {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--font-color);
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
   }
 }

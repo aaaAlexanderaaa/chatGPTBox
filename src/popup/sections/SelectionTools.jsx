@@ -16,6 +16,7 @@ const defaultTool = {
   iconKey: 'explain',
   prompt: 'Explain this: {{selection}}',
   active: true,
+  usePageContext: false,
 }
 
 // Helper function to refresh context menu
@@ -33,17 +34,85 @@ export function SelectionTools({ config, updateConfig }) {
   const [editingIndex, setEditingIndex] = useState(-1)
 
   const editingComponent = (
-    <div style={{ display: 'flex', flexDirection: 'column', '--spacing': '4px' }}>
-      <div style={{ display: 'flex', gap: '12px' }}>
+    <div className="custom-tool-editor">
+      {errorMessage && (
+        <div className="error-message" role="alert">
+          {errorMessage}
+        </div>
+      )}
+
+      <div className="form-group">
+        <label className="form-label">
+          {t('Name')} <span className="required">*</span>
+        </label>
+        <input
+          type="text"
+          className="form-input"
+          placeholder={t('e.g., Summarize Page, Explain Code')}
+          value={editingTool.name}
+          onChange={(e) => setEditingTool({ ...editingTool, name: e.target.value })}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">{t('Icon')}</label>
+        <select
+          className="form-select"
+          value={editingTool.iconKey}
+          onChange={(e) => setEditingTool({ ...editingTool, iconKey: e.target.value })}
+        >
+          {defaultConfig.selectionTools.map((key) => (
+            <option key={key} value={key}>
+              {t(toolsConfig[key].label)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">
+          {t('Prompt Template')} <span className="required">*</span>
+        </label>
+        <div className="hint-text">{t('Use {{selection}} as placeholder for selected text')}</div>
+        <textarea
+          className="form-textarea"
+          placeholder={t('Explain this: {{selection}}')}
+          value={editingTool.prompt}
+          onChange={(e) => setEditingTool({ ...editingTool, prompt: e.target.value })}
+          rows={4}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={editingTool.usePageContext || false}
+            onChange={(e) => setEditingTool({ ...editingTool, usePageContext: e.target.checked })}
+          />
+          <span className="checkbox-text">
+            {t('Also work on entire page (without text selection)')}
+          </span>
+        </label>
+        <div className="hint-text">
+          {t('When enabled, tool will appear in context menu even without selecting text')}
+        </div>
+      </div>
+
+      <div className="button-group">
         <button
+          className="button button-secondary"
           onClick={(e) => {
             e.preventDefault()
             setEditing(false)
+            setErrorMessage('')
           }}
         >
           {t('Cancel')}
         </button>
         <button
+          className="button button-primary"
+          type="submit"
           onClick={async (e) => {
             e.preventDefault()
             if (!editingTool.name) {
@@ -65,129 +134,123 @@ export function SelectionTools({ config, updateConfig }) {
             }
             refreshContextMenu()
             setEditing(false)
+            setErrorMessage('')
           }}
         >
           {t('Save')}
         </button>
       </div>
-      {errorMessage && <div style={{ color: 'red' }}>{errorMessage}</div>}
-      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
-        {t('Name')}
-        <input
-          type="text"
-          value={editingTool.name}
-          onChange={(e) => setEditingTool({ ...editingTool, name: e.target.value })}
-        />
-        {t('Icon')}
-        <select
-          value={editingTool.iconKey}
-          onChange={(e) => setEditingTool({ ...editingTool, iconKey: e.target.value })}
-        >
-          {defaultConfig.selectionTools.map((key) => (
-            <option key={key} value={key}>
-              {t(toolsConfig[key].label)}
-            </option>
-          ))}
-        </select>
-      </div>
-      {t('Prompt Template')}
-      <textarea
-        type="text"
-        placeholder={t('Explain this: {{selection}}')}
-        style={{
-          resize: 'vertical',
-          minHeight: '80px',
-        }}
-        value={editingTool.prompt}
-        onChange={(e) => setEditingTool({ ...editingTool, prompt: e.target.value })}
-      />
     </div>
   )
 
   return (
-    <>
-      {config.selectionTools.map((key) => (
-        <label key={key}>
-          <input
-            type="checkbox"
-            checked={config.activeSelectionTools.includes(key)}
-            onChange={async (e) => {
-              const checked = e.target.checked
-              const activeSelectionTools = config.activeSelectionTools.filter((i) => i !== key)
-              if (checked) activeSelectionTools.push(key)
-              await updateConfig({ activeSelectionTools })
-              refreshContextMenu()
-            }}
-          />
-          {t(toolsConfig[key].label)}
-        </label>
-      ))}
-      {config.customSelectionTools.map(
-        (tool, index) =>
-          tool.name &&
-          (editing && editingIndex === index ? (
-            editingComponent
-          ) : (
-            <label key={index} style={{ display: 'flex', alignItems: 'center' }}>
+    <div className="selection-tools-container">
+      <div className="tools-section">
+        <h3 className="section-title">{t('Built-in Tools')}</h3>
+        <div className="tools-list">
+          {config.selectionTools.map((key) => (
+            <label key={key} className="tool-item">
               <input
                 type="checkbox"
-                checked={tool.active}
+                checked={config.activeSelectionTools.includes(key)}
                 onChange={async (e) => {
-                  const customSelectionTools = [...config.customSelectionTools]
-                  customSelectionTools[index] = { ...tool, active: e.target.checked }
-                  await updateConfig({ customSelectionTools })
+                  const checked = e.target.checked
+                  const activeSelectionTools = config.activeSelectionTools.filter((i) => i !== key)
+                  if (checked) activeSelectionTools.push(key)
+                  await updateConfig({ activeSelectionTools })
                   refreshContextMenu()
                 }}
               />
-              {tool.name}
-              <div style={{ flexGrow: 1 }} />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    setEditing(true)
-                    setEditingTool(tool)
-                    setEditingIndex(index)
-                    setErrorMessage('')
-                  }}
-                >
-                  <PencilIcon />
-                </div>
-                <div
-                  style={{ cursor: 'pointer' }}
-                  onClick={async (e) => {
-                    e.preventDefault()
-                    const customSelectionTools = [...config.customSelectionTools]
-                    customSelectionTools.splice(index, 1)
-                    await updateConfig({ customSelectionTools })
-                    refreshContextMenu()
-                  }}
-                >
-                  <TrashIcon />
-                </div>
-              </div>
+              <span className="tool-name">{t(toolsConfig[key].label)}</span>
             </label>
-          )),
-      )}
-      <div style={{ height: '30px' }} />
-      {editing ? (
-        editingIndex === -1 ? (
-          editingComponent
-        ) : undefined
-      ) : (
-        <button
-          onClick={(e) => {
-            e.preventDefault()
-            setEditing(true)
-            setEditingTool(defaultTool)
-            setEditingIndex(-1)
-            setErrorMessage('')
-          }}
-        >
-          {t('New')}
-        </button>
-      )}
-    </>
+          ))}
+        </div>
+      </div>
+
+      <div className="tools-section">
+        <h3 className="section-title">
+          {t('Custom Tools')}
+          {!editing && (
+            <button
+              className="button button-small button-primary add-tool-btn"
+              onClick={(e) => {
+                e.preventDefault()
+                setEditing(true)
+                setEditingTool(defaultTool)
+                setEditingIndex(-1)
+                setErrorMessage('')
+              }}
+            >
+              {t('New')}
+            </button>
+          )}
+        </h3>
+
+        {editing && editingIndex === -1 && editingComponent}
+
+        <div className="custom-tools-list">
+          {config.customSelectionTools.map(
+            (tool, index) =>
+              tool.name &&
+              (editing && editingIndex === index ? (
+                <div key={index}>{editingComponent}</div>
+              ) : (
+                <div key={index} className="custom-tool-card">
+                  <div className="tool-card-header">
+                    <label className="tool-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={tool.active}
+                        onChange={async (e) => {
+                          const customSelectionTools = [...config.customSelectionTools]
+                          customSelectionTools[index] = { ...tool, active: e.target.checked }
+                          await updateConfig({ customSelectionTools })
+                          refreshContextMenu()
+                        }}
+                      />
+                      <span className="tool-card-name">
+                        {tool.name}
+                        {tool.usePageContext && ' 🌐'}
+                      </span>
+                    </label>
+                    <div className="tool-card-actions">
+                      <button
+                        className="icon-button"
+                        title={t('Edit')}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setEditing(true)
+                          // Ensure backward compatibility - add usePageContext if missing
+                          setEditingTool({ usePageContext: false, ...tool })
+                          setEditingIndex(index)
+                          setErrorMessage('')
+                        }}
+                      >
+                        <PencilIcon size={16} />
+                      </button>
+                      <button
+                        className="icon-button icon-button-danger"
+                        title={t('Delete')}
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          const customSelectionTools = [...config.customSelectionTools]
+                          customSelectionTools.splice(index, 1)
+                          await updateConfig({ customSelectionTools })
+                          refreshContextMenu()
+                        }}
+                      >
+                        <TrashIcon size={16} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="tool-card-body">
+                    <div className="tool-prompt">{tool.prompt}</div>
+                  </div>
+                </div>
+              )),
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

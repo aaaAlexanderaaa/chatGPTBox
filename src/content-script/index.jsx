@@ -20,6 +20,7 @@ import {
   getApiModesStringArrayFromConfig,
   getClientPosition,
   getPossibleElementByQuerySelector,
+  getCoreContentText,
 } from '../utils'
 import FloatingToolbar from '../components/FloatingToolbar'
 import Browser from 'webextension-polyfill'
@@ -294,7 +295,12 @@ async function prepareForRightClickMenu() {
         if (!isNaN(customIndex) && customIndex >= 0) {
           const customTool = userConfig.customSelectionTools?.[customIndex]
           if (customTool?.active && customTool?.name) {
-            prompt = customTool.prompt.replace('{{selection}}', data.selectionText)
+            // If no selection text and tool supports page context, use page content
+            let textToUse = data.selectionText
+            if (!textToUse && customTool.usePageContext) {
+              textToUse = getCoreContentText()
+            }
+            prompt = customTool.prompt.replace('{{selection}}', textToUse || '')
           }
         }
       } else if (data.itemId in menuConfig) {
