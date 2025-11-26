@@ -94,9 +94,18 @@ function FloatingToolbar(props) {
         >
           <div
             className="chatgptbox-selection-window"
-            style={{ width: windowSize[0] * 0.4 + 'px' }}
+            style={{
+              width: windowSize[0] * 0.4 + 'px',
+              minWidth: '300px',
+              maxWidth: '90vw',
+              height: windowSize[1] * 0.6 + 'px',
+              minHeight: '400px',
+              maxHeight: '90vh',
+              resize: 'both',
+              overflow: 'hidden',
+            }}
           >
-            <div className="chatgptbox-container">
+            <div className="chatgptbox-container" style={{ height: '100%', overflow: 'hidden' }}>
               <ConversationCard
                 session={props.session}
                 question={prompt}

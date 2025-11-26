@@ -545,8 +545,10 @@ function ConversationCard(props) {
         className="markdown-body"
         style={
           props.notClampSize
-            ? { flexGrow: 1 }
-            : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical' }
+            ? { flexGrow: 1, overflow: 'auto' }
+            : props.draggable
+            ? { flexGrow: 1, overflow: 'auto' }
+            : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical', overflow: 'auto' }
         }
       >
         {conversationItemData.map((data, idx) => (
