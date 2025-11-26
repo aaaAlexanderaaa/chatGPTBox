@@ -12,18 +12,39 @@ ContentExtractor.propTypes = {
 const defaultExtractor = {
   name: '',
   urlPattern: '',
+  method: 'auto',
   selectors: '',
   excludeSelectors: '',
-  preProcess: '',
+  customScript: '',
   active: true,
 }
 
 const extractionMethods = [
-  { key: 'auto', label: 'Auto (Readability + Fallback)' },
-  { key: 'readability', label: 'Readability Only' },
-  { key: 'selectors', label: 'CSS Selectors Only' },
-  { key: 'largest', label: 'Largest Element' },
-  { key: 'custom', label: 'Custom Script' },
+  {
+    key: 'auto',
+    label: 'Smart Auto',
+    desc: 'Automatically detect main content using multiple strategies',
+  },
+  {
+    key: 'selectors',
+    label: 'CSS Selectors',
+    desc: 'Extract content from specific elements you define',
+  },
+  {
+    key: 'readability',
+    label: 'Article Mode',
+    desc: 'Best for blog posts and news articles',
+  },
+  {
+    key: 'largest',
+    label: 'Largest Block',
+    desc: 'Find the biggest content area on the page',
+  },
+  {
+    key: 'custom',
+    label: 'Custom Script',
+    desc: 'Write JavaScript to extract exactly what you need',
+  },
 ]
 
 export function ContentExtractor({ config, updateConfig }) {
@@ -112,12 +133,14 @@ export function ContentExtractor({ config, updateConfig }) {
           {t('URL Pattern')} <span className="required">*</span>
         </label>
         <div className="hint-text">
-          {t('Regex pattern to match URLs. e.g., example\\.com, blog\\..*\\.org')}
+          {t(
+            'Match websites by URL. Use simple text like "example.com" or regex like "blog\\..*\\.org"',
+          )}
         </div>
         <input
           type="text"
           className="form-input"
-          placeholder="example\\.com/article/.*"
+          placeholder="example.com"
           value={editingExtractor.urlPattern}
           onChange={(e) => setEditingExtractor({ ...editingExtractor, urlPattern: e.target.value })}
         />
@@ -132,59 +155,80 @@ export function ContentExtractor({ config, updateConfig }) {
         >
           {extractionMethods.map((method) => (
             <option key={method.key} value={method.key}>
-              {t(method.label)}
+              {method.label}
             </option>
           ))}
         </select>
+        <div className="hint-text">
+          {extractionMethods.find((m) => m.key === (editingExtractor.method || 'auto'))?.desc}
+        </div>
       </div>
 
-      <div className="form-group">
-        <label className="form-label">{t('Content Selectors')}</label>
-        <div className="hint-text">
-          {t('CSS selectors for content, comma-separated. First match wins.')}
+      {/* Show Content Selectors for 'selectors' method (required) or 'auto' method (optional) */}
+      {(editingExtractor.method === 'selectors' ||
+        editingExtractor.method === 'auto' ||
+        !editingExtractor.method) && (
+        <div className="form-group">
+          <label className="form-label">
+            {t('Content Selectors')}
+            {editingExtractor.method === 'selectors' && <span className="required">*</span>}
+          </label>
+          <div className="hint-text">
+            {editingExtractor.method === 'selectors'
+              ? t('CSS selectors to extract content from. First match wins.')
+              : t('Optional: specify elements to extract. Leave empty for auto-detection.')}
+          </div>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="article, .post-content, #main-content"
+            value={editingExtractor.selectors}
+            onChange={(e) =>
+              setEditingExtractor({ ...editingExtractor, selectors: e.target.value })
+            }
+          />
         </div>
-        <input
-          type="text"
-          className="form-input"
-          placeholder="article, .post-content, #main-content"
-          value={editingExtractor.selectors}
-          onChange={(e) => setEditingExtractor({ ...editingExtractor, selectors: e.target.value })}
-        />
-      </div>
+      )}
 
-      <div className="form-group">
-        <label className="form-label">{t('Exclude Selectors')}</label>
-        <div className="hint-text">
-          {t('Elements to exclude from extraction, comma-separated.')}
+      {/* Show Exclude Selectors for all methods except 'custom' */}
+      {editingExtractor.method !== 'custom' && (
+        <div className="form-group">
+          <label className="form-label">{t('Exclude Elements')}</label>
+          <div className="hint-text">
+            {t('Remove these elements before extraction (ads, sidebars, navigation, etc.)')}
+          </div>
+          <input
+            type="text"
+            className="form-input"
+            placeholder=".sidebar, .comments, .ads, nav, footer"
+            value={editingExtractor.excludeSelectors}
+            onChange={(e) =>
+              setEditingExtractor({ ...editingExtractor, excludeSelectors: e.target.value })
+            }
+          />
         </div>
-        <input
-          type="text"
-          className="form-input"
-          placeholder=".sidebar, .comments, .ads, nav, footer"
-          value={editingExtractor.excludeSelectors}
-          onChange={(e) =>
-            setEditingExtractor({ ...editingExtractor, excludeSelectors: e.target.value })
-          }
-        />
-      </div>
+      )}
 
-      <div className="form-group">
-        <label className="form-label">{t('Custom Script (Advanced)')}</label>
-        <div className="hint-text">
-          {t('JavaScript function body. Return the extracted text. Available: document, window')}
-        </div>
-        <textarea
-          className="form-textarea"
-          placeholder={`// Example:
+      {/* Show Custom Script only for 'custom' method */}
+      {editingExtractor.method === 'custom' && (
+        <div className="form-group">
+          <label className="form-label">
+            {t('Custom Script')} <span className="required">*</span>
+          </label>
+          <div className="hint-text">{t('Write JavaScript that returns the extracted text.')}</div>
+          <textarea
+            className="form-textarea"
+            placeholder={`// Example: extract article text
 const article = document.querySelector('article');
 return article ? article.innerText : '';`}
-          value={editingExtractor.customScript || ''}
-          onChange={(e) =>
-            setEditingExtractor({ ...editingExtractor, customScript: e.target.value })
-          }
-          rows={6}
-        />
-      </div>
+            value={editingExtractor.customScript || ''}
+            onChange={(e) =>
+              setEditingExtractor({ ...editingExtractor, customScript: e.target.value })
+            }
+            rows={6}
+          />
+        </div>
+      )}
 
       <div className="button-group">
         <button
@@ -214,7 +258,16 @@ return article ? article.innerText : '';`}
             try {
               new RegExp(editingExtractor.urlPattern)
             } catch (err) {
-              setErrorMessage(t('Invalid URL pattern regex'))
+              setErrorMessage(t('Invalid URL pattern'))
+              return
+            }
+            // Validate method-specific requirements
+            if (editingExtractor.method === 'selectors' && !editingExtractor.selectors) {
+              setErrorMessage(t('Content Selectors are required for CSS Selectors method'))
+              return
+            }
+            if (editingExtractor.method === 'custom' && !editingExtractor.customScript) {
+              setErrorMessage(t('Custom Script is required for Custom Script method'))
               return
             }
 
@@ -420,16 +473,24 @@ return article ? article.innerText : '';`}
                       <div className="tool-card-body">
                         <div className="tool-prompt">
                           <span className="extractor-label">{t('URL')}:</span>{' '}
-                          {extractor.urlPattern}
+                          <code>{extractor.urlPattern}</code>
+                        </div>
+                        <div className="tool-prompt">
+                          <span className="extractor-label">{t('Method')}:</span>{' '}
+                          {extractionMethods.find((m) => m.key === (extractor.method || 'auto'))
+                            ?.label || 'Smart Auto'}
                         </div>
                         {extractor.selectors && (
                           <div className="tool-prompt">
                             <span className="extractor-label">{t('Selectors')}:</span>{' '}
-                            {extractor.selectors}
+                            <code>{extractor.selectors}</code>
                           </div>
                         )}
-                        {extractor.method && extractor.method !== 'auto' && (
-                          <div className="tool-badge">{extractor.method}</div>
+                        {extractor.excludeSelectors && (
+                          <div className="tool-prompt">
+                            <span className="extractor-label">{t('Exclude')}:</span>{' '}
+                            <code>{extractor.excludeSelectors}</code>
+                          </div>
                         )}
                       </div>
                     </div>
