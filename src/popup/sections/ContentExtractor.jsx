@@ -240,6 +240,7 @@ return article ? article.innerText : '';`}
       {/* Tab Navigation */}
       <div className="extractor-tabs">
         <button
+          type="button"
           className={`extractor-tab ${activeTab === 'preview' ? 'extractor-tab--active' : ''}`}
           onClick={() => setActiveTab('preview')}
         >
@@ -247,6 +248,7 @@ return article ? article.innerText : '';`}
           <span>{t('Preview Extraction')}</span>
         </button>
         <button
+          type="button"
           className={`extractor-tab ${activeTab === 'rules' ? 'extractor-tab--active' : ''}`}
           onClick={() => setActiveTab('rules')}
         >
