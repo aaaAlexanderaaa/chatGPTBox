@@ -21,6 +21,7 @@ import {
   getClientPosition,
   getPossibleElementByQuerySelector,
   getCoreContentText,
+  getExtractedContentWithMetadata,
 } from '../utils'
 import FloatingToolbar from '../components/FloatingToolbar'
 import Browser from 'webextension-polyfill'
@@ -498,10 +499,21 @@ async function run() {
   await getPreferredLanguageKey().then((lang) => {
     changeLanguage(lang)
   })
-  Browser.runtime.onMessage.addListener(async (message) => {
+  Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'CHANGE_LANG') {
       const data = message.data
       changeLanguage(data.lang)
+    } else if (message.type === 'GET_EXTRACTED_CONTENT') {
+      // Handle content extraction request from popup
+      try {
+        const customExtractors = message.data?.customExtractors || []
+        const result = getExtractedContentWithMetadata(customExtractors)
+        sendResponse(result)
+      } catch (e) {
+        console.error('Content extraction error:', e)
+        sendResponse({ error: e.message || 'Extraction failed' })
+      }
+      return true // Keep channel open for async response
     }
   })
 
