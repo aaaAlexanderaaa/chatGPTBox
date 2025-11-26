@@ -219,6 +219,50 @@ function extractByLargestElement(excludeSelectors) {
 }
 
 /**
+ * Perform auto extraction with optional exclude selectors
+ * @param {string} excludeSelectors - Comma-separated exclude selectors
+ * @param {Object} metadata - Metadata object to update
+ * @returns {{content: string, metadata: Object}}
+ */
+function performAutoExtraction(excludeSelectors, metadata) {
+  // Try built-in site adapters
+  for (const [siteName, selectors] of Object.entries(adapters)) {
+    if (location.hostname.includes(siteName)) {
+      const element = getPossibleElementByQuerySelector(selectors)
+      if (element) {
+        const processedElement = removeExcludedElements(element, excludeSelectors)
+        metadata.method = 'builtin-adapter'
+        metadata.selector = selectors[0]
+        if (!metadata.matchedRule) metadata.matchedRule = siteName
+        return { content: postProcessText(getTextFrom(processedElement)), metadata }
+      }
+      break
+    }
+  }
+
+  // Try article element
+  const articleElement = document.querySelector('article')
+  if (articleElement) {
+    const processedElement = removeExcludedElements(articleElement, excludeSelectors)
+    metadata.method = 'article-tag'
+    metadata.selector = 'article'
+    return { content: postProcessText(getTextFrom(processedElement)), metadata }
+  }
+
+  // Try Readability
+  const readResult = extractByReadability(excludeSelectors)
+  if (readResult) {
+    metadata.method = readResult.method
+    return { content: readResult.content, metadata }
+  }
+
+  // Fallback to largest element
+  const largestResult = extractByLargestElement(excludeSelectors)
+  metadata.method = largestResult.method
+  return { content: largestResult.content, metadata }
+}
+
+/**
  * Enhanced content extraction with custom rules support and metadata
  * @param {Array} customExtractors - Array of custom extractor configurations
  * @returns {{content: string, metadata: Object}}
@@ -239,7 +283,7 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
     const method = matchedExtractor.method || 'auto'
     const excludeSelectors = matchedExtractor.excludeSelectors || ''
 
-    // Try custom script first if method is 'custom' or script is provided
+    // Try custom script first if method is 'custom'
     if (method === 'custom' && matchedExtractor.customScript) {
       const customResult = executeCustomScript(matchedExtractor.customScript)
       if (customResult) {
@@ -248,7 +292,7 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
       }
     }
 
-    // Try selectors if provided
+    // Try selectors if provided (for 'selectors' method or as primary extraction)
     if (matchedExtractor.selectors) {
       const selectorResult = extractBySelectors(matchedExtractor.selectors, excludeSelectors)
       if (selectorResult) {
@@ -256,9 +300,14 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
         metadata.selector = selectorResult.selector
         return { content: selectorResult.content, metadata }
       }
+      // If selectors method was explicitly chosen but selectors didn't match, that's an error
+      if (method === 'selectors') {
+        metadata.method = 'selectors-failed'
+        // Fall through to auto extraction as fallback
+      }
     }
 
-    // Fall through to default methods based on configured method
+    // Handle specific extraction methods
     if (method === 'readability') {
       const readResult = extractByReadability(excludeSelectors)
       if (readResult) {
@@ -270,44 +319,13 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
       metadata.method = largestResult.method
       return { content: largestResult.content, metadata }
     }
-    // For 'auto' or fallback, continue to default extraction
+
+    // For 'auto' method or fallback: use auto extraction WITH the custom rule's excludeSelectors
+    return performAutoExtraction(excludeSelectors, metadata)
   }
 
-  // Default extraction logic (original behavior with metadata)
-
-  // Try built-in site adapters
-  for (const [siteName, selectors] of Object.entries(adapters)) {
-    if (location.hostname.includes(siteName)) {
-      const element = getPossibleElementByQuerySelector(selectors)
-      if (element) {
-        metadata.method = 'builtin-adapter'
-        metadata.selector = selectors[0]
-        metadata.matchedRule = siteName
-        return { content: postProcessText(getTextFrom(element)), metadata }
-      }
-      break
-    }
-  }
-
-  // Try article element
-  const articleElement = document.querySelector('article')
-  if (articleElement) {
-    metadata.method = 'article-tag'
-    metadata.selector = 'article'
-    return { content: postProcessText(getTextFrom(articleElement)), metadata }
-  }
-
-  // Try Readability
-  const readResult = extractByReadability('')
-  if (readResult) {
-    metadata.method = readResult.method
-    return { content: readResult.content, metadata }
-  }
-
-  // Fallback to largest element
-  const largestResult = extractByLargestElement('')
-  metadata.method = largestResult.method
-  return { content: largestResult.content, metadata }
+  // No custom rule matched - use default extraction without exclude selectors
+  return performAutoExtraction('', metadata)
 }
 
 export function getCoreContentText() {
