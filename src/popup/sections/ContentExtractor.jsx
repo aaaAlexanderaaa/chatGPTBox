@@ -366,6 +366,12 @@ return article ? article.innerText : '';`}
                 <div className="metadata-item">
                   <span className="metadata-label">{t('Selector')}:</span>
                   <span className="metadata-value metadata-code">{previewMetadata.selector}</span>
+                  {previewMetadata.matchCount && (
+                    <span className="metadata-value">
+                      {' '}
+                      ({previewMetadata.matchCount} {t('elements')})
+                    </span>
+                  )}
                 </div>
               )}
               {previewMetadata.matchedRule && (

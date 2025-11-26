@@ -196,6 +196,7 @@
   "Content Selectors are required for CSS Selectors method": "Content Selectors are required for CSS Selectors method",
   "Custom Script is required for Custom Script method": "Custom Script is required for Custom Script method",
   "Exclude": "Exclude",
+  "elements": "elements",
   "URL": "URL",
   "Selectors": "Selectors",
   "e.g., My Blog, News Site": "e.g., My Blog, News Site",

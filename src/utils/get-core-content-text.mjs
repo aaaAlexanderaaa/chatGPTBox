@@ -133,14 +133,28 @@ function extractBySelectors(selectorsStr, excludeSelectors) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+
   for (const selector of selectors) {
     try {
-      const element = document.querySelector(selector)
-      if (element) {
-        const processedElement = removeExcludedElements(element, excludeSelectors)
-        return {
-          content: postProcessText(getTextFrom(processedElement)),
-          selector,
+      // Use querySelectorAll to get ALL matching elements
+      const elements = document.querySelectorAll(selector)
+      if (elements.length > 0) {
+        // Collect text from all matching elements
+        const textParts = []
+        elements.forEach((element) => {
+          const processedElement = removeExcludedElements(element, excludeSelectors)
+          const text = getTextFrom(processedElement)
+          if (text && text.trim()) {
+            textParts.push(text.trim())
+          }
+        })
+
+        if (textParts.length > 0) {
+          return {
+            content: postProcessText(textParts.join('\n\n')),
+            selector,
+            matchCount: elements.length,
+          }
         }
       }
     } catch (e) {
@@ -298,6 +312,7 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
       if (selectorResult) {
         metadata.method = 'selectors'
         metadata.selector = selectorResult.selector
+        metadata.matchCount = selectorResult.matchCount
         return { content: selectorResult.content, metadata }
       }
       // If selectors method was explicitly chosen but selectors didn't match, that's an error

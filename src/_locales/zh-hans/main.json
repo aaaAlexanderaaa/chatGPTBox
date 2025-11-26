@@ -202,6 +202,7 @@
   "Content Selectors are required for CSS Selectors method": "CSS 选择器方法需要填写内容选择器",
   "Custom Script is required for Custom Script method": "自定义脚本方法需要填写脚本",
   "Exclude": "排除",
+  "elements": "个元素",
   "URL": "URL",
   "Selectors": "选择器",
   "e.g., My Blog, News Site": "例如：我的博客, 新闻网站",
