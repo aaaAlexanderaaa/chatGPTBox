@@ -7,6 +7,7 @@ import { getUserConfig } from '../../config/index.mjs'
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
+  const [isFocused, setIsFocused] = useState(false)
   const reverseDivRef = useRef(null)
   const inputRef = useRef(null)
   const resizedRef = useRef(false)
@@ -68,7 +69,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   }
 
   return (
-    <div className="input-box">
+    <div className={`input-box ${isFocused ? 'input-box--focused' : ''}`}>
       <div
         ref={reverseDivRef}
         style={
@@ -88,7 +89,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
           style={
             internalReverseResizeDir
               ? { transform: 'rotateX(180deg)', resize: 'none' }
-              : { resize: 'vertical', minHeight: '70px' }
+              : { resize: 'vertical' }
           }
           placeholder={
             enabled
@@ -98,16 +99,35 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDownOrClick}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
         />
       </div>
       <button
-        className="submit-button"
-        style={{
-          backgroundColor: enabled ? '#30a14e' : '#cf222e',
-        }}
+        className={`submit-button ${!enabled ? 'stop' : ''} ${value.trim() ? 'has-content' : ''}`}
         onClick={handleKeyDownOrClick}
+        aria-label={enabled ? t('Ask') : t('Stop')}
       >
-        {enabled ? t('Ask') : t('Stop')}
+        {enabled ? (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+          </svg>
+        )}
+        <span className="button-text">{enabled ? t('Ask') : t('Stop')}</span>
       </button>
     </div>
   )
