@@ -175,8 +175,10 @@ export function ContentExtractor({ config, updateConfig }) {
           </label>
           <div className="hint-text">
             {editingExtractor.method === 'selectors'
-              ? t('CSS selectors to extract content from. First match wins.')
-              : t('Optional: specify elements to extract. Leave empty for auto-detection.')}
+              ? t(
+                  'Target specific content areas (e.g., "main article", ".post-content"). Avoid broad selectors like "p".',
+                )
+              : t('Optional: target specific areas. Leave empty for best auto-detection.')}
           </div>
           <input
             type="text"
