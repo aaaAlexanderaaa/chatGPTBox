@@ -276,6 +276,7 @@
   /* Sidebar Buttons — Elegant */
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
   .normal-button {
+    position: relative;
     width: 100%;
     min-height: 44px;
     padding: 10px 14px;
@@ -290,8 +291,9 @@
     font-family: var(--font-sans);
     font-size: 14px;
     font-weight: 450;
+    text-align: left;
     transition: background var(--transition-fast), color var(--transition-fast),
-      border-color var(--transition-fast), transform var(--transition-fast);
+      border-color var(--transition-fast);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -318,6 +320,12 @@
         background: linear-gradient(180deg, var(--primary-400), var(--primary-600));
         border-radius: 0 2px 2px 0;
       }
+    }
+    
+    svg {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
     }
   }
 
