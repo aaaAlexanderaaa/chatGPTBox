@@ -224,26 +224,7 @@
     overflow: hidden;
     background: var(--theme-color);
     margin: 0;
-    box-shadow: var(--shadow-lg);
-    transition: box-shadow var(--transition-normal), transform var(--transition-normal);
-
-    /* Subtle gradient overlay */
-    &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 120px;
-      background: linear-gradient(180deg, var(--primary-50) 0%, transparent 100%);
-      opacity: 0.5;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    &:hover {
-      box-shadow: var(--shadow-xl);
-    }
+    box-shadow: var(--shadow-md);
 
     hr {
       height: 1px;
@@ -508,13 +489,11 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 0;
-    min-height: 56px;
+    padding: 8px 12px;
+    min-height: 48px;
     margin-bottom: 0;
     background: var(--theme-color);
     border-bottom: 1px solid var(--theme-border-color);
-    position: relative;
-    z-index: 2;
 
     p {
       font-weight: 600;
@@ -525,7 +504,7 @@
     
     /* Draggable area */
     .draggable {
-      height: 56px;
+      height: 48px;
     }
   }
 
@@ -585,19 +564,18 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 56px;
-    padding: 0 12px;
+    padding: 0;
     
     /* Model selector dropdown alignment */
     select.normal-button {
-      height: 34px;
-      min-width: 140px;
-      max-width: 200px;
+      height: 32px;
+      min-width: 120px;
+      max-width: 180px;
     }
     
     img {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
       flex-shrink: 0;
     }
   }
@@ -606,8 +584,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     color: var(--text-muted);
     cursor: pointer;
@@ -630,8 +608,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 34px;
-    padding: 0 12px;
+    height: 32px;
+    padding: 0 10px;
     border: 1px solid var(--theme-border-color);
     background: var(--bg-subtle);
     color: var(--text-secondary);

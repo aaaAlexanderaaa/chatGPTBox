@@ -146,27 +146,11 @@
   background: var(--bg-canvas);
   color: var(--text-primary);
 
-  /* Subtle ambient background */
-  &::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(ellipse at 0% 0%, rgba(20, 184, 166, 0.05) 0%, transparent 50%),
-      radial-gradient(ellipse at 100% 100%, rgba(251, 113, 133, 0.03) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: 0;
-  }
-
   .chat-container {
     display: flex;
     width: 100%;
     height: 100%;
     overflow: hidden;
-    position: relative;
-    z-index: 1;
   }
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -175,27 +159,13 @@
   .chat-sidebar {
     display: flex;
     flex-direction: column;
-    min-width: 280px;
-    width: 280px;
+    min-width: 260px;
+    width: 260px;
     background: var(--bg-surface);
     border-right: 1px solid var(--border-default);
-    padding: 20px 16px;
+    padding: 16px 12px;
     transition: width var(--transition-slow), min-width var(--transition-slow),
       padding var(--transition-slow);
-
-    /* Subtle top gradient */
-    &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 280px;
-      height: 120px;
-      background: linear-gradient(180deg, var(--primary-50) 0%, transparent 100%);
-      opacity: 0.5;
-      pointer-events: none;
-      transition: width var(--transition-slow);
-    }
 
     ::-webkit-scrollbar {
       background: transparent;
@@ -213,17 +183,13 @@
   }
 
   .chat-sidebar.collapsed {
-    min-width: 72px;
-    width: 72px;
-    padding: 20px 12px;
-
-    &::before {
-      width: 72px;
-    }
+    min-width: 60px;
+    width: 60px;
+    padding: 16px 8px;
 
     .normal-button {
       justify-content: center;
-      padding: 10px;
+      padding: 8px;
 
       span {
         display: none;
@@ -234,12 +200,8 @@
   /* Expand on hover */
   .chat-sidebar:hover,
   .chat-sidebar:not(.collapsed) {
-    min-width: 280px;
-    width: 280px;
-
-    &::before {
-      width: 280px;
-    }
+    min-width: 260px;
+    width: 260px;
   }
 
   .chat-sidebar-button-group {
@@ -387,15 +349,6 @@
 /* Dark Theme Adjustments */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-theme='dark'] .IndependentPanel {
-  &::before {
-    background: radial-gradient(ellipse at 0% 0%, rgba(45, 212, 191, 0.06) 0%, transparent 50%),
-      radial-gradient(ellipse at 100% 100%, rgba(251, 113, 133, 0.03) 0%, transparent 50%);
-  }
-
-  .chat-sidebar::before {
-    background: linear-gradient(180deg, rgba(20, 184, 166, 0.08) 0%, transparent 100%);
-  }
-
   .normal-button.active {
     color: var(--primary-400);
   }
