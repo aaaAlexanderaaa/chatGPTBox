@@ -588,6 +588,17 @@ export const defaultConfig = {
       usePageContext: false,
     },
   ],
+  customContentExtractors: [
+    {
+      name: '',
+      urlPattern: '',
+      method: 'auto',
+      selectors: '',
+      excludeSelectors: '',
+      customScript: '',
+      active: true,
+    },
+  ],
   activeSiteAdapters: [
     'bilibili',
     'github',

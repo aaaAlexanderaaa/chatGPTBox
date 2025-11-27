@@ -4,6 +4,7 @@ import { Tab, TabList, TabPanel, Tabs } from 'react-tabs'
 import { ApiModes } from './ApiModes'
 import { SelectionTools } from './SelectionTools'
 import { SiteAdapters } from './SiteAdapters'
+import { ContentExtractor } from './ContentExtractor'
 
 ModulesPart.propTypes = {
   config: PropTypes.object.isRequired,
@@ -20,6 +21,7 @@ export function ModulesPart({ config, updateConfig }) {
           <Tab className="popup-tab">{t('API Modes')}</Tab>
           <Tab className="popup-tab">{t('Selection Tools')}</Tab>
           <Tab className="popup-tab">{t('Sites')}</Tab>
+          <Tab className="popup-tab">{t('Content Extractor')}</Tab>
         </TabList>
 
         <TabPanel>
@@ -30,6 +32,9 @@ export function ModulesPart({ config, updateConfig }) {
         </TabPanel>
         <TabPanel>
           <SiteAdapters config={config} updateConfig={updateConfig} />
+        </TabPanel>
+        <TabPanel>
+          <ContentExtractor config={config} updateConfig={updateConfig} />
         </TabPanel>
       </Tabs>
     </>
