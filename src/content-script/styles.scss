@@ -7,6 +7,7 @@
 
 /* Scoped Design Tokens */
 .chatgptbox-container,
+#chatgptbox-container,
 .chatgptbox-selection-window,
 .chatgptbox-toolbar-container,
 .chatgptbox-toolbar-container-not-queryable {
@@ -92,11 +93,18 @@
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Dark Theme — Auto Detection */
+/* Theme attribute can be on element itself OR on parent wrapper */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .chatgptbox-container[data-theme='auto'],
+#chatgptbox-container[data-theme='auto'],
 .chatgptbox-selection-window[data-theme='auto'],
 .chatgptbox-toolbar-container[data-theme='auto'],
-.chatgptbox-toolbar-container-not-queryable[data-theme='auto'] {
+.chatgptbox-toolbar-container-not-queryable[data-theme='auto'],
+[data-theme='auto'] .chatgptbox-container,
+[data-theme='auto'] #chatgptbox-container,
+[data-theme='auto'] .chatgptbox-selection-window,
+[data-theme='auto'] .chatgptbox-toolbar-container,
+[data-theme='auto'] .chatgptbox-toolbar-container-not-queryable {
   @media screen and (prefers-color-scheme: dark) {
     @import 'highlight.js/scss/github-dark.scss';
 
@@ -142,9 +150,15 @@
 }
 
 .chatgptbox-container[data-theme='dark'],
+#chatgptbox-container[data-theme='dark'],
 .chatgptbox-selection-window[data-theme='dark'],
 .chatgptbox-toolbar-container[data-theme='dark'],
-.chatgptbox-toolbar-container-not-queryable[data-theme='dark'] {
+.chatgptbox-toolbar-container-not-queryable[data-theme='dark'],
+[data-theme='dark'] .chatgptbox-container,
+[data-theme='dark'] #chatgptbox-container,
+[data-theme='dark'] .chatgptbox-selection-window,
+[data-theme='dark'] .chatgptbox-toolbar-container,
+[data-theme='dark'] .chatgptbox-toolbar-container-not-queryable {
   @import 'highlight.js/scss/github-dark.scss';
 
   --primary-500: #2dd4bf;
@@ -184,9 +198,15 @@
 }
 
 .chatgptbox-container[data-theme='light'],
+#chatgptbox-container[data-theme='light'],
 .chatgptbox-selection-window[data-theme='light'],
 .chatgptbox-toolbar-container[data-theme='light'],
-.chatgptbox-toolbar-container-not-queryable[data-theme='light'] {
+.chatgptbox-toolbar-container-not-queryable[data-theme='light'],
+[data-theme='light'] .chatgptbox-container,
+[data-theme='light'] #chatgptbox-container,
+[data-theme='light'] .chatgptbox-selection-window,
+[data-theme='light'] .chatgptbox-toolbar-container,
+[data-theme='light'] .chatgptbox-toolbar-container-not-queryable {
   @import 'highlight.js/scss/github.scss';
 }
 
@@ -501,7 +521,7 @@
       color: var(--text-primary);
       letter-spacing: -0.01em;
     }
-    
+
     /* Draggable area */
     .draggable {
       height: 48px;
@@ -565,14 +585,14 @@
     align-items: center;
     gap: 6px;
     padding: 0;
-    
+
     /* Model selector dropdown alignment */
     select.normal-button {
       height: 32px;
       min-width: 120px;
       max-width: 180px;
     }
-    
+
     img {
       width: 20px;
       height: 20px;
@@ -597,7 +617,7 @@
       color: var(--text-primary);
       background: var(--bg-subtle);
     }
-    
+
     svg {
       width: 16px;
       height: 16px;
@@ -800,5 +820,54 @@
   &,
   * {
     box-sizing: border-box;
+  }
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  /* Legacy Classes — Required by existing components */
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  .icon-and-text {
+    color: var(--font-color);
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    gap: 6px;
+  }
+
+  .manual-btn {
+    cursor: pointer;
+  }
+
+  .code-corner-util {
+    color: var(--font-color);
+    position: absolute;
+    right: 10px;
+    top: 3px;
+    transition: opacity 0.3s;
+    opacity: 0.2;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+
+  .gpt-feedback {
+    display: flex;
+    gap: 6px;
+  }
+
+  .gpt-feedback-selected {
+    color: #f08080;
+  }
+
+  .draggable {
+    cursor: move;
+  }
+
+  .dragbar {
+    cursor: move;
+    width: 42%;
+    height: 12px;
+    border-radius: 10px;
+    background-color: var(--dragbar-color);
   }
 }

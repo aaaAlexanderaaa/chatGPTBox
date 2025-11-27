@@ -47,19 +47,19 @@
   --bg-elevated: #ffffff;
   --bg-subtle: #f5f5f4;
   --bg-muted: #e7e5e4;
-  
+
   /* Text */
   --text-primary: #1c1917;
   --text-secondary: #57534e;
   --text-muted: #78716c;
   --text-inverted: #fafaf9;
-  
+
   /* Borders */
   --border-default: #e7e5e4;
   --border-subtle: #f5f5f4;
   --border-strong: #d6d3d1;
   --border-focus: var(--primary-500);
-  
+
   /* Radii */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -67,29 +67,29 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
   --radius-full: 9999px;
-  
+
   /* Shadows — Soft & Layered */
   --shadow-xs: 0 1px 2px rgba(28, 25, 23, 0.04);
   --shadow-sm: 0 2px 4px rgba(28, 25, 23, 0.06), 0 1px 2px rgba(28, 25, 23, 0.04);
   --shadow-md: 0 4px 12px rgba(28, 25, 23, 0.08), 0 2px 4px rgba(28, 25, 23, 0.04);
   --shadow-lg: 0 12px 32px rgba(28, 25, 23, 0.12), 0 4px 12px rgba(28, 25, 23, 0.06);
   --shadow-xl: 0 24px 56px rgba(28, 25, 23, 0.16), 0 8px 24px rgba(28, 25, 23, 0.08);
-  
+
   /* Glassmorphism */
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-border: rgba(255, 255, 255, 0.5);
   --glass-blur: 16px;
-  
+
   /* Typography */
   --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  
+
   /* Transitions */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 150ms var(--ease-out-expo);
   --transition-normal: 250ms var(--ease-out-expo);
   --transition-slow: 400ms var(--ease-out-expo);
-  
+
   /* Spacing */
   --space-xs: 4px;
   --space-sm: 8px;
@@ -108,32 +108,66 @@
   --bg-elevated: #292524;
   --bg-subtle: #292524;
   --bg-muted: #44403c;
-  
+
   --text-primary: #fafaf9;
   --text-secondary: #a8a29e;
   --text-muted: #78716c;
-  
+
   --border-default: #44403c;
   --border-subtle: #292524;
   --border-strong: #57534e;
-  
+
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.15);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
-  
+
   --glass-bg: rgba(28, 25, 23, 0.8);
   --glass-border: rgba(68, 64, 60, 0.5);
-  
+
   /* Slightly brighter primary for dark mode */
   --primary-500: #2dd4bf;
   --primary-600: #14b8a6;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* Auto Theme — System Preference Detection */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+[data-theme='auto'] {
+  @media screen and (prefers-color-scheme: dark) {
+    --bg-canvas: #0c0a09;
+    --bg-surface: #1c1917;
+    --bg-elevated: #292524;
+    --bg-subtle: #292524;
+    --bg-muted: #44403c;
+
+    --text-primary: #fafaf9;
+    --text-secondary: #a8a29e;
+    --text-muted: #78716c;
+
+    --border-default: #44403c;
+    --border-subtle: #292524;
+    --border-strong: #57534e;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.15);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
+
+    --glass-bg: rgba(28, 25, 23, 0.8);
+    --glass-border: rgba(68, 64, 60, 0.5);
+
+    --primary-500: #2dd4bf;
+    --primary-600: #14b8a6;
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Global Reset & Base */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -167,16 +201,14 @@ body {
 .container-popup-mode {
   width: 500px;
   height: 620px;
-  
+
   /* Subtle gradient background */
-  background: 
-    radial-gradient(ellipse at top right, var(--primary-50) 0%, transparent 50%),
+  background: radial-gradient(ellipse at top right, var(--primary-50) 0%, transparent 50%),
     var(--bg-canvas);
 }
 
 [data-theme='dark'] .container-popup-mode {
-  background: 
-    radial-gradient(ellipse at top right, rgba(20, 184, 166, 0.08) 0%, transparent 50%),
+  background: radial-gradient(ellipse at top right, rgba(20, 184, 166, 0.08) 0%, transparent 50%),
     var(--bg-canvas);
 }
 
@@ -184,18 +216,15 @@ body {
   min-width: 500px;
   min-height: 620px;
   align-items: center;
-  
-  background: 
-    radial-gradient(ellipse at top left, var(--primary-50) 0%, transparent 40%),
-    radial-gradient(ellipse at bottom right, var(--accent-400), transparent 40%),
-    var(--bg-canvas);
+
+  background: radial-gradient(ellipse at top left, var(--primary-50) 0%, transparent 40%),
+    radial-gradient(ellipse at bottom right, var(--accent-400), transparent 40%), var(--bg-canvas);
   background-size: 100% 100%;
   background-blend-mode: normal, overlay, normal;
 }
 
 [data-theme='dark'] .container-page-mode {
-  background: 
-    radial-gradient(ellipse at top left, rgba(20, 184, 166, 0.1) 0%, transparent 40%),
+  background: radial-gradient(ellipse at top left, rgba(20, 184, 166, 0.1) 0%, transparent 40%),
     radial-gradient(ellipse at bottom right, rgba(244, 63, 94, 0.05) 0%, transparent 40%),
     var(--bg-canvas);
 }
@@ -203,16 +232,27 @@ body {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Typography */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: -0.02em;
   margin-bottom: var(--space-md);
 }
 
-h1 { font-size: 24px; }
-h2 { font-size: 20px; }
-h3 { font-size: 16px; }
+h1 {
+  font-size: 24px;
+}
+h2 {
+  font-size: 20px;
+}
+h3 {
+  font-size: 16px;
+}
 
 p {
   color: var(--text-secondary);
@@ -248,11 +288,8 @@ p {
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  transition: 
-    color var(--transition-fast),
-    background var(--transition-fast),
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast),
+    transform var(--transition-fast), box-shadow var(--transition-fast);
   outline: none;
   user-select: none;
   position: relative;
@@ -269,7 +306,7 @@ p {
     font-weight: 600;
     box-shadow: var(--shadow-sm);
     border-color: var(--border-default);
-    
+
     &:hover {
       background: var(--bg-surface);
       color: var(--primary-600);
@@ -296,7 +333,7 @@ fieldset {
   margin-bottom: var(--space-xl);
   background: var(--bg-surface);
   box-shadow: var(--shadow-xs);
-  
+
   legend {
     font-size: 13px;
     font-weight: 600;
@@ -319,7 +356,7 @@ label {
   font-size: 14px;
   color: var(--text-secondary);
   margin-bottom: var(--space-lg);
-  
+
   /* Legend acts as label title - fixed width for alignment */
   legend {
     display: flex;
@@ -335,16 +372,19 @@ label {
     background: none;
     white-space: nowrap;
   }
-  
+
   /* Input/select takes remaining space */
-  select, input[type="text"], input[type="password"], input[type="number"] {
+  select,
+  input[type='text'],
+  input[type='password'],
+  input[type='number'] {
     flex: 1;
     min-width: 0;
   }
-  
+
   /* When label contains checkbox/radio as direct child */
-  &:has(> input[type="checkbox"]),
-  &:has(> input[type="radio"]) {
+  &:has(> input[type='checkbox']),
+  &:has(> input[type='radio']) {
     align-items: center;
     padding: var(--space-md);
     margin-bottom: var(--space-sm);
@@ -352,31 +392,29 @@ label {
     border-radius: var(--radius-md);
     border: 1px solid transparent;
     cursor: pointer;
-    transition: 
-      background var(--transition-fast),
-      border-color var(--transition-fast);
-    
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+
     &:hover {
       background: var(--bg-muted);
       border-color: var(--border-default);
     }
-    
+
     /* No fixed width for checkbox labels */
     legend {
       min-width: auto;
     }
   }
-  
+
   /* When label has complex content (span with flex) */
-  &:has(> span[style*="display: flex"]) {
+  &:has(> span[style*='display: flex']) {
     flex-wrap: wrap;
-    
+
     legend {
       width: 100%;
       min-width: 100%;
       margin-bottom: var(--space-xs);
     }
-    
+
     > span {
       width: 100%;
     }
@@ -384,8 +422,8 @@ label {
 }
 
 /* Checkbox & Radio inputs */
-input[type="checkbox"],
-input[type="radio"] {
+input[type='checkbox'],
+input[type='radio'] {
   width: 18px;
   height: 18px;
   min-width: 18px;
@@ -399,10 +437,10 @@ input[type="radio"] {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Text Inputs, Selects, Textareas */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-input[type="text"],
-input[type="password"],
-input[type="number"],
-input[type="search"],
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
 select,
 textarea {
   width: 100%;
@@ -414,9 +452,7 @@ textarea {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 14px;
-  transition: 
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast),
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
     background var(--transition-fast);
   outline: none;
 
@@ -452,13 +488,15 @@ select {
 }
 
 /* Inline form row with multiple controls */
-span[style*="display: flex"],
-div[style*="display: flex"] {
+span[style*='display: flex'],
+div[style*='display: flex'] {
   display: flex !important;
   align-items: center;
   gap: var(--space-md);
-  
-  input, select, button {
+
+  input,
+  select,
+  button {
     height: 42px;
   }
 }
@@ -466,7 +504,8 @@ div[style*="display: flex"] {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Buttons */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-.button, button {
+.button,
+button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -481,11 +520,8 @@ div[style*="display: flex"] {
   cursor: pointer;
   border: 1px solid transparent;
   white-space: nowrap;
-  transition: 
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast),
-    background var(--transition-fast),
-    border-color var(--transition-fast);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast),
+    background var(--transition-fast), border-color var(--transition-fast);
   outline: none;
   flex-shrink: 0;
 
@@ -502,7 +538,7 @@ div[style*="display: flex"] {
     background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
     color: white;
     box-shadow: var(--shadow-sm);
-    
+
     &:hover {
       background: linear-gradient(135deg, var(--primary-400), var(--primary-500));
       box-shadow: var(--shadow-md);
@@ -510,7 +546,8 @@ div[style*="display: flex"] {
     }
   }
 
-  &.secondary, &.button-secondary {
+  &.secondary,
+  &.button-secondary {
     background: var(--bg-surface);
     color: var(--text-primary);
     border-color: var(--border-default);
@@ -526,7 +563,7 @@ div[style*="display: flex"] {
     background: rgba(239, 68, 68, 0.08);
     color: var(--error);
     border-color: rgba(239, 68, 68, 0.2);
-    
+
     &:hover {
       background: rgba(239, 68, 68, 0.14);
       border-color: rgba(239, 68, 68, 0.3);
@@ -544,7 +581,7 @@ div[style*="display: flex"] {
     background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
     color: white;
     box-shadow: var(--shadow-sm);
-    
+
     &:hover {
       background: linear-gradient(135deg, var(--primary-400), var(--primary-500));
       box-shadow: var(--shadow-md);
@@ -554,14 +591,13 @@ div[style*="display: flex"] {
 }
 
 /* Button group / row */
-div[style*="gap: 10px"],
+div[style*='gap: 10px'],
 div[style*="gap: '10px'"] {
   display: flex;
   gap: var(--space-md) !important;
   align-items: center;
   flex-wrap: wrap;
 }
-
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Selection Tools & Feature Cards */
@@ -592,12 +628,12 @@ div[style*="gap: '10px'"] {
     letter-spacing: -0.01em;
     line-height: 1.4;
   }
-  
+
   /* h3 section title needs special handling for text + button layout */
   h3.section-title {
     margin-bottom: var(--space-lg);
     flex-wrap: wrap;
-    
+
     /* The button should not shrink and stay on line if possible */
     .add-tool-btn,
     button {
@@ -621,9 +657,7 @@ div[style*="gap: '10px'"] {
   background: var(--bg-subtle);
   border-radius: var(--radius-md);
   border: 1px solid transparent;
-  transition: 
-    background var(--transition-fast),
-    border-color var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 
   &:hover {
     background: var(--bg-muted);
@@ -646,9 +680,7 @@ div[style*="gap: '10px'"] {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: var(--space-lg);
-  transition: 
-    box-shadow var(--transition-normal),
-    border-color var(--transition-fast);
+  transition: box-shadow var(--transition-normal), border-color var(--transition-fast);
 
   &:hover {
     box-shadow: var(--shadow-md);
@@ -670,7 +702,7 @@ div[style*="gap: '10px'"] {
     padding: 0;
     background: none;
     border: none;
-    
+
     &:hover {
       background: none;
     }
@@ -719,9 +751,7 @@ div[style*="gap: '10px'"] {
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  transition: 
-    color var(--transition-fast),
-    background var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast);
 
   &:hover {
     color: var(--text-primary);
@@ -782,11 +812,11 @@ div[style*="gap: '10px'"] {
     margin: 0;
     padding: 0;
     background: none;
-    
+
     input {
       margin-top: 2px;
     }
-    
+
     &:hover {
       background: none;
     }
@@ -858,9 +888,7 @@ div[style*="gap: '10px'"] {
   border: none;
   font-weight: 450;
   white-space: nowrap;
-  transition: 
-    color var(--transition-fast),
-    background var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast);
 
   svg {
     flex-shrink: 0;
@@ -898,12 +926,12 @@ div[style*="gap: '10px'"] {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-md);
-  
+
   .section-title {
     margin: 0;
     flex-shrink: 0;
   }
-  
+
   .preview-actions {
     display: flex;
     gap: var(--space-sm);
@@ -956,16 +984,16 @@ div[style*="gap: '10px'"] {
   border: 1px solid var(--border-subtle);
   font-size: 12px;
   color: var(--text-secondary);
-  
+
   .metadata-label {
     font-weight: 500;
     color: var(--text-muted);
   }
-  
+
   .metadata-value {
     color: var(--text-primary);
   }
-  
+
   .metadata-code {
     font-family: var(--font-mono);
     background: var(--bg-muted);
@@ -995,11 +1023,11 @@ div[style*="gap: '10px'"] {
   color: var(--text-secondary);
   border: none;
   margin-bottom: var(--space-xs);
-  
+
   &:last-child {
     margin-bottom: 0;
   }
-  
+
   code {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -1008,7 +1036,7 @@ div[style*="gap: '10px'"] {
     border-radius: 3px;
     color: var(--text-primary);
   }
-  
+
   .extractor-label {
     font-weight: 500;
     color: var(--text-muted);
@@ -1018,18 +1046,18 @@ div[style*="gap: '10px'"] {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 /* Feature Pages — Button List */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-div[style*="flex-direction:column"],
-div[style*="flex-direction: column"] {
+div[style*='flex-direction:column'],
+div[style*='flex-direction: column'] {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
   align-items: stretch !important;
-  
+
   button {
     width: 100%;
     justify-content: center;
   }
-  
+
   label {
     margin-bottom: 0;
   }
@@ -1042,7 +1070,7 @@ div[style*="flex-direction: column"] {
 .react-tabs__tab-panel {
   /* Labels with checkboxes inside tab panels */
   & > label,
-  form > label:has(input[type="checkbox"]) {
+  form > label:has(input[type='checkbox']) {
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -1053,16 +1081,14 @@ div[style*="flex-direction: column"] {
     border-radius: var(--radius-md);
     border: 1px solid transparent;
     cursor: pointer;
-    transition: 
-      background var(--transition-fast),
-      border-color var(--transition-fast);
-    
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+
     &:hover {
       background: var(--bg-muted);
       border-color: var(--border-default);
     }
-    
-    input[type="checkbox"] {
+
+    input[type='checkbox'] {
       flex-shrink: 0;
     }
   }
@@ -1088,16 +1114,14 @@ div[style*="flex-direction: column"] {
   border: 1px solid var(--border-default);
   background: var(--bg-subtle);
   color: var(--text-secondary);
-  transition: 
-    background var(--transition-fast),
-    border-color var(--transition-fast);
-  
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+
   &.adapter-active {
     background: var(--primary-50);
     border-color: var(--primary-200);
     color: var(--primary-700);
   }
-  
+
   &.adapter-inactive {
     opacity: 0.6;
   }
@@ -1126,7 +1150,7 @@ div[style*="flex-direction: column"] {
   border-radius: var(--radius-full);
   border: 2px solid transparent;
   background-clip: content-box;
-  
+
   &:hover {
     background: var(--text-muted);
     background-clip: content-box;
@@ -1149,7 +1173,7 @@ div[style*="flex-direction: column"] {
 br {
   display: block;
   margin: var(--space-sm) 0;
-  content: "";
+  content: '';
 }
 
 /* Add button styling fix */

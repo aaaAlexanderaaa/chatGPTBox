@@ -89,7 +89,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
           style={
             internalReverseResizeDir
               ? { transform: 'rotateX(180deg)', resize: 'none' }
-              : { resize: 'vertical' }
+              : { resize: 'vertical', minHeight: '70px' }
           }
           placeholder={
             enabled

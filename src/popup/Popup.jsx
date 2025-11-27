@@ -9,7 +9,6 @@ import {
 import { Tab, TabList, TabPanel, Tabs } from 'react-tabs'
 import 'react-tabs/style/react-tabs.css'
 import './styles.scss'
-import Browser from 'webextension-polyfill'
 import { useWindowTheme } from '../hooks/use-window-theme.mjs'
 import { isMobile } from '../utils/index.mjs'
 import { useTranslation } from 'react-i18next'
