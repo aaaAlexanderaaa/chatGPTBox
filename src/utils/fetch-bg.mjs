@@ -15,7 +15,9 @@ export function fetchBg(input, init) {
       .then((messageResponse) => {
         const [response, error] = messageResponse
         if (response === null) {
-          reject(error)
+          const err =
+            error instanceof Error ? error : new Error(error?.message || String(error || 'Error'))
+          reject(err)
         } else {
           const body = response.body ? new Blob([response.body]) : undefined
           resolve(
@@ -26,6 +28,9 @@ export function fetchBg(input, init) {
             }),
           )
         }
+      })
+      .catch((error) => {
+        reject(error)
       })
   })
 }

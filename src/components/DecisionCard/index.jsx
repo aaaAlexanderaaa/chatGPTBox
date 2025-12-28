@@ -1,5 +1,5 @@
-import { LightBulbIcon, SearchIcon } from '@primer/octicons-react'
-import { useState, useEffect } from 'react'
+import { LightBulbIcon, SearchIcon, XCircleIcon } from '@primer/octicons-react'
+import { useState, useEffect, useCallback } from 'react'
 import PropTypes from 'prop-types'
 import ConversationCard from '../ConversationCard'
 import { getPossibleElementByQuerySelector, endsWithQuestionMark } from '../../utils'
@@ -9,12 +9,30 @@ import { useConfig } from '../../hooks/use-config.mjs'
 function DecisionCard(props) {
   const { t } = useTranslation()
   const [triggered, setTriggered] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
   const [render, setRender] = useState(false)
   const config = useConfig(() => {
     setRender(true)
   })
 
   const question = props.question
+  const questionText = question ? question.trim() : ''
+  const isAutoTriggered =
+    config.triggerMode === 'always' ||
+    (config.triggerMode === 'questionMark' && endsWithQuestionMark(questionText))
+
+  const dismissCard = useCallback((e) => {
+    if (e) e.stopPropagation()
+    setDismissed(true)
+  }, [])
+
+  const closeChat = useCallback(() => {
+    if (isAutoTriggered) {
+      setDismissed(true)
+    } else {
+      setTriggered(false)
+    }
+  }, [isAutoTriggered])
 
   const updatePosition = () => {
     if (!render) return
@@ -67,51 +85,85 @@ function DecisionCard(props) {
 
   useEffect(() => updatePosition(), [config])
 
+  if (!render || dismissed) return null
+
   return (
-    render && (
-      <div data-theme={config.themeMode}>
-        {(() => {
-          if (question)
-            switch (config.triggerMode) {
-              case 'always':
-                return <ConversationCard session={props.session} question={question} />
-              case 'manually':
-                if (triggered) {
-                  return <ConversationCard session={props.session} question={question} />
-                }
+    <div data-theme={config.themeMode}>
+      {(() => {
+        if (question)
+          switch (config.triggerMode) {
+            case 'always':
+              return (
+                <ConversationCard
+                  session={props.session}
+                  question={question}
+                  closeable={true}
+                  onClose={closeChat}
+                />
+              )
+            case 'manually':
+              if (triggered) {
                 return (
-                  <p className="gpt-inner manual-btn" onClick={() => setTriggered(true)}>
-                    <span className="icon-and-text">
-                      <SearchIcon size="small" /> {t('Ask ChatGPT')}
-                    </span>
-                  </p>
+                  <ConversationCard
+                    session={props.session}
+                    question={question}
+                    closeable={true}
+                    onClose={closeChat}
+                  />
                 )
-              case 'questionMark':
-                if (endsWithQuestionMark(question.trim())) {
-                  return <ConversationCard session={props.session} question={question} />
-                }
-                if (triggered) {
-                  return <ConversationCard session={props.session} question={question} />
-                }
+              }
+              return (
+                <p className="gpt-inner manual-btn" onClick={() => setTriggered(true)}>
+                  <span className="icon-and-text">
+                    <SearchIcon size="small" /> {t('Ask ChatGPT')}
+                  </span>
+                  <span className="gpt-dismiss" title={t('Dismiss')} onClick={dismissCard}>
+                    <XCircleIcon size={16} />
+                  </span>
+                </p>
+              )
+            case 'questionMark':
+              if (endsWithQuestionMark(questionText)) {
                 return (
-                  <p className="gpt-inner manual-btn" onClick={() => setTriggered(true)}>
-                    <span className="icon-and-text">
-                      <SearchIcon size="small" /> {t('Ask ChatGPT')}
-                    </span>
-                  </p>
+                  <ConversationCard
+                    session={props.session}
+                    question={question}
+                    closeable={true}
+                    onClose={closeChat}
+                  />
                 )
-            }
-          else
-            return (
-              <p className="gpt-inner">
-                <span className="icon-and-text">
-                  <LightBulbIcon size="small" /> {t('No Input Found')}
-                </span>
-              </p>
-            )
-        })()}
-      </div>
-    )
+              }
+              if (triggered) {
+                return (
+                  <ConversationCard
+                    session={props.session}
+                    question={question}
+                    closeable={true}
+                    onClose={closeChat}
+                  />
+                )
+              }
+              return (
+                <p className="gpt-inner manual-btn" onClick={() => setTriggered(true)}>
+                  <span className="icon-and-text">
+                    <SearchIcon size="small" /> {t('Ask ChatGPT')}
+                  </span>
+                  <span className="gpt-dismiss" title={t('Dismiss')} onClick={dismissCard}>
+                    <XCircleIcon size={16} />
+                  </span>
+                </p>
+              )
+          }
+        else
+          return (
+            <p className="gpt-inner">
+              <span className="icon-and-text">
+                <LightBulbIcon size="small" /> {t('No Input Found')}
+              </span>
+            </p>
+          )
+      })()}
+    </div>
   )
 }
 

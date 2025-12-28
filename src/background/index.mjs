@@ -58,25 +58,34 @@ import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
 
 function setPortProxy(port, proxyTabId) {
-  port.proxy = Browser.tabs.connect(proxyTabId)
   const proxyOnMessage = (msg) => {
     port.postMessage(msg)
   }
   const portOnMessage = (msg) => {
-    port.proxy.postMessage(msg)
+    if (port.proxy) port.proxy.postMessage(msg)
   }
   const proxyOnDisconnect = () => {
+    attachProxy()
+  }
+  const attachProxy = () => {
+    if (port.proxy) {
+      port.proxy.onMessage.removeListener(proxyOnMessage)
+      port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
+    }
     port.proxy = Browser.tabs.connect(proxyTabId)
+    port.proxy.onMessage.addListener(proxyOnMessage)
+    port.proxy.onDisconnect.addListener(proxyOnDisconnect)
   }
   const portOnDisconnect = () => {
-    port.proxy.onMessage.removeListener(proxyOnMessage)
+    if (port.proxy) {
+      port.proxy.onMessage.removeListener(proxyOnMessage)
+      port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
+    }
     port.onMessage.removeListener(portOnMessage)
-    port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
     port.onDisconnect.removeListener(portOnDisconnect)
   }
-  port.proxy.onMessage.addListener(proxyOnMessage)
+  attachProxy()
   port.onMessage.addListener(portOnMessage)
-  port.proxy.onDisconnect.addListener(proxyOnDisconnect)
   port.onDisconnect.addListener(portOnDisconnect)
 }
 
@@ -249,7 +258,14 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           null,
         ]
       } catch (error) {
-        return [null, error]
+        return [
+          null,
+          {
+            message: error?.message || String(error),
+            name: error?.name,
+            stack: error?.stack,
+          },
+        ]
       }
     }
     case 'GET_COOKIE': {

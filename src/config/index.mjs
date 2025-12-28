@@ -600,6 +600,7 @@ export const defaultConfig = {
     },
   ],
   activeSiteAdapters: [
+    'google',
     'bilibili',
     'github',
     'gitlab',
@@ -652,6 +653,7 @@ export const defaultConfig = {
   ],
   // importing configuration will result in gpt-3-encoder being packaged into the output file
   siteAdapters: [
+    'google',
     'bilibili',
     'github',
     'gitlab',
@@ -770,7 +772,26 @@ export async function getUserConfig() {
   const options = await Browser.storage.local.get(Object.keys(defaultConfig))
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
-  return defaults(options, defaultConfig)
+  const config = defaults(options, defaultConfig)
+
+  const storedSiteAdapters = Array.isArray(options.siteAdapters)
+    ? options.siteAdapters
+    : config.siteAdapters
+  const newSiteAdapters = defaultConfig.siteAdapters.filter(
+    (key) => !storedSiteAdapters.includes(key),
+  )
+  if (newSiteAdapters.length > 0) {
+    config.siteAdapters = [...storedSiteAdapters, ...newSiteAdapters]
+    const storedActive = Array.isArray(options.activeSiteAdapters)
+      ? options.activeSiteAdapters
+      : config.activeSiteAdapters
+    const newActive = defaultConfig.activeSiteAdapters.filter((key) =>
+      newSiteAdapters.includes(key),
+    )
+    config.activeSiteAdapters = Array.from(new Set([...storedActive, ...newActive]))
+  }
+
+  return config
 }
 
 /**

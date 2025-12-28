@@ -86,8 +86,11 @@
   --transition-fast: 150ms var(--ease-out-expo);
   --transition-normal: 250ms var(--ease-out-expo);
   --transition-slow: 400ms var(--ease-out-expo);
+}
 
-  /* Max z-index for floating above page content */
+.chatgptbox-selection-window,
+.chatgptbox-toolbar-container,
+.chatgptbox-toolbar-container-not-queryable {
   z-index: 2147483647;
 }
 
@@ -835,6 +838,26 @@
 
   .manual-btn {
     cursor: pointer;
+    position: relative;
+  }
+
+  .manual-btn .gpt-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    transition: color var(--transition-fast), background var(--transition-fast);
+
+    &:hover {
+      color: var(--text-primary);
+      background: var(--bg-subtle);
+    }
   }
 
   .code-corner-util {

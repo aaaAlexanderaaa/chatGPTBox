@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
 import InputBox from '../InputBox'
@@ -69,6 +69,7 @@ function ConversationCard(props) {
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
    */
   const [conversationItemData, setConversationItemData] = useState([])
+  const conversationItemDataRef = useRef(conversationItemData)
   const config = useConfig()
 
   useLayoutEffect(() => {
@@ -93,6 +94,10 @@ function ConversationCard(props) {
   useEffect(() => {
     setCompleteDraggable(!isSafari() && !isFirefox() && !isMobile())
   }, [])
+
+  useEffect(() => {
+    conversationItemDataRef.current = conversationItemData
+  }, [conversationItemData])
 
   useEffect(() => {
     if (props.onUpdate) props.onUpdate(port, session, conversationItemData)
@@ -135,7 +140,7 @@ function ConversationCard(props) {
    * @param {'question'|'answer'|'error'} newType
    * @param {boolean} done
    */
-  const updateAnswer = (value, appended, newType, done = false) => {
+  const updateAnswer = useCallback((value, appended, newType, done = false) => {
     setConversationItemData((old) => {
       const copy = [...old]
       const index = findLastIndex(copy, (v) => v.type === 'answer' || v.type === 'error')
@@ -147,73 +152,76 @@ function ConversationCard(props) {
       copy[index].done = done
       return copy
     })
-  }
+  }, [])
 
-  const portMessageListener = (msg) => {
-    if (msg.answer) {
-      updateAnswer(msg.answer, false, 'answer')
-    }
-    if (msg.session) {
-      if (msg.done) msg.session = { ...msg.session, isRetry: false }
-      setSession(msg.session)
-    }
-    if (msg.done) {
-      updateAnswer('', true, 'answer', true)
-      setIsReady(true)
-    }
-    if (msg.error) {
-      switch (msg.error) {
-        case 'UNAUTHORIZED':
-          updateAnswer(
-            `${t('UNAUTHORIZED')}<br>${t('Please login at https://chatgpt.com first')}${
-              isSafari() ? `<br>${t('Then open https://chatgpt.com/api/auth/session')}` : ''
-            }<br>${t('And refresh this page or type you question again')}` +
-              `<br><br>${t(
-                'Consider creating an api key at https://platform.openai.com/account/api-keys',
-              )}`,
-            false,
-            'error',
-          )
-          break
-        case 'CLOUDFLARE':
-          updateAnswer(
-            `${t('OpenAI Security Check Required')}<br>${
-              isSafari()
-                ? t('Please open https://chatgpt.com/api/auth/session')
-                : t('Please open https://chatgpt.com')
-            }<br>${t('And refresh this page or type you question again')}` +
-              `<br><br>${t(
-                'Consider creating an api key at https://platform.openai.com/account/api-keys',
-              )}`,
-            false,
-            'error',
-          )
-          break
-        default: {
-          let formattedError = msg.error
-          if (typeof msg.error === 'string' && msg.error.trimStart().startsWith('{'))
-            try {
-              formattedError = JSON.stringify(JSON.parse(msg.error), null, 2)
-            } catch (e) {
-              /* empty */
-            }
-
-          let lastItem
-          if (conversationItemData.length > 0)
-            lastItem = conversationItemData[conversationItemData.length - 1]
-          if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error'))
-            updateAnswer(t(formattedError), false, 'error')
-          else
-            setConversationItemData([
-              ...conversationItemData,
-              new ConversationItemData('error', t(formattedError)),
-            ])
-          break
-        }
+  const portMessageListener = useCallback(
+    (msg) => {
+      if (msg.answer) {
+        updateAnswer(msg.answer, false, 'answer')
       }
-      setIsReady(true)
-    }
-  }
+      if (msg.session) {
+        if (msg.done) msg.session = { ...msg.session, isRetry: false }
+        setSession(msg.session)
+      }
+      if (msg.done) {
+        updateAnswer('', true, 'answer', true)
+        setIsReady(true)
+      }
+      if (msg.error) {
+        switch (msg.error) {
+          case 'UNAUTHORIZED':
+            updateAnswer(
+              `${t('UNAUTHORIZED')}<br>${t('Please login at https://chatgpt.com first')}${
+                isSafari() ? `<br>${t('Then open https://chatgpt.com/api/auth/session')}` : ''
+              }<br>${t('And refresh this page or type you question again')}` +
+                `<br><br>${t(
+                  'Consider creating an api key at https://platform.openai.com/account/api-keys',
+                )}`,
+              false,
+              'error',
+            )
+            break
+          case 'CLOUDFLARE':
+            updateAnswer(
+              `${t('OpenAI Security Check Required')}<br>${
+                isSafari()
+                  ? t('Please open https://chatgpt.com/api/auth/session')
+                  : t('Please open https://chatgpt.com')
+              }<br>${t('And refresh this page or type you question again')}` +
+                `<br><br>${t(
+                  'Consider creating an api key at https://platform.openai.com/account/api-keys',
+                )}`,
+              false,
+              'error',
+            )
+            break
+          default: {
+            let formattedError = msg.error
+            if (typeof msg.error === 'string' && msg.error.trimStart().startsWith('{'))
+              try {
+                formattedError = JSON.stringify(JSON.parse(msg.error), null, 2)
+              } catch (e) {
+                /* empty */
+              }
+
+            let lastItem
+            const currentItems = conversationItemDataRef.current
+            if (currentItems.length > 0) lastItem = currentItems[currentItems.length - 1]
+            if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error'))
+              updateAnswer(t(formattedError), false, 'error')
+            else
+              setConversationItemData((items) => [
+                ...items,
+                new ConversationItemData('error', t(formattedError)),
+              ])
+            break
+          }
+        }
+        setIsReady(true)
+      }
+    },
+    [t, updateAnswer],
+  )
 
   const foregroundMessageListeners = useRef([])
 
@@ -299,15 +307,12 @@ function ConversationCard(props) {
     }
   }, [port])
   useEffect(() => {
-    if (useForegroundFetch) {
-      return () => {}
-    } else {
-      port.onMessage.addListener(portMessageListener)
-      return () => {
-        port.onMessage.removeListener(portMessageListener)
-      }
+    if (useForegroundFetch) return () => {}
+    port.onMessage.addListener(portMessageListener)
+    return () => {
+      port.onMessage.removeListener(portMessageListener)
     }
-  }, [conversationItemData])
+  }, [port, useForegroundFetch, portMessageListener])
 
   const getRetryFn = (session) => async () => {
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')

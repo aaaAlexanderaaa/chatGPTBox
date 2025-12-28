@@ -180,17 +180,24 @@ let expires_at
 let wsCallbacks = []
 
 export async function registerWebsocket(accessToken) {
-  if (websocket && new Date() < expires_at - 300000) return
+  if (websocket && new Date() < expires_at - 300000) return true
 
   const response = JSON.parse(
     (await request(accessToken, 'POST', '/register-websocket')).responseText,
   )
-  let resolve
-  if (response.wss_url) {
+  if (!response.wss_url) {
+    throw new Error('Websocket unavailable')
+  }
+  return new Promise((resolve, reject) => {
     websocket = new WebSocket(response.wss_url)
     websocket.onopen = () => {
       console.debug('global websocket opened')
-      resolve()
+      resolve(true)
+    }
+    websocket.onerror = (err) => {
+      websocket = null
+      expires_at = null
+      reject(err)
     }
     websocket.onclose = () => {
       websocket = null
@@ -201,8 +208,7 @@ export async function registerWebsocket(accessToken) {
       wsCallbacks.forEach((cb) => cb(event))
     }
     expires_at = new Date(response.expires_at)
-  }
-  return new Promise((r) => (resolve = r))
+  })
 }
 
 /**
@@ -225,7 +231,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   const config = await getUserConfig()
   let arkoseError
-  const [models, requirements, arkoseToken, useWebsocket] = await Promise.all([
+  const [models, requirements, arkoseToken, websocketFlag] = await Promise.all([
     getModels(accessToken).catch(() => undefined),
     getRequirements(accessToken).catch(() => undefined),
     getArkoseToken(config).catch((e) => {
@@ -233,6 +239,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     }),
     isNeedWebsocket(accessToken).catch(() => undefined),
   ])
+  let useWebsocket = Boolean(websocketFlag)
   console.debug('models', models)
   const selectedModel = getModelValue(session)
   const usedModel =
@@ -320,7 +327,12 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let generatedImageUrl = ''
 
   if (useWebsocket) {
-    await registerWebsocket(accessToken)
+    try {
+      await registerWebsocket(accessToken)
+    } catch (error) {
+      console.debug('websocket registration failed, falling back to SSE', error)
+      useWebsocket = false
+    }
     const wsCallback = async (event) => {
       let wsData
       try {

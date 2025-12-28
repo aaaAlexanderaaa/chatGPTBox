@@ -181,6 +181,7 @@ const createSelectionTools = async (toolbarContainer, selection) => {
       selection={selection}
       container={toolbarContainer}
       dockable={true}
+      closeable={true}
     />,
     toolbarContainer,
   )
@@ -223,11 +224,15 @@ async function prepareForSelectionTools() {
       }
     })
   })
-  document.addEventListener('mousedown', (e) => {
-    if (toolbarContainer && toolbarContainer.contains(e.target)) return
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      if (toolbarContainer && toolbarContainer.contains(e.target)) return
 
-    document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
-  })
+      document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
+    },
+    true,
+  )
   document.addEventListener('keydown', (e) => {
     if (
       toolbarContainer &&
@@ -267,11 +272,15 @@ async function prepareForSelectionToolsTouch() {
       }
     })
   })
-  document.addEventListener('touchstart', (e) => {
-    if (toolbarContainer && toolbarContainer.contains(e.target)) return
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (toolbarContainer && toolbarContainer.contains(e.target)) return
 
-    document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
-  })
+      document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
+    },
+    true,
+  )
 }
 
 let menuX, menuY

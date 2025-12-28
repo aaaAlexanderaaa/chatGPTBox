@@ -34,6 +34,24 @@ function FloatingToolbar(props) {
     }
   })
 
+  const updatePosition = useCallback(() => {
+    const newPosition = setElementPositionInViewport(props.container, position.x, position.y)
+    if (position.x !== newPosition.x || position.y !== newPosition.y) setPosition(newPosition)
+  }, [props.container, position.x, position.y])
+
+  const onClose = useCallback(() => {
+    props.container.remove()
+  }, [props.container])
+
+  const onDock = useCallback(() => {
+    props.container.className = 'chatgptbox-toolbar-container-not-queryable'
+    setCloseable(true)
+  }, [props.container])
+
+  const onUpdate = useCallback(() => {
+    updatePosition()
+  }, [updatePosition])
+
   useEffect(() => {
     if (isMobile()) {
       const selectionListener = () => {
@@ -50,11 +68,6 @@ function FloatingToolbar(props) {
   if (!render) return <div />
 
   if (triggered || (prompt && !selection)) {
-    const updatePosition = () => {
-      const newPosition = setElementPositionInViewport(props.container, position.x, position.y)
-      if (position.x !== newPosition.x || position.y !== newPosition.y) setPosition(newPosition) // clear extra virtual position offset
-    }
-
     const dragEvent = {
       onDrag: (e, ui) => {
         setVirtualPosition({ x: virtualPosition.x + ui.deltaX, y: virtualPosition.y + ui.deltaY })
@@ -68,19 +81,6 @@ function FloatingToolbar(props) {
     if (virtualPosition.x === 0 && virtualPosition.y === 0) {
       updatePosition() // avoid jitter
     }
-
-    const onClose = useCallback(() => {
-      props.container.remove()
-    }, [])
-
-    const onDock = useCallback(() => {
-      props.container.className = 'chatgptbox-toolbar-container-not-queryable'
-      setCloseable(true)
-    }, [])
-
-    const onUpdate = useCallback(() => {
-      updatePosition()
-    }, [position])
 
     if (config.alwaysPinWindow) onDock()
 
