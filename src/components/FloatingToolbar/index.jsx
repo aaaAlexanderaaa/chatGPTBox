@@ -4,7 +4,6 @@ import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
 import { getClientPosition, isMobile, setElementPositionInViewport } from '../../utils'
 import Draggable from 'react-draggable'
-import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
 
@@ -19,7 +18,6 @@ function FloatingToolbar(props) {
   const [closeable, setCloseable] = useState(props.closeable)
   const [position, setPosition] = useState(getClientPosition(props.container))
   const [virtualPosition, setVirtualPosition] = useState({ x: 0, y: 0 })
-  const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
     setRender(true)
     if (!triggered && selection) {
@@ -95,11 +93,9 @@ function FloatingToolbar(props) {
           <div
             className="chatgptbox-selection-window"
             style={{
-              width: windowSize[0] * 0.4 + 'px',
-              minWidth: '300px',
+              width: '450px',
               maxWidth: '90vw',
-              height: windowSize[1] * 0.6 + 'px',
-              minHeight: '400px',
+              height: '600px',
               maxHeight: '90vh',
               resize: 'both',
               overflow: 'hidden',
@@ -133,7 +129,7 @@ function FloatingToolbar(props) {
     const pushTool = (iconKey, name, genPrompt) => {
       tools.push(
         cloneElement(toolsConfig[iconKey].icon, {
-          size: 24,
+          size: 18,
           className: 'chatgptbox-selection-toolbar-button',
           title: name,
           onClick: async () => {

@@ -81,6 +81,14 @@
   --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
 
+  /* Typography Scale */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+
   /* Transitions */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 150ms var(--ease-out-expo);
@@ -657,8 +665,14 @@
 /* Selection Toolbar — Glassmorphism */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .chatgptbox-selection-toolbar {
-  display: flex;
-  align-items: center;
+  all: initial;
+  display: flex !important;
+  align-items: center !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-base) !important;
+  line-height: 1.5 !important;
+  box-sizing: border-box !important;
+  direction: ltr !important;
   border-radius: var(--radius-lg);
   padding: 6px;
   background: var(--glass-bg);
@@ -693,16 +707,14 @@
   align-items: center;
   justify-content: center;
   border: none;
+  width: 18px;
+  height: 18px;
+  box-sizing: content-box;
 
   &:hover {
     background: var(--bg-subtle);
     color: var(--primary-600);
     transform: translateY(-2px);
-  }
-
-  svg {
-    width: 18px;
-    height: 18px;
   }
 }
 

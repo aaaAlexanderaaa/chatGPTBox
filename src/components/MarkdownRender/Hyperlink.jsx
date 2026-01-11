@@ -1,6 +1,21 @@
 import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
 
+const INTERNAL_DOMAINS = ['chatgpt.com', 'claude.ai', 'kimi.moonshot.cn', 'kimi.com']
+const SAFE_PROTOCOLS = ['http:', 'https:']
+
+function isInternalDomain(href) {
+  try {
+    const url = new URL(href)
+    if (!SAFE_PROTOCOLS.includes(url.protocol)) return false
+    return INTERNAL_DOMAINS.some(
+      (domain) => url.hostname === domain || url.hostname.endsWith('.' + domain),
+    )
+  } catch {
+    return false
+  }
+}
+
 export function Hyperlink({ href, children }) {
   const linkProperties = {
     target: '_blank',
@@ -8,13 +23,9 @@ export function Hyperlink({ href, children }) {
     rel: 'nofollow noopener noreferrer',
   }
 
-  return href.includes('chatgpt.com') ||
-    href.includes('claude.ai') ||
-    href.includes('kimi.moonshot.cn') ||
-    href.includes('kimi.com') ? (
-    <span
-      {...linkProperties}
-      onClick={() => {
+  if (isInternalDomain(href)) {
+    const handleClick = () => {
+      try {
         const url = new URL(href)
         url.searchParams.set('chatgptbox_notification', 'true')
         Browser.runtime.sendMessage({
@@ -25,11 +36,19 @@ export function Hyperlink({ href, children }) {
             jumpBack: true,
           },
         })
-      }}
-    >
-      {children}
-    </span>
-  ) : (
+      } catch {
+        window.open(href, '_blank', 'noopener,noreferrer')
+      }
+    }
+
+    return (
+      <span {...linkProperties} onClick={handleClick}>
+        {children}
+      </span>
+    )
+  }
+
+  return (
     <a href={href} {...linkProperties}>
       {children}
     </a>

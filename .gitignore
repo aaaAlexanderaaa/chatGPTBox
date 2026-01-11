@@ -1,6 +1,11 @@
+.claude/
 .idea/
 .vscode/
 node_modules/
 build/
 .DS_Store
 *.zip
+CLAUDE.md
+AGNETS.md
+settings.json
+settings.local.json

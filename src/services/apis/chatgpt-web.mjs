@@ -265,12 +265,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         return `${cookie.name}=${cookie.value}`
       })
       .join('; ')
-    oaiDeviceId = (
-      await Browser.cookies.get({
-        url: 'https://chatgpt.com/',
-        name: 'oai-did',
-      })
-    ).value
+    const oaiCookie = await Browser.cookies.get({
+      url: 'https://chatgpt.com/',
+      name: 'oai-did',
+    })
+    oaiDeviceId = oaiCookie?.value
   }
 
   const url = `${config.customChatGptWebApiUrl}${config.customChatGptWebApiPath}`
@@ -290,7 +289,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       ...(needArkoseToken && { 'Openai-Sentinel-Arkose-Token': arkoseToken }),
       ...(requirements && { 'Openai-Sentinel-Chat-Requirements-Token': requirements.token }),
       ...(proofToken && { 'Openai-Sentinel-Proof-Token': proofToken }),
-      'Oai-Device-Id': oaiDeviceId,
+      ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
       'Oai-Language': 'en-US',
     },
     body: JSON.stringify({

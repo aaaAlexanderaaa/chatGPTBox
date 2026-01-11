@@ -346,17 +346,35 @@ async function prepareForRightClickMenu() {
 
 async function prepareForStaticCard() {
   const userConfig = await getUserConfig()
-  let siteRegex
-  if (userConfig.useSiteRegexOnly) siteRegex = userConfig.siteRegex
-  else
-    siteRegex = new RegExp(
-      (userConfig.siteRegex && userConfig.siteRegex + '|') + Object.keys(siteConfig).join('|'),
-    )
+  let siteName = null
 
-  const matches = location.hostname.match(siteRegex)
-  if (matches) {
-    const siteName = matches[0]
+  if (userConfig.useSiteRegexOnly) {
+    try {
+      const matches = location.hostname.match(userConfig.siteRegex)
+      if (matches) siteName = matches[0]
+    } catch {
+      // Invalid user regex syntax, skip
+    }
+  } else {
+    // Test user regex first (if provided)
+    if (userConfig.siteRegex) {
+      try {
+        const userMatches = location.hostname.match(userConfig.siteRegex)
+        if (userMatches) siteName = userMatches[0]
+      } catch {
+        // Invalid user regex syntax, continue with built-in
+      }
+    }
+    // Then test built-in site keys with proper word boundaries
+    if (!siteName) {
+      const siteKeys = Object.keys(siteConfig).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const builtInRegex = new RegExp(`(?:^|\\.)(${siteKeys.join('|')})(?:\\.|$)`)
+      const builtInMatches = location.hostname.match(builtInRegex)
+      if (builtInMatches) siteName = builtInMatches[1]
+    }
+  }
 
+  if (siteName) {
     if (
       userConfig.siteAdapters.includes(siteName) &&
       !userConfig.activeSiteAdapters.includes(siteName)
@@ -399,7 +417,6 @@ async function overwriteAccessToken() {
   }
   if (data && data.accessToken) {
     await setAccessToken(data.accessToken)
-    console.log(data.accessToken)
   }
 }
 

@@ -61,7 +61,8 @@ export const config = {
     label: 'Open Side Panel',
     action: async (fromBackground, tab) => {
       console.debug('action is from background', fromBackground)
-      if (fromBackground) {
+      // eslint-disable-next-line no-undef
+      if (fromBackground && typeof chrome !== 'undefined' && chrome.sidePanel) {
         // eslint-disable-next-line no-undef
         chrome.sidePanel.open({ windowId: tab.windowId, tabId: tab.id })
       } else {
