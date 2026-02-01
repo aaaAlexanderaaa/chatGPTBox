@@ -12,18 +12,11 @@ AI assistant in your browser: selection tools, site integrations, a floating cha
 [![release][release-image]][release-url]
 [![verify][verify-image]][verify-url]
 
-[Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [Privacy](#privacy) &nbsp;&nbsp;|&nbsp;&nbsp; [Maintainer](#maintainer) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#credits)
+[Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Features](#features) &nbsp;&nbsp;|&nbsp;&nbsp; [Screenshots](#screenshots) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#credits)
 
 </div>
 
 ## Install
-
-Store installs:
-
-[![Chrome][Chrome-image]][Chrome-url]
-[![Edge][Edge-image]][Edge-url]
-[![Firefox][Firefox-image]][Firefox-url]
-[![Safari][Safari-image]][Safari-url]
 
 Build installs:
 
@@ -36,6 +29,54 @@ Build installs:
 - Integrations for search engines and popular sites (with switchable per-site adapters).
 - Multiple LLM backends: web modes and API modes (OpenAI, Anthropic, Azure OpenAI, OpenRouter, Ollama, and OpenAI-compatible “Custom Model” endpoints).
 - Markdown rendering with code blocks and syntax highlighting.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_site_integration.png" alt="Site Integration" /><br />
+      <b>Site Integration</b><br />
+      <sub>Integrates with search engines like DuckDuckGo, showing AI responses alongside search results</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_selection_tools.png" alt="Selection Tools" /><br />
+      <b>Selection Tools</b><br />
+      <sub>Highlight text to access quick actions: translate, summarize, explain, and more</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_context_menu.png" alt="Context Menu" /><br />
+      <b>Context Menu</b><br />
+      <sub>Right-click menu for quick access to chat, summarize page, and other features</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_popup_window.png" alt="Popup Window" /><br />
+      <b>Popup Window</b><br />
+      <sub>Click the extension icon to access settings directly from the browser toolbar</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_options_page.png" alt="Options Page (Light)" /><br />
+      <b>Options Page (Light Mode)</b><br />
+      <sub>Full-featured settings panel with chat history and configuration options</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_darkmode.png" alt="Options Page (Dark)" /><br />
+      <b>Options Page (Dark Mode)</b><br />
+      <sub>Beautiful dark theme with customizable accent colors</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="./screenshots/preview_context_extractor.png" alt="Context Extractor" width="400" /><br />
+      <b>Context Extractor</b><br />
+      <sub>Preview and customize what content is extracted from web pages for AI context</sub>
+    </td>
+  </tr>
+</table>
 
 ## Usage
 
