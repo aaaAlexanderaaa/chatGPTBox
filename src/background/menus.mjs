@@ -74,7 +74,7 @@ export function refreshMenu() {
     for (const index in defaultConfig.selectionTools) {
       const key = defaultConfig.selectionTools[index]
       const desc = defaultConfig.selectionToolsDesc[index]
-      if (userConfig.activeSelectionTools.includes(key)) {
+      if ((userConfig.activeSelectionTools || []).includes(key)) {
         Browser.contextMenus.create({
           id: menuId + key,
           parentId: menuId,
@@ -87,7 +87,7 @@ export function refreshMenu() {
     // Add custom selection tools that are active
     console.debug('[Menu] All custom tools:', userConfig.customSelectionTools)
     userConfig.customSelectionTools?.forEach((tool, i) => {
-      if (tool?.active && tool?.name) {
+      if (tool?.name && tool.active !== false) {
         // If usePageContext is true, show in 'all' contexts (works with and without selection)
         // Otherwise, only show when text is selected
         const contexts = tool.usePageContext ? ['all'] : ['selection']

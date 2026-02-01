@@ -1,3 +1,6 @@
+.cursor/
+.trellis/
+frontend_redesign/
 .claude/
 .idea/
 .vscode/

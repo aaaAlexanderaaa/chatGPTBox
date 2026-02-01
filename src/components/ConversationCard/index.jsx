@@ -15,13 +15,15 @@ import {
   modelNameToDesc,
 } from '../../utils'
 import {
-  ArchiveIcon,
-  DesktopDownloadIcon,
-  LinkExternalIcon,
-  MoveToBottomIcon,
-  SearchIcon,
-} from '@primer/octicons-react'
-import { Pin, WindowDesktop, XLg } from 'react-bootstrap-icons'
+  X,
+  Pin,
+  ExternalLink,
+  PanelRight,
+  Archive,
+  ArrowDown,
+  Download,
+  Search,
+} from 'lucide-react'
 import FileSaver from 'file-saver'
 import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
@@ -365,7 +367,7 @@ function ConversationCard(props) {
                 if (props.onClose) props.onClose()
               }}
             >
-              <XLg size={16} />
+              <X size={16} />
             </span>
           ) : props.dockable ? (
             <span
@@ -442,7 +444,7 @@ function ConversationCard(props) {
               className="gpt-util-icon"
               style="color: inherit;"
             >
-              <LinkExternalIcon size={16} />
+              <ExternalLink size={16} />
             </a>
           )}
           <span
@@ -464,7 +466,7 @@ function ConversationCard(props) {
               )
             }}
           >
-            <WindowDesktop size={16} />
+            <PanelRight size={16} />
           </span>
           <DeleteButton
             size={16}
@@ -509,7 +511,7 @@ function ConversationCard(props) {
                 )
               }}
             >
-              <ArchiveIcon size={16} />
+              <Archive size={16} />
             </span>
           )}
           {conversationItemData.length > 0 && (
@@ -523,7 +525,7 @@ function ConversationCard(props) {
                 })
               }}
             >
-              <MoveToBottomIcon size={16} />
+              <ArrowDown size={16} />
             </span>
           )}
           <span
@@ -540,7 +542,7 @@ function ConversationCard(props) {
               FileSaver.saveAs(blob, 'conversation.md')
             }}
           >
-            <DesktopDownloadIcon size={16} />
+            <Download size={16} />
           </span>
         </span>
       </div>
@@ -582,7 +584,7 @@ function ConversationCard(props) {
           }}
         >
           <span className="icon-and-text">
-            <SearchIcon size="small" /> {t('Ask ChatGPT')}
+            <Search size={16} /> {t('Ask ChatGPT')}
           </span>
         </p>
       ) : (

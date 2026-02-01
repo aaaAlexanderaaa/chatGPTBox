@@ -1,4 +1,4 @@
-import { cloneElement, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
@@ -6,8 +6,48 @@ import { getClientPosition, isMobile, setElementPositionInViewport } from '../..
 import Draggable from 'react-draggable'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
+import {
+  Languages,
+  FileText,
+  Lightbulb,
+  Sparkles,
+  Code,
+  HelpCircle,
+  Globe,
+  Smile,
+  SplitSquareVertical,
+  Quote,
+  Star,
+  Wand2,
+  PenLine,
+  BookOpen,
+  Clipboard,
+} from 'lucide-react'
+import { applyChatGptBoxAppearance } from '../../utils/appearance.mjs'
 
-// const logo = Browser.runtime.getURL('logo.png')
+// Tool icon mapping (colors handled in CSS by [data-tool])
+const TOOL_ICONS = {
+  translate: { icon: Languages },
+  summary: { icon: FileText },
+  explain: { icon: Lightbulb },
+  polish: { icon: Sparkles },
+  code: { icon: Code },
+  ask: { icon: HelpCircle },
+  translateToEn: { icon: Globe },
+  translateToZh: { icon: Globe },
+  translateBidi: { icon: Globe },
+  sentiment: { icon: Smile },
+  divide: { icon: SplitSquareVertical },
+
+  // Extra icons for custom tools
+  star: { icon: Star },
+  wand: { icon: Wand2 },
+  quote: { icon: Quote },
+  pen: { icon: PenLine },
+  book: { icon: BookOpen },
+  clipboard: { icon: Clipboard },
+}
 
 function FloatingToolbar(props) {
   const { t } = useTranslation()
@@ -18,6 +58,7 @@ function FloatingToolbar(props) {
   const [closeable, setCloseable] = useState(props.closeable)
   const [position, setPosition] = useState(getClientPosition(props.container))
   const [virtualPosition, setVirtualPosition] = useState({ x: 0, y: 0 })
+  const windowTheme = useWindowTheme()
   const config = useConfig(() => {
     setRender(true)
     if (!triggered && selection) {
@@ -31,6 +72,20 @@ function FloatingToolbar(props) {
       })
     }
   })
+  const resolvedTheme = config.themeMode === 'auto' ? windowTheme : config.themeMode
+
+  useEffect(() => {
+    if (!props.container) return
+    applyChatGptBoxAppearance(props.container, config, resolvedTheme)
+  }, [
+    resolvedTheme,
+    config.accentColorLight,
+    config.accentStrengthLight,
+    config.accentColorDark,
+    config.accentStrengthDark,
+    config.codeThemeLight,
+    config.codeThemeDark,
+  ])
 
   const updatePosition = useCallback(() => {
     const newPosition = setElementPositionInViewport(props.container, position.x, position.y)
@@ -83,7 +138,7 @@ function FloatingToolbar(props) {
     if (config.alwaysPinWindow) onDock()
 
     return (
-      <div data-theme={config.themeMode}>
+      <div data-theme={resolvedTheme}>
         <Draggable
           handle=".draggable"
           onDrag={dragEvent.onDrag}
@@ -119,46 +174,57 @@ function FloatingToolbar(props) {
       </div>
     )
   } else {
-    if (
-      config.activeSelectionTools.length === 0 &&
-      config.customSelectionTools.reduce((count, tool) => count + (tool.active ? 1 : 0), 0) === 0
+    const hasActiveBuiltinTools = (config.activeSelectionTools || []).length > 0
+    const hasActiveCustomTools = (config.customSelectionTools || []).some(
+      (tool) => tool?.name && tool.active !== false,
     )
-      return <div />
+    if (!hasActiveBuiltinTools && !hasActiveCustomTools) return <div />
 
     const tools = []
-    const pushTool = (iconKey, name, genPrompt) => {
+    const pushTool = ({ key, iconKey, name, genPrompt }) => {
+      const toolConfig = TOOL_ICONS[iconKey] || { icon: HelpCircle }
+      const Icon = toolConfig.icon
+
       tools.push(
-        cloneElement(toolsConfig[iconKey].icon, {
-          size: 18,
-          className: 'chatgptbox-selection-toolbar-button',
-          title: name,
-          onClick: async () => {
+        <button
+          key={key}
+          data-tool={iconKey}
+          className="chatgptbox-selection-toolbar-button"
+          title={name}
+          onClick={async () => {
             const p = getClientPosition(props.container)
             props.container.style.position = 'fixed'
             setPosition(p)
             setPrompt(await genPrompt(selection))
             setTriggered(true)
-          },
-        }),
+          }}
+        >
+          <Icon size={16} />
+        </button>,
       )
     }
 
     for (const key in toolsConfig) {
-      if (config.activeSelectionTools.includes(key)) {
+      if ((config.activeSelectionTools || []).includes(key)) {
         const toolConfig = toolsConfig[key]
-        pushTool(key, t(toolConfig.label), toolConfig.genPrompt)
+        pushTool({ key, iconKey: key, name: t(toolConfig.label), genPrompt: toolConfig.genPrompt })
       }
     }
-    for (const tool of config.customSelectionTools) {
-      if (tool.active) {
-        pushTool(tool.iconKey, tool.name, async (selection) => {
-          return tool.prompt.replace('{{selection}}', selection)
+    for (const [index, tool] of (config.customSelectionTools || []).entries()) {
+      if (tool?.name && tool.active !== false) {
+        pushTool({
+          key: `custom_${index}`,
+          iconKey: tool.iconKey || 'ask',
+          name: tool.name,
+          genPrompt: async (selection) => {
+            return tool.prompt.replace('{{selection}}', selection)
+          },
         })
       }
     }
 
     return (
-      <div data-theme={config.themeMode}>
+      <div data-theme={resolvedTheme}>
         <div className="chatgptbox-selection-toolbar">{tools}</div>
       </div>
     )

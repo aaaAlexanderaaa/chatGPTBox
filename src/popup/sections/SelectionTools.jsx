@@ -2,9 +2,26 @@ import { useTranslation } from 'react-i18next'
 import { config as toolsConfig } from '../../content-script/selection-tools/index.mjs'
 import PropTypes from 'prop-types'
 import { useState } from 'react'
-import { defaultConfig } from '../../config/index.mjs'
 import { PencilIcon, TrashIcon } from '@primer/octicons-react'
 import Browser from 'webextension-polyfill'
+import {
+  Languages,
+  FileText,
+  Lightbulb,
+  Sparkles,
+  Code,
+  HelpCircle,
+  Globe,
+  Smile,
+  SplitSquareVertical,
+  Quote,
+  Star,
+  Wand2,
+  PenLine,
+  BookOpen,
+  Clipboard,
+} from 'lucide-react'
+import { IconSelect } from '../components/IconSelect.jsx'
 
 SelectionTools.propTypes = {
   config: PropTypes.object.isRequired,
@@ -33,6 +50,27 @@ export function SelectionTools({ config, updateConfig }) {
   const [editingTool, setEditingTool] = useState(defaultTool)
   const [editingIndex, setEditingIndex] = useState(-1)
 
+  const iconOptions = [
+    { value: 'explain', label: t(toolsConfig.explain.label), Icon: Lightbulb },
+    { value: 'translate', label: t(toolsConfig.translate.label), Icon: Languages },
+    { value: 'translateToEn', label: t(toolsConfig.translateToEn.label), Icon: Globe },
+    { value: 'summary', label: t(toolsConfig.summary.label), Icon: FileText },
+    { value: 'polish', label: t(toolsConfig.polish.label), Icon: Sparkles },
+    { value: 'sentiment', label: t(toolsConfig.sentiment.label), Icon: Smile },
+    { value: 'divide', label: t(toolsConfig.divide.label), Icon: SplitSquareVertical },
+    { value: 'code', label: t(toolsConfig.code.label), Icon: Code },
+    { value: 'ask', label: t(toolsConfig.ask.label), Icon: HelpCircle },
+
+    // Extra icon-only options for custom tools
+    { value: 'star', label: t('Star'), Icon: Star },
+    { value: 'wand', label: t('Magic'), Icon: Wand2 },
+    { value: 'quote', label: t('Quote'), Icon: Quote },
+    { value: 'pen', label: t('Pen'), Icon: PenLine },
+    { value: 'book', label: t('Book'), Icon: BookOpen },
+    { value: 'clipboard', label: t('Clipboard'), Icon: Clipboard },
+  ]
+  const iconMap = new Map(iconOptions.map((o) => [o.value, o.Icon]))
+
   const editingComponent = (
     <div className="custom-tool-editor">
       {errorMessage && (
@@ -56,17 +94,11 @@ export function SelectionTools({ config, updateConfig }) {
 
       <div className="form-group">
         <label className="form-label">{t('Icon')}</label>
-        <select
-          className="form-select"
-          value={editingTool.iconKey}
-          onChange={(e) => setEditingTool({ ...editingTool, iconKey: e.target.value })}
-        >
-          {defaultConfig.selectionTools.map((key) => (
-            <option key={key} value={key}>
-              {t(toolsConfig[key].label)}
-            </option>
-          ))}
-        </select>
+        <IconSelect
+          value={editingTool.iconKey || 'ask'}
+          onChange={(value) => setEditingTool({ ...editingTool, iconKey: value })}
+          options={iconOptions}
+        />
       </div>
 
       <div className="form-group">
@@ -152,10 +184,12 @@ export function SelectionTools({ config, updateConfig }) {
             <label key={key} className="tool-item">
               <input
                 type="checkbox"
-                checked={config.activeSelectionTools.includes(key)}
+                checked={(config.activeSelectionTools || []).includes(key)}
                 onChange={async (e) => {
                   const checked = e.target.checked
-                  const activeSelectionTools = config.activeSelectionTools.filter((i) => i !== key)
+                  const activeSelectionTools = (config.activeSelectionTools || []).filter(
+                    (i) => i !== key,
+                  )
                   if (checked) activeSelectionTools.push(key)
                   await updateConfig({ activeSelectionTools })
                   refreshContextMenu()
@@ -200,7 +234,7 @@ export function SelectionTools({ config, updateConfig }) {
                     <label className="tool-checkbox-label">
                       <input
                         type="checkbox"
-                        checked={tool.active}
+                        checked={tool.active !== false}
                         onChange={async (e) => {
                           const customSelectionTools = [...config.customSelectionTools]
                           customSelectionTools[index] = { ...tool, active: e.target.checked }
@@ -208,9 +242,15 @@ export function SelectionTools({ config, updateConfig }) {
                           refreshContextMenu()
                         }}
                       />
-                      <span className="tool-card-name">
-                        {tool.name}
-                        {tool.usePageContext && ' 🌐'}
+                      <span className="tool-card-name inline-flex items-center gap-2">
+                        {(() => {
+                          const Icon = iconMap.get(tool.iconKey || 'ask') || HelpCircle
+                          return <Icon className="w-4 h-4 text-muted-foreground" />
+                        })()}
+                        <span>
+                          {tool.name}
+                          {tool.usePageContext && ' 🌐'}
+                        </span>
                       </span>
                     </label>
                     <div className="tool-card-actions">

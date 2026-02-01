@@ -1,43 +1,37 @@
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import CopyButton from '../CopyButton'
 import PropTypes from 'prop-types'
-import { changeChildrenFontSize } from '../../utils'
 
 export function Pre({ className, children }) {
   const preRef = useRef(null)
-  const [fontSize, setFontSize] = useState(14)
-  const sizeList = [10, 12, 14, 16, 18]
 
-  useEffect(() => {
-    changeChildrenFontSize(preRef.current.childNodes[1], fontSize + 'px')
-  })
+  const language = useMemo(() => {
+    const maybeArray = Array.isArray(children) ? children : [children]
+    const codeChild = maybeArray.find((c) => c && c.props && typeof c.props.className === 'string')
+    const codeClassName = (codeChild && codeChild.props && codeChild.props.className) || ''
+    const match = codeClassName.match(/language-([a-zA-Z0-9_-]+)/)
+    return match ? match[1] : 'code'
+  }, [children])
 
   return (
-    <pre className={className} ref={preRef} style={{ position: 'relative' }}>
-      <span className="code-corner-util gpt-util-group">
-        <select
-          className="normal-button"
-          required
-          onChange={(e) => {
-            setFontSize(e.target.value)
-          }}
-        >
-          {Object.values(sizeList).map((size) => {
-            return (
-              <option value={size} key={size} selected={size === fontSize}>
-                {size}px
-              </option>
-            )
-          })}
-        </select>
-        <CopyButton contentFn={() => preRef.current.childNodes[1].textContent} size={14} />
-      </span>
-      {children}
-    </pre>
+    <div className="chatgptbox-codeblock">
+      <div className="chatgptbox-codeblock-header">
+        <span className="chatgptbox-codeblock-lang">{language}</span>
+        <div className="chatgptbox-codeblock-actions">
+          <CopyButton
+            contentFn={() => preRef.current?.querySelector('code')?.textContent || ''}
+            size={14}
+          />
+        </div>
+      </div>
+      <pre className={className} ref={preRef}>
+        {children}
+      </pre>
+    </div>
   )
 }
 
 Pre.propTypes = {
-  className: PropTypes.string.isRequired,
-  children: PropTypes.object.isRequired,
+  className: PropTypes.string,
+  children: PropTypes.node.isRequired,
 }

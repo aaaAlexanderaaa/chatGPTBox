@@ -1,4 +1,4 @@
-import './styles.scss'
+import './styles-new.css'
 import { unmountComponentAtNode } from 'react-dom'
 import { render } from 'preact'
 import DecisionCard from '../components/DecisionCard'
@@ -304,7 +304,7 @@ async function prepareForRightClickMenu() {
         const customIndex = parseInt(data.itemId.replace('custom_', ''), 10)
         if (!isNaN(customIndex) && customIndex >= 0) {
           const customTool = userConfig.customSelectionTools?.[customIndex]
-          if (customTool?.active && customTool?.name) {
+          if (customTool?.name && customTool.active !== false) {
             // If no selection text and tool supports page context, use page content
             let textToUse = data.selectionText
             if (!textToUse && customTool.usePageContext) {

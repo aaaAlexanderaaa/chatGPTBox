@@ -1,0 +1,2440 @@
+/*
+ * ChatGPTBox Content Script Styles
+ * IMPORTANT: This file is injected into all web pages.
+ * DO NOT include Tailwind preflight or global body styles here.
+ * All styles must be scoped to .chatgptbox-* classes.
+ */
+
+/* ============================================
+   Container Scoping - Reset and define variables
+   IMPORTANT: all:initial must come BEFORE CSS variable definitions
+   ============================================ */
+
+.chatgptbox-container,
+#chatgptbox-container,
+.chatgptbox-selection-window,
+.chatgptbox-toolbar-container,
+.chatgptbox-toolbar-container-not-queryable {
+  /* Reset all inherited styles first */
+  all: initial;
+  display: block;
+
+  /* Dark theme (default) - Define CSS variables AFTER all:initial */
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.72 0.14 180);
+  --primary-foreground: oklch(0.13 0 0);
+  --secondary: oklch(0.22 0 0);
+  --secondary-foreground: oklch(0.85 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.26 0 0);
+  --input: oklch(0.22 0 0);
+  --ring: oklch(0.72 0.14 180);
+  --radius: 0.75rem;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+
+  /* Code theme (default: GitHub Dark) */
+  --code-bg: #0d1117;
+  --code-text: #c9d1d9;
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-comment: #8b949e;
+  --code-function: #d2a8ff;
+
+  /* Base styles */
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  box-sizing: border-box;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--foreground);
+}
+
+[data-theme='light'] .chatgptbox-container,
+[data-theme='light'] #chatgptbox-container,
+[data-theme='light'] .chatgptbox-selection-window,
+[data-theme='light'] .chatgptbox-toolbar-container,
+[data-theme='light'] .chatgptbox-toolbar-container-not-queryable,
+.chatgptbox-container[data-theme='light'],
+#chatgptbox-container[data-theme='light'],
+.chatgptbox-selection-window[data-theme='light'],
+.chatgptbox-toolbar-container[data-theme='light'],
+.chatgptbox-toolbar-container-not-queryable[data-theme='light'] {
+  --background: oklch(0.97 0.005 90);
+  --foreground: oklch(0.25 0 0);
+  --card: oklch(0.99 0.003 90);
+  --card-foreground: oklch(0.25 0 0);
+  --popover: oklch(0.99 0.003 90);
+  --popover-foreground: oklch(0.25 0 0);
+  --primary: oklch(0.5 0.1 180);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.94 0.005 90);
+  --secondary-foreground: oklch(0.3 0 0);
+  --muted: oklch(0.93 0.005 90);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.94 0.005 90);
+  --accent-foreground: oklch(0.25 0 0);
+  --destructive: oklch(0.5 0.15 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.88 0.01 90);
+  --input: oklch(0.95 0.005 90);
+  --ring: oklch(0.5 0.1 180);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+  /* Code theme (default: GitHub Light) */
+  --code-bg: #f6f8fa;
+  --code-text: #24292f;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-comment: #6e7781;
+  --code-function: #8250df;
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme='auto'] .chatgptbox-container,
+  [data-theme='auto'] #chatgptbox-container,
+  [data-theme='auto'] .chatgptbox-selection-window,
+  [data-theme='auto'] .chatgptbox-toolbar-container,
+  [data-theme='auto'] .chatgptbox-toolbar-container-not-queryable,
+  .chatgptbox-container[data-theme='auto'],
+  #chatgptbox-container[data-theme='auto'],
+  .chatgptbox-selection-window[data-theme='auto'],
+  .chatgptbox-toolbar-container[data-theme='auto'],
+  .chatgptbox-toolbar-container-not-queryable[data-theme='auto'] {
+    --background: oklch(0.97 0.005 90);
+    --foreground: oklch(0.25 0 0);
+    --card: oklch(0.99 0.003 90);
+    --card-foreground: oklch(0.25 0 0);
+    --popover: oklch(0.99 0.003 90);
+    --popover-foreground: oklch(0.25 0 0);
+    --primary: oklch(0.5 0.1 180);
+    --primary-foreground: oklch(0.98 0 0);
+    --secondary: oklch(0.94 0.005 90);
+    --secondary-foreground: oklch(0.3 0 0);
+    --muted: oklch(0.93 0.005 90);
+    --muted-foreground: oklch(0.5 0 0);
+    --accent: oklch(0.94 0.005 90);
+    --accent-foreground: oklch(0.25 0 0);
+    --destructive: oklch(0.5 0.15 25);
+    --destructive-foreground: oklch(0.98 0 0);
+    --border: oklch(0.88 0.01 90);
+    --input: oklch(0.95 0.005 90);
+    --ring: oklch(0.5 0.1 180);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+    /* Code theme (default: GitHub Light) */
+    --code-bg: #f6f8fa;
+    --code-text: #24292f;
+    --code-keyword: #cf222e;
+    --code-string: #0a3069;
+    --code-comment: #6e7781;
+    --code-function: #8250df;
+  }
+}
+
+.chatgptbox-container *,
+#chatgptbox-container *,
+.chatgptbox-selection-window *,
+.chatgptbox-toolbar-container *,
+.chatgptbox-toolbar-container-not-queryable * {
+  box-sizing: border-box;
+}
+
+.chatgptbox-selection-window,
+.chatgptbox-toolbar-container,
+.chatgptbox-toolbar-container-not-queryable {
+  z-index: 2147483647;
+}
+
+/* ============================================
+   Chat Container
+   ============================================ */
+
+.chatgptbox-container,
+#chatgptbox-container {
+  width: 100%;
+  flex-basis: 0;
+  flex-grow: 1;
+  margin-bottom: 20px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-inner {
+  height: 100%;
+  display: flex;
+  position: relative;
+  flex-direction: column;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--card);
+  margin: 0;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  min-height: 56px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-header
+  p {
+  font-weight: 600;
+  margin: 0;
+  color: var(--foreground);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-header
+  .draggable {
+  height: 56px;
+  cursor: move;
+}
+
+/* ============================================
+   Utility Controls
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-group
+  select.normal-button {
+  height: 36px;
+  min-width: 140px;
+  max-width: 200px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-group
+  img {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-icon:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-util-icon
+  svg {
+  width: 16px;
+  height: 16px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .normal-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--foreground);
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .normal-button:hover {
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .normal-button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* Extension pages (IndependentPanel.html) also use these shared classes outside ChatGPTBox containers */
+html.chatgptbox-extension-page .gpt-util-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+}
+
+html.chatgptbox-extension-page .gpt-util-icon:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+html.chatgptbox-extension-page .gpt-util-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+html.chatgptbox-extension-page .normal-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--foreground);
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+html.chatgptbox-extension-page .normal-button:hover {
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+html.chatgptbox-extension-page .normal-button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* ============================================
+   Message Area
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body {
+  background: var(--card);
+  color: var(--foreground);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 16px 8px;
+  position: relative;
+  z-index: 1;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Scrollbar */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* ============================================
+   Chat Bubbles - Utility classes for Tailwind-like styling
+   ============================================ */
+
+/* Flexbox utilities (scoped to ChatGPTBox UI only) */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .flex {
+  display: flex;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .flex-1 {
+  flex: 1 1 0%;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .flex-col {
+  flex-direction: column;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .flex-shrink-0 {
+  flex-shrink: 0;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .items-center {
+  align-items: center;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .justify-end {
+  justify-content: flex-end;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .justify-center {
+  justify-content: center;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .justify-between {
+  justify-content: space-between;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gap-1 {
+  gap: 0.25rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gap-2 {
+  gap: 0.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gap-3 {
+  gap: 0.75rem;
+}
+
+/* Spacing */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .p-1 {
+  padding: 0.25rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .p-2 {
+  padding: 0.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .p-3 {
+  padding: 0.75rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .p-4 {
+  padding: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .px-3 {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .py-2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .py-3 {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .mb-1 {
+  margin-bottom: 0.25rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .mb-4 {
+  margin-bottom: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .mt-1 {
+  margin-top: 0.25rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .mt-2 {
+  margin-top: 0.5rem;
+}
+
+/* Sizing */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .w-4 {
+  width: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .w-8 {
+  width: 2rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .w-10 {
+  width: 2.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .h-4 {
+  height: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .h-8 {
+  height: 2rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .h-10 {
+  height: 2.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .min-w-0 {
+  min-width: 0;
+}
+
+/* Border radius */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .rounded-md {
+  border-radius: 0.375rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .rounded-lg {
+  border-radius: 0.5rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .rounded-xl {
+  border-radius: 0.75rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .rounded-2xl {
+  border-radius: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .rounded-br-sm {
+  border-bottom-right-radius: 0.125rem;
+}
+
+/* Colors and backgrounds */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-primary {
+  background-color: var(--primary);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-secondary {
+  background-color: var(--secondary);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-card {
+  background-color: var(--card);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-destructive {
+  background-color: var(--destructive);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-foreground {
+  color: var(--foreground);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-primary {
+  color: var(--primary);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-primary-foreground {
+  color: var(--primary-foreground);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-muted-foreground {
+  color: var(--muted-foreground);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-destructive {
+  color: var(--destructive);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .border-border {
+  border-color: var(--border);
+}
+
+/* Opacity backgrounds - manual implementation */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-primary-10 {
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-primary-20 {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-secondary-50 {
+  background-color: color-mix(in srgb, var(--secondary) 50%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-destructive-5 {
+  background-color: color-mix(in srgb, var(--destructive) 5%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .bg-destructive-10 {
+  background-color: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .border-primary-20 {
+  border-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .border-destructive-10 {
+  border-color: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+/* Typography */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-xs {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .font-medium {
+  font-weight: 500;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Transitions */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .transition-all {
+  transition: all 0.15s ease;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .transition-colors {
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .transition-opacity {
+  transition: opacity 0.15s ease;
+}
+
+/* Opacity */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .opacity-0 {
+  opacity: 0;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .opacity-100 {
+  opacity: 1;
+}
+
+/* Misc */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .relative {
+  position: relative;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .absolute {
+  position: absolute;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .overflow-hidden {
+  overflow: hidden;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .border {
+  border-width: 1px;
+  border-style: solid;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .shadow-sm {
+  box-shadow: var(--shadow-sm);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .shadow-md {
+  box-shadow: var(--shadow-md);
+}
+
+/* Max width */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .max-w-none {
+  max-width: none;
+}
+
+/* Prose styling for markdown */
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .prose {
+  color: var(--foreground);
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .prose-sm {
+  font-size: 0.875rem;
+}
+
+/* Question bubble */
+.chatgptbox-question {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.chatgptbox-question > div {
+  max-width: 85%;
+  border-radius: 1rem 1rem 0.25rem 1rem;
+  padding: 12px 16px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.chatgptbox-question p {
+  color: inherit;
+  margin: 0;
+}
+
+/* Answer bubble */
+.chatgptbox-answer {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.chatgptbox-answer p {
+  color: var(--foreground);
+  margin: 0 0 12px 0;
+}
+
+.chatgptbox-answer p:last-child {
+  margin-bottom: 0;
+}
+
+/* Error message */
+.chatgptbox-error {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.chatgptbox-error p {
+  color: var(--destructive);
+  margin: 0;
+}
+
+.chatgptbox-question:last-child,
+.chatgptbox-answer:last-child,
+.chatgptbox-error:last-child {
+  margin-bottom: 0.5rem;
+}
+
+/* ============================================
+   Input Area
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .input-box {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--card);
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .input-box.input-box--focused {
+  border-top-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .interact-input {
+  width: 100%;
+  min-height: 48px;
+  max-height: 200px;
+  padding: 12px 16px;
+  padding-right: 56px;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--input);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  transition: all 0.15s ease;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .interact-input:hover {
+  border-color: var(--muted-foreground);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .interact-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .interact-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: 0.625rem;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button:active {
+  transform: translateY(0);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button.stop {
+  background: var(--destructive);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--destructive) 30%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button.stop:hover {
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--destructive) 40%, transparent);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button
+  svg {
+  width: 18px;
+  height: 18px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .submit-button
+  .button-text {
+  display: none;
+}
+
+/* ============================================
+   Selection Toolbar
+   ============================================ */
+
+.chatgptbox-selection-toolbar {
+  all: initial;
+  display: flex !important;
+  align-items: center !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  box-sizing: border-box !important;
+  direction: ltr !important;
+  border-radius: 0.75rem;
+  padding: 6px;
+  background: color-mix(in srgb, var(--card) 95%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border);
+  animation: toolbarAppear 0.2s ease-out forwards;
+}
+
+@keyframes toolbarAppear {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chatgptbox-selection-toolbar-button {
+  margin: 0 2px;
+  padding: 8px;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  width: 18px;
+  height: 18px;
+  box-sizing: content-box;
+}
+
+.chatgptbox-selection-toolbar-button:hover {
+  background: var(--secondary);
+  color: var(--primary);
+  transform: translateY(-2px);
+}
+
+/* Tool colors */
+.chatgptbox-selection-toolbar-button[data-tool='translate'] {
+  color: #3b82f6;
+}
+.chatgptbox-selection-toolbar-button[data-tool='translateToEn'] {
+  color: #3b82f6;
+}
+.chatgptbox-selection-toolbar-button[data-tool='translateToZh'] {
+  color: #3b82f6;
+}
+.chatgptbox-selection-toolbar-button[data-tool='translateBidi'] {
+  color: #3b82f6;
+}
+.chatgptbox-selection-toolbar-button[data-tool='summary'] {
+  color: #22c55e;
+}
+.chatgptbox-selection-toolbar-button[data-tool='explain'] {
+  color: #eab308;
+}
+.chatgptbox-selection-toolbar-button[data-tool='polish'] {
+  color: #a855f7;
+}
+.chatgptbox-selection-toolbar-button[data-tool='sentiment'] {
+  color: #f43f5e;
+}
+.chatgptbox-selection-toolbar-button[data-tool='divide'] {
+  color: #94a3b8;
+}
+.chatgptbox-selection-toolbar-button[data-tool='code'] {
+  color: #06b6d4;
+}
+.chatgptbox-selection-toolbar-button[data-tool='ask'] {
+  color: var(--primary);
+}
+
+/* ============================================
+   Selection Window
+   ============================================ */
+
+.chatgptbox-selection-window {
+  height: auto;
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  animation: windowAppear 0.25s ease-out forwards;
+}
+
+@keyframes windowAppear {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================
+   Loading Animation
+   ============================================ */
+
+@keyframes chatgptbox-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-loading {
+  animation: chatgptbox-pulse 1.5s ease-in-out infinite;
+  color: var(--muted-foreground) !important;
+}
+
+/* ============================================
+   Markdown Content Styling
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h1,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h2,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h3,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h4,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h5,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h6 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h1 {
+  font-size: 1.5em;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h2 {
+  font-size: 1.35em;
+}
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  h3 {
+  font-size: 1.2em;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  p {
+  color: var(--foreground);
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.15s ease;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.875em;
+  padding: 0.2em 0.4em;
+  border-radius: 0.375rem;
+  background: var(--secondary);
+  color: var(--primary);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--code-bg) !important;
+  color: var(--code-text) !important;
+  border-radius: 0.5rem;
+  margin-bottom: 16px;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  code {
+  background: transparent !important;
+  background-color: transparent !important;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background-image: none !important;
+  text-decoration: none !important;
+  text-shadow: none !important;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  code
+  * {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  text-decoration: none !important;
+  text-shadow: none !important;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  code
+  *::before,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  code
+  *::after {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  text-decoration: none !important;
+  text-shadow: none !important;
+}
+
+/* Redesigned code block wrapper (matches frontend_redesign style) */
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .chatgptbox-codeblock {
+  margin-bottom: 16px;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .chatgptbox-codeblock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--code-comment);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .chatgptbox-codeblock-lang {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .chatgptbox-codeblock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .chatgptbox-codeblock
+  pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+/* Highlight.js token colors (scoped) */
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  code.hljs {
+  color: var(--code-text);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-comment,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-quote {
+  color: var(--code-comment);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-keyword,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-selector-tag,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-literal,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-built_in,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-type {
+  color: var(--code-keyword);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-string,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-symbol,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-template-tag,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-template-variable,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-attr {
+  color: var(--code-string);
+}
+
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-title,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-function,
+:is(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  pre
+  .hljs-section {
+  color: var(--code-function);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  ul,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  ol {
+  padding-left: 2em;
+  margin-bottom: 16px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  li {
+  margin-bottom: 6px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  blockquote {
+  border-left: 3px solid var(--primary);
+  color: var(--muted-foreground);
+  padding: 12px 16px;
+  margin: 16px 0;
+  background: var(--secondary);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  border-radius: 0.5rem;
+  margin: 16px 0;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  table
+  th,
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  table
+  td {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  table
+  th {
+  background: var(--secondary);
+  font-weight: 600;
+  text-align: left;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  table
+  tr:nth-child(2n) {
+  background: var(--secondary);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .markdown-body
+  img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+/* ============================================
+   Legacy Classes (for compatibility)
+   ============================================ */
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .icon-and-text {
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  padding: 15px;
+  gap: 6px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .manual-btn {
+  cursor: pointer;
+  position: relative;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .manual-btn
+  .gpt-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  transition: all 0.15s ease;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .manual-btn
+  .gpt-dismiss:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .code-corner-util {
+  color: var(--foreground);
+  position: absolute;
+  right: 10px;
+  top: 3px;
+  transition: opacity 0.3s;
+  opacity: 0.2;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .code-corner-util:hover {
+  opacity: 1;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-feedback {
+  display: flex;
+  gap: 6px;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .gpt-feedback-selected {
+  color: #f08080;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .draggable {
+  cursor: move;
+}
+
+:where(
+    .chatgptbox-container,
+    #chatgptbox-container,
+    .chatgptbox-selection-window,
+    .chatgptbox-toolbar-container,
+    .chatgptbox-toolbar-container-not-queryable
+  )
+  .dragbar {
+  cursor: move;
+  width: 42%;
+  height: 12px;
+  border-radius: 10px;
+  background-color: var(--border);
+}
+
+.chatgptbox-sidebar-free {
+  margin-left: 60px;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 640px) {
+  .chatgptbox-question > div,
+  .chatgptbox-answer-content {
+    max-width: 95%;
+  }
+}

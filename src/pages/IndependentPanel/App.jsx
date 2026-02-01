@@ -7,8 +7,10 @@ import {
   deleteSession,
 } from '../../services/local-session.mjs'
 import { useEffect, useRef, useState } from 'react'
-import './styles.scss'
+import '../../styles/globals.css'
+import './styles-new.css'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { setUserConfig } from '../../config/index.mjs'
 import { useTranslation } from 'react-i18next'
 import ConfirmButton from '../../components/ConfirmButton'
 import ConversationCard from '../../components/ConversationCard'
@@ -16,16 +18,35 @@ import DeleteButton from '../../components/DeleteButton'
 import { openUrl } from '../../utils/index.mjs'
 import Browser from 'webextension-polyfill'
 import FileSaver from 'file-saver'
+import { cn } from '../../utils/cn.mjs'
+import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
+import { applyChatGptBoxAppearance, applyDocumentAppearance } from '../../utils/appearance.mjs'
+import {
+  PanelLeftClose,
+  PanelLeft,
+  Plus,
+  Download,
+  Trash2,
+  Settings,
+  MessageSquare,
+  Sun,
+  Moon,
+  Monitor,
+} from 'lucide-react'
+import PropTypes from 'prop-types'
 
-function App() {
+function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {}) {
   const { t } = useTranslation()
-  const [collapsed, setCollapsed] = useState(true)
+  const [collapsed, setCollapsed] = useState(window.innerWidth < 480)
   const config = useConfig(null, false)
+  const windowTheme = useWindowTheme()
+  const resolvedTheme = config.themeMode === 'auto' ? windowTheme : config.themeMode
   const [sessions, setSessions] = useState([])
   const [sessionId, setSessionId] = useState(null)
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
   const currentPort = useRef(null)
+  const chatRootRef = useRef(null)
 
   const setSessionIdSafe = async (sessionId) => {
     if (currentPort.current) {
@@ -43,8 +64,28 @@ function App() {
   }
 
   useEffect(() => {
-    document.documentElement.dataset.theme = config.themeMode
-  }, [config.themeMode])
+    document.documentElement.dataset.theme = resolvedTheme
+    applyDocumentAppearance(document.documentElement, config, resolvedTheme)
+  }, [
+    resolvedTheme,
+    config.accentColorLight,
+    config.accentStrengthLight,
+    config.accentColorDark,
+    config.accentStrengthDark,
+  ])
+
+  useEffect(() => {
+    if (chatRootRef.current) applyChatGptBoxAppearance(chatRootRef.current, config, resolvedTheme)
+  }, [
+    resolvedTheme,
+    renderContent,
+    config.accentColorLight,
+    config.accentStrengthLight,
+    config.accentColorDark,
+    config.accentStrengthDark,
+    config.codeThemeLight,
+    config.codeThemeDark,
+  ])
 
   useEffect(() => {
     // eslint-disable-next-line
@@ -104,68 +145,178 @@ function App() {
   }
 
   return (
-    <div className="IndependentPanel">
-      <div className="chat-container">
-        <div className={`chat-sidebar ${collapsed ? 'collapsed' : ''}`}>
-          <div className="chat-sidebar-button-group">
-            <button className="normal-button" onClick={toggleSidebar}>
-              {collapsed ? t('Pin') : t('Unpin')}
-            </button>
-            <button className="normal-button" onClick={createNewChat}>
-              {t('New Chat')}
-            </button>
-            <button className="normal-button" onClick={exportConversations}>
-              {t('Export')}
+    <div
+      className={cn(
+        embedded ? 'h-full' : 'h-screen',
+        'flex bg-background text-foreground overflow-hidden',
+      )}
+    >
+      {/* Sidebar */}
+      <div
+        className={cn(
+          'flex flex-col border-r border-border bg-card transition-all duration-300 overflow-hidden',
+          collapsed ? 'w-0 opacity-0' : 'w-60 min-w-[240px]',
+        )}
+      >
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-foreground">{t('Chats')}</h2>
+            <button
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <PanelLeftClose className="w-4 h-4" />
             </button>
           </div>
-          <hr />
-          <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
-                <button
-                  key={index}
-                  className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
-                  style="display: flex; align-items: center; justify-content: space-between;"
-                  onClick={() => {
-                    setSessionIdSafe(session.sessionId)
-                  }}
-                >
-                  {session.sessionName}
-                  <span className="gpt-util-group">
-                    <DeleteButton
-                      size={14}
-                      text={t('Delete Conversation')}
-                      onConfirm={() =>
-                        deleteSession(session.sessionId).then((sessions) => {
-                          setSessions(sessions)
-                          setSessionIdSafe(sessions[0].sessionId)
-                        })
-                      }
-                    />
-                  </span>
-                </button>
-              ),
+          <button
+            onClick={createNewChat}
+            className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
+          >
+            <Plus className="w-4 h-4" />
+            {t('New Chat')}
+          </button>
+        </div>
+
+        {/* Session List */}
+        <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
+          {sessions.map((session, index) => (
+            <div
+              key={index}
+              className={cn(
+                'group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all mb-1',
+                sessionId === session.sessionId
+                  ? 'bg-primary/10 border border-primary/20'
+                  : 'hover:bg-secondary border border-transparent',
+              )}
+              onClick={() => setSessionIdSafe(session.sessionId)}
+            >
+              <div
+                className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                  sessionId === session.sessionId ? 'bg-primary/20' : 'bg-secondary',
+                )}
+              >
+                <MessageSquare
+                  className={cn(
+                    'w-4 h-4',
+                    sessionId === session.sessionId ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {session.sessionName || t('New Chat')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {session.conversationRecords?.length || 0} {t('messages')}
+                </p>
+              </div>
+              <DeleteButton
+                size={14}
+                text={t('Delete')}
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                onConfirm={() =>
+                  deleteSession(session.sessionId).then((sessions) => {
+                    setSessions(sessions)
+                    setSessionIdSafe(sessions[0].sessionId)
+                  })
+                }
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-border space-y-2">
+          <button
+            onClick={exportConversations}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            {t('Export All')}
+          </button>
+          <ConfirmButton
+            text={t('Clear All')}
+            onConfirm={clearConversations}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+            icon={<Trash2 className="w-4 h-4" />}
+          />
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/50">
+          <div className="flex items-center gap-3">
+            {collapsed && (
+              <button
+                onClick={toggleSidebar}
+                className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <PanelLeft className="w-5 h-5" />
+              </button>
+            )}
+            <h1 className="text-lg font-semibold text-foreground">
+              {currentSession?.sessionName || t('ChatGPTBox')}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Theme Switcher */}
+            <div className="flex gap-1 p-1 bg-secondary rounded-lg">
+              <button
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  config.themeMode === 'light'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => setUserConfig({ themeMode: 'light' })}
+              >
+                <Sun className="w-4 h-4" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  config.themeMode === 'auto'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => setUserConfig({ themeMode: 'auto' })}
+              >
+                <Monitor className="w-4 h-4" />
+              </button>
+              <button
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  config.themeMode === 'dark'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => setUserConfig({ themeMode: 'dark' })}
+              >
+                <Moon className="w-4 h-4" />
+              </button>
+            </div>
+            {showSettingsButton && (
+              <button
+                onClick={() => {
+                  if (onOpenSettings) onOpenSettings()
+                  else openUrl(Browser.runtime.getURL('popup.html'))
+                }}
+                className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
             )}
           </div>
-          <hr />
-          <div className="chat-sidebar-button-group">
-            <ConfirmButton text={t('Clear conversations')} onConfirm={clearConversations} />
-            <button
-              className="normal-button"
-              onClick={() => {
-                openUrl(Browser.runtime.getURL('popup.html'))
-              }}
-            >
-              {t('Settings')}
-            </button>
-          </div>
         </div>
-        <div className="chat-content">
+
+        {/* Chat Content */}
+        <div className="flex-1 overflow-hidden">
           {renderContent && currentSession && currentSession.conversationRecords && (
-            <div className="chatgptbox-container" style="height:100%;">
+            <div ref={chatRootRef} className="chatgptbox-container h-full">
               <ConversationCard
                 session={currentSession}
                 notClampSize={true}
@@ -187,3 +338,9 @@ function App() {
 }
 
 export default App
+
+App.propTypes = {
+  embedded: PropTypes.bool,
+  showSettingsButton: PropTypes.bool,
+  onOpenSettings: PropTypes.func,
+}

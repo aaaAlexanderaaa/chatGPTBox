@@ -98,7 +98,7 @@ export function getApiModesFromConfig(config, onlyActive) {
       return false
     })
     .filter((apiMode) => apiMode)
-  const originalApiModes = config.activeApiModes
+  const originalApiModes = (config.activeApiModes || [])
     .map((modelName) => {
       // 'customModel' is always active
       if (stringApiModes.includes(modelName) || modelName === 'customModel') {

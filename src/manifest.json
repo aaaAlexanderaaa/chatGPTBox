@@ -36,7 +36,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html?popup=true"
   },
   "side_panel": {
     "default_path": "IndependentPanel.html"
@@ -51,7 +51,7 @@
     ]
   },
   "options_ui": {
-    "page": "popup.html",
+    "page": "options.html",
     "open_in_tab": true
   },
   "content_scripts": [

@@ -1,5 +1,5 @@
 import { render } from 'preact'
-import Popup from './Popup'
+import Popup from './PopupNew'
 import '../_locales/i18n-react'
 import { getUserConfig } from '../config/index.mjs'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'

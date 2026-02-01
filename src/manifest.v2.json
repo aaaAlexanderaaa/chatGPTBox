@@ -36,7 +36,7 @@
     "default_popup": "popup.html?popup=true"
   },
   "options_ui": {
-    "page": "popup.html",
+    "page": "options.html",
     "open_in_tab": true
   },
   "content_scripts": [

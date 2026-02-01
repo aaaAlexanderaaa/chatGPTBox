@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
+import { Send, Square } from 'lucide-react'
 import { isFirefox, isMobile, isSafari, updateRefHeight } from '../../utils'
 import { useTranslation } from 'react-i18next'
 import { getUserConfig } from '../../config/index.mjs'
+import { cn } from '../../utils/cn.mjs'
 
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   const { t } = useTranslation()
@@ -69,16 +71,18 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   }
 
   return (
-    <div className={`input-box ${isFocused ? 'input-box--focused' : ''}`}>
+    <div className={cn('input-box', isFocused && 'input-box--focused')}>
       <div
         ref={reverseDivRef}
         style={
-          internalReverseResizeDir && {
-            transform: 'rotateX(180deg)',
-            resize: 'vertical',
-            overflow: 'hidden',
-            minHeight: '160px',
-          }
+          internalReverseResizeDir
+            ? {
+                transform: 'rotateX(180deg)',
+                resize: 'vertical',
+                overflow: 'hidden',
+                minHeight: '160px',
+              }
+            : undefined
         }
       >
         <textarea
@@ -89,12 +93,10 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
           style={
             internalReverseResizeDir
               ? { transform: 'rotateX(180deg)', resize: 'none' }
-              : { resize: 'vertical', minHeight: '70px' }
+              : { resize: 'vertical', minHeight: '48px' }
           }
           placeholder={
-            enabled
-              ? t('Type your question here\nEnter to send, shift + enter to break line')
-              : t('Type your question here\nEnter to stop generating\nShift + enter to break line')
+            enabled ? t('Type your question here') : t('Generating... Press Enter to stop')
           }
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -103,31 +105,14 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
           onBlur={() => setIsFocused(false)}
         />
       </div>
+
+      {/* Submit/Stop Button */}
       <button
-        className={`submit-button ${!enabled ? 'stop' : ''} ${value.trim() ? 'has-content' : ''}`}
+        className={cn('submit-button', !enabled && 'stop')}
         onClick={handleKeyDownOrClick}
-        aria-label={enabled ? t('Ask') : t('Stop')}
+        aria-label={enabled ? t('Send') : t('Stop')}
       >
-        {enabled ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-          </svg>
-        )}
-        <span className="button-text">{enabled ? t('Ask') : t('Stop')}</span>
+        {enabled ? <Send size={16} /> : <Square size={16} />}
       </button>
     </div>
   )

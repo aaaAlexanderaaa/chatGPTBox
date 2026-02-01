@@ -7,6 +7,7 @@ import { getPreferredLanguageKey } from '../../config/index.mjs'
 
 document.body.style.margin = 0
 document.body.style.overflow = 'hidden'
+document.documentElement.classList.add('chatgptbox-extension-page')
 getPreferredLanguageKey().then((lang) => {
   changeLanguage(lang)
 })

@@ -1,0 +1,267 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ChatGPTBox Design System
+ * Based on the frontend_redesign demo
+ * Modern, dark-first design with oklch colors
+ */
+
+/* ============================================
+   CSS Variables - Design Tokens
+   ============================================ */
+
+:root,
+[data-theme='dark'] {
+  /* Modern dark-first design inspired by Vercel/OpenAI */
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+
+  /* Teal primary - the signature accent color */
+  --primary: oklch(0.72 0.14 180);
+  --primary-foreground: oklch(0.13 0 0);
+
+  --secondary: oklch(0.22 0 0);
+  --secondary-foreground: oklch(0.85 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.26 0 0);
+  --input: oklch(0.22 0 0);
+  --ring: oklch(0.72 0.14 180);
+
+  /* Radius */
+  --radius: 0.75rem;
+
+  /* Shadows for dark mode */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme='light'] {
+  /* Soft, eye-friendly light theme with reduced brightness */
+  --background: oklch(0.97 0.005 90);
+  --foreground: oklch(0.25 0 0);
+  --card: oklch(0.99 0.003 90);
+  --card-foreground: oklch(0.25 0 0);
+  --popover: oklch(0.99 0.003 90);
+  --popover-foreground: oklch(0.25 0 0);
+
+  /* Muted teal primary for light mode */
+  --primary: oklch(0.5 0.1 180);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --secondary: oklch(0.94 0.005 90);
+  --secondary-foreground: oklch(0.3 0 0);
+  --muted: oklch(0.93 0.005 90);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.94 0.005 90);
+  --accent-foreground: oklch(0.25 0 0);
+  --destructive: oklch(0.5 0.15 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.88 0.01 90);
+  --input: oklch(0.95 0.005 90);
+  --ring: oklch(0.5 0.1 180);
+
+  /* Shadows for light mode */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Auto theme - follows system preference */
+[data-theme='auto'] {
+  @media (prefers-color-scheme: dark) {
+    --background: oklch(0.13 0 0);
+    --foreground: oklch(0.98 0 0);
+    --card: oklch(0.16 0 0);
+    --card-foreground: oklch(0.98 0 0);
+    --popover: oklch(0.16 0 0);
+    --popover-foreground: oklch(0.98 0 0);
+    --primary: oklch(0.72 0.14 180);
+    --primary-foreground: oklch(0.13 0 0);
+    --secondary: oklch(0.22 0 0);
+    --secondary-foreground: oklch(0.85 0 0);
+    --muted: oklch(0.22 0 0);
+    --muted-foreground: oklch(0.6 0 0);
+    --accent: oklch(0.22 0 0);
+    --accent-foreground: oklch(0.98 0 0);
+    --destructive: oklch(0.55 0.2 25);
+    --destructive-foreground: oklch(0.98 0 0);
+    --border: oklch(0.26 0 0);
+    --input: oklch(0.22 0 0);
+    --ring: oklch(0.72 0.14 180);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+  }
+
+  @media (prefers-color-scheme: light) {
+    --background: oklch(0.97 0.005 90);
+    --foreground: oklch(0.25 0 0);
+    --card: oklch(0.99 0.003 90);
+    --card-foreground: oklch(0.25 0 0);
+    --popover: oklch(0.99 0.003 90);
+    --popover-foreground: oklch(0.25 0 0);
+    --primary: oklch(0.5 0.1 180);
+    --primary-foreground: oklch(0.98 0 0);
+    --secondary: oklch(0.94 0.005 90);
+    --secondary-foreground: oklch(0.3 0 0);
+    --muted: oklch(0.93 0.005 90);
+    --muted-foreground: oklch(0.5 0 0);
+    --accent: oklch(0.94 0.005 90);
+    --accent-foreground: oklch(0.25 0 0);
+    --destructive: oklch(0.5 0.15 25);
+    --destructive-foreground: oklch(0.98 0 0);
+    --border: oklch(0.88 0.01 90);
+    --input: oklch(0.95 0.005 90);
+    --ring: oklch(0.5 0.1 180);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+@layer utilities {
+  /* Glass effect for floating elements */
+  .glass {
+    background: rgba(22, 22, 22, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  [data-theme='light'] .glass {
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  /* Scrollbar styling */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text selection */
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+/* ============================================
+   Animation Keyframes
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-slide-in {
+  animation: slideInFromBottom 0.2s ease-out;
+}
+
+/* Loading dots animation */
+.loading-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+.loading-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.loading-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}

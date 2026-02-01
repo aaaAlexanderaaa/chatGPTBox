@@ -22,8 +22,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
   const shared = [
     'preact',
     'webextension-polyfill',
-    '@primer/octicons-react',
-    'react-bootstrap-icons',
     'countries-list',
     'i18next',
     'react-i18next',
@@ -44,6 +42,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       },
       popup: {
         import: './src/popup/index.jsx',
+        dependOn: 'shared',
+      },
+      options: {
+        import: './src/options/index.jsx',
         dependOn: 'shared',
       },
       IndependentPanel: {
@@ -182,6 +184,17 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
             MiniCssExtractPlugin.loader,
             {
               loader: 'css-loader',
+              options: {
+                importLoaders: 1,
+              },
+            },
+            {
+              loader: 'postcss-loader',
+              options: {
+                postcssOptions: {
+                  plugins: ['tailwindcss', 'autoprefixer'],
+                },
+              },
             },
           ],
         },
@@ -296,7 +309,12 @@ async function finishOutput(outputDirSuffix) {
     { src: 'build/popup.css', dst: 'popup.css' },
     { src: 'src/popup/index.html', dst: 'popup.html' },
 
+    { src: 'build/options.js', dst: 'options.js' },
+    { src: 'build/options.css', dst: 'options.css' },
+    { src: 'src/options/index.html', dst: 'options.html' },
+
     { src: 'build/IndependentPanel.js', dst: 'IndependentPanel.js' },
+    { src: 'build/IndependentPanel.css', dst: 'IndependentPanel.css' },
     { src: 'src/pages/IndependentPanel/index.html', dst: 'IndependentPanel.html' },
   ]
 

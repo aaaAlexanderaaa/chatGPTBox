@@ -5,15 +5,32 @@ import ConversationCard from '../ConversationCard'
 import { getPossibleElementByQuerySelector, endsWithQuestionMark } from '../../utils'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
+import { applyChatGptBoxAppearance } from '../../utils/appearance.mjs'
 
 function DecisionCard(props) {
   const { t } = useTranslation()
   const [triggered, setTriggered] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const [render, setRender] = useState(false)
+  const windowTheme = useWindowTheme()
   const config = useConfig(() => {
     setRender(true)
   })
+  const resolvedTheme = config.themeMode === 'auto' ? windowTheme : config.themeMode
+
+  useEffect(() => {
+    if (!props.container) return
+    applyChatGptBoxAppearance(props.container, config, resolvedTheme)
+  }, [
+    resolvedTheme,
+    config.accentColorLight,
+    config.accentStrengthLight,
+    config.accentColorDark,
+    config.accentStrengthDark,
+    config.codeThemeLight,
+    config.codeThemeDark,
+  ])
 
   const question = props.question
   const questionText = question ? question.trim() : ''
@@ -88,7 +105,7 @@ function DecisionCard(props) {
   if (!render || dismissed) return null
 
   return (
-    <div data-theme={config.themeMode}>
+    <div data-theme={resolvedTheme}>
       {(() => {
         if (question)
           switch (config.triggerMode) {

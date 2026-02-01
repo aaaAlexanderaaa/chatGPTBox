@@ -1,0 +1,12 @@
+/* IndependentPanel specific styles */
+
+.chatgptbox-container {
+  height: 100%;
+}
+
+.chatgptbox-container .gpt-inner {
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}

@@ -1,6 +1,8 @@
 import { defaults } from 'lodash-es'
 import Browser from 'webextension-polyfill'
 import { isMobile } from '../utils/is-mobile.mjs'
+import { parseFloatWithClamp } from '../utils/parse-float-with-clamp.mjs'
+import { parseIntWithClamp } from '../utils/parse-int-with-clamp.mjs'
 import {
   isInApiModeGroup,
   isUsingModelName,
@@ -485,6 +487,20 @@ export const defaultConfig = {
   triggerMode: 'manually',
   /** @type {keyof ThemeMode}*/
   themeMode: 'auto',
+  /**
+   * Accent (bubble / highlight) color settings.
+   * Stored separately for light/dark so users can tune both.
+   */
+  accentColorLight: 'teal',
+  accentStrengthLight: 'normal',
+  accentColorDark: 'teal',
+  accentStrengthDark: 'normal',
+  /**
+   * Code block syntax highlight theme (light/dark).
+   * These map to the themes defined in frontend_redesign.
+   */
+  codeThemeLight: 'github-light',
+  codeThemeDark: 'github-dark',
   /** @type {keyof Models}*/
   modelName: getNavigatorLanguage() === 'zh' ? 'moonshotWebFree' : 'claude2WebFree',
   apiMode: null,
@@ -773,6 +789,33 @@ export async function getUserConfig() {
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
   const config = defaults(options, defaultConfig)
+
+  // Guard against invalid numeric values (e.g. NaN) persisted by user input/imports.
+  const numericFix = {
+    maxResponseTokenLength: parseIntWithClamp(
+      config.maxResponseTokenLength,
+      defaultConfig.maxResponseTokenLength,
+      100,
+      40000,
+    ),
+    maxConversationContextLength: parseIntWithClamp(
+      config.maxConversationContextLength,
+      defaultConfig.maxConversationContextLength,
+      0,
+      100,
+    ),
+    temperature: parseFloatWithClamp(config.temperature, defaultConfig.temperature, 0, 2),
+  }
+  const needsFix =
+    numericFix.maxResponseTokenLength !== config.maxResponseTokenLength ||
+    numericFix.maxConversationContextLength !== config.maxConversationContextLength ||
+    numericFix.temperature !== config.temperature
+  if (needsFix) {
+    config.maxResponseTokenLength = numericFix.maxResponseTokenLength
+    config.maxConversationContextLength = numericFix.maxConversationContextLength
+    config.temperature = numericFix.temperature
+    await Browser.storage.local.set(numericFix)
+  }
 
   const storedSiteAdapters = Array.isArray(options.siteAdapters)
     ? options.siteAdapters

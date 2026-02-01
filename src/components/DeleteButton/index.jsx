@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
 import { TrashIcon } from '@primer/octicons-react'
+import { cn } from '../../utils/cn.mjs'
 
 DeleteButton.propTypes = {
   onConfirm: PropTypes.func.isRequired,
   size: PropTypes.number.isRequired,
   text: PropTypes.string.isRequired,
+  className: PropTypes.string,
 }
 
-function DeleteButton({ onConfirm, size, text }) {
+function DeleteButton({ onConfirm, size, text, className }) {
   const { t } = useTranslation()
   const [waitConfirm, setWaitConfirm] = useState(false)
   const confirmRef = useRef(null)
@@ -19,7 +21,7 @@ function DeleteButton({ onConfirm, size, text }) {
   }, [waitConfirm])
 
   return (
-    <span>
+    <span className={cn(className)}>
       <button
         ref={confirmRef}
         type="button"
