@@ -9,6 +9,6 @@ build/
 .DS_Store
 *.zip
 CLAUDE.md
-AGNETS.md
+AGENTS.md
 settings.json
 settings.local.json
