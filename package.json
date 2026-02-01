@@ -1,5 +1,15 @@
 {
   "name": "chatgptbox",
+  "version": "3.0.0",
+  "author": "aaaAlexanderaaa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaaAlexanderaaa/chatGPTBox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aaaAlexanderaaa/chatGPTBox/issues"
+  },
+  "homepage": "https://github.com/aaaAlexanderaaa/chatGPTBox#readme",
   "scripts": {
     "build": "node build.mjs --production",
     "build:safari": "bash ./safari/build.sh",

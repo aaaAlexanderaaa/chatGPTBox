@@ -176,7 +176,7 @@ function Popup() {
       {/* Footer */}
       <div className="px-5 py-3 border-t border-border bg-card/50 flex items-center justify-between">
         <a
-          href="https://github.com/nicepkg/chatgptbox"
+          href="https://github.com/aaaAlexanderaaa/chatGPTBox"
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"

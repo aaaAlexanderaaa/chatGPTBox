@@ -295,6 +295,7 @@ async function copyFiles(entryPoints, targetDir) {
 
 async function finishOutput(outputDirSuffix) {
   const commonFiles = [
+    { src: 'LICENSE', dst: 'LICENSE' },
     { src: 'src/logo.png', dst: 'logo.png' },
     { src: 'src/rules.json', dst: 'rules.json' },
 
