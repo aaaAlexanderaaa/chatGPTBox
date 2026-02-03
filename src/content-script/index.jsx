@@ -163,9 +163,21 @@ async function getInput(inputQuery) {
 }
 
 let toolbarContainer
+const unmountAndRemoveToolbar = (container) => {
+  if (!container) return
+  try {
+    // Preact cleanup (effects, event listeners, ports, etc.)
+    render(null, container)
+  } catch {
+    // ignore
+  }
+  container.remove()
+}
 const deleteToolbar = () => {
-  if (toolbarContainer && toolbarContainer.className === 'chatgptbox-toolbar-container')
-    toolbarContainer.remove()
+  if (toolbarContainer && toolbarContainer.className === 'chatgptbox-toolbar-container') {
+    unmountAndRemoveToolbar(toolbarContainer)
+    toolbarContainer = undefined
+  }
 }
 
 const createSelectionTools = async (toolbarContainer, selection) => {
@@ -200,8 +212,8 @@ async function prepareForSelectionTools() {
       const selection = window
         .getSelection()
         ?.toString()
-        .trim()
-        .replace(/^-+|-+$/g, '')
+        ?.trim()
+        ?.replace(/^-+|-+$/g, '')
       if (selection) {
         let position
 
@@ -229,7 +241,11 @@ async function prepareForSelectionTools() {
     (e) => {
       if (toolbarContainer && toolbarContainer.contains(e.target)) return
 
-      document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
+      document
+        .querySelectorAll('.chatgptbox-toolbar-container')
+        .forEach((container) => unmountAndRemoveToolbar(container))
+      if (toolbarContainer && toolbarContainer.className === 'chatgptbox-toolbar-container')
+        toolbarContainer = undefined
     },
     true,
   )
@@ -240,7 +256,7 @@ async function prepareForSelectionTools() {
       (e.target.nodeName === 'INPUT' || e.target.nodeName === 'TEXTAREA')
     ) {
       setTimeout(() => {
-        if (!window.getSelection()?.toString().trim()) deleteToolbar()
+        if (!window.getSelection()?.toString()?.trim()) deleteToolbar()
       })
     }
   })
@@ -261,8 +277,8 @@ async function prepareForSelectionToolsTouch() {
       const selection = window
         .getSelection()
         ?.toString()
-        .trim()
-        .replace(/^-+|-+$/g, '')
+        ?.trim()
+        ?.replace(/^-+|-+$/g, '')
       if (selection) {
         toolbarContainer = createElementAtPosition(
           e.changedTouches[0].pageX + 20,
@@ -277,7 +293,11 @@ async function prepareForSelectionToolsTouch() {
     (e) => {
       if (toolbarContainer && toolbarContainer.contains(e.target)) return
 
-      document.querySelectorAll('.chatgptbox-toolbar-container').forEach((e) => e.remove())
+      document
+        .querySelectorAll('.chatgptbox-toolbar-container')
+        .forEach((container) => unmountAndRemoveToolbar(container))
+      if (toolbarContainer && toolbarContainer.className === 'chatgptbox-toolbar-container')
+        toolbarContainer = undefined
     },
     true,
   )
