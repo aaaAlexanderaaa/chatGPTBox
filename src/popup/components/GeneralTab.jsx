@@ -1,11 +1,12 @@
 import PropTypes from 'prop-types'
 import { Sun, Moon, Monitor, Pencil, ExternalLink } from 'lucide-react'
-import { useMemo } from 'preact/hooks'
+import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { changeLanguage } from 'i18next'
 import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
 import { SelectField } from './SelectField.jsx'
+import { SearchableSelect } from './SearchableSelect.jsx'
 import { cn } from '../../utils/cn.mjs'
 import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
@@ -25,6 +26,8 @@ import {
   isUsingOllamaApiModel,
   isUsingOpenAiApiModel,
   isUsingOpenRouterApiModel,
+  isUsingChatgptWebModel,
+  isModelDeprecated,
 } from '../../config/index.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 
@@ -74,17 +77,30 @@ function modelNameToSelectLabel(modelName, config, t) {
  */
 export function GeneralTab({ config, updateConfig, onNavigateToModules }) {
   const { t, i18n } = useTranslation()
+  const [manualModelId, setManualModelId] = useState('')
 
-  const apiModes = useMemo(() => getApiModesFromConfig(config, true), [config])
+  const apiModes = useMemo(() => {
+    const selected = getSelectedModelName(config)
+    return getApiModesFromConfig(config, true).filter((apiMode) => {
+      if (!apiMode || !apiMode.groupName) return false
+      const modelName = apiModeToModelName(apiMode)
+      const isSelected = modelName === selected
+      const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
+      if (!providerEnabled && !isSelected) return false
+      if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName)) return false
+      return true
+    })
+  }, [config])
 
   const apiModeOptions = useMemo(() => {
     const opts = apiModes
       .map((apiMode) => {
         const modelName = apiModeToModelName(apiMode)
         if (!modelName) return null
+        const displayName = apiMode.displayName?.trim()
         return {
           value: modelName,
-          label: modelNameToSelectLabel(modelName, config, t),
+          label: displayName ? displayName : modelNameToSelectLabel(modelName, config, t),
         }
       })
       .filter(Boolean)
@@ -175,6 +191,7 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules }) {
   const usingOllamaApi = isUsingOllamaApiModel(config)
   const usingGithubThirdParty = isUsingGithubThirdPartyApiModel(config)
   const usingCustomApi = isUsingCustomModel(config)
+  const usingChatGptWeb = isUsingChatgptWebModel(config)
 
   return (
     <div className="space-y-4">
@@ -314,10 +331,12 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules }) {
             )
           }
         >
-          <SelectField
+          <SearchableSelect
             value={selectedModelName || 'customModel'}
             onChange={handleModelChange}
             options={apiModeOptions}
+            placeholder={t('Select…')}
+            searchPlaceholder={t('Search…')}
             minWidth="260px"
           />
         </SettingRow>
@@ -332,6 +351,33 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules }) {
                 label: t(desc),
               }))}
             />
+          </SettingRow>
+        )}
+
+        {(usingChatGptWeb || usingOpenAiApi) && (
+          <SettingRow label={t('Manual Model ID')} hint={t('Use when model list refresh fails')}>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualModelId}
+                onChange={(e) => setManualModelId(e.target.value)}
+                placeholder={usingChatGptWeb ? 'gpt-4o' : 'gpt-4o-mini'}
+                className={cn(inputClassName, 'w-[260px]')}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const value = manualModelId.trim()
+                  if (!value) return
+                  const groupName = usingChatGptWeb ? 'chatgptWebModelKeys' : 'chatgptApiModelKeys'
+                  updateConfig({ modelName: `${groupName}-${value}`, apiMode: null })
+                  setManualModelId('')
+                }}
+                className="h-9 px-3 inline-flex items-center text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              >
+                {t('Use')}
+              </button>
+            </div>
           </SettingRow>
         )}
       </SettingSection>

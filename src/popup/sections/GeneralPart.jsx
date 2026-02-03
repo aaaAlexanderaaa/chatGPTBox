@@ -199,7 +199,9 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
           >
             {apiModes.map((apiMode, index) => {
               const modelName = apiModeToModelName(apiMode)
-              const desc = modelNameToDesc(modelName, t)
+              const desc = apiMode.displayName?.trim()
+                ? apiMode.displayName.trim()
+                : modelNameToDesc(modelName, t)
               if (desc) {
                 return (
                   <option value={index} key={index} selected={isApiModeSelected(apiMode, config)}>

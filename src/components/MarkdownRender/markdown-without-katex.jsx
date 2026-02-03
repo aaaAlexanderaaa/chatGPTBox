@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { Pre } from './Pre'
 import { Hyperlink } from './Hyperlink'
+import { sanitizeMarkdownTree } from './sanitize-markdown-tree.mjs'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -185,6 +186,7 @@ export function MarkdownRender(props) {
               ignoreMissing: true,
             },
           ],
+          sanitizeMarkdownTree,
         ]}
         components={{
           a: Hyperlink,

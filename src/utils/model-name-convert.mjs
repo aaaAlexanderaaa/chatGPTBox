@@ -69,6 +69,7 @@ export function modelNameToApiMode(modelName) {
       groupName,
       itemName: presetPart,
       isCustom,
+      displayName: '',
       customName,
       customUrl: '',
       apiKey: '',
@@ -119,11 +120,27 @@ export function getApiModesStringArrayFromConfig(config, onlyActive) {
   return getApiModesFromConfig(config, onlyActive).map(apiModeToModelName)
 }
 
+function normalizeApiModeForCompare(apiMode) {
+  if (!apiMode || typeof apiMode !== 'object') return null
+  const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
+  return {
+    groupName: normalizeString(apiMode.groupName),
+    itemName: normalizeString(apiMode.itemName),
+    isCustom: apiMode.isCustom === true,
+    customName: normalizeString(apiMode.customName),
+    customUrl: normalizeString(apiMode.customUrl),
+    apiKey: normalizeString(apiMode.apiKey),
+  }
+}
+
 export function isApiModeSelected(apiMode, configOrSession) {
-  return configOrSession.apiMode
-    ? JSON.stringify(configOrSession.apiMode, Object.keys(configOrSession.apiMode).sort()) ===
-        JSON.stringify(apiMode, Object.keys(apiMode).sort())
-    : configOrSession.modelName === apiModeToModelName(apiMode)
+  if (configOrSession.apiMode) {
+    const selected = normalizeApiModeForCompare(configOrSession.apiMode)
+    const candidate = normalizeApiModeForCompare(apiMode)
+    if (!selected || !candidate) return false
+    return JSON.stringify(selected) === JSON.stringify(candidate)
+  }
+  return configOrSession.modelName === apiModeToModelName(apiMode)
 }
 
 // also match custom modelName, e.g. when modelName is bingFree4, configOrSession model is bingFree4-fast, it returns true

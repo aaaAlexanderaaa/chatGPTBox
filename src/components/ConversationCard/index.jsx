@@ -21,6 +21,8 @@ import {
   PanelRight,
   Archive,
   ArrowDown,
+  Check,
+  ChevronDown,
   Download,
   Search,
 } from 'lucide-react'
@@ -28,7 +30,7 @@ import FileSaver from 'file-saver'
 import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
-import { getUserConfig, isUsingBingWebModel, Models } from '../../config/index.mjs'
+import { getUserConfig, isModelDeprecated, isUsingBingWebModel } from '../../config/index.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -66,6 +68,10 @@ function ConversationCard(props) {
   const [completeDraggable, setCompleteDraggable] = useState(false)
   const useForegroundFetch = isUsingBingWebModel(session)
   const [apiModes, setApiModes] = useState([])
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [modelPickerQuery, setModelPickerQuery] = useState('')
+  const modelPickerRef = useRef(null)
+  const modelPickerInputRef = useRef(null)
 
   /**
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
@@ -128,13 +134,47 @@ function ConversationCard(props) {
   }, [props.question, triggered]) // usually only triggered once
 
   useLayoutEffect(() => {
-    setApiModes(getApiModesFromConfig(config, true))
+    setApiModes(
+      getApiModesFromConfig(config, true).filter((apiMode) => {
+        if (!apiMode || !apiMode.groupName) return false
+        const modelName = apiModeToModelName(apiMode)
+        const isSelected = isApiModeSelected(apiMode, session)
+        const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
+        if (!providerEnabled && !isSelected) return false
+        if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName))
+          return false
+        return true
+      }),
+    )
   }, [
     config.activeApiModes,
     config.customApiModes,
     config.azureDeploymentName,
     config.ollamaModelName,
+    config.enabledProviders,
+    config.showDeprecatedModels,
+    session.apiMode,
+    session.modelName,
   ])
+
+  useEffect(() => {
+    if (!modelPickerOpen) return
+    const handleClickOutside = (event) => {
+      if (!modelPickerRef.current) return
+      if (!modelPickerRef.current.contains(event.target)) {
+        setModelPickerOpen(false)
+        setModelPickerQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [modelPickerOpen])
+
+  useEffect(() => {
+    if (!modelPickerOpen) return
+    const id = setTimeout(() => modelPickerInputRef.current?.focus(), 0)
+    return () => clearTimeout(id)
+  }, [modelPickerOpen])
 
   /**
    * @param {string} value
@@ -342,6 +382,85 @@ function ConversationCard(props) {
 
   const retryFn = useMemo(() => getRetryFn(session), [session])
 
+  const modelPickerOptions = useMemo(() => {
+    const opts = apiModes
+      .map((apiMode, index) => {
+        const modelName = apiModeToModelName(apiMode)
+        const displayName = apiMode.displayName?.trim()
+        const label = displayName
+          ? displayName
+          : modelNameToDesc(modelName, t, config.customModelName)
+        return label ? { id: `mode-${index}`, modelName, apiMode, label } : null
+      })
+      .filter(Boolean)
+
+    opts.push({
+      id: 'customModel',
+      modelName: 'customModel',
+      apiMode: null,
+      label: modelNameToDesc('customModel', t, config.customModelName),
+    })
+
+    const currentModelName = session.apiMode
+      ? apiModeToModelName(session.apiMode)
+      : session.modelName
+    const hasCurrentSelection = session.apiMode
+      ? opts.some((o) => o.apiMode && isApiModeSelected(o.apiMode, session))
+      : opts.some((o) => o.modelName === session.modelName)
+    if (currentModelName && !hasCurrentSelection) {
+      const displayName = session.apiMode?.displayName?.trim()
+      opts.unshift({
+        id: 'session-current',
+        modelName: currentModelName,
+        apiMode: session.apiMode || null,
+        label: displayName
+          ? displayName
+          : modelNameToDesc(currentModelName, t, config.customModelName),
+      })
+    }
+
+    return opts
+  }, [apiModes, config.customModelName, session.apiMode, session.modelName, t])
+
+  const filteredModelPickerOptions = useMemo(() => {
+    const q = modelPickerQuery.trim().toLowerCase()
+    if (!q) return modelPickerOptions
+    return modelPickerOptions.filter((opt) => {
+      const label = (opt.label || '').toLowerCase()
+      const modelName = (opt.modelName || '').toLowerCase()
+      return label.includes(q) || modelName.includes(q)
+    })
+  }, [modelPickerOptions, modelPickerQuery])
+
+  const applyModelSelection = useCallback(
+    ({ apiMode, modelName }) => {
+      const newSession = {
+        ...session,
+        modelName,
+        apiMode,
+        aiName: apiMode?.displayName?.trim()
+          ? apiMode.displayName.trim()
+          : modelNameToDesc(
+              apiMode ? apiModeToModelName(apiMode) : modelName,
+              t,
+              config.customModelName,
+            ),
+      }
+      setModelPickerOpen(false)
+      setModelPickerQuery('')
+      if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
+        getRetryFn(newSession)()
+      else setSession(newSession)
+    },
+    [
+      config.autoRegenAfterSwitchModel,
+      config.customModelName,
+      conversationItemData.length,
+      session,
+      t,
+    ],
+  )
+
   return (
     <div className="gpt-inner">
       <div
@@ -382,47 +501,138 @@ function ConversationCard(props) {
           ) : (
             <img src={logo} style="user-select:none;width:20px;height:20px;" />
           )}
-          <select
-            style={props.notClampSize ? {} : { width: 0, flexGrow: 1 }}
-            className="normal-button"
-            required
-            onChange={(e) => {
-              let apiMode = null
-              let modelName = 'customModel'
-              if (e.target.value !== '-1') {
-                apiMode = apiModes[e.target.value]
-                modelName = apiModeToModelName(apiMode)
-              }
-              const newSession = {
-                ...session,
-                modelName,
-                apiMode,
-                aiName: modelNameToDesc(
-                  apiMode ? apiModeToModelName(apiMode) : modelName,
-                  t,
-                  config.customModelName,
-                ),
-              }
-              if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
-                getRetryFn(newSession)()
-              else setSession(newSession)
+          <div
+            ref={modelPickerRef}
+            style={{
+              position: 'relative',
+              ...(props.notClampSize ? {} : { width: 0, flexGrow: 1 }),
             }}
           >
-            {apiModes.map((apiMode, index) => {
-              const modelName = apiModeToModelName(apiMode)
-              const desc = modelNameToDesc(modelName, t, config.customModelName)
-              if (desc) {
-                return (
-                  <option value={index} key={index} selected={isApiModeSelected(apiMode, session)}>
-                    {desc}
-                  </option>
-                )
-              }
-            })}
-            <option value={-1} selected={!session.apiMode && session.modelName === 'customModel'}>
-              {t(Models.customModel.desc)}
-            </option>
-          </select>
+            <button
+              type="button"
+              className="normal-button"
+              style={{ width: '100%', justifyContent: 'space-between' }}
+              onClick={() => setModelPickerOpen((v) => !v)}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {session.apiMode?.displayName?.trim()
+                  ? session.apiMode.displayName.trim()
+                  : modelNameToDesc(
+                      session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
+                      t,
+                      config.customModelName,
+                    )}
+              </span>
+              <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
+            </button>
+
+            {modelPickerOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '6px',
+                  zIndex: 1000,
+                  minWidth: '260px',
+                  maxWidth: '420px',
+                  background: 'var(--popover)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.75rem',
+                  overflow: 'hidden',
+                  boxShadow: 'var(--shadow-lg)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px',
+                    borderBottom: '1px solid var(--border)',
+                    background: 'var(--card)',
+                  }}
+                >
+                  <Search size={16} style={{ opacity: 0.8 }} />
+                  <input
+                    ref={modelPickerInputRef}
+                    value={modelPickerQuery}
+                    onChange={(e) => setModelPickerQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setModelPickerOpen(false)
+                        setModelPickerQuery('')
+                      }
+                    }}
+                    placeholder={t('Search')}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--input)',
+                      color: 'var(--foreground)',
+                      borderRadius: '0.5rem',
+                      padding: '0 10px',
+                      fontSize: '13px',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                  {filteredModelPickerOptions.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '10px',
+                        fontSize: '12px',
+                        color: 'var(--muted-foreground)',
+                      }}
+                    >
+                      {t('No results')}
+                    </div>
+                  ) : (
+                    filteredModelPickerOptions.map((opt) => {
+                      const selected =
+                        opt.modelName === 'customModel'
+                          ? !session.apiMode && session.modelName === 'customModel'
+                          : session.apiMode
+                          ? opt.apiMode && isApiModeSelected(opt.apiMode, session)
+                          : !session.apiMode && session.modelName === opt.modelName
+                      return (
+                        <button
+                          type="button"
+                          key={opt.id || opt.modelName}
+                          onClick={() => applyModelSelection(opt)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '10px',
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: 'none',
+                            background: selected ? 'var(--secondary)' : 'transparent',
+                            color: 'var(--foreground)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: '13px',
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {opt.label}
+                          </span>
+                          {selected && (
+                            <Check size={16} style={{ flexShrink: 0, color: 'var(--primary)' }} />
+                          )}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </span>
         {props.draggable && !completeDraggable && (
           <div className="draggable" style={{ flexGrow: 2, cursor: 'move', height: '55px' }} />

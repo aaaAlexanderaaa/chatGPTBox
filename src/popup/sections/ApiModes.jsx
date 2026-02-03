@@ -6,13 +6,15 @@ import {
   isApiModeSelected,
   modelNameToDesc,
 } from '../../utils/index.mjs'
-import { PencilIcon, TrashIcon } from '@primer/octicons-react'
+import { CopyIcon, PencilIcon, TrashIcon } from '@primer/octicons-react'
 import { useLayoutEffect, useState } from 'react'
+import { SearchableSelect } from '../components/SearchableSelect.jsx'
 import {
   AlwaysCustomGroups,
   CustomApiKeyGroups,
   CustomUrlGroups,
   ModelGroups,
+  isModelDeprecated,
 } from '../../config/index.mjs'
 
 ApiModes.propTypes = {
@@ -24,6 +26,7 @@ const defaultApiMode = {
   groupName: 'chatgptWebModelKeys',
   itemName: 'chatgptFree35',
   isCustom: false,
+  displayName: '',
   customName: '',
   customUrl: 'http://localhost:8000/v1/chat/completions',
   apiKey: '',
@@ -48,6 +51,15 @@ export function ApiModes({ config, updateConfig }) {
     config.azureDeploymentName,
     config.ollamaModelName,
   ])
+
+  const enabledProviders = config.enabledProviders || {}
+  const isProviderEnabled = (groupName) => enabledProviders[groupName] === true
+
+  const getDefaultPresetItemName = (groupName) => {
+    const items = ModelGroups[groupName].value || []
+    if (config.showDeprecatedModels) return items[0]
+    return items.find((itemName) => !isModelDeprecated(itemName)) || items[0]
+  }
 
   const updateWhenApiModeDisabled = (apiMode) => {
     if (isApiModeSelected(apiMode, config))
@@ -95,43 +107,79 @@ export function ApiModes({ config, updateConfig }) {
       </div>
       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
         {t('Type')}
-        <select
+        <SearchableSelect
           value={editingApiMode.groupName}
-          onChange={(e) => {
-            const groupName = e.target.value
-            let itemName = ModelGroups[groupName].value[0]
+          onChange={(groupName) => {
+            let itemName = getDefaultPresetItemName(groupName)
             const isCustom =
               editingApiMode.itemName === 'custom' && !AlwaysCustomGroups.includes(groupName)
             if (isCustom) itemName = 'custom'
             setEditingApiMode({ ...editingApiMode, groupName, itemName, isCustom })
           }}
-        >
-          {Object.entries(ModelGroups).map(([groupName, { desc }]) => (
-            <option key={groupName} value={groupName}>
-              {t(desc)}
-            </option>
-          ))}
-        </select>
+          options={Object.entries(ModelGroups)
+            .filter(
+              ([groupName]) =>
+                isProviderEnabled(groupName) || groupName === editingApiMode.groupName,
+            )
+            .map(([groupName, { desc }]) => ({
+              value: groupName,
+              label: t(desc),
+            }))}
+          minWidth="220px"
+          searchPlaceholder={t('Search…')}
+        />
       </div>
       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
         {t('Mode')}
-        <select
+        <SearchableSelect
           value={editingApiMode.itemName}
-          onChange={(e) => {
-            const itemName = e.target.value
-            const isCustom = itemName === 'custom'
-            setEditingApiMode({ ...editingApiMode, itemName, isCustom })
+          onChange={(nextValue) => {
+            const groupName = editingApiMode.groupName
+            const selectableItemNames = ModelGroups[groupName].value.filter((itemName) => {
+              if (config.showDeprecatedModels) return true
+              if (!isModelDeprecated(itemName)) return true
+              return itemName === editingApiMode.itemName
+            })
+
+            if (nextValue === 'custom') {
+              setEditingApiMode({ ...editingApiMode, itemName: 'custom', isCustom: true })
+              return
+            }
+
+            if (selectableItemNames.includes(nextValue)) {
+              setEditingApiMode({ ...editingApiMode, itemName: nextValue, isCustom: false })
+              return
+            }
+
+            // Allow quickly creating a custom model entry by typing a model id and pressing Enter.
+            if (!AlwaysCustomGroups.includes(groupName)) {
+              setEditingApiMode({
+                ...editingApiMode,
+                itemName: 'custom',
+                isCustom: true,
+                customName: nextValue,
+              })
+            }
           }}
-        >
-          {ModelGroups[editingApiMode.groupName].value.map((itemName) => (
-            <option key={itemName} value={itemName}>
-              {modelNameToDesc(itemName, t)}
-            </option>
-          ))}
-          {!AlwaysCustomGroups.includes(editingApiMode.groupName) && (
-            <option value="custom">{t('Custom')}</option>
-          )}
-        </select>
+          options={[
+            ...ModelGroups[editingApiMode.groupName].value
+              .filter((itemName) => {
+                if (config.showDeprecatedModels) return true
+                if (!isModelDeprecated(itemName)) return true
+                return itemName === editingApiMode.itemName
+              })
+              .map((itemName) => ({
+                value: itemName,
+                label: modelNameToDesc(itemName, t),
+              })),
+            ...(!AlwaysCustomGroups.includes(editingApiMode.groupName)
+              ? [{ value: 'custom', label: t('Custom') }]
+              : []),
+          ]}
+          minWidth="220px"
+          allowCustomValue={!AlwaysCustomGroups.includes(editingApiMode.groupName)}
+          searchPlaceholder={t('Search…')}
+        />
         {(editingApiMode.isCustom || AlwaysCustomGroups.includes(editingApiMode.groupName)) && (
           <input
             type="text"
@@ -140,6 +188,15 @@ export function ApiModes({ config, updateConfig }) {
             onChange={(e) => setEditingApiMode({ ...editingApiMode, customName: e.target.value })}
           />
         )}
+      </div>
+      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
+        {t('Display Name')}
+        <input
+          type="text"
+          value={editingApiMode.displayName || ''}
+          placeholder={t('Optional')}
+          onChange={(e) => setEditingApiMode({ ...editingApiMode, displayName: e.target.value })}
+        />
       </div>
       {CustomUrlGroups.includes(editingApiMode.groupName) &&
         (editingApiMode.isCustom || AlwaysCustomGroups.includes(editingApiMode.groupName)) && (
@@ -164,54 +221,76 @@ export function ApiModes({ config, updateConfig }) {
 
   return (
     <>
-      {apiModes.map(
-        (apiMode, index) =>
-          apiMode.groupName &&
-          apiMode.itemName &&
-          (editing && editingIndex === index ? (
-            editingComponent
-          ) : (
-            <label key={index} style={{ display: 'flex', alignItems: 'center' }}>
-              <input
-                type="checkbox"
-                checked={apiMode.active}
-                onChange={(e) => {
-                  if (!e.target.checked) updateWhenApiModeDisabled(apiMode)
+      {apiModes.map((apiMode, index) => {
+        if (!apiMode.groupName || !apiMode.itemName) return null
+        const visible = isProviderEnabled(apiMode.groupName) || isApiModeSelected(apiMode, config)
+        if (!visible) return null
+        if (editing && editingIndex === index) return editingComponent
+        return (
+          <label key={index} style={{ display: 'flex', alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={apiMode.active}
+              onChange={(e) => {
+                if (!e.target.checked) updateWhenApiModeDisabled(apiMode)
+                const customApiModes = [...apiModes]
+                customApiModes[index] = { ...apiMode, active: e.target.checked }
+                updateConfig({ activeApiModes: [], customApiModes })
+              }}
+            />
+            {apiMode.displayName?.trim()
+              ? apiMode.displayName.trim()
+              : modelNameToDesc(apiModeToModelName(apiMode), t)}
+            <div style={{ flexGrow: 1 }} />
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div
+                style={{ cursor: 'pointer' }}
+                title={t('Clone')}
+                onClick={(e) => {
+                  e.preventDefault()
+                  const original = apiModes[index]
+                  const cloned = {
+                    ...original,
+                    displayName: original.displayName || '',
+                    active: false,
+                  }
                   const customApiModes = [...apiModes]
-                  customApiModes[index] = { ...apiMode, active: e.target.checked }
+                  customApiModes.splice(index + 1, 0, cloned)
+                  updateConfig({ activeApiModes: [], customApiModes })
+                  setEditing(true)
+                  setEditingApiMode(cloned)
+                  setEditingIndex(index + 1)
+                }}
+              >
+                <CopyIcon />
+              </div>
+              <div
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.preventDefault()
+                  setEditing(true)
+                  setEditingApiMode(apiMode)
+                  setEditingIndex(index)
+                }}
+              >
+                <PencilIcon />
+              </div>
+              <div
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.preventDefault()
+                  updateWhenApiModeDisabled(apiMode)
+                  const customApiModes = [...apiModes]
+                  customApiModes.splice(index, 1)
                   updateConfig({ activeApiModes: [], customApiModes })
                 }}
-              />
-              {modelNameToDesc(apiModeToModelName(apiMode), t)}
-              <div style={{ flexGrow: 1 }} />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    setEditing(true)
-                    setEditingApiMode(apiMode)
-                    setEditingIndex(index)
-                  }}
-                >
-                  <PencilIcon />
-                </div>
-                <div
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    updateWhenApiModeDisabled(apiMode)
-                    const customApiModes = [...apiModes]
-                    customApiModes.splice(index, 1)
-                    updateConfig({ activeApiModes: [], customApiModes })
-                  }}
-                >
-                  <TrashIcon />
-                </div>
+              >
+                <TrashIcon />
               </div>
-            </label>
-          )),
-      )}
+            </div>
+          </label>
+        )
+      })}
       <div style={{ height: '30px' }} />
       {editing ? (
         editingIndex === -1 ? (

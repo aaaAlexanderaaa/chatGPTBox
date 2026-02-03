@@ -123,10 +123,8 @@ async function executeApi(session, port, config) {
       if (tab) tabId = tab.id
     }
     if (tabId) {
-      if (!port.proxy) {
-        setPortProxy(port, tabId)
-        port.proxy.postMessage({ session })
-      }
+      if (!port.proxy) setPortProxy(port, tabId)
+      port.proxy?.postMessage({ session })
     } else {
       const accessToken = await getChatGptAccessToken()
       await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
@@ -269,10 +267,53 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
     }
     case 'GET_COOKIE': {
-      return (await Browser.cookies.get({ url: message.data.url, name: message.data.name }))?.value
+      try {
+        if (sender?.id && sender.id !== Browser.runtime.id) return null
+
+        const url = message?.data?.url
+        const name = message?.data?.name
+        if (typeof url !== 'string' || typeof name !== 'string') return null
+
+        const requestedUrl = new URL(url)
+        if (requestedUrl.protocol !== 'https:') return null
+
+        const senderTabUrl = sender?.tab?.url
+        if (typeof senderTabUrl !== 'string') return null
+
+        const senderOrigin = new URL(senderTabUrl).origin
+        if (senderOrigin !== requestedUrl.origin) return null
+
+        const allowedCookieNamesByOrigin = {
+          'https://claude.ai': new Set(['sessionKey']),
+        }
+        const allowedCookieNames = allowedCookieNamesByOrigin[requestedUrl.origin]
+        if (!allowedCookieNames?.has(name)) return null
+
+        return (await Browser.cookies.get({ url: requestedUrl.origin + '/', name }))?.value
+      } catch {
+        return null
+      }
     }
   }
 })
+
+function addWebRequestListenerWithFallback(
+  event,
+  listener,
+  filter,
+  primaryExtraInfoSpec,
+  fallbackExtraInfoSpec,
+) {
+  try {
+    event.addListener(listener, filter, primaryExtraInfoSpec)
+  } catch (error) {
+    try {
+      event.addListener(listener, filter, fallbackExtraInfoSpec)
+    } catch (fallbackError) {
+      console.log(fallbackError)
+    }
+  }
+}
 
 try {
   Browser.webRequest.onBeforeRequest.addListener(
@@ -301,45 +342,53 @@ try {
     },
     ['requestBody'],
   )
+} catch (error) {
+  console.log(error)
+}
 
-  Browser.webRequest.onBeforeSendHeaders.addListener(
-    (details) => {
-      const headers = details.requestHeaders
-      for (let i = 0; i < headers.length; i++) {
-        if (headers[i].name === 'Origin') {
-          headers[i].value = 'https://www.bing.com'
-        } else if (headers[i].name === 'Referer') {
-          headers[i].value = 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx'
-        }
+addWebRequestListenerWithFallback(
+  Browser.webRequest.onBeforeSendHeaders,
+  (details) => {
+    const headers = details.requestHeaders
+    for (let i = 0; i < headers.length; i++) {
+      if (headers[i].name === 'Origin') {
+        headers[i].value = 'https://www.bing.com'
+      } else if (headers[i].name === 'Referer') {
+        headers[i].value = 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx'
       }
-      return { requestHeaders: headers }
-    },
-    {
-      urls: ['wss://sydney.bing.com/*', 'https://www.bing.com/*'],
-      types: ['xmlhttprequest', 'websocket'],
-    },
-    ['requestHeaders'],
-  )
+    }
+    return { requestHeaders: headers }
+  },
+  {
+    urls: ['wss://sydney.bing.com/*', 'https://www.bing.com/*'],
+    types: ['xmlhttprequest', 'websocket'],
+  },
+  ['blocking', 'requestHeaders'],
+  ['requestHeaders'],
+)
 
-  Browser.webRequest.onBeforeSendHeaders.addListener(
-    (details) => {
-      const headers = details.requestHeaders
-      for (let i = 0; i < headers.length; i++) {
-        if (headers[i].name === 'Origin') {
-          headers[i].value = 'https://claude.ai'
-        } else if (headers[i].name === 'Referer') {
-          headers[i].value = 'https://claude.ai'
-        }
+addWebRequestListenerWithFallback(
+  Browser.webRequest.onBeforeSendHeaders,
+  (details) => {
+    const headers = details.requestHeaders
+    for (let i = 0; i < headers.length; i++) {
+      if (headers[i].name === 'Origin') {
+        headers[i].value = 'https://claude.ai'
+      } else if (headers[i].name === 'Referer') {
+        headers[i].value = 'https://claude.ai'
       }
-      return { requestHeaders: headers }
-    },
-    {
-      urls: ['https://claude.ai/*'],
-      types: ['xmlhttprequest'],
-    },
-    ['requestHeaders'],
-  )
+    }
+    return { requestHeaders: headers }
+  },
+  {
+    urls: ['https://claude.ai/*'],
+    types: ['xmlhttprequest'],
+  },
+  ['blocking', 'requestHeaders'],
+  ['requestHeaders'],
+)
 
+try {
   // eslint-disable-next-line no-undef
   if (typeof chrome !== 'undefined' && chrome.sidePanel) {
     Browser.tabs.onUpdated.addListener(async (tabId, info, tab) => {

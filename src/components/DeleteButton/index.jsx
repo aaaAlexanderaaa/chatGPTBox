@@ -15,6 +15,7 @@ function DeleteButton({ onConfirm, size, text, className }) {
   const { t } = useTranslation()
   const [waitConfirm, setWaitConfirm] = useState(false)
   const confirmRef = useRef(null)
+  const iconRef = useRef(null)
 
   useEffect(() => {
     if (waitConfirm) confirmRef.current.focus()
@@ -31,29 +32,48 @@ function DeleteButton({ onConfirm, size, text, className }) {
           ...(waitConfirm ? {} : { display: 'none' }),
         }}
         onMouseDown={(e) => {
-          e.preventDefault()
           e.stopPropagation()
         }}
         onBlur={() => {
           setWaitConfirm(false)
         }}
-        onClick={() => {
+        onClick={(e) => {
+          e.stopPropagation()
           setWaitConfirm(false)
           onConfirm()
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            setWaitConfirm(false)
+            iconRef.current?.focus()
+          }
         }}
       >
         {t('Confirm')}
       </button>
-      <span
+      <button
+        ref={iconRef}
+        type="button"
         title={text}
         className="gpt-util-icon"
-        style={waitConfirm ? { display: 'none' } : {}}
-        onClick={() => {
+        style={{
+          background: 'none',
+          border: 'none',
+          ...(waitConfirm ? { display: 'none' } : {}),
+        }}
+        aria-label={text}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+        }}
+        onClick={(e) => {
+          e.stopPropagation()
           setWaitConfirm(true)
         }}
       >
         <TrashIcon size={size} />
-      </span>
+      </button>
     </span>
   )
 }

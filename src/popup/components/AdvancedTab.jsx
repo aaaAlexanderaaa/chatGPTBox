@@ -1,8 +1,9 @@
 import PropTypes from 'prop-types'
 import { Download, Upload, RotateCcw, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { SettingRow, SettingSection, Divider } from './SettingComponents.jsx'
+import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
+import { ModelGroups } from '../../config/index.mjs'
 
 /**
  * AdvancedTab - Advanced settings and data management
@@ -23,6 +24,45 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
     100,
   )
   const temperatureValue = parseFloatWithClamp(config.temperature, 1, 0, 2)
+  const enabledProviders = config.enabledProviders || {}
+
+  const providerEntries = Object.entries(ModelGroups)
+  const providerOrder = [
+    'chatgptWebModelKeys',
+    'chatgptApiModelKeys',
+    'customApiModelKeys',
+    'azureOpenAiApiModelKeys',
+    'claudeApiModelKeys',
+    'claudeWebModelKeys',
+    'moonshotApiModelKeys',
+    'moonshotWebModelKeys',
+    'openRouterApiModelKeys',
+    'deepSeekApiModelKeys',
+    'aimlModelKeys',
+    'ollamaApiModelKeys',
+    'chatglmApiModelKeys',
+    'gptApiModelKeys',
+    'githubThirdPartyApiModelKeys',
+    'bingWebModelKeys',
+    'bardWebModelKeys',
+  ]
+  providerEntries.sort(([a], [b]) => {
+    const ia = providerOrder.indexOf(a)
+    const ib = providerOrder.indexOf(b)
+    if (ia === -1 && ib === -1) return a.localeCompare(b)
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
+
+  const updateProvider = (groupName, enabled) => {
+    updateConfig({
+      enabledProviders: {
+        ...enabledProviders,
+        [groupName]: enabled,
+      },
+    })
+  }
 
   return (
     <div className="space-y-4">
@@ -82,6 +122,27 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
             className="w-24 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
           />
         </SettingRow>
+      </SettingSection>
+
+      <Divider />
+
+      <SettingSection title={t('Providers & Models')}>
+        <ToggleRow
+          label={t('Show deprecated models')}
+          checked={config.showDeprecatedModels === true}
+          onChange={(value) => updateConfig({ showDeprecatedModels: value })}
+        />
+
+        <div className="pt-2 space-y-2">
+          {providerEntries.map(([groupName, { desc }]) => (
+            <ToggleRow
+              key={groupName}
+              label={t(desc)}
+              checked={enabledProviders[groupName] === true}
+              onChange={(value) => updateProvider(groupName, value)}
+            />
+          ))}
+        </div>
       </SettingSection>
 
       <Divider />

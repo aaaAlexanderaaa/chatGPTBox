@@ -29,6 +29,11 @@ export const ModelMode = {
   fast: 'Fast',
 }
 
+export const ModelStatus = {
+  active: 'active',
+  deprecated: 'deprecated',
+}
+
 export const chatgptWebModelKeys = [
   'chatgptFree35',
   'chatgptFree4o',
@@ -218,6 +223,123 @@ export const ModelGroups = {
     value: customApiModelKeys,
     desc: 'Custom Model',
   },
+}
+
+export const DefaultEnabledProviderGroups = {
+  chatgptWebModelKeys: true,
+  chatgptApiModelKeys: true,
+  customApiModelKeys: true,
+
+  // Everything else is Advanced-only by default.
+  claudeWebModelKeys: false,
+  moonshotWebModelKeys: false,
+  bingWebModelKeys: false,
+  bardWebModelKeys: false,
+  claudeApiModelKeys: false,
+  moonshotApiModelKeys: false,
+  chatglmApiModelKeys: false,
+  ollamaApiModelKeys: false,
+  azureOpenAiApiModelKeys: false,
+  gptApiModelKeys: false,
+  githubThirdPartyApiModelKeys: false,
+  deepSeekApiModelKeys: false,
+  openRouterApiModelKeys: false,
+  aimlModelKeys: false,
+}
+
+export const DefaultActiveModelKeysByGroup = {
+  chatgptWebModelKeys: ['chatgptFree35'],
+  chatgptApiModelKeys: [
+    'chatgptApi4oMini',
+    'chatgptApi4o_128k',
+    'chatgptApi4_1_mini',
+    'chatgptApi4_1',
+    'chatgptApi4_1_nano',
+  ],
+}
+
+export const DeprecatedModelKeys = [
+  // ChatGPT Web presets (prefer runtime listing; keep only "auto" as default)
+  'chatgptPlus4',
+  'chatgptPlus4Browsing',
+  'chatgptPlus4Mobile',
+  'chatgptFree35Mobile',
+
+  // OpenAI API legacy models
+  'chatgptApi35',
+  'chatgptApi35_16k',
+  'chatgptApi35_1106',
+  'chatgptApi35_0125',
+  'chatgptApi4_8k',
+  'chatgptApi4_8k_0613',
+  'chatgptApi4_32k',
+  'chatgptApi4_32k_0613',
+  'chatgptApi4_128k',
+  'chatgptApi4_128k_preview',
+  'chatgptApi4_128k_1106_preview',
+  'chatgptApi4_128k_0125_preview',
+
+  // GPT-5 is not shipped by default; hide unless confirmed by runtime /v1/models.
+  'chatgptApi5Latest',
+  'chatgptApiGpt5',
+  'chatgptApiGpt5Mini',
+  'chatgptApiGpt5Nano',
+  'chatgptApiO4Mini',
+
+  // OpenAI legacy completion models
+  'gptApiInstruct',
+  'gptApiDavinci',
+
+  // Anthropic Claude legacy models (example: Claude Sonnet 3.5)
+  'claude12Api',
+  'claude2Api',
+  'claude21Api',
+  'claude35SonnetApi',
+  'claude35HaikuApi',
+]
+
+const deprecatedModelKeySet = new Set(DeprecatedModelKeys)
+
+function getModelKeyBase(modelName) {
+  if (!modelName) return modelName
+  if (modelName.includes('-')) return modelName.split('-')[0]
+  return modelName
+}
+
+export function getModelStatus(modelName) {
+  const base = getModelKeyBase(modelName)
+  return deprecatedModelKeySet.has(base) ? ModelStatus.deprecated : ModelStatus.active
+}
+
+export function isModelDeprecated(modelName) {
+  return getModelStatus(modelName) === ModelStatus.deprecated
+}
+
+export function getModelProviderGroup(modelName) {
+  const base = getModelKeyBase(modelName)
+  if (base in ModelGroups) return base
+  const found = Object.entries(ModelGroups).find(([, group]) => group.value.includes(base))
+  if (!found) return null
+  const [groupName] = found
+  return groupName
+}
+
+export function getModelMeta(modelName) {
+  const providerGroup = getModelProviderGroup(modelName)
+  const status = getModelStatus(modelName)
+  return {
+    status,
+    providerGroup,
+    tags: [
+      providerGroup === 'chatgptWebModelKeys' || providerGroup === 'chatgptApiModelKeys'
+        ? 'official-openai'
+        : providerGroup === 'customApiModelKeys' || providerGroup === 'azureOpenAiApiModelKeys'
+        ? 'openai-compatible'
+        : providerGroup === 'ollamaApiModelKeys'
+        ? 'local'
+        : 'third-party',
+    ],
+  }
 }
 
 /**
@@ -511,7 +633,7 @@ export const defaultConfig = {
   codeThemeLight: 'github-light',
   codeThemeDark: 'github-dark',
   /** @type {keyof Models}*/
-  modelName: getNavigatorLanguage() === 'zh' ? 'moonshotWebFree' : 'claude2WebFree',
+  modelName: 'chatgptFree35',
   apiMode: null,
 
   preferredLanguage: getNavigatorLanguage(),
@@ -573,34 +695,27 @@ export const defaultConfig = {
   inputQuery: '',
   appendQuery: '',
   prependQuery: '',
+  enabledProviders: { ...DefaultEnabledProviderGroups },
+  showDeprecatedModels: false,
 
   // others
 
   alwaysCreateNewConversationWindow: false,
+  independentPanelSidebarCollapsed: false,
   // The handling of activeApiModes and customApiModes is somewhat complex.
   // It does not directly convert activeApiModes into customApiModes, which is for compatibility considerations.
   // It allows the content of activeApiModes to change with version updates when the user has not customized ApiModes.
   // If it were directly written into customApiModes, the value would become fixed, even if the user has not made any customizations.
   activeApiModes: [
-    'chatgptFree35',
-    'claude2WebFree',
-    'moonshotWebFree',
-    'ollamaModel',
-    'customModel',
-    'azureOpenAi',
-    'openRouter_anthropic_claude_sonnet4_5',
-    'openRouter_google_gemini_2_5_pro',
-    'openRouter_openai_o3',
-    'chatgptApiO4Mini',
-    'chatgptApiGpt5',
-    'chatgptApiGpt5Mini',
-    'chatgptApiGpt5Nano',
+    ...DefaultActiveModelKeysByGroup.chatgptWebModelKeys,
+    ...DefaultActiveModelKeysByGroup.chatgptApiModelKeys,
   ],
   customApiModes: [
     {
       groupName: '',
       itemName: '',
       isCustom: false,
+      displayName: '',
       customName: '',
       customUrl: '',
       apiKey: '',
@@ -828,6 +943,54 @@ export async function getUserConfig() {
     config.maxConversationContextLength = numericFix.maxConversationContextLength
     config.temperature = numericFix.temperature
     await Browser.storage.local.set(numericFix)
+  }
+
+  // Keep provider gating config forward-compatible with newly added provider groups.
+  const storedEnabledProviders =
+    config.enabledProviders && typeof config.enabledProviders === 'object'
+      ? config.enabledProviders
+      : {}
+  const enabledProviders = { ...DefaultEnabledProviderGroups, ...storedEnabledProviders }
+  const enabledNeedsFix =
+    !config.enabledProviders ||
+    Object.keys(DefaultEnabledProviderGroups).some(
+      (key) => storedEnabledProviders[key] === undefined,
+    )
+  config.enabledProviders = enabledProviders
+  if (enabledNeedsFix) {
+    await Browser.storage.local.set({ enabledProviders })
+  }
+
+  // Only treat an explicit boolean `true` as enabled.
+  config.showDeprecatedModels = config.showDeprecatedModels === true
+
+  // Ensure newly-added apiMode fields exist on persisted objects (upgrade compatibility).
+  let apiModeNeedsFix = false
+  if (config.apiMode && typeof config.apiMode === 'object') {
+    if (typeof config.apiMode.displayName !== 'string') {
+      config.apiMode.displayName = ''
+      apiModeNeedsFix = true
+    }
+  }
+
+  let customApiModesNeedsFix = false
+  if (Array.isArray(config.customApiModes)) {
+    const fixedCustomApiModes = config.customApiModes.map((apiMode) => {
+      if (!apiMode || typeof apiMode !== 'object') return apiMode
+      if (typeof apiMode.displayName === 'string') return apiMode
+      customApiModesNeedsFix = true
+      return { ...apiMode, displayName: '' }
+    })
+    if (customApiModesNeedsFix) {
+      config.customApiModes = fixedCustomApiModes
+    }
+  }
+
+  if (apiModeNeedsFix) {
+    await Browser.storage.local.set({ apiMode: config.apiMode })
+  }
+  if (customApiModesNeedsFix) {
+    await Browser.storage.local.set({ customApiModes: config.customApiModes })
   }
 
   const storedSiteAdapters = Array.isArray(options.siteAdapters)

@@ -61,11 +61,13 @@ export function initSession({
 
     aiName:
       modelName || apiMode
-        ? modelNameToDesc(
-            apiMode ? apiModeToModelName(apiMode) : modelName,
-            t,
-            extraCustomModelName,
-          )
+        ? apiMode?.displayName?.trim()
+          ? apiMode.displayName.trim()
+          : modelNameToDesc(
+              apiMode ? apiModeToModelName(apiMode) : modelName,
+              t,
+              extraCustomModelName,
+            )
         : null,
     modelName,
     apiMode,
