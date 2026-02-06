@@ -315,6 +315,114 @@ function addWebRequestListenerWithFallback(
   }
 }
 
+const DYNAMIC_HEADER_REWRITE_RULE_IDS = [1001, 1002, 1003]
+
+function getScopedHeaderRewriteRules(initiatorDomain) {
+  return [
+    {
+      id: 1001,
+      priority: 1,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          {
+            operation: 'set',
+            header: 'origin',
+            value: 'https://www.bing.com',
+          },
+          {
+            operation: 'set',
+            header: 'referer',
+            value: 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx',
+          },
+        ],
+      },
+      condition: {
+        requestDomains: ['sydney.bing.com', 'www.bing.com'],
+        resourceTypes: ['xmlhttprequest', 'websocket'],
+        initiatorDomains: [initiatorDomain],
+      },
+    },
+    {
+      id: 1002,
+      priority: 1,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          {
+            operation: 'set',
+            header: 'origin',
+            value: 'https://chatgpt.com',
+          },
+          {
+            operation: 'set',
+            header: 'referer',
+            value: 'https://chatgpt.com',
+          },
+        ],
+      },
+      condition: {
+        requestDomains: ['chatgpt.com'],
+        resourceTypes: ['xmlhttprequest'],
+        initiatorDomains: [initiatorDomain],
+      },
+    },
+    {
+      id: 1003,
+      priority: 1,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          {
+            operation: 'set',
+            header: 'origin',
+            value: 'https://claude.ai',
+          },
+          {
+            operation: 'set',
+            header: 'referer',
+            value: 'https://claude.ai',
+          },
+        ],
+      },
+      condition: {
+        requestDomains: ['claude.ai'],
+        resourceTypes: ['xmlhttprequest'],
+        initiatorDomains: [initiatorDomain],
+      },
+    },
+  ]
+}
+
+async function syncScopedHeaderRewriteRules() {
+  const updateDynamicRules = Browser.declarativeNetRequest?.updateDynamicRules
+  if (!updateDynamicRules) return
+
+  const extensionId = Browser.runtime?.id
+  if (!extensionId) return
+
+  try {
+    await updateDynamicRules.call(Browser.declarativeNetRequest, {
+      removeRuleIds: DYNAMIC_HEADER_REWRITE_RULE_IDS,
+      addRules: getScopedHeaderRewriteRules(extensionId),
+    })
+  } catch (error) {
+    console.log(error)
+  }
+}
+
+const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
+
+function isExtensionInitiatedRequest(details) {
+  const requestInitiator = details.initiator || details.originUrl || details.documentUrl
+  if (!requestInitiator) return false
+  try {
+    return new URL(requestInitiator).origin === extensionOrigin
+  } catch {
+    return false
+  }
+}
+
 try {
   Browser.webRequest.onBeforeRequest.addListener(
     (details) => {
@@ -349,6 +457,7 @@ try {
 addWebRequestListenerWithFallback(
   Browser.webRequest.onBeforeSendHeaders,
   (details) => {
+    if (!isExtensionInitiatedRequest(details)) return
     const headers = details.requestHeaders
     for (let i = 0; i < headers.length; i++) {
       if (headers[i].name === 'Origin') {
@@ -370,6 +479,7 @@ addWebRequestListenerWithFallback(
 addWebRequestListenerWithFallback(
   Browser.webRequest.onBeforeSendHeaders,
   (details) => {
+    if (!isExtensionInitiatedRequest(details)) return
     const headers = details.requestHeaders
     for (let i = 0; i < headers.length; i++) {
       if (headers[i].name === 'Origin') {
@@ -410,5 +520,6 @@ try {
 }
 
 registerPortListener(async (session, port, config) => await executeApi(session, port, config))
+syncScopedHeaderRewriteRules()
 registerCommands()
 refreshMenu()

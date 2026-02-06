@@ -106,7 +106,8 @@ export function getApiModesFromConfig(config, onlyActive) {
         return
       }
       if (modelName === 'azureOpenAi') modelName += '-' + config.azureDeploymentName
-      if (modelName === 'ollama') modelName += '-' + config.ollamaModelName
+      if (modelName === 'ollama' || modelName === 'ollamaModel')
+        modelName += '-' + (config.ollamaModelName || config.ollamaModel)
       return modelNameToApiMode(modelName)
     })
     .filter((apiMode) => apiMode)

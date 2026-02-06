@@ -26,6 +26,19 @@ async function request(token, method, path, data) {
   return { response, responseText }
 }
 
+const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
+
+function isTrustedChatgptDestination(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    return TRUSTED_CHATGPT_DESTINATION_SUFFIXES.some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    )
+  } catch {
+    return false
+  }
+}
+
 export async function sendMessageFeedback(token, data) {
   await request(token, 'POST', '/conversation/message_feedback', data)
 }
@@ -108,8 +121,8 @@ function generateProofToken(seed, diff, userAgent) {
 
   const core = cores[randomInt(0, cores.length)]
   const screen = screens[randomInt(0, screens.length)] + core
-  const react = cores[randomInt(0, reacts.length)]
-  const act = screens[randomInt(0, acts.length)]
+  const react = reacts[randomInt(0, reacts.length)]
+  const act = acts[randomInt(0, acts.length)]
 
   const parseTime = new Date().toString()
 
@@ -257,9 +270,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     )
   }
 
+  const url = `${config.customChatGptWebApiUrl}${config.customChatGptWebApiPath}`
+  const shouldAttachChatgptCookies = isTrustedChatgptDestination(url)
   let cookie
   let oaiDeviceId
-  if (Browser.cookies && Browser.cookies.getAll) {
+  if (shouldAttachChatgptCookies && Browser.cookies && Browser.cookies.getAll) {
     cookie = (await Browser.cookies.getAll({ url: 'https://chatgpt.com/' }))
       .map((cookie) => {
         return `${cookie.name}=${cookie.value}`
@@ -272,7 +287,6 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     oaiDeviceId = oaiCookie?.value
   }
 
-  const url = `${config.customChatGptWebApiUrl}${config.customChatGptWebApiPath}`
   session.messageId = uuidv4()
   session.wsRequestId = uuidv4()
   if (session.parentMessageId == null) {

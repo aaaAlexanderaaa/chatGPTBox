@@ -35,6 +35,7 @@ export const createSession = async (newSession) => {
 export const deleteSession = async (sessionId) => {
   const currentSessions = await getSessions()
   const index = currentSessions.findIndex((session) => session.sessionId === sessionId)
+  if (index === -1) return currentSessions
   currentSessions.splice(index, 1)
   if (currentSessions.length > 0) {
     await Browser.storage.local.set({ sessions: currentSessions })
@@ -52,11 +53,11 @@ export const getSession = async (sessionId) => {
 }
 
 export const updateSession = async (newSession) => {
-  newSession.updatedAt = new Date().toISOString()
   const currentSessions = await getSessions()
-  currentSessions[
-    currentSessions.findIndex((session) => session.sessionId === newSession.sessionId)
-  ] = newSession
+  const index = currentSessions.findIndex((session) => session.sessionId === newSession.sessionId)
+  if (index === -1) return currentSessions
+  newSession.updatedAt = new Date().toISOString()
+  currentSessions[index] = newSession
   await Browser.storage.local.set({ sessions: currentSessions })
   return currentSessions
 }
