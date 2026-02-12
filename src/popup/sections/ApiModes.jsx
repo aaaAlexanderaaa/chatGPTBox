@@ -24,7 +24,7 @@ ApiModes.propTypes = {
 
 const defaultApiMode = {
   groupName: 'chatgptWebModelKeys',
-  itemName: 'chatgptFree35',
+  itemName: 'chatgptWeb51Thinking',
   isCustom: false,
   displayName: '',
   customName: '',

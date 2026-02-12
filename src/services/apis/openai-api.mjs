@@ -6,6 +6,15 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
+import { buildFallbackQuestionWithContext, buildSystemPromptFromContext } from '../agent-context.mjs'
+import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
+import { appendToolEvents } from '../agent/session-state.mjs'
+import { AgentProtocol, resolveOpenAiCompatibleProtocol } from '../agent/protocols.mjs'
+import {
+  convertMessagesToResponsesInput,
+  extractResponsesOutputText,
+  postOpenAiResponses,
+} from './openai-responses-shared.mjs'
 
 /**
  * Extract content from structured response arrays for reasoning models
@@ -38,6 +47,30 @@ function extractContentFromArray(contentArray) {
   }
 }
 
+async function requestWithResponsesApi({
+  baseUrl,
+  apiKey,
+  model,
+  messages,
+  maxResponseTokenLength,
+  temperature,
+  extraBody = {},
+  signal,
+}) {
+  const converted = convertMessagesToResponsesInput(messages)
+  const body = {
+    ...extraBody,
+    model,
+    input: converted.input,
+    max_output_tokens: maxResponseTokenLength,
+    temperature,
+    store: false,
+  }
+  if (converted.instructions) body.instructions = converted.instructions
+  const payload = await postOpenAiResponses(baseUrl, apiKey, body, signal)
+  return extractResponsesOutputText(payload)
+}
+
 /**
  * @param {Browser.Runtime.Port} port
  * @param {string} question
@@ -49,11 +82,13 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
   const model = getModelValue(session)
 
   const config = await getUserConfig()
+  const systemPrompt = buildSystemPromptFromContext(session, config, question)
   const prompt =
     (await getCompletionPromptBase()) +
     getConversationPairs(
       session.conversationRecords.slice(-config.maxConversationContextLength),
       true,
+      { systemPrompt },
     ) +
     `Human: ${question}\nAI: `
   const apiUrl = config.customOpenAiApiUrl
@@ -152,13 +187,25 @@ export async function generateAnswersWithChatgptApiCompat(
   extraBody = {},
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const cleanupPortListeners = () => {
+    port.onMessage.removeListener(messageListener)
+    port.onDisconnect.removeListener(disconnectListener)
+  }
   const model = getModelValue(session)
   const isReasoningModel = isUsingReasoningModel(session)
 
   const config = await getUserConfig()
+  const protocol = resolveOpenAiCompatibleProtocol(baseUrl, config?.agentProtocol)
+  const systemPrompt = isReasoningModel
+    ? ''
+    : buildSystemPromptFromContext(session, config, question)
+  const composedQuestion = isReasoningModel
+    ? buildFallbackQuestionWithContext(question, session, config)
+    : question
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
+    systemPrompt ? { systemPrompt } : undefined,
   )
 
   // Filter messages based on model type
@@ -170,7 +217,7 @@ export async function generateAnswersWithChatgptApiCompat(
       })
     : prompt
 
-  filteredPrompt.push({ role: 'user', content: question })
+  filteredPrompt.push({ role: 'user', content: composedQuestion })
 
   let answer = ''
   let finished = false
@@ -219,6 +266,68 @@ export async function generateAnswersWithChatgptApiCompat(
     throw new Error(
       'Invalid or empty API key provided. Please check your OpenAI API key configuration.',
     )
+  }
+
+  if (!isReasoningModel) {
+    try {
+      const toolLoop = await runMcpToolLoopForOpenAiCompat({
+        protocol,
+        baseUrl,
+        apiKey,
+        model,
+        messages: filteredPrompt,
+        config,
+        session,
+        maxResponseTokenLength: config.maxResponseTokenLength,
+        temperature: config.temperature,
+        extraBody,
+        signal: controller.signal,
+      })
+
+      if (toolLoop) {
+        appendToolEvents(session, toolLoop.events, { limit: config?.agentToolEventLimit })
+        if (shouldShortCircuitWithToolLoop(toolLoop)) {
+          answer = toolLoop.answer || ''
+          if (answer) port.postMessage({ answer, done: false, session: null })
+          finish()
+          cleanupPortListeners()
+          return
+        }
+      }
+    } catch (error) {
+      appendToolEvents(
+        session,
+        [
+          {
+            type: 'mcp_tool_loop',
+            status: 'failed',
+            reason: error?.message || String(error),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        { limit: config?.agentToolEventLimit },
+      )
+    }
+  }
+
+  if (!isReasoningModel && protocol === AgentProtocol.openAiResponsesV1) {
+    try {
+      answer = await requestWithResponsesApi({
+        baseUrl,
+        apiKey,
+        model,
+        messages: filteredPrompt,
+        maxResponseTokenLength: config.maxResponseTokenLength,
+        temperature: config.temperature,
+        extraBody,
+        signal: controller.signal,
+      })
+      if (answer) port.postMessage({ answer, done: false, session: null })
+      finish()
+      return
+    } finally {
+      cleanupPortListeners()
+    }
   }
 
   await fetchSSE(`${baseUrl}/chat/completions`, {
@@ -304,12 +413,10 @@ export async function generateAnswersWithChatgptApiCompat(
     async onStart() {},
     async onEnd() {
       port.postMessage({ done: true })
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
+      cleanupPortListeners()
     },
     async onError(resp) {
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
+      cleanupPortListeners()
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)

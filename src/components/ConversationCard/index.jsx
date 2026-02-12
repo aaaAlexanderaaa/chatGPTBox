@@ -5,7 +5,9 @@ import InputBox from '../InputBox'
 import ConversationItem from '../ConversationItem'
 import {
   apiModeToModelName,
+  buildPageContextSnapshot,
   createElementAtPosition,
+  extractTemplateVariables,
   getApiModesFromConfig,
   isApiModeSelected,
   isFirefox,
@@ -40,6 +42,15 @@ import { initSession } from '../../services/init-session.mjs'
 import { findLastIndex } from 'lodash-es'
 import { generateAnswersWithBingWebApi } from '../../services/apis/bing-web.mjs'
 import { handlePortError } from '../../services/wrappers.mjs'
+import {
+  getAssistants,
+  isAgentContextAllowedForSession,
+  getMcpServers,
+  getSkills,
+  resolveAssistant,
+  resolveSelectedMcpServerIds,
+  resolveSelectedSkillIds,
+} from '../../services/agent-context.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 
@@ -72,6 +83,8 @@ function ConversationCard(props) {
   const [modelPickerQuery, setModelPickerQuery] = useState('')
   const modelPickerRef = useRef(null)
   const modelPickerInputRef = useRef(null)
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false)
+  const agentPickerRef = useRef(null)
 
   /**
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
@@ -124,12 +137,22 @@ function ConversationCard(props) {
     }
   }, [conversationItemData])
 
-  useEffect(async () => {
+  useEffect(() => {
     // when the page is responsive, session may accumulate redundant data and needs to be cleared after remounting and before making a new request
-    if (props.question && triggered) {
-      const newSession = initSession({ ...session, question: props.question })
+    if (!props.question || !triggered) return
+
+    let cancelled = false
+    ;(async () => {
+      const runtimeConfig = await getUserConfig()
+      if (cancelled) return
+      const nextSession = initSession({ ...session, question: props.question })
+      const newSession = withCurrentPageContext(nextSession, runtimeConfig)
       setSession(newSession)
       await postMessage({ session: newSession })
+    })()
+
+    return () => {
+      cancelled = true
     }
   }, [props.question, triggered]) // usually only triggered once
 
@@ -175,6 +198,37 @@ function ConversationCard(props) {
     const id = setTimeout(() => modelPickerInputRef.current?.focus(), 0)
     return () => clearTimeout(id)
   }, [modelPickerOpen])
+
+  useEffect(() => {
+    if (!agentPickerOpen) return
+    const handleClickOutside = (event) => {
+      if (!agentPickerRef.current) return
+      if (!agentPickerRef.current.contains(event.target)) {
+        setAgentPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [agentPickerOpen])
+
+  useEffect(() => {
+    // One-time migration: ensure agent-context fields exist on legacy sessions
+    setSession((prev) => {
+      if (!prev || typeof prev !== 'object') return prev
+      const patch = {}
+      if (!('selectedSkillIds' in prev)) patch.selectedSkillIds = null
+      if (!('selectedMcpServerIds' in prev)) patch.selectedMcpServerIds = null
+      if (typeof prev.systemPromptOverride !== 'string') patch.systemPromptOverride = ''
+      if (!('assistantId' in prev)) patch.assistantId = null
+      if (!('pageContext' in prev) || (prev.pageContext && typeof prev.pageContext !== 'object'))
+        patch.pageContext = null
+      if (!('toolEvents' in prev) || !Array.isArray(prev.toolEvents)) patch.toolEvents = []
+      if (!('agentMemory' in prev) || (prev.agentMemory && typeof prev.agentMemory !== 'object'))
+        patch.agentMemory = null
+      if (Object.keys(patch).length === 0) return prev
+      return { ...prev, ...patch }
+    })
+  }, [])
 
   /**
    * @param {string} value
@@ -432,6 +486,116 @@ function ConversationCard(props) {
     })
   }, [modelPickerOptions, modelPickerQuery])
 
+  const assistants = useMemo(
+    () => getAssistants(config).filter((assistant) => assistant.active !== false),
+    [config.assistants],
+  )
+  const skills = useMemo(
+    () => getSkills(config).filter((skill) => skill.active !== false),
+    [config.installedSkills],
+  )
+  const mcpServers = useMemo(
+    () => getMcpServers(config).filter((server) => server.active !== false),
+    [config.mcpServers],
+  )
+  const resolvedAssistant = useMemo(
+    () => resolveAssistant(session, config),
+    [config.assistants, config.defaultAssistantId, session.assistantId],
+  )
+  const selectedSkillIds = useMemo(
+    () => resolveSelectedSkillIds(session, config, resolvedAssistant),
+    [config.defaultSkillIds, resolvedAssistant, session.selectedSkillIds],
+  )
+  const selectedMcpServerIds = useMemo(
+    () => resolveSelectedMcpServerIds(session, config, resolvedAssistant),
+    [config.defaultMcpServerIds, resolvedAssistant, session.selectedMcpServerIds],
+  )
+  const assistantSelectValue = useMemo(() => {
+    if (typeof session.assistantId === 'string') return session.assistantId
+    return resolvedAssistant?.id || ''
+  }, [resolvedAssistant, session.assistantId])
+  const recentToolEvents = useMemo(() => {
+    const events = Array.isArray(session.toolEvents) ? session.toolEvents : []
+    return events.slice(-5).reverse()
+  }, [session.toolEvents])
+  const agentContextEnabled = useMemo(
+    () => isAgentContextAllowedForSession(session),
+    [session.apiMode, session.modelName],
+  )
+  const withCurrentPageContext = useCallback(
+    (baseSession, runtimeConfig = config) => {
+      if (!isAgentContextAllowedForSession(baseSession)) {
+        return {
+          ...baseSession,
+          pageContext: null,
+        }
+      }
+      const effectiveAssistant = resolveAssistant(baseSession, runtimeConfig)
+      const effectiveSelectedSkillIds = resolveSelectedSkillIds(
+        baseSession,
+        runtimeConfig,
+        effectiveAssistant,
+      )
+      const effectiveSelectedMcpServerIds = resolveSelectedMcpServerIds(
+        baseSession,
+        runtimeConfig,
+        effectiveAssistant,
+      )
+
+      const shouldAttachPageContext =
+        (typeof baseSession.systemPromptOverride === 'string' &&
+          baseSession.systemPromptOverride.trim()) ||
+        Boolean(effectiveAssistant) ||
+        effectiveSelectedSkillIds.length > 0 ||
+        effectiveSelectedMcpServerIds.length > 0
+
+      if (!shouldAttachPageContext) return { ...baseSession, pageContext: null }
+
+      let shouldCaptureFullHtmlContext = false
+      if (runtimeConfig.runtimeMode === 'developer') {
+        const templates = []
+        if (
+          typeof baseSession.systemPromptOverride === 'string' &&
+          baseSession.systemPromptOverride.trim()
+        ) {
+          templates.push(baseSession.systemPromptOverride)
+        }
+        if (effectiveAssistant?.systemPrompt) templates.push(effectiveAssistant.systemPrompt)
+
+        const selected = new Set(effectiveSelectedSkillIds)
+        const effectiveSkills = getSkills(runtimeConfig).filter(
+          (skill) => skill.active !== false && selected.has(skill.id),
+        )
+        for (const skill of effectiveSkills) {
+          if (typeof skill.instructions === 'string' && skill.instructions.trim()) {
+            templates.push(skill.instructions)
+          }
+        }
+
+        shouldCaptureFullHtmlContext = templates.some((template) => {
+          const variables = extractTemplateVariables(template)
+          return variables.includes('fullhtml') || variables.includes('bodyhtml')
+        })
+      }
+
+      try {
+        const snapshot = buildPageContextSnapshot(runtimeConfig.customContentExtractors, {
+          includeFullHtml: shouldCaptureFullHtmlContext,
+        })
+        if (snapshot) return { ...baseSession, pageContext: snapshot }
+      } catch (error) {
+        console.debug('Failed to capture page context snapshot:', error)
+      }
+      return { ...baseSession, pageContext: null }
+    },
+    [config],
+  )
+
+  const toggleSelectedId = useCallback((currentIds, targetId) => {
+    if (currentIds.includes(targetId)) return currentIds.filter((id) => id !== targetId)
+    return [...currentIds, targetId]
+  }, [])
+
   const applyModelSelection = useCallback(
     ({ apiMode, modelName }) => {
       const newSession = {
@@ -633,6 +797,227 @@ function ConversationCard(props) {
               </div>
             )}
           </div>
+          <div ref={agentPickerRef} style={{ position: 'relative', marginLeft: '8px' }}>
+            <button
+              type="button"
+              className="normal-button"
+              onClick={() => setAgentPickerOpen((v) => !v)}
+              title={t('Assistant / Skills / MCP')}
+            >
+              {resolvedAssistant?.name || t('No assistant')}
+              <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
+            </button>
+            {agentPickerOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '6px',
+                  zIndex: 1000,
+                  minWidth: '320px',
+                  maxWidth: '420px',
+                  background: 'var(--popover)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.75rem',
+                  overflow: 'hidden',
+                  boxShadow: 'var(--shadow-lg)',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '12px',
+                    borderBottom: '1px solid var(--border)',
+                    background: 'var(--card)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}
+                >
+                  {!agentContextEnabled && (
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        color: 'var(--muted-foreground)',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {t(
+                        'Assistant/Skills/MCP are disabled for ChatGPT Web models. Switch to API or Custom API to use agent context.',
+                      )}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Assistant')}</div>
+                  <select
+                    value={assistantSelectValue}
+                    disabled={!agentContextEnabled}
+                    onChange={(e) => {
+                      if (!agentContextEnabled) return
+                      const assistantId = e.target.value
+                      setSession({
+                        ...session,
+                        assistantId,
+                        selectedSkillIds: null,
+                        selectedMcpServerIds: null,
+                      })
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--input)',
+                      color: 'var(--foreground)',
+                      borderRadius: '0.5rem',
+                      padding: '0 10px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <option value="">{t('None')}</option>
+                    {assistants.map((assistant) => (
+                      <option key={assistant.id} value={assistant.id}>
+                        {assistant.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                    {t('Runtime mode')}: {config.runtimeMode || 'safe'}
+                  </div>
+                </div>
+
+                <div style={{ padding: '12px', maxHeight: '360px', overflow: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('System Prompt')}</div>
+                    <textarea
+                      value={session.systemPromptOverride || ''}
+                      disabled={!agentContextEnabled}
+                      onChange={(e) => {
+                        if (!agentContextEnabled) return
+                        setSession({ ...session, systemPromptOverride: e.target.value })
+                      }}
+                      placeholder={resolvedAssistant?.systemPrompt || t('Optional override')}
+                      style={{
+                        width: '100%',
+                        minHeight: '72px',
+                        border: '1px solid var(--border)',
+                        background: 'var(--input)',
+                        color: 'var(--foreground)',
+                        borderRadius: '0.5rem',
+                        padding: '8px 10px',
+                        fontSize: '12px',
+                        resize: 'vertical',
+                      }}
+                    />
+
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Skills')}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {skills.length === 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                          {t('No skills configured')}
+                        </div>
+                      )}
+                      {skills.map((skill) => (
+                        <label
+                          key={skill.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12px',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedSkillIds.includes(skill.id)}
+                            disabled={!agentContextEnabled}
+                            onChange={() => {
+                              if (!agentContextEnabled) return
+                              setSession({
+                                ...session,
+                                selectedSkillIds: toggleSelectedId(selectedSkillIds, skill.id),
+                              })
+                            }}
+                          />
+                          <span>
+                            {skill.name}
+                            {skill.version ? ` (v${skill.version})` : ''}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('MCP')}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {mcpServers.length === 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                          {t('No MCP servers configured')}
+                        </div>
+                      )}
+                      {mcpServers.map((server) => (
+                        <label
+                          key={server.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12px',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedMcpServerIds.includes(server.id)}
+                            disabled={!agentContextEnabled}
+                            onChange={() => {
+                              if (!agentContextEnabled) return
+                              setSession({
+                                ...session,
+                                selectedMcpServerIds: toggleSelectedId(
+                                  selectedMcpServerIds,
+                                  server.id,
+                                ),
+                              })
+                            }}
+                          />
+                          <span>
+                            {server.name} [{server.transport}]
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Tool Trace')}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {recentToolEvents.length === 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                          {t('No tool events yet')}
+                        </div>
+                      )}
+                      {recentToolEvents.map((event, index) => (
+                        <div
+                          key={`${event.createdAt || 'evt'}-${index}`}
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--muted-foreground)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            padding: '6px 8px',
+                            background: 'var(--input)',
+                          }}
+                        >
+                          <div>
+                            {event.type || 'event'} / {event.status || 'unknown'}
+                          </div>
+                          <div>
+                            {[event.serverName, event.toolName].filter(Boolean).join(' · ') ||
+                              (event.reason ? event.reason : t('No details'))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </span>
         {props.draggable && !completeDraggable && (
           <div className="draggable" style={{ flexGrow: 2, cursor: 'move', height: '55px' }} />
@@ -811,7 +1196,7 @@ function ConversationCard(props) {
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
-            const newSession = { ...session, question, isRetry: false }
+            const newSession = withCurrentPageContext({ ...session, question, isRetry: false })
             setSession(newSession)
             try {
               await postMessage({ session: newSession })

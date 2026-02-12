@@ -1,6 +1,6 @@
 import './styles.css'
 import { useEffect, useState } from 'preact/hooks'
-import { Settings, Layers, Puzzle, Sliders, ExternalLink } from 'lucide-react'
+import { Settings, Layers, Puzzle, Sliders, ExternalLink, Bot } from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -17,12 +17,14 @@ import { applyDocumentAppearance } from '../utils/appearance.mjs'
 import { GeneralTab } from './components/GeneralTab.jsx'
 import { FeaturesTab } from './components/FeaturesTab.jsx'
 import { ModulesTab } from './components/ModulesTab.jsx'
+import { AgentsTab } from './components/AgentsTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
 
 // Tab configuration
 const TABS = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'features', label: 'Features', icon: Layers },
+  { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'modules', label: 'Modules', icon: Puzzle },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
@@ -158,9 +160,11 @@ function Popup() {
             config={config}
             updateConfig={updateConfig}
             onNavigateToModules={() => setActiveTab('modules')}
+            onNavigateToAgents={() => setActiveTab('agents')}
           />
         )}
         {activeTab === 'features' && <FeaturesTab config={config} updateConfig={updateConfig} />}
+        {activeTab === 'agents' && <AgentsTab config={config} updateConfig={updateConfig} />}
         {activeTab === 'modules' && <ModulesTab config={config} updateConfig={updateConfig} />}
         {activeTab === 'advanced' && (
           <AdvancedTab

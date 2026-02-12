@@ -66,7 +66,13 @@ export const config = {
         // eslint-disable-next-line no-undef
         chrome.sidePanel.open({ windowId: tab.windowId, tabId: tab.id })
       } else {
-        // side panel is not supported
+        Browser.runtime.sendMessage({
+          type: 'OPEN_SIDE_PANEL',
+          data: {
+            tabId: tab?.id,
+            windowId: tab?.windowId,
+          },
+        })
       }
     },
   },

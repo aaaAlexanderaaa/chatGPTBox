@@ -91,6 +91,7 @@ Open the Settings UI from the extension icon (or open the extension options page
 
 - **General**: model/provider selection, language, trigger behavior, and appearance (Light/Dark/Auto, accent color/strength, code theme).
 - **Features**: enable/disable site integrations and page tools.
+- **Agents**: assistants, imported skills (ZIP packages), and MCP server endpoints.
 - **Modules**: API mode list, selection tools, and extractors.
 - **Advanced**: context length, max tokens, temperature, custom endpoints, and export/import/reset settings.
 

@@ -3,7 +3,7 @@ import { render as preactRender } from 'preact'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
-import { getClientPosition, setElementPositionInViewport } from '../../utils'
+import { getClientPosition, resolvePromptTemplate, setElementPositionInViewport } from '../../utils'
 import Draggable from 'react-draggable'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -345,7 +345,13 @@ function FloatingToolbar(props) {
           iconKey: tool.iconKey || 'ask',
           name: tool.name,
           genPrompt: async (selection) => {
-            return tool.prompt.replace('{{selection}}', selection)
+            return resolvePromptTemplate(tool.prompt, {
+              selection,
+              customExtractors: config.customContentExtractors,
+              preloadTokenCap: config.agentPreloadContextTokenCap,
+              contextTokenCap: config.agentContextTokenCap,
+              allowFullHtml: config.runtimeMode === 'developer',
+            })
           },
         })
       }

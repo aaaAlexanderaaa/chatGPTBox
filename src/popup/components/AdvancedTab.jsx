@@ -1,9 +1,11 @@
 import PropTypes from 'prop-types'
 import { Download, Upload, RotateCcw, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import Browser from 'webextension-polyfill'
 import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
-import { ModelGroups } from '../../config/index.mjs'
+import { CHATGPT_WEB_DEBUG_LOG_KEY, ModelGroups } from '../../config/index.mjs'
 
 /**
  * AdvancedTab - Advanced settings and data management
@@ -11,6 +13,70 @@ import { ModelGroups } from '../../config/index.mjs'
  */
 export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset }) {
   const { t } = useTranslation()
+  const [webDebugLogs, setWebDebugLogs] = useState([])
+  const [webDebugLoading, setWebDebugLoading] = useState(false)
+  const [webDebugError, setWebDebugError] = useState('')
+  const [selectedWebDebugIndex, setSelectedWebDebugIndex] = useState(-1)
+
+  const loadWebDebugLogs = useCallback(async () => {
+    setWebDebugLoading(true)
+    setWebDebugError('')
+    try {
+      const data = await Browser.storage.local.get({ [CHATGPT_WEB_DEBUG_LOG_KEY]: [] })
+      const logs = Array.isArray(data[CHATGPT_WEB_DEBUG_LOG_KEY])
+        ? data[CHATGPT_WEB_DEBUG_LOG_KEY]
+        : []
+      setWebDebugLogs(logs)
+    } catch (error) {
+      setWebDebugError(error?.message || String(error))
+    } finally {
+      setWebDebugLoading(false)
+    }
+  }, [])
+
+  const clearWebDebugLogs = useCallback(async () => {
+    setWebDebugError('')
+    try {
+      await Browser.storage.local.set({ [CHATGPT_WEB_DEBUG_LOG_KEY]: [] })
+      setWebDebugLogs([])
+      setSelectedWebDebugIndex(-1)
+    } catch (error) {
+      setWebDebugError(error?.message || String(error))
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadWebDebugLogs()
+  }, [loadWebDebugLogs])
+
+  useEffect(() => {
+    if (config.debugChatgptWebRequests !== true) return
+    const timer = setInterval(() => {
+      void loadWebDebugLogs()
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [config.debugChatgptWebRequests, loadWebDebugLogs])
+
+  useEffect(() => {
+    if (webDebugLogs.length === 0) {
+      if (selectedWebDebugIndex !== -1) setSelectedWebDebugIndex(-1)
+      return
+    }
+    if (selectedWebDebugIndex < 0 || selectedWebDebugIndex >= webDebugLogs.length) {
+      setSelectedWebDebugIndex(webDebugLogs.length - 1)
+    }
+  }, [webDebugLogs, selectedWebDebugIndex])
+
+  const selectedWebDebugEntry = useMemo(() => {
+    if (selectedWebDebugIndex < 0 || selectedWebDebugIndex >= webDebugLogs.length) return null
+    return webDebugLogs[selectedWebDebugIndex]
+  }, [webDebugLogs, selectedWebDebugIndex])
+
+  const orderedWebDebugIndexes = useMemo(
+    () => webDebugLogs.map((_, index) => index).sort((a, b) => b - a),
+    [webDebugLogs],
+  )
+
   const maxResponseTokenLengthValue = parseIntWithClamp(
     config.maxResponseTokenLength,
     2000,
@@ -132,6 +198,11 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
           checked={config.showDeprecatedModels === true}
           onChange={(value) => updateConfig({ showDeprecatedModels: value })}
         />
+        <ToggleRow
+          label={t('Debug ChatGPT Web Requests')}
+          checked={config.debugChatgptWebRequests === true}
+          onChange={(value) => updateConfig({ debugChatgptWebRequests: value })}
+        />
 
         <div className="pt-2 space-y-2">
           {providerEntries.map(([groupName, { desc }]) => (
@@ -142,6 +213,69 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
               onChange={(value) => updateProvider(groupName, value)}
             />
           ))}
+        </div>
+      </SettingSection>
+
+      <Divider />
+
+      <SettingSection title={t('ChatGPT Web Debug Viewer')}>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void loadWebDebugLogs()}
+            className="px-3 py-1.5 text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+          >
+            {t('Refresh Logs')}
+          </button>
+          <button
+            onClick={() => void clearWebDebugLogs()}
+            className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors"
+          >
+            {t('Clear Logs')}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {webDebugLoading ? t('Loading...') : `${webDebugLogs.length} ${t('entries')}`}
+          </span>
+        </div>
+
+        {webDebugError && <div className="text-xs text-destructive">{webDebugError}</div>}
+
+        <div className="space-y-2">
+          <div className="max-h-40 overflow-auto border border-border rounded-lg bg-card">
+            {orderedWebDebugIndexes.length === 0 && (
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                {t('No debug logs yet')}
+              </div>
+            )}
+            {orderedWebDebugIndexes.map((entryIndex) => {
+              const entry = webDebugLogs[entryIndex]
+              const selected = entryIndex === selectedWebDebugIndex
+              const stage = entry?.stage || 'unknown'
+              const at = typeof entry?.at === 'string' ? entry.at : ''
+              return (
+                <button
+                  key={`${entryIndex}-${at}`}
+                  type="button"
+                  onClick={() => setSelectedWebDebugIndex(entryIndex)}
+                  className={`w-full px-3 py-2 text-left text-xs border-b border-border/50 last:border-b-0 ${
+                    selected
+                      ? 'bg-secondary text-foreground'
+                      : 'text-muted-foreground hover:bg-secondary/50'
+                  }`}
+                >
+                  <div className="font-medium">{stage}</div>
+                  <div className="truncate">{at}</div>
+                </button>
+              )
+            })}
+          </div>
+
+          <textarea
+            readOnly
+            rows={10}
+            value={selectedWebDebugEntry ? JSON.stringify(selectedWebDebugEntry, null, 2) : ''}
+            placeholder={t('Select a debug entry to inspect request/response details')}
+            className="w-full px-3 py-2 text-xs font-mono bg-input border border-border rounded-lg focus:outline-none text-foreground"
+          />
         </div>
       </SettingSection>
 

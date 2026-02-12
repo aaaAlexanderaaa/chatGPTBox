@@ -247,6 +247,27 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.modules-legacy .button:hover {
+  background: color-mix(in srgb, var(--secondary) 75%, var(--card));
+  border-color: color-mix(in srgb, var(--border) 70%, var(--primary));
+}
+
+.modules-legacy .button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .modules-legacy .button-primary {

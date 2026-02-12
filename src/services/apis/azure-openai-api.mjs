@@ -4,6 +4,7 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { buildSystemPromptFromContext } from '../agent-context.mjs'
 
 /**
  * @param {Runtime.Port} port
@@ -16,9 +17,11 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
   let model = getModelValue(session)
   if (!model) model = config.azureDeploymentName
 
+  const systemPrompt = buildSystemPromptFromContext(session, config, question)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
+    { systemPrompt },
   )
   prompt.push({ role: 'user', content: question })
 

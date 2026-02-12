@@ -12,5 +12,6 @@ CLAUDE.md
 AGENTS.md
 settings.json
 settings.local.json
+# Local planning and execution tracking artifacts
 plan.md
 tasks.csv

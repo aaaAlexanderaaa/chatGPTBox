@@ -22,6 +22,7 @@ import {
   getPossibleElementByQuerySelector,
   getCoreContentText,
   getExtractedContentWithMetadata,
+  resolvePromptTemplate,
 } from '../utils'
 import FloatingToolbar from '../components/FloatingToolbar'
 import Browser from 'webextension-polyfill'
@@ -189,6 +190,9 @@ const createSelectionTools = async (toolbarContainer, selection) => {
         modelName: userConfig.modelName,
         apiMode: userConfig.apiMode,
         extraCustomModelName: userConfig.customModelName,
+        assistantId: '',
+        selectedSkillIds: [],
+        selectedMcpServerIds: [],
       })}
       selection={selection}
       container={toolbarContainer}
@@ -330,7 +334,13 @@ async function prepareForRightClickMenu() {
             if (!textToUse && customTool.usePageContext) {
               textToUse = getCoreContentText()
             }
-            prompt = customTool.prompt.replace('{{selection}}', textToUse || '')
+            prompt = resolvePromptTemplate(customTool.prompt, {
+              selection: textToUse || '',
+              customExtractors: userConfig.customContentExtractors,
+              preloadTokenCap: userConfig.agentPreloadContextTokenCap,
+              contextTokenCap: userConfig.agentContextTokenCap,
+              allowFullHtml: userConfig.runtimeMode === 'developer',
+            })
           }
         }
       } else if (data.itemId in menuConfig) {
@@ -351,6 +361,9 @@ async function prepareForRightClickMenu() {
             modelName: userConfig.modelName,
             apiMode: userConfig.apiMode,
             extraCustomModelName: userConfig.customModelName,
+            assistantId: '',
+            selectedSkillIds: [],
+            selectedMcpServerIds: [],
           })}
           selection={data.selectionText}
           container={container}

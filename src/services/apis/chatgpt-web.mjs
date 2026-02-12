@@ -2,7 +2,12 @@
 
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
-import { getUserConfig, Models } from '../../config/index.mjs'
+import {
+  CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+  CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
+  CHATGPT_WEB_DEBUG_LOG_KEY,
+  getUserConfig,
+} from '../../config/index.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'
@@ -27,6 +32,100 @@ async function request(token, method, path, data) {
 }
 
 const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
+const LEGACY_CHATGPT_WEB_MODEL_SLUGS = new Set([
+  'auto',
+  'gpt-4',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'text-davinci-002-render-sha-mobile',
+  'gpt-4-mobile',
+])
+const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
+const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'openai-sentinel-arkose-token',
+  'openai-sentinel-chat-requirements-token',
+  'openai-sentinel-proof-token',
+  'oai-device-id',
+])
+
+function truncateString(value, maxLength = 2000) {
+  if (typeof value !== 'string') return value
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}...[truncated:${value.length}]`
+}
+
+function safeRawJson(value, maxLength = 32000) {
+  try {
+    const json = JSON.stringify(value)
+    return truncateString(json, maxLength)
+  } catch (error) {
+    return `[unserializable:${error?.message || String(error)}]`
+  }
+}
+
+function sanitizeDebugHeaders(headers = {}) {
+  const safeHeaders = {}
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = String(key || '').toLowerCase()
+    if (CHATGPT_WEB_SENSITIVE_HEADERS.has(lower)) {
+      safeHeaders[key] = '[REDACTED]'
+    } else {
+      safeHeaders[key] = truncateString(String(value || ''), 200)
+    }
+  }
+  return safeHeaders
+}
+
+function sanitizeDebugRequestBody(body) {
+  if (!body || typeof body !== 'object') return body
+  const safeBody = {
+    ...body,
+  }
+
+  if (Array.isArray(safeBody.messages)) {
+    safeBody.messages = safeBody.messages.map((message) => {
+      if (!message || typeof message !== 'object') return message
+      const safeMessage = { ...message }
+      if (
+        safeMessage.content &&
+        typeof safeMessage.content === 'object' &&
+        Array.isArray(safeMessage.content.parts)
+      ) {
+        safeMessage.content = {
+          ...safeMessage.content,
+          parts: safeMessage.content.parts.map((part) =>
+            typeof part === 'string' ? truncateString(part, 400) : part,
+          ),
+        }
+      }
+      return safeMessage
+    })
+  }
+
+  return safeBody
+}
+
+async function appendChatgptWebDebugLog(config, stage, payload = {}) {
+  if (config?.debugChatgptWebRequests !== true) return
+  const entry = {
+    at: new Date().toISOString(),
+    stage,
+    payload,
+  }
+  console.debug('[chatgpt-web-debug]', entry)
+  try {
+    const data = await Browser.storage.local.get({ [CHATGPT_WEB_DEBUG_LOG_KEY]: [] })
+    const current = Array.isArray(data[CHATGPT_WEB_DEBUG_LOG_KEY])
+      ? data[CHATGPT_WEB_DEBUG_LOG_KEY]
+      : []
+    const next = [...current, entry].slice(-CHATGPT_WEB_DEBUG_LOG_LIMIT)
+    await Browser.storage.local.set({ [CHATGPT_WEB_DEBUG_LOG_KEY]: next })
+  } catch (error) {
+    console.debug('Failed to persist chatgpt web debug log', error)
+  }
+}
 
 function isTrustedChatgptDestination(url) {
   try {
@@ -62,7 +161,118 @@ export async function sendModerations(token, question, conversationId, messageId
 
 export async function getModels(token) {
   const response = JSON.parse((await request(token, 'GET', '/models')).responseText)
-  if (response.models) return response.models.map((m) => m.slug)
+  const modelSlugs = new Set()
+
+  if (Array.isArray(response?.models)) {
+    response.models.forEach((model) => {
+      if (model?.slug) modelSlugs.add(model.slug)
+    })
+  }
+
+  if (Array.isArray(response?.categories)) {
+    response.categories.forEach((category) => {
+      if (category?.default_model) modelSlugs.add(category.default_model)
+      if (Array.isArray(category?.supported_models)) {
+        category.supported_models.forEach((slug) => {
+          if (slug) modelSlugs.add(slug)
+        })
+      }
+    })
+  }
+
+  if (Array.isArray(response?.versions)) {
+    response.versions.forEach((version) => {
+      if (Array.isArray(version?.slugs)) {
+        version.slugs.forEach((slug) => {
+          if (slug) modelSlugs.add(slug)
+        })
+      }
+    })
+  }
+
+  if (typeof response?.default_model_slug === 'string' && response.default_model_slug.trim()) {
+    modelSlugs.add(response.default_model_slug.trim())
+  }
+
+  return [...modelSlugs]
+}
+
+function resolveChatgptWebModel({
+  selectedModel,
+  availableModels,
+  fallbackModel = CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+}) {
+  const normalizedSelectedModel =
+    typeof selectedModel === 'string' ? selectedModel.trim() : selectedModel
+  const hasExplicitSelection =
+    typeof normalizedSelectedModel === 'string' && normalizedSelectedModel.length > 0
+  const selectedIsLegacy = LEGACY_CHATGPT_WEB_MODEL_SLUGS.has(normalizedSelectedModel)
+
+  if (hasExplicitSelection && !selectedIsLegacy) {
+    if (Array.isArray(availableModels) && availableModels.length > 0) {
+      if (availableModels.includes(normalizedSelectedModel)) {
+        return {
+          model: normalizedSelectedModel,
+          selectionReason: 'selected_in_catalog',
+          catalogHit: true,
+        }
+      }
+      // Keep explicit user choice even if /models does not currently include it.
+      return {
+        model: normalizedSelectedModel,
+        selectionReason: 'selected_forced_not_in_catalog',
+        catalogHit: false,
+      }
+    }
+    return {
+      model: normalizedSelectedModel,
+      selectionReason: 'selected_without_catalog',
+      catalogHit: null,
+    }
+  }
+
+  if (Array.isArray(availableModels) && availableModels.length > 0) {
+    if (availableModels.includes(fallbackModel)) {
+      return {
+        model: fallbackModel,
+        selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_default' : 'default_fallback',
+        catalogHit: true,
+      }
+    }
+    const modernCandidate = availableModels.find((slug) => !LEGACY_CHATGPT_WEB_MODEL_SLUGS.has(slug))
+    if (modernCandidate) {
+      return {
+        model: modernCandidate,
+        selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_modern' : 'fallback_modern_candidate',
+        catalogHit: true,
+      }
+    }
+    return {
+      model: availableModels[0],
+      selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_first' : 'fallback_first_catalog',
+      catalogHit: true,
+    }
+  }
+
+  if (hasExplicitSelection && selectedIsLegacy) {
+    return {
+      model: fallbackModel,
+      selectionReason: 'legacy_selected_without_catalog',
+      catalogHit: null,
+    }
+  }
+  return {
+    model: fallbackModel,
+    selectionReason: 'default_without_catalog',
+    catalogHit: null,
+  }
+}
+
+function resolveThinkingEffortForModel(modelSlug, config) {
+  const normalized = typeof modelSlug === 'string' ? modelSlug.trim() : ''
+  if (!normalized.endsWith('-thinking')) return null
+  if (config?.chatgptWebThinkingEffort === 'standard') return 'standard'
+  return CHATGPT_WEB_DEFAULT_THINKING_EFFORT
 }
 
 export async function getRequirements(accessToken) {
@@ -255,8 +465,21 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let useWebsocket = Boolean(websocketFlag)
   console.debug('models', models)
   const selectedModel = getModelValue(session)
-  const usedModel =
-    models && models.includes(selectedModel) ? selectedModel : Models.chatgptFree35.value
+  const modelDecision = resolveChatgptWebModel({
+    selectedModel,
+    availableModels: models,
+  })
+  const usedModel = modelDecision.model
+  const thinkingEffort = resolveThinkingEffortForModel(usedModel, config)
+  void appendChatgptWebDebugLog(config, 'model-resolution', {
+    selectedModel,
+    usedModel,
+    selectionReason: modelDecision.selectionReason,
+    catalogHit: modelDecision.catalogHit,
+    thinkingEffort: thinkingEffort || null,
+    availableModelCount: Array.isArray(models) ? models.length : 0,
+    availableModels: Array.isArray(models) ? models : [],
+  })
   console.debug('usedModel', usedModel)
   const needArkoseToken = requirements && requirements.arkose?.required
   if (arkoseError && needArkoseToken) throw arkoseError
@@ -292,6 +515,44 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   if (session.parentMessageId == null) {
     session.parentMessageId = uuidv4()
   }
+  const requestBody = {
+    action: 'next',
+    conversation_id: session.conversationId || undefined,
+    messages: [
+      {
+        id: session.messageId,
+        author: {
+          role: 'user',
+        },
+        content: {
+          content_type: 'text',
+          parts: [question],
+        },
+      },
+    ],
+    conversation_mode: {
+      kind: 'primary_assistant',
+    },
+    force_paragen: false,
+    force_rate_limit: false,
+    suggestions: [],
+    model: usedModel,
+    parent_message_id: session.parentMessageId,
+    timezone_offset_min: new Date().getTimezoneOffset(),
+    history_and_training_disabled: config.disableWebModeHistory,
+    websocket_request_id: session.wsRequestId,
+  }
+  if (thinkingEffort) {
+    requestBody.thinking_effort = thinkingEffort
+  }
+  void appendChatgptWebDebugLog(config, 'thinking-effort', {
+    model: usedModel,
+    selectedModel,
+    configuredThinkingEffort: config?.chatgptWebThinkingEffort || null,
+    appliedThinkingEffort: thinkingEffort || null,
+    includedInRequestBody: Object.prototype.hasOwnProperty.call(requestBody, 'thinking_effort'),
+  })
+
   const options = {
     method: 'POST',
     signal: controller.signal,
@@ -306,44 +567,40 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
       'Oai-Language': 'en-US',
     },
-    body: JSON.stringify({
-      action: 'next',
-      conversation_id: session.conversationId || undefined,
-      messages: [
-        {
-          id: session.messageId,
-          author: {
-            role: 'user',
-          },
-          content: {
-            content_type: 'text',
-            parts: [question],
-          },
-        },
-      ],
-      conversation_mode: {
-        kind: 'primary_assistant',
-      },
-      force_paragen: false,
-      force_rate_limit: false,
-      suggestions: [],
-      model: usedModel,
-      parent_message_id: session.parentMessageId,
-      timezone_offset_min: new Date().getTimezoneOffset(),
-      history_and_training_disabled: config.disableWebModeHistory,
-      websocket_request_id: session.wsRequestId,
-    }),
+    body: JSON.stringify(requestBody),
   }
+  void appendChatgptWebDebugLog(config, 'wire-request', {
+    endpointUrl: url,
+    method: options.method,
+    headers: sanitizeDebugHeaders(options.headers),
+    requestBodyRawJson: safeRawJson(requestBody),
+  })
+  void appendChatgptWebDebugLog(config, 'request-prepared', {
+    requestUrl: url,
+    method: options.method,
+    model: usedModel,
+    selectedModel,
+    appliedThinkingEffort: thinkingEffort || null,
+    includedThinkingEffort: Object.prototype.hasOwnProperty.call(requestBody, 'thinking_effort'),
+    useWebsocket,
+    needArkoseToken: Boolean(needArkoseToken),
+    headers: sanitizeDebugHeaders(options.headers),
+    body: sanitizeDebugRequestBody(requestBody),
+  })
 
   let answer = ''
   let generationPrefixAnswer = ''
   let generatedImageUrl = ''
+  let responseMetaLogged = false
 
   if (useWebsocket) {
     try {
       await registerWebsocket(accessToken)
     } catch (error) {
       console.debug('websocket registration failed, falling back to SSE', error)
+      void appendChatgptWebDebugLog(config, 'websocket-register-failed', {
+        error: error?.message || String(error),
+      })
       useWebsocket = false
     }
     const wsCallback = async (event) => {
@@ -358,6 +615,13 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         let body
         try {
           body = atob(wsData.body).replace(/^data:/, '')
+          if (!responseMetaLogged && body && body.trim() && body.trim() !== '[DONE]') {
+            responseMetaLogged = true
+            void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+              transport: 'websocket',
+              responseChunkRawJson: truncateString(body, 16000),
+            })
+          }
           const data = JSON.parse(body)
           console.debug('ws message', data)
           if (wsData.conversation_id === session.conversationId) {
@@ -378,6 +642,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     }
     wsCallbacks.push(wsCallback)
     const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
+    void appendChatgptWebDebugLog(config, 'websocket-dispatch', {
+      conversationId,
+      wsRequestId,
+      model: usedModel,
+    })
     session.conversationId = conversationId
     session.wsRequestId = wsRequestId
     port.postMessage({ session: session })
@@ -389,6 +658,13 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         if (message.trim() === '[DONE]') {
           finishMessage()
           return
+        }
+        if (!responseMetaLogged) {
+          responseMetaLogged = true
+          void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+            transport: 'sse',
+            responseChunkRawJson: truncateString(message, 16000),
+          })
         }
         let data
         try {
@@ -409,6 +685,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       async onError(resp) {
         cleanController()
         if (resp instanceof Error) throw resp
+        const debugErrorText = await resp
+          .clone()
+          .text()
+          .catch(() => '')
+        void appendChatgptWebDebugLog(config, 'sse-error', {
+          status: resp.status,
+          statusText: resp.statusText,
+          body: truncateString(debugErrorText, 4000),
+        })
         if (resp.status === 403) {
           throw new Error('CLOUDFLARE')
         }
@@ -422,6 +707,10 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   function handleMessage(data) {
     if (data.error) {
+      void appendChatgptWebDebugLog(config, 'message-error', {
+        model: usedModel,
+        error: data.error,
+      })
       throw new Error(JSON.stringify(data.error))
     }
 
@@ -467,6 +756,16 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
 
   function finishMessage() {
+    void appendChatgptWebDebugLog(config, 'completed', {
+      selectedModel,
+      model: usedModel,
+      selectionReason: modelDecision.selectionReason,
+      catalogHit: modelDecision.catalogHit,
+      appliedThinkingEffort: thinkingEffort || null,
+      conversationId: session.conversationId || null,
+      parentMessageId: session.parentMessageId || null,
+      answerLength: answer.length,
+    })
     pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: answer, done: true, session: session })

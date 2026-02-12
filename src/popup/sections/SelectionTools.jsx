@@ -4,6 +4,7 @@ import PropTypes from 'prop-types'
 import { useState } from 'react'
 import { PencilIcon, TrashIcon } from '@primer/octicons-react'
 import Browser from 'webextension-polyfill'
+import { promptTemplateVariables } from '../../utils/prompt-template-context.mjs'
 import {
   Languages,
   FileText,
@@ -105,7 +106,14 @@ export function SelectionTools({ config, updateConfig }) {
         <label className="form-label">
           {t('Prompt Template')} <span className="required">*</span>
         </label>
-        <div className="hint-text">{t('Use {{selection}} as placeholder for selected text')}</div>
+        <div className="hint-text">
+          {t(
+            'Use {{selection}} for highlighted text. If nothing is selected, it can use page text when "Work without selection" is enabled.',
+          )}
+        </div>
+        <div className="hint-text">
+          {`Available variables: ${promptTemplateVariables.map((key) => `{{${key}}}`).join(', ')}`}
+        </div>
         <textarea
           className="form-textarea"
           placeholder={t('Explain this: {{selection}}')}
@@ -122,12 +130,15 @@ export function SelectionTools({ config, updateConfig }) {
             checked={editingTool.usePageContext || false}
             onChange={(e) => setEditingTool({ ...editingTool, usePageContext: e.target.checked })}
           />
-          <span className="checkbox-text">
-            {t('Also work on entire page (without text selection)')}
-          </span>
+          <span className="checkbox-text">{t('Work without selection (use page content)')}</span>
         </label>
         <div className="hint-text">
-          {t('When enabled, tool will appear in context menu even without selecting text')}
+          {t(
+            'Enabled: this tool appears in the right-click menu on the page even without selected text.',
+          )}
+        </div>
+        <div className="hint-text">
+          {t('Selection popup toolbar still appears only after you highlight text.')}
         </div>
       </div>
 
@@ -151,8 +162,8 @@ export function SelectionTools({ config, updateConfig }) {
               setErrorMessage(t('Name is required'))
               return
             }
-            if (!editingTool.prompt.includes('{{selection}}')) {
-              setErrorMessage(t('Prompt template should include {{selection}}'))
+            if (!editingTool.prompt || !editingTool.prompt.trim()) {
+              setErrorMessage('Prompt template is required')
               return
             }
             if (editingIndex === -1) {

@@ -10,6 +10,23 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { pushRecord, setAbortController } from './shared.mjs'
+import { buildSystemPromptFromContext } from '../agent-context.mjs'
+import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
+import { appendToolEvents } from '../agent/session-state.mjs'
+import { AgentProtocol, resolveOpenAiCompatibleProtocol } from '../agent/protocols.mjs'
+import {
+  convertMessagesToResponsesInput,
+  extractResponsesOutputText,
+  postOpenAiResponses,
+} from './openai-responses-shared.mjs'
+
+function deriveOpenAiBaseUrl(apiUrl) {
+  const url = String(apiUrl || '').trim().replace(/\/+$/, '')
+  if (!url) return ''
+  if (url.endsWith('/chat/completions')) return url.slice(0, -'/chat/completions'.length)
+  if (url.endsWith('/responses')) return url.slice(0, -'/responses'.length)
+  return url
+}
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -28,11 +45,18 @@ export async function generateAnswersWithCustomApi(
   modelName,
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const cleanupPortListeners = () => {
+    port.onMessage.removeListener(messageListener)
+    port.onDisconnect.removeListener(disconnectListener)
+  }
 
   const config = await getUserConfig()
+  const protocol = resolveOpenAiCompatibleProtocol(apiUrl, config?.agentProtocol)
+  const systemPrompt = buildSystemPromptFromContext(session, config, question)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
+    { systemPrompt },
   )
   prompt.push({ role: 'user', content: question })
 
@@ -44,6 +68,74 @@ export async function generateAnswersWithCustomApi(
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: null, done: true, session: session })
   }
+
+  const derivedBaseUrl = deriveOpenAiBaseUrl(apiUrl)
+  if (derivedBaseUrl) {
+    try {
+      const toolLoop = await runMcpToolLoopForOpenAiCompat({
+        protocol,
+        baseUrl: derivedBaseUrl,
+        apiKey,
+        model: modelName,
+        messages: prompt,
+        config,
+        session,
+        maxResponseTokenLength: config.maxResponseTokenLength,
+        temperature: config.temperature,
+        signal: controller.signal,
+      })
+      if (toolLoop) {
+        appendToolEvents(session, toolLoop.events, { limit: config?.agentToolEventLimit })
+        if (shouldShortCircuitWithToolLoop(toolLoop)) {
+          answer = toolLoop.answer || ''
+          if (answer) port.postMessage({ answer, done: false, session: null })
+          finish()
+          cleanupPortListeners()
+          return
+        }
+      }
+    } catch (error) {
+      appendToolEvents(
+        session,
+        [
+          {
+            type: 'mcp_tool_loop',
+            status: 'failed',
+            reason: error?.message || String(error),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        { limit: config?.agentToolEventLimit },
+      )
+    }
+  }
+
+  if (protocol === AgentProtocol.openAiResponsesV1 && derivedBaseUrl) {
+    try {
+      const converted = convertMessagesToResponsesInput(prompt)
+      const requestBody = {
+        model: modelName,
+        input: converted.input,
+        max_output_tokens: config.maxResponseTokenLength,
+        temperature: config.temperature,
+        store: false,
+      }
+      if (converted.instructions) requestBody.instructions = converted.instructions
+      const payload = await postOpenAiResponses(
+        derivedBaseUrl,
+        apiKey,
+        requestBody,
+        controller.signal,
+      )
+      answer = extractResponsesOutputText(payload)
+      if (answer) port.postMessage({ answer, done: false, session: null })
+      finish()
+      return
+    } finally {
+      cleanupPortListeners()
+    }
+  }
+
   await fetchSSE(apiUrl, {
     method: 'POST',
     signal: controller.signal,
@@ -96,12 +188,10 @@ export async function generateAnswersWithCustomApi(
     async onStart() {},
     async onEnd() {
       port.postMessage({ done: true })
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
+      cleanupPortListeners()
     },
     async onError(resp) {
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
+      cleanupPortListeners()
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)

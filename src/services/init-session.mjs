@@ -29,6 +29,13 @@ import { t } from 'i18next'
  * @property {object|null} bard_conversationObj
  * @property {object|null} claude_conversation
  * @property {object|null} moonshot_conversation
+ * @property {string|null} assistantId
+ * @property {string|null} systemPromptOverride
+ * @property {string[]|null} selectedSkillIds
+ * @property {string[]|null} selectedMcpServerIds
+ * @property {object|null} pageContext
+ * @property {object[]} toolEvents
+ * @property {object|null} agentMemory
  */
 /**
  * @param {string|null} question
@@ -38,6 +45,12 @@ import { t } from 'i18next'
  * @param {boolean|null} autoClean
  * @param {Object|null} apiMode
  * @param {string} extraCustomModelName
+ * @param {string|null} assistantId
+ * @param {string|null} systemPromptOverride
+ * @param {string[]|null} selectedSkillIds
+ * @param {string[]|null} selectedMcpServerIds
+ * @param {object|null} pageContext
+ * @param {object|null} agentMemory
  * @returns {Session}
  */
 export function initSession({
@@ -48,6 +61,12 @@ export function initSession({
   autoClean = false,
   apiMode = null,
   extraCustomModelName = '',
+  assistantId = null,
+  systemPromptOverride = '',
+  selectedSkillIds = null,
+  selectedMcpServerIds = null,
+  pageContext = null,
+  agentMemory = null,
 } = {}) {
   return {
     // common
@@ -71,6 +90,13 @@ export function initSession({
         : null,
     modelName,
     apiMode,
+    assistantId,
+    systemPromptOverride,
+    selectedSkillIds: Array.isArray(selectedSkillIds) ? [...selectedSkillIds] : null,
+    selectedMcpServerIds: Array.isArray(selectedMcpServerIds) ? [...selectedMcpServerIds] : null,
+    pageContext: pageContext && typeof pageContext === 'object' ? pageContext : null,
+    toolEvents: [],
+    agentMemory: agentMemory && typeof agentMemory === 'object' ? agentMemory : null,
 
     autoClean,
     isRetry: false,

@@ -18,6 +18,7 @@ import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidw
 import { generateAnswersWithOpenRouterApi } from '../services/apis/openrouter-api.mjs'
 import { generateAnswersWithAimlApi } from '../services/apis/aiml-api.mjs'
 import {
+  CHATGPT_WEB_DEBUG_LOG_KEY,
   defaultConfig,
   getUserConfig,
   setUserConfig,
@@ -57,6 +58,60 @@ import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
 
+const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
+
+function summarizeApiMode(apiMode) {
+  if (!apiMode || typeof apiMode !== 'object') return null
+  return {
+    groupName: typeof apiMode.groupName === 'string' ? apiMode.groupName : '',
+    itemName: typeof apiMode.itemName === 'string' ? apiMode.itemName : '',
+    isCustom: apiMode.isCustom === true,
+    customName: typeof apiMode.customName === 'string' ? apiMode.customName : '',
+    displayName: typeof apiMode.displayName === 'string' ? apiMode.displayName : '',
+  }
+}
+
+function detectExecutionRoute(session) {
+  if (isUsingCustomModel(session)) return 'custom-api'
+  if (isUsingChatgptWebModel(session)) return 'chatgpt-web'
+  if (isUsingClaudeWebModel(session)) return 'claude-web'
+  if (isUsingMoonshotWebModel(session)) return 'moonshot-web'
+  if (isUsingBingWebModel(session)) return 'bing-web'
+  if (isUsingGeminiWebModel(session)) return 'gemini-web'
+  if (isUsingChatgptApiModel(session)) return 'chatgpt-api'
+  if (isUsingClaudeApiModel(session)) return 'claude-api'
+  if (isUsingMoonshotApiModel(session)) return 'moonshot-api'
+  if (isUsingChatGLMApiModel(session)) return 'chatglm-api'
+  if (isUsingDeepSeekApiModel(session)) return 'deepseek-api'
+  if (isUsingOllamaApiModel(session)) return 'ollama-api'
+  if (isUsingOpenRouterApiModel(session)) return 'openrouter-api'
+  if (isUsingAimlApiModel(session)) return 'aiml-api'
+  if (isUsingAzureOpenAiApiModel(session)) return 'azure-openai-api'
+  if (isUsingGptCompletionApiModel(session)) return 'gpt-completion-api'
+  if (isUsingGithubThirdPartyApiModel(session)) return 'waylaidwanderer-api'
+  return 'unknown'
+}
+
+async function appendChatgptWebDebugLog(config, stage, payload = {}) {
+  if (config?.debugChatgptWebRequests !== true) return
+  const entry = {
+    at: new Date().toISOString(),
+    stage,
+    payload,
+  }
+  console.debug('[chatgpt-web-debug]', entry)
+  try {
+    const data = await Browser.storage.local.get({ [CHATGPT_WEB_DEBUG_LOG_KEY]: [] })
+    const current = Array.isArray(data[CHATGPT_WEB_DEBUG_LOG_KEY])
+      ? data[CHATGPT_WEB_DEBUG_LOG_KEY]
+      : []
+    const next = [...current, entry].slice(-CHATGPT_WEB_DEBUG_LOG_LIMIT)
+    await Browser.storage.local.set({ [CHATGPT_WEB_DEBUG_LOG_KEY]: next })
+  } catch (error) {
+    console.debug('Failed to persist chatgpt web debug log', error)
+  }
+}
+
 function setPortProxy(port, proxyTabId) {
   const proxyOnMessage = (msg) => {
     port.postMessage(msg)
@@ -89,9 +144,25 @@ function setPortProxy(port, proxyTabId) {
   port.onDisconnect.addListener(portOnDisconnect)
 }
 
+function isLikelyChatgptTabUrl(url) {
+  if (typeof url !== 'string' || !url) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname === 'chatgpt.com' || parsed.hostname.endsWith('.chatgpt.com')
+  } catch {
+    return false
+  }
+}
+
 async function executeApi(session, port, config) {
   console.debug('modelName', session.modelName)
   console.debug('apiMode', session.apiMode)
+  const executionRoute = detectExecutionRoute(session)
+  void appendChatgptWebDebugLog(config, 'router', {
+    route: executionRoute,
+    modelName: typeof session.modelName === 'string' ? session.modelName : null,
+    apiMode: summarizeApiMode(session.apiMode),
+  })
   if (isUsingCustomModel(session)) {
     if (!session.apiMode)
       await generateAnswersWithCustomApi(
@@ -114,18 +185,47 @@ async function executeApi(session, port, config) {
         session.apiMode.customName,
       )
   } else if (isUsingChatgptWebModel(session)) {
+    // Agent context is disabled for ChatGPT Web requests; keep user selections intact
+    // and only drop page snapshot payload for this request path.
+    session.pageContext = null
+    void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
+      reason: 'chatgpt_web_model',
+    })
+
     let tabId
+    let proxyTab
     if (
       config.chatgptTabId &&
       config.customChatGptWebApiUrl === defaultConfig.customChatGptWebApiUrl
     ) {
       const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => {})
-      if (tab) tabId = tab.id
+      if (tab && isLikelyChatgptTabUrl(tab.url)) {
+        tabId = tab.id
+        proxyTab = tab
+      } else if (config.chatgptTabId) {
+        await setUserConfig({ chatgptTabId: 0 })
+      }
     }
-    if (tabId) {
+    const forceBackgroundInDebug = config.debugChatgptWebRequests === true
+    if (tabId && !forceBackgroundInDebug) {
+      void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-tab', {
+        tabId,
+        tabUrl: proxyTab?.url || null,
+        route: executionRoute,
+      })
       if (!port.proxy) setPortProxy(port, tabId)
       port.proxy?.postMessage({ session })
     } else {
+      if (tabId && forceBackgroundInDebug) {
+        void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-skipped-debug', {
+          tabId,
+          tabUrl: proxyTab?.url || null,
+          route: executionRoute,
+        })
+      }
+      void appendChatgptWebDebugLog(config, 'chatgpt-web-background', {
+        route: executionRoute,
+      })
       const accessToken = await getChatGptAccessToken()
       await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
     }
@@ -221,6 +321,28 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           width: 500,
           height: 650,
         })
+      break
+    }
+    case 'OPEN_SIDE_PANEL': {
+      // eslint-disable-next-line no-undef
+      if (typeof chrome !== 'undefined' && chrome.sidePanel) {
+        const tabId = message?.data?.tabId || sender?.tab?.id
+        const windowId = message?.data?.windowId || sender?.tab?.windowId
+        if (tabId && windowId) {
+          try {
+            // eslint-disable-next-line no-undef
+            await chrome.sidePanel.setOptions({
+              tabId,
+              path: 'IndependentPanel.html',
+              enabled: true,
+            })
+            // eslint-disable-next-line no-undef
+            await chrome.sidePanel.open({ windowId, tabId })
+          } catch (error) {
+            console.debug('Failed to open side panel:', error)
+          }
+        }
+      }
       break
     }
     case 'REFRESH_MENU':

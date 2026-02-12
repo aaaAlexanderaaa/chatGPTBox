@@ -9,6 +9,7 @@ import {
   modelNameToDesc,
 } from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
+import { AgentProtocol, normalizeAgentProtocol } from '../services/agent/protocols.mjs'
 
 export const TriggerMode = {
   always: 'Always',
@@ -34,7 +35,151 @@ export const ModelStatus = {
   deprecated: 'deprecated',
 }
 
+export const RuntimeMode = {
+  safe: 'safe',
+  developer: 'developer',
+}
+
+const BuiltInSkillIds = {
+  analyzeWebDesignPatterns: 'builtin-skill-analyze-web-design-patterns',
+}
+
+export const BUILTIN_DESIGN_ASSISTANT_ID = 'builtin-assistant-design-analyst'
+
+const BuiltInAssistantIds = {
+  designAssistant: BUILTIN_DESIGN_ASSISTANT_ID,
+}
+
+const BuiltInMcpServerIds = {
+  skillLibrary: 'mcp-builtin-skill-library',
+  browserContextToolkit: 'mcp-builtin-browser-context-toolkit',
+}
+
+const AgentDefaultsMigrationVersion = {
+  clearLegacyDesignDefaults: 1,
+}
+
+export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb51Thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-1-thinking'
+export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
+export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
+
+const LegacyChatgptWebModelKeyMap = {
+  chatgptFree35: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptFree4o: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptFree4oMini: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptPlus4: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptPlus4Browsing: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptFree35Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  chatgptPlus4Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+}
+
+const LegacyChatgptWebModelSlugSet = new Set([
+  'auto',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-4',
+  'text-davinci-002-render-sha-mobile',
+  'gpt-4-mobile',
+])
+
+function normalizeLegacyChatgptWebModelName(modelName) {
+  if (typeof modelName !== 'string' || !modelName) return modelName
+  if (Object.prototype.hasOwnProperty.call(LegacyChatgptWebModelKeyMap, modelName)) {
+    return LegacyChatgptWebModelKeyMap[modelName]
+  }
+  if (!modelName.startsWith('chatgptWebModelKeys-')) return modelName
+  const slug = modelName.replace('chatgptWebModelKeys-', '').trim()
+  if (LegacyChatgptWebModelSlugSet.has(slug)) return CHATGPT_WEB_DEFAULT_MODEL_KEY
+  return modelName
+}
+
+const defaultBuiltInSkills = [
+  {
+    id: BuiltInSkillIds.analyzeWebDesignPatterns,
+    name: 'Analyze Current Web Design Patterns',
+    description:
+      'Review the current page UI for hierarchy, typography, spacing, color, interaction clarity, and accessibility.',
+    version: 'builtin-v1',
+    sourceName: 'Built-in',
+    sourceHash: 'builtin:analyze-web-design-patterns:v1',
+    entryPath: 'builtin://skills/analyze-current-web-design-patterns',
+    instructions: `Goal:
+Audit the current webpage design and produce a practical UX/UI review.
+
+Checklist:
+- Visual hierarchy and scanability
+- Typography consistency (sizes/weights/line-height)
+- Layout rhythm and spacing balance
+- Color contrast and state clarity
+- Interaction affordances and form usability
+- Mobile responsiveness indicators
+
+Output format:
+1) Strengths
+2) Top issues (ordered by impact)
+3) Concrete fixes with implementation hints`,
+    resources: [
+      {
+        path: 'references/design-review-checklist.md',
+        content: `Design review checklist:
+- Identify information scent and primary call-to-action clarity.
+- Validate spacing system consistency (vertical rhythm).
+- Check color contrast for body text and interactive controls.
+- Verify heading hierarchy and semantic grouping.`,
+      },
+    ],
+    active: true,
+    importedAt: 0,
+    builtIn: true,
+  },
+]
+
+const defaultBuiltInMcpServers = [
+  {
+    id: BuiltInMcpServerIds.skillLibrary,
+    name: 'Skill Library (Built-in)',
+    transport: 'builtin',
+    httpUrl: '',
+    apiKey: '',
+    active: true,
+    builtIn: true,
+  },
+  {
+    id: BuiltInMcpServerIds.browserContextToolkit,
+    name: 'Browser Context Toolkit (Built-in)',
+    transport: 'builtin',
+    httpUrl: '',
+    apiKey: '',
+    active: false,
+    builtIn: true,
+  },
+]
+
+const defaultBuiltInAssistants = [
+  {
+    id: BuiltInAssistantIds.designAssistant,
+    name: 'Design Pattern Analyst',
+    systemPrompt:
+      'You are a practical web UI/UX analyst. Focus on concrete, high-impact recommendations and cite specific page evidence whenever possible.',
+    defaultSkillIds: [BuiltInSkillIds.analyzeWebDesignPatterns],
+    defaultMcpServerIds: [BuiltInMcpServerIds.skillLibrary],
+    active: true,
+    builtIn: true,
+  },
+]
+
 export const chatgptWebModelKeys = [
+  'chatgptWeb51Thinking',
+  'chatgptWeb52Auto',
+  'chatgptWeb52Instant',
+  'chatgptWeb52Thinking',
+  'chatgptWeb52Pro',
+  'chatgptWeb51Auto',
+  'chatgptWeb51Instant',
+  'chatgptWeb51Pro',
+
+  // legacy presets kept for migration compatibility
   'chatgptFree35',
   'chatgptFree4o',
   'chatgptFree4oMini',
@@ -248,18 +393,15 @@ export const DefaultEnabledProviderGroups = {
 }
 
 export const DefaultActiveModelKeysByGroup = {
-  chatgptWebModelKeys: ['chatgptFree35'],
-  chatgptApiModelKeys: [
-    'chatgptApi4oMini',
-    'chatgptApi4o_128k',
-    'chatgptApi4_1_mini',
-    'chatgptApi4_1',
-    'chatgptApi4_1_nano',
-  ],
+  chatgptWebModelKeys: [CHATGPT_WEB_DEFAULT_MODEL_KEY],
+  chatgptApiModelKeys: ['chatgptApi5Latest'],
 }
 
 export const DeprecatedModelKeys = [
-  // ChatGPT Web presets (prefer runtime listing; keep only "auto" as default)
+  // ChatGPT Web legacy presets
+  'chatgptFree35',
+  'chatgptFree4o',
+  'chatgptFree4oMini',
   'chatgptPlus4',
   'chatgptPlus4Browsing',
   'chatgptPlus4Mobile',
@@ -270,6 +412,9 @@ export const DeprecatedModelKeys = [
   'chatgptApi35_16k',
   'chatgptApi35_1106',
   'chatgptApi35_0125',
+  'chatgptApi4o_128k',
+  'chatgptApi4oMini',
+  'chatgptApi4oLatest',
   'chatgptApi4_8k',
   'chatgptApi4_8k_0613',
   'chatgptApi4_32k',
@@ -278,12 +423,13 @@ export const DeprecatedModelKeys = [
   'chatgptApi4_128k_preview',
   'chatgptApi4_128k_1106_preview',
   'chatgptApi4_128k_0125_preview',
-
-  // GPT-5 is not shipped by default; hide unless confirmed by runtime /v1/models.
-  'chatgptApi5Latest',
+  'chatgptApi4_1',
+  'chatgptApi4_1_mini',
+  'chatgptApi4_1_nano',
   'chatgptApiGpt5',
   'chatgptApiGpt5Mini',
   'chatgptApiGpt5Nano',
+
   'chatgptApiO4Mini',
 
   // OpenAI legacy completion models
@@ -351,13 +497,20 @@ export function getModelMeta(modelName) {
  * @type {Object.<string,Model>}
  */
 export const Models = {
-  chatgptFree35: { value: 'auto', desc: 'ChatGPT (Web)' },
+  chatgptWeb51Thinking: { value: 'gpt-5-1-thinking', desc: 'ChatGPT (Web, GPT-5.1 Thinking)' },
+  chatgptWeb52Auto: { value: 'gpt-5-2', desc: 'ChatGPT (Web, GPT-5.2)' },
+  chatgptWeb52Instant: { value: 'gpt-5-2-instant', desc: 'ChatGPT (Web, GPT-5.2 Instant)' },
+  chatgptWeb52Thinking: { value: 'gpt-5-2-thinking', desc: 'ChatGPT (Web, GPT-5.2 Thinking)' },
+  chatgptWeb52Pro: { value: 'gpt-5-2-pro', desc: 'ChatGPT (Web, GPT-5.2 Pro)' },
+  chatgptWeb51Auto: { value: 'gpt-5-1', desc: 'ChatGPT (Web, GPT-5.1)' },
+  chatgptWeb51Instant: { value: 'gpt-5-1-instant', desc: 'ChatGPT (Web, GPT-5.1 Instant)' },
+  chatgptWeb51Pro: { value: 'gpt-5-1-pro', desc: 'ChatGPT (Web, GPT-5.1 Pro)' },
 
-  chatgptFree4o: { value: 'gpt-4o', desc: 'ChatGPT (Web, GPT-4o)' },
-  chatgptFree4oMini: { value: 'gpt-4o-mini', desc: 'ChatGPT (Web, GPT-4o mini)' },
-
-  chatgptPlus4: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' },
-  chatgptPlus4Browsing: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' }, // for compatibility
+  chatgptFree35: { value: 'auto', desc: 'ChatGPT (Web, Legacy Auto)' },
+  chatgptFree4o: { value: 'gpt-4o', desc: 'ChatGPT (Web, Legacy GPT-4o)' },
+  chatgptFree4oMini: { value: 'gpt-4o-mini', desc: 'ChatGPT (Web, Legacy GPT-4o mini)' },
+  chatgptPlus4: { value: 'gpt-4', desc: 'ChatGPT (Web, Legacy GPT-4)' },
+  chatgptPlus4Browsing: { value: 'gpt-4', desc: 'ChatGPT (Web, Legacy GPT-4)' }, // compatibility
 
   chatgptApi35: { value: 'gpt-3.5-turbo', desc: 'ChatGPT (GPT-3.5-turbo)' },
   chatgptApi35_16k: { value: 'gpt-3.5-turbo-16k', desc: 'ChatGPT (GPT-3.5-turbo-16k)' },
@@ -614,6 +767,22 @@ for (const modelName in Models) {
 export const defaultConfig = {
   // general
 
+  // additive agent runtime controls (legacy behavior remains default when unused)
+  /** @type {keyof RuntimeMode} */
+  runtimeMode: 'safe',
+  agentProtocol: AgentProtocol.auto,
+  agentPreloadContextTokenCap: 64000,
+  agentContextTokenCap: 128000,
+  agentMaxSteps: 8,
+  agentNoProgressLimit: 2,
+  agentToolEventLimit: 50,
+  assistants: defaultBuiltInAssistants,
+  defaultAssistantId: '',
+  installedSkills: defaultBuiltInSkills,
+  defaultSkillIds: [],
+  mcpServers: defaultBuiltInMcpServers,
+  defaultMcpServerIds: [],
+
   /** @type {keyof TriggerMode}*/
   triggerMode: 'manually',
   /** @type {keyof ThemeMode}*/
@@ -633,7 +802,7 @@ export const defaultConfig = {
   codeThemeLight: 'github-light',
   codeThemeDark: 'github-dark',
   /** @type {keyof Models}*/
-  modelName: 'chatgptFree35',
+  modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   apiMode: null,
 
   preferredLanguage: getNavigatorLanguage(),
@@ -685,9 +854,11 @@ export const defaultConfig = {
   temperature: 1,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
+  chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
+  debugChatgptWebRequests: false,
   hideContextMenu: false,
   cropText: true,
   siteRegex: 'match nothing',
@@ -914,6 +1085,10 @@ export async function getPreferredLanguageKey() {
  */
 export async function getUserConfig() {
   const options = await Browser.storage.local.get(Object.keys(defaultConfig))
+  const migrationMeta = await Browser.storage.local.get({
+    agentDefaultsMigrationVersion: 0,
+  })
+  const agentDefaultsMigrationVersion = Number(migrationMeta.agentDefaultsMigrationVersion) || 0
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
   const config = defaults(options, defaultConfig)
@@ -933,16 +1108,57 @@ export async function getUserConfig() {
       100,
     ),
     temperature: parseFloatWithClamp(config.temperature, defaultConfig.temperature, 0, 2),
+    agentPreloadContextTokenCap: parseIntWithClamp(
+      config.agentPreloadContextTokenCap,
+      defaultConfig.agentPreloadContextTokenCap,
+      1000,
+      256000,
+    ),
+    agentContextTokenCap: parseIntWithClamp(
+      config.agentContextTokenCap,
+      defaultConfig.agentContextTokenCap,
+      1000,
+      256000,
+    ),
+    agentMaxSteps: parseIntWithClamp(config.agentMaxSteps, defaultConfig.agentMaxSteps, 1, 32),
+    agentNoProgressLimit: parseIntWithClamp(
+      config.agentNoProgressLimit,
+      defaultConfig.agentNoProgressLimit,
+      1,
+      10,
+    ),
+    agentToolEventLimit: parseIntWithClamp(
+      config.agentToolEventLimit,
+      defaultConfig.agentToolEventLimit,
+      10,
+      300,
+    ),
   }
   const needsFix =
     numericFix.maxResponseTokenLength !== config.maxResponseTokenLength ||
     numericFix.maxConversationContextLength !== config.maxConversationContextLength ||
-    numericFix.temperature !== config.temperature
+    numericFix.temperature !== config.temperature ||
+    numericFix.agentPreloadContextTokenCap !== config.agentPreloadContextTokenCap ||
+    numericFix.agentContextTokenCap !== config.agentContextTokenCap ||
+    numericFix.agentMaxSteps !== config.agentMaxSteps ||
+    numericFix.agentNoProgressLimit !== config.agentNoProgressLimit ||
+    numericFix.agentToolEventLimit !== config.agentToolEventLimit
   if (needsFix) {
     config.maxResponseTokenLength = numericFix.maxResponseTokenLength
     config.maxConversationContextLength = numericFix.maxConversationContextLength
     config.temperature = numericFix.temperature
+    config.agentPreloadContextTokenCap = numericFix.agentPreloadContextTokenCap
+    config.agentContextTokenCap = numericFix.agentContextTokenCap
+    config.agentMaxSteps = numericFix.agentMaxSteps
+    config.agentNoProgressLimit = numericFix.agentNoProgressLimit
+    config.agentToolEventLimit = numericFix.agentToolEventLimit
     await Browser.storage.local.set(numericFix)
+  }
+  if (config.agentPreloadContextTokenCap > config.agentContextTokenCap) {
+    config.agentPreloadContextTokenCap = config.agentContextTokenCap
+    await Browser.storage.local.set({
+      agentPreloadContextTokenCap: config.agentPreloadContextTokenCap,
+    })
   }
 
   // Keep provider gating config forward-compatible with newly added provider groups.
@@ -963,6 +1179,16 @@ export async function getUserConfig() {
 
   // Only treat an explicit boolean `true` as enabled.
   config.showDeprecatedModels = config.showDeprecatedModels === true
+  config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
+
+  const normalizedChatgptWebThinkingEffort =
+    config.chatgptWebThinkingEffort === 'standard'
+      ? 'standard'
+      : CHATGPT_WEB_DEFAULT_THINKING_EFFORT
+  if (normalizedChatgptWebThinkingEffort !== config.chatgptWebThinkingEffort) {
+    config.chatgptWebThinkingEffort = normalizedChatgptWebThinkingEffort
+    await Browser.storage.local.set({ chatgptWebThinkingEffort: config.chatgptWebThinkingEffort })
+  }
 
   // Ensure newly-added apiMode fields exist on persisted objects (upgrade compatibility).
   let apiModeNeedsFix = false
@@ -991,6 +1217,280 @@ export async function getUserConfig() {
   }
   if (customApiModesNeedsFix) {
     await Browser.storage.local.set({ customApiModes: config.customApiModes })
+  }
+
+  let webModelMigrationNeedsFix = false
+  const webModelMigrationPatch = {}
+
+  const normalizedModelName = normalizeLegacyChatgptWebModelName(config.modelName)
+  if (normalizedModelName !== config.modelName) {
+    config.modelName = normalizedModelName
+    webModelMigrationNeedsFix = true
+    webModelMigrationPatch.modelName = config.modelName
+  }
+
+  if (config.apiMode && typeof config.apiMode === 'object') {
+    const nextItemName = normalizeLegacyChatgptWebModelName(config.apiMode.itemName)
+    if (nextItemName !== config.apiMode.itemName) {
+      config.apiMode = {
+        ...config.apiMode,
+        itemName: nextItemName,
+        isCustom: false,
+      }
+      webModelMigrationNeedsFix = true
+      webModelMigrationPatch.apiMode = config.apiMode
+    }
+  }
+
+  if (Array.isArray(config.activeApiModes)) {
+    const migratedActiveApiModes = config.activeApiModes.map(normalizeLegacyChatgptWebModelName)
+    if (JSON.stringify(migratedActiveApiModes) !== JSON.stringify(config.activeApiModes)) {
+      config.activeApiModes = migratedActiveApiModes
+      webModelMigrationNeedsFix = true
+      webModelMigrationPatch.activeApiModes = config.activeApiModes
+    }
+  }
+
+  if (Array.isArray(config.customApiModes)) {
+    let migratedCustomModesChanged = false
+    const migratedCustomApiModes = config.customApiModes.map((apiMode) => {
+      if (!apiMode || typeof apiMode !== 'object') return apiMode
+      if (apiMode.groupName !== 'chatgptWebModelKeys') return apiMode
+      const nextItemName = normalizeLegacyChatgptWebModelName(apiMode.itemName)
+      if (nextItemName === apiMode.itemName) return apiMode
+      migratedCustomModesChanged = true
+      return {
+        ...apiMode,
+        itemName: nextItemName,
+        isCustom: false,
+      }
+    })
+    if (migratedCustomModesChanged) {
+      config.customApiModes = migratedCustomApiModes
+      webModelMigrationNeedsFix = true
+      webModelMigrationPatch.customApiModes = config.customApiModes
+    }
+  }
+
+  if (webModelMigrationNeedsFix) {
+    await Browser.storage.local.set(webModelMigrationPatch)
+  }
+
+  // Validate runtime mode (safe by default for backwards-compatible security posture).
+  if (!Object.prototype.hasOwnProperty.call(RuntimeMode, config.runtimeMode)) {
+    config.runtimeMode = defaultConfig.runtimeMode
+    await Browser.storage.local.set({ runtimeMode: config.runtimeMode })
+  }
+  const normalizedAgentProtocol = normalizeAgentProtocol(config.agentProtocol, AgentProtocol.auto)
+  if (normalizedAgentProtocol !== config.agentProtocol) {
+    config.agentProtocol = normalizedAgentProtocol
+    await Browser.storage.local.set({ agentProtocol: config.agentProtocol })
+  }
+
+  const normalizeString = (value, fallback = '') => (typeof value === 'string' ? value : fallback)
+  const normalizeStringArray = (value) =>
+    Array.isArray(value) ? value.filter((v) => typeof v === 'string' && v.trim()) : []
+  const ensureObjectId = (obj, prefix) => {
+    if (obj.id && typeof obj.id === 'string' && obj.id.trim()) return obj.id
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+  }
+
+  let assistantsNeedsFix = false
+  const normalizedAssistants = Array.isArray(config.assistants)
+    ? config.assistants
+        .map((assistant) => {
+          if (!assistant || typeof assistant !== 'object') {
+            assistantsNeedsFix = true
+            return null
+          }
+          const normalized = {
+            id: ensureObjectId(assistant, 'assistant'),
+            name: normalizeString(assistant.name),
+            systemPrompt: normalizeString(assistant.systemPrompt),
+            defaultSkillIds: normalizeStringArray(assistant.defaultSkillIds),
+            defaultMcpServerIds: normalizeStringArray(assistant.defaultMcpServerIds),
+            active: assistant.active !== false,
+          }
+          if (JSON.stringify(normalized) !== JSON.stringify(assistant)) assistantsNeedsFix = true
+          return normalized.name ? normalized : null
+        })
+        .filter(Boolean)
+    : []
+  if (!Array.isArray(config.assistants)) assistantsNeedsFix = true
+  if (assistantsNeedsFix) {
+    config.assistants = normalizedAssistants
+    await Browser.storage.local.set({ assistants: config.assistants })
+  }
+
+  let skillsNeedsFix = false
+  const normalizeSkillResource = (resource) => {
+    if (!resource || typeof resource !== 'object') return null
+    const path = normalizeString(resource.path).trim()
+    const content = normalizeString(resource.content)
+    if (!path || !content) return null
+    return { path, content }
+  }
+  const normalizedInstalledSkills = Array.isArray(config.installedSkills)
+    ? config.installedSkills
+        .map((skill) => {
+          if (!skill || typeof skill !== 'object') {
+            skillsNeedsFix = true
+            return null
+          }
+          const normalized = {
+            id: ensureObjectId(skill, 'skill'),
+            name: normalizeString(skill.name),
+            description: normalizeString(skill.description),
+            version: normalizeString(skill.version),
+            sourceName: normalizeString(skill.sourceName),
+            sourceHash: normalizeString(skill.sourceHash),
+            entryPath: normalizeString(skill.entryPath || skill.mainPath),
+            instructions: normalizeString(skill.instructions),
+            resources: Array.isArray(skill.resources)
+              ? skill.resources.map(normalizeSkillResource).filter(Boolean)
+              : [],
+            active: skill.active !== false,
+            importedAt:
+              Number.isFinite(skill.importedAt) && Number(skill.importedAt) > 0
+                ? Number(skill.importedAt)
+                : Date.now(),
+          }
+          if (JSON.stringify(normalized) !== JSON.stringify(skill)) skillsNeedsFix = true
+          return normalized.name && normalized.instructions ? normalized : null
+        })
+        .filter(Boolean)
+    : []
+  if (!Array.isArray(config.installedSkills)) skillsNeedsFix = true
+  if (skillsNeedsFix) {
+    config.installedSkills = normalizedInstalledSkills
+    await Browser.storage.local.set({ installedSkills: config.installedSkills })
+  }
+
+  let mcpServersNeedsFix = false
+  const normalizedMcpServers = Array.isArray(config.mcpServers)
+    ? config.mcpServers
+        .map((server) => {
+          if (!server || typeof server !== 'object') {
+            mcpServersNeedsFix = true
+            return null
+          }
+          const transport = normalizeString(server.transport).trim().toLowerCase() === 'builtin' ? 'builtin' : 'http'
+          const normalized = {
+            id: ensureObjectId(server, 'mcp'),
+            name: normalizeString(server.name),
+            transport,
+            httpUrl: transport === 'http' ? normalizeString(server.httpUrl) : '',
+            apiKey: transport === 'http' ? normalizeString(server.apiKey) : '',
+            active: server.active !== false,
+          }
+          if (JSON.stringify(normalized) !== JSON.stringify(server)) mcpServersNeedsFix = true
+          return normalized.name ? normalized : null
+        })
+        .filter(Boolean)
+    : []
+  if (!Array.isArray(config.mcpServers)) mcpServersNeedsFix = true
+  if (mcpServersNeedsFix) {
+    config.mcpServers = normalizedMcpServers
+    await Browser.storage.local.set({ mcpServers: config.mcpServers })
+  }
+
+  const validAssistantIds = new Set((config.assistants || []).map((a) => a.id))
+  const validSkillIds = new Set((config.installedSkills || []).map((s) => s.id))
+  const validMcpServerIds = new Set((config.mcpServers || []).map((s) => s.id))
+
+  let assistantRefsNeedFix = false
+  const fixedAssistants = (config.assistants || []).map((assistant) => {
+    if (!assistant || typeof assistant !== 'object') return assistant
+    const fixedDefaultSkillIds = normalizeStringArray(assistant.defaultSkillIds).filter((id) =>
+      validSkillIds.has(id),
+    )
+    const fixedDefaultMcpServerIds = normalizeStringArray(assistant.defaultMcpServerIds).filter((id) =>
+      validMcpServerIds.has(id),
+    )
+    if (
+      !Array.isArray(assistant.defaultSkillIds) ||
+      !Array.isArray(assistant.defaultMcpServerIds) ||
+      fixedDefaultSkillIds.length !== assistant.defaultSkillIds.length ||
+      fixedDefaultMcpServerIds.length !== assistant.defaultMcpServerIds.length
+    ) {
+      assistantRefsNeedFix = true
+      return {
+        ...assistant,
+        defaultSkillIds: fixedDefaultSkillIds,
+        defaultMcpServerIds: fixedDefaultMcpServerIds,
+      }
+    }
+    return assistant
+  })
+  if (assistantRefsNeedFix) {
+    config.assistants = fixedAssistants
+    await Browser.storage.local.set({ assistants: config.assistants })
+  }
+
+  let defaultSelectionNeedsFix = false
+  const defaultMigrationNeedsPersist =
+    agentDefaultsMigrationVersion < AgentDefaultsMigrationVersion.clearLegacyDesignDefaults
+  const normalizedDefaultAssistantId = normalizeString(config.defaultAssistantId)
+  if (normalizedDefaultAssistantId !== config.defaultAssistantId) {
+    config.defaultAssistantId = normalizedDefaultAssistantId
+    defaultSelectionNeedsFix = true
+  }
+  if (config.defaultAssistantId && !validAssistantIds.has(config.defaultAssistantId)) {
+    config.defaultAssistantId = ''
+    defaultSelectionNeedsFix = true
+  }
+
+  const fixedDefaultSkillIds = normalizeStringArray(config.defaultSkillIds).filter((id) =>
+    validSkillIds.has(id),
+  )
+  if (
+    !Array.isArray(config.defaultSkillIds) ||
+    fixedDefaultSkillIds.length !== config.defaultSkillIds.length
+  ) {
+    config.defaultSkillIds = fixedDefaultSkillIds
+    defaultSelectionNeedsFix = true
+  }
+
+  const fixedDefaultMcpServerIds = normalizeStringArray(config.defaultMcpServerIds).filter((id) =>
+    validMcpServerIds.has(id),
+  )
+  if (
+    !Array.isArray(config.defaultMcpServerIds) ||
+    fixedDefaultMcpServerIds.length !== config.defaultMcpServerIds.length
+  ) {
+    config.defaultMcpServerIds = fixedDefaultMcpServerIds
+    defaultSelectionNeedsFix = true
+  }
+
+  if (defaultMigrationNeedsPersist) {
+    const isLegacyDesignDefaultProfile =
+      config.defaultAssistantId === BuiltInAssistantIds.designAssistant &&
+      config.defaultSkillIds.length === 1 &&
+      config.defaultSkillIds[0] === BuiltInSkillIds.analyzeWebDesignPatterns &&
+      config.defaultMcpServerIds.length === 1 &&
+      config.defaultMcpServerIds[0] === BuiltInMcpServerIds.skillLibrary
+    if (isLegacyDesignDefaultProfile) {
+      config.defaultAssistantId = ''
+      config.defaultSkillIds = []
+      config.defaultMcpServerIds = []
+      defaultSelectionNeedsFix = true
+    }
+  }
+
+  if (defaultSelectionNeedsFix || defaultMigrationNeedsPersist) {
+    const storagePatch = {}
+    if (defaultSelectionNeedsFix) {
+      Object.assign(storagePatch, {
+        defaultAssistantId: config.defaultAssistantId,
+        defaultSkillIds: config.defaultSkillIds,
+        defaultMcpServerIds: config.defaultMcpServerIds,
+      })
+    }
+    if (defaultMigrationNeedsPersist) {
+      storagePatch.agentDefaultsMigrationVersion =
+        AgentDefaultsMigrationVersion.clearLegacyDesignDefaults
+    }
+    await Browser.storage.local.set(storagePatch)
   }
 
   const storedSiteAdapters = Array.isArray(options.siteAdapters)
