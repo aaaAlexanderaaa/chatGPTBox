@@ -62,9 +62,22 @@ async function handleChatCompletions(req, res) {
   }
 
   const model = body.model || 'gpt-5-2'
-  const messages = body.messages || []
+  const messages = body.messages
   const stream = body.stream === true
   const completionId = makeCompletionId()
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message: 'messages must be a non-empty array',
+          type: 'invalid_request_error',
+        },
+      }),
+    )
+    return
+  }
 
   if (!bridgeWs || bridgeWs.readyState !== 1) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
@@ -236,12 +249,16 @@ async function handleChatCompletions(req, res) {
       res.end(JSON.stringify(response))
       log(`Request ${completionId}: completed`)
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' })
-      res.end(
-        JSON.stringify({
-          error: { message: err.message, type: 'server_error' },
-        }),
-      )
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+      }
+      if (!res.writableEnded) {
+        res.end(
+          JSON.stringify({
+            error: { message: err.message, type: 'server_error' },
+          }),
+        )
+      }
       log(`Request ${completionId}: error - ${err.message}`)
     }
   }
@@ -307,6 +324,10 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: '/bridge' })
 
 wss.on('connection', (ws) => {
+  if (bridgeWs && bridgeWs.readyState === 1) {
+    log('Replacing existing bridge connection')
+    bridgeWs.close(1000, 'Replaced by new bridge')
+  }
   log('Extension bridge connected')
   bridgeWs = ws
 

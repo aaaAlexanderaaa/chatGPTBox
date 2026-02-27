@@ -18,6 +18,12 @@ function slugToModelKey(slug) {
   return 'chatgptWeb52Auto'
 }
 
+// Flattens an OpenAI-style messages array into a single prompt string.
+// Limitation: multi-turn conversations lose native ChatGPT Web conversation
+// threading (conversation_id / parent_message_id). Each API request starts a
+// fresh conversation. System prompts are inlined as text, not handled at the
+// system level. Acceptable for v1; a future version could maintain persistent
+// conversation sessions keyed by a client-supplied conversation ID.
 function formatMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return ''
   if (messages.length === 1) return messages[0].content
@@ -223,6 +229,8 @@ function App() {
     addLog('Disconnected')
   }, [addLog])
 
+  // Intentionally empty deps: we only want the initial connect on mount
+  // and cleanup on unmount. connect/disconnect are stable on first render.
   useEffect(() => {
     connect()
     return () => disconnect()
