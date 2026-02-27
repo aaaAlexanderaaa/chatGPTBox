@@ -1,197 +1,225 @@
-# Upstream Commits Analysis
+# Upstream Commits Analysis (Revised)
 
 **Date:** February 27, 2026  
 **Upstream:** https://github.com/josstorer/ChatGPTBox  
-**Commits analyzed:** 27 commits ahead of common ancestor
-
-This document summarizes the upstream commits and identifies which ones are valuable for improving this repository. Since this fork has undergone significant changes (e.g., MCP, agent protocols, different config structure), direct merging is not practical. This analysis focuses on **insights and features worth learning from or adopting**.
-
----
-
-## Summary: High-Value vs Low-Value
-
-| Category | Count | Recommendation |
-|----------|-------|----------------|
-| **High value** (security, correctness, UX) | 8 | Adopt |
-| **Medium value** (model updates, tests, CI) | 7 | Consider selectively |
-| **Low value** (deps, build refactor) | 12 | Optional or N/A |
+**Common ancestor:** `7b99ec5`  
+**Commits analyzed:** 27 commits in `upstream/master` not in this branch
 
 ---
 
-## High-Value Commits (Worth Adopting)
+## 1. Methodology and Scope
 
-### 1. **GPT-5 Token Parameter Fix** (`aabd810`)
-**Use:** `max_completion_tokens` for GPT-5-family Chat Completions and `max_tokens` for others.
+### 1.1 Analytical Framework
 
-**Why:** OpenAI GPT-5.1-family models return: `Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.`
+For each upstream commit, this analysis applies:
 
-**Current state:** This repo has `max_completion_tokens` for *reasoning* models (gpt-5-thinking) but not for GPT-5 *chat* models (e.g. `gpt-5-chat-latest`, `gpt-5.1-chat-latest`). Those would still hit the error.
+1. **File mapping**: Which files does the commit touch? Does this repo have equivalent files?
+2. **Code-path verification**: Does this repo have the same code paths the commit modifies?
+3. **Design alignment**: Does this repo share the same design assumptions (e.g., message handlers, API structure)?
+4. **Evidence chain**: Each applicability conclusion is tied to specific file paths and line references.
 
-**Adoption:** Add `openai-token-params.mjs` with `getChatCompletionsTokenParams(provider, model, maxResponseTokenLength)` and use it in `openai-api.mjs`, `custom-api.mjs`, and any MCP tool loop paths that call OpenAI-compatible APIs with GPT-5 chat models.
+### 1.2 Repository Divergence (Evidence)
 
----
+**Files changed since common ancestor:**
 
-### 2. **Security: GET_COOKIE Sender Authorization** (`69739bd`)
-**Use:** Reject `GET_COOKIE` messages from senders whose `sender.id !== Browser.runtime.id`.
+| Source | Files changed | Notable differences |
+|--------|---------------|---------------------|
+| **This repo** | ~80+ files | Added: `src/agent/`, `src/services/mcp/`, `src/pages/ApiServer/`, `src/services/agent-context.mjs`, MCP tool-loop, agent protocols, different popup structure |
+| **Upstream** | ~31 files | Added: `tests/`, `openai-token-params.mjs`; modified: `build.mjs`, `pr-tests.yml`, `src/background/index.mjs`, `src/config/index.mjs` |
 
-**Why:** Prevents malicious extensions or pages from requesting cookies via the same message channel.
+**Structural differences:**
 
-**Current state:** This repo has stricter checks (origin check, allowed cookie names by origin). The upstream check is simpler: only accept messages from the extension itself. **Recommendation:** Keep your stricter origin/cookie checks; add the sender check if not already equivalent. Your current code does `sender?.id && sender.id !== Browser.runtime.id` → return null, which is correct.
-
----
-
-### 3. **Security: GET_COOKIE Payload Validation** (`304c612`)
-**Use:** Validate `message.data.url` and `message.data.name` as non-empty strings, parse URL with `new URL()`, and use trimmed values.
-
-**Why:** Prevents crashes and malformed inputs.
-
-**Current state:** Your GET_COOKIE handler validates `url` and `name` as strings and uses `new URL(url)`. Adding explicit trim and validation for empty strings would align with upstream’s robustness.
-
----
-
-### 4. **Security: Cookie Protocol and Header Validation** (`239aa4d`)
-**Use:**
-- Validate FETCH URL with `new URL()` and reject non-http(s) protocols
-- Validate GET_COOKIE URL protocol (http/https only)
-- Guard header iteration: `if (!header || !header.name) continue`
-- Avoid logging full header values; log only safe names
-
-**Why:** Avoids protocol confusion, invalid URLs, and crashes from malformed headers.
-
-**Adoption:** Apply these patterns to your FETCH and GET_COOKIE handlers and any header-modification logic.
+- **This repo** has `src/services/mcp/tool-loop.mjs` (MCP integration); upstream does not.
+- **This repo** has `src/agent/` (protocols, session-state); upstream does not.
+- **This repo** uses `executeApi` with `detectExecutionRoute`; upstream uses a different flow with `redactSensitiveFields`.
+- **Upstream** has `tests/` and `openai-token-params.mjs`; this repo does not.
+- **Config**: Both have `src/config/index.mjs` but model keys and structure differ.
 
 ---
 
-### 5. **Guard Custom API Mode Overrides** (`e2108a6`)
-**Use:** Use optional chaining and nullish coalescing: `session.apiMode.customUrl?.trim() || ...` and `session.apiMode.apiKey?.trim() || ...`.
+## 2. Commit-by-Commit Analysis with Evidence
 
-**Why:** Prevents crashes when `session.apiMode` or its properties are missing.
+### 2.1 GPT-5 Token Parameter Fix (`aabd810`)
 
-**Adoption:** Search for any `session.apiMode.customUrl.trim()` or similar and replace with optional chaining.
+**Upstream change:** Introduces `openai-token-params.mjs` and `getChatCompletionsTokenParams(provider, model, maxResponseTokenLength)`. Uses `max_completion_tokens` for OpenAI GPT-5-family chat models; `max_tokens` otherwise.
 
----
+**Files touched:** `custom-api.mjs`, `openai-api.mjs`, `openai-token-params.mjs` (new)
 
-### 6. **Make Static Card Init Non-Blocking** (`04208f1`)
-**Use:** Don’t `await` `prepareForStaticCard()`; instead call it and attach `.catch()` for error logging.
+**This repo evidence:**
 
-**Why:** Static card init shouldn’t block page load; failures should be logged but not crash the script.
+- `src/services/apis/openai-api.mjs` lines 243–265: Uses `max_completion_tokens` only when `isReasoningModel` is true. Non-reasoning models use `max_tokens` (line 263).
+- `src/utils/model-name-convert.mjs` lines 205–209: `isUsingReasoningModel` excludes `gpt-5-chat-*` (e.g. `gpt-5-chat-latest`, `gpt-5.1-chat-latest`).
+- Therefore: GPT-5 chat models follow the non-reasoning path and receive `max_tokens`, which can trigger the OpenAI error.
 
-**Current state:** You already call `prepareForStaticCard()` without `await` (fire-and-forget). **Add:** `.catch((error) => console.error('[content] Error in prepareForStaticCard (unhandled):', error))` for consistency and debugging.
-
----
-
-### 7. **Guard Proxy Message Forwarding** (`090044e`)
-**Use:** Before forwarding proxy messages: check `port._isClosed`; wrap `port.postMessage(msg)` in try/catch.
-
-**Why:** Avoids errors when the main port is closed or disconnected.
-
-**Adoption:** If you have similar proxy/port forwarding logic in the background script, add these guards.
+**Applicability:** **Yes.** This repo has GPT-5 chat models in config and uses `max_tokens` for them. The fix is applicable.
 
 ---
 
-### 8. **Improve Background Script Error Handling** (`1bd2a93`)
-**Use:** Large refactor: reconnect logic with exponential backoff, sensitive field redaction in logs, proper cleanup of listeners and proxy ports.
+### 2.2 GET_COOKIE Sender Authorization (`69739bd`)
 
-**Why:** More stable connections and safer logging (no API keys, tokens, etc. in logs).
+**Upstream change:** Rejects `GET_COOKIE` when `sender.id !== Browser.runtime.id`.
 
-**Adoption:** Review the background script’s proxy/reconnect logic and redaction helpers. Adopt patterns that fit your architecture without a full copy.
+**This repo evidence:**
 
----
+- `src/background/index.mjs` lines 401–403: `if (sender?.id && sender.id !== Browser.runtime.id) return null`
 
-## Medium-Value Commits (Consider Selectively)
-
-### 9. **Model Updates**
-- **Add Anthropic Claude Opus 4.5 & 4.6** (`3832a3d`)
-- **Add OpenAI gpt-5.1-chat-latest** (`2a81de9`)
-- **Add Gemini 3 and 3.1 OpenRouter** (`9746218`)
-- **Remove Retired Models** (`718a985`, `5c12582`, `c435016`): OpenAI, Anthropic, OpenRouter, AIML
-
-**Adoption:** Sync your model lists with these additions and removals. Your config structure differs; use upstream as a reference for which models to add/remove.
+**Applicability:** **Already implemented.** No change needed.
 
 ---
 
-### 10. **Node Unit Tests** (`f9ef899`, `9ed7fa8`, `ab628e1`)
-**Use:** Browser shim for Node, unit tests for SSE, API helpers, model config, guards.
+### 2.3 GET_COOKIE Payload Validation (`304c612`)
 
-**Adoption:** Add `tests/setup/browser-shim.mjs` and `npm test` script. Use upstream’s tests as inspiration for guards, token params, and utilities. Your `test:agent` is separate; keep both.
+**Upstream change:** Validates `url` and `name` as non-empty strings, parses URL, trims inputs.
 
----
+**This repo evidence:**
 
-### 11. **Run npm Tests in CI** (`a410842`)
-**Use:** Run `npm test` in CI before lint and build.
+- `src/background/index.mjs` lines 404–416: Validates `typeof url === 'string'` and `typeof name === 'string'`, uses `new URL(url)`, and enforces `allowedCookieNamesByOrigin` (whitelist).
+- Design difference: This repo uses a whitelist (`allowedCookieNamesByOrigin`); upstream is more permissive.
+- Missing: No explicit `trim()` or empty-string check before `new URL(url)`.
 
-**Adoption:** Add `npm run test` to your `.github/workflows/pr-tests.yml` once you have Node tests.
-
----
-
-### 12. **Security: npm audit fix** (`055d6b4`)
-**Use:** Reduce vulnerabilities from 29 to 21.
-
-**Adoption:** Run `npm audit` and `npm audit fix` (with care) to address known issues.
+**Applicability:** **Partial.** Adding `trim()` and empty-string checks would improve robustness without changing the whitelist design.
 
 ---
 
-## Low-Value / Optional / N/A
+### 2.4 Cookie Protocol and Header Validation (`239aa4d`)
 
-### 13. **Dependency Bumps**
-- `actions/setup-node` 5→6  
-- `actions/upload-artifact` 4→6  
-- `actions/checkout` 5→6  
-- `actions/cache` 4→5  
-- `jws` 3.2.2→3.2.3  
+**Upstream change:** (a) Validates FETCH URL with `new URL()` and restricts to http(s); (b) Validates GET_COOKIE URL protocol; (c) Guards header iteration; (d) Avoids logging full header values.
 
-**Adoption:** Apply when convenient; no functional impact.
+**This repo evidence:**
 
----
+- **FETCH** (`src/background/index.mjs` lines 372–399): Uses `message.data.input` directly in `fetch()` with no URL validation. **Vulnerable to non-http(s) or malformed URLs.**
+- **GET_COOKIE** (lines 409–410): Already restricts to `https:` only.
+- **Header modification:** This repo uses `declarativeNetRequest` (rules) and `getScopedHeaderRewriteRules`; upstream uses `webRequest` with `requestHeaders` iteration. Different mechanisms.
 
-### 14. **Build Pipeline Refactor** (`11b4531`, `727b578`, `9537643`)
-**Use:** esbuild minification, thread-loader, parallel builds, cache tuning, CI cache docs.
-
-**Adoption:** Optional. Your build is different; only adopt if you’re actively optimizing build performance.
+**Applicability:** **FETCH: Yes.** URL validation before `fetch()` is missing and should be added. **GET_COOKIE:** Already protocol-restricted. **Headers:** Different implementation; review only if similar iteration exists.
 
 ---
 
-### 15. **Improve Content Script Stability** (`0dbe283`)
-**Use:** Upstream-specific content script changes.
+### 2.5 Guard Custom API Mode Overrides (`e2108a6`)
 
-**Adoption:** Review the diff if you see similar stability issues; otherwise skip.
+**Upstream change:** Uses `session.apiMode.customUrl?.trim()` and `session.apiMode.apiKey?.trim()`.
 
----
+**This repo evidence:**
 
-## Recommended Action Plan
+- `src/background/index.mjs` lines 181–184: `session.apiMode.customUrl.trim()` and `session.apiMode.apiKey.trim()` — no optional chaining.
+- Context: `if (!session.apiMode)` guards the block, but `customUrl` or `apiKey` can be `undefined` when `session.apiMode` exists.
 
-1. **Immediate (correctness):**
-   - Add GPT-5 token parameter fix (`openai-token-params.mjs` + `getChatCompletionsTokenParams`)
-   - Add `.catch()` to `prepareForStaticCard()` if not already present
-
-2. **Security:**
-   - Validate GET_COOKIE payload (trim, URL validation, protocol check)
-   - Validate FETCH URL and headers
-   - Guard custom API mode overrides with optional chaining
-
-3. **Reliability:**
-   - Guard proxy message forwarding with `_isClosed` and try/catch
-   - Add optional chaining for `session.apiMode` usage
-
-4. **Models:**
-   - Add Claude Opus 4.5/4.6, gpt-5.1-chat-latest, Gemini 3/3.1
-   - Remove retired models per upstream lists
-
-5. **Testing:**
-   - Add Node unit tests and `npm test`
-   - Run `npm test` in CI
-
-6. **Maintenance:**
-   - Run `npm audit fix` (with review)
-   - Bump GitHub Actions when convenient
+**Applicability:** **Yes.** Optional chaining prevents crashes when properties are missing.
 
 ---
 
-## Files to Reference in Upstream
+### 2.6 Make Static Card Init Non-Blocking (`04208f1`)
 
-For implementation details, inspect these files in `upstream/master`:
+**Upstream change:** Replaces `await prepareForStaticCard()` with `prepareForStaticCard().catch(...)`.
 
-- `src/services/apis/openai-token-params.mjs` – token parameter logic
-- `src/services/apis/openai-token-params.test.mjs` – unit tests
-- `src/background/index.mjs` – security handlers, proxy guards
-- `tests/setup/browser-shim.mjs` – Node test setup
+**This repo evidence:**
+
+- `src/content-script/index.jsx` lines 582–586: `prepareForStaticCard()` is called without `await` (fire-and-forget). **Already non-blocking.**
+- No `.catch()` on the promise.
+
+**Applicability:** **Partial.** Only improvement is adding `.catch()` for error logging.
+
+---
+
+### 2.7 Guard Proxy Message Forwarding (`090044e`)
+
+**Upstream change:** Checks `port._isClosed` before forwarding; wraps `port.postMessage(msg)` in try/catch.
+
+**This repo evidence:**
+
+- `src/background/index.mjs` lines 115–140: `setPortProxy` is simpler — no `_isClosed`, no reconnect logic.
+
+**Upstream design:** `_isClosed` is set in the larger reconnect/error-handling refactor (`1bd2a93`). `090044e` alone is not self-contained.
+
+**Applicability:** **Conditional.** Would require adopting the reconnect/error-handling design from `1bd2a93` to use `_isClosed` and related guards. Otherwise, a try/catch around `postMessage` is a low-risk improvement.
+
+---
+
+### 2.8 Improve Background Script Error Handling (`1bd2a93`)
+
+**Upstream change:** Large refactor: reconnect logic with exponential backoff, sensitive field redaction, listener cleanup.
+
+**This repo evidence:**
+
+- `src/background/index.mjs` lines 115–140: `setPortProxy` is ~25 lines; no reconnect, no redaction.
+
+**Applicability:** **Architectural.** Adoption would require significant refactoring. Use as a reference for patterns (redaction, reconnect) rather than a direct patch.
+
+---
+
+### 2.9 Model Updates (`3832a3d`, `2a81de9`, `9746218`, `718a985`, `5c12582`, `c435016`)
+
+**Upstream change:** Add/remove model entries in config.
+
+**This repo evidence:**
+
+- `src/config/index.mjs`: Different model key structure and `modelKeys` layout. Model keys and mappings differ from upstream.
+
+**Applicability:** **Reference only.** Use upstream as a reference for which models to add/remove; adapt to this repo’s config structure.
+
+---
+
+### 2.10 Node Unit Tests (`f9ef899`, `9ed7fa8`, `ab628e1`)
+
+**Upstream change:** Adds `tests/setup/browser-shim.mjs`, `npm test` script, and unit tests.
+
+**This repo evidence:**
+
+- No `tests/` directory. No `npm test` in `package.json`. Scripts include `test:agent` but no Node unit tests.
+
+**Applicability:** **Yes.** Adopting would add test infrastructure and a baseline.
+
+---
+
+### 2.11 Run npm Tests in CI (`a410842`)
+
+**Upstream change:** Adds `npm test` to the pr-tests workflow.
+
+**Applicability:** **Depends on 2.10.** Relevant once Node tests exist.
+
+---
+
+### 2.12 Build Pipeline, Dependencies, Other
+
+- **Build refactor** (`11b4531`, `727b578`, `9537643`): Different build setup; optional.
+- **Dependency bumps** (actions, jws): Low priority.
+- **npm audit fix** (`055d6b4`): Run `npm audit` and apply fixes with review.
+- **Content script stability** (`0dbe283`): Review diff if similar issues arise.
+
+---
+
+## 3. Corrections to Prior Analysis
+
+| Prior claim | Correction |
+|-------------|------------|
+| "Add sender check if not already equivalent" for GET_COOKIE | Sender check is already present. |
+| "Guard proxy message forwarding" as a standalone adoption | Depends on `_isClosed` and reconnect logic from `1bd2a93`. |
+| "Make static card init non-blocking" as a main change | Init is already non-blocking; only `.catch()` is missing. |
+| Generic "validate GET_COOKIE payload" | This repo uses a whitelist; validation improvements are partial (trim, empty-string checks). |
+| "Validate FETCH URL" without evidence | Confirmed: FETCH handler uses `message.data.input` without validation. |
+
+---
+
+## 4. Evidence-Based Recommendations
+
+| Priority | Commit / area | Evidence | Action |
+|----------|---------------|----------|--------|
+| High | `aabd810` (token params) | openai-api.mjs uses `max_tokens` for non-reasoning models; GPT-5 chat is non-reasoning | Add `openai-token-params.mjs` and use in openai-api, custom-api, tool-loop |
+| High | `e2108a6` (api mode guard) | Lines 181–184 use `.trim()` without optional chaining | Use `?.trim()` for `customUrl` and `apiKey` |
+| High | `239aa4d` (FETCH URL) | FETCH uses `message.data.input` unvalidated | Validate URL and restrict to http(s) before `fetch()` |
+| Medium | `304c612` (GET_COOKIE payload) | No trim or empty-string check | Add trim and empty-string validation |
+| Medium | `04208f1` (static card) | No `.catch()` on `prepareForStaticCard()` | Add `.catch()` for error logging |
+| Medium | `090044e` (proxy guard) | No try/catch around `postMessage` | Add try/catch around `port.postMessage` (minimal change) |
+| Reference | Model updates | Config structure differs | Use upstream as reference for model list changes |
+| Reference | Tests | No tests directory | Add tests and `npm test` when feasible |
+
+---
+
+## 5. Files to Inspect in Upstream
+
+For implementation details:
+
+- `src/services/apis/openai-token-params.mjs` — token parameter logic
+- `src/services/apis/openai-token-params.test.mjs` — unit tests
+- `src/background/index.mjs` — FETCH validation, optional chaining
+- `tests/setup/browser-shim.mjs` — Node test setup
