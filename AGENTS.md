@@ -34,6 +34,14 @@ See `package.json` `scripts` for the full list. The key ones:
 
 The `pre-commit` npm package runs `prettier`, `git add`, and `eslint` before each commit (configured in `package.json` under `"pre-commit"`). If a commit fails lint, run `npm run lint:fix` then retry.
 
+### API Gateway (`npm run api-server`)
+
+The project includes a local OpenAI-compatible API gateway that proxies ChatGPT Web through the extension. Architecture:
+- `scripts/api-server.mjs` — Node.js HTTP+WebSocket server on `localhost:18080`
+- `src/pages/ApiServer/` — Extension bridge page that connects the server to the ChatGPT backend
+- The bridge page must be opened from the service worker console: `chrome.tabs.create({url: chrome.runtime.getURL('ApiServer.html')})` (direct URL navigation is blocked by Chrome MV3)
+- Requires the user to be logged into chatgpt.com for the ChatGPT Web API to work
+
 ### Gotchas
 
 - The production build (`npm run build`) runs two sequential Webpack compilations with a 10-second sleep between them. It takes ~30 seconds total. The dev build is faster since it only runs one compilation.
