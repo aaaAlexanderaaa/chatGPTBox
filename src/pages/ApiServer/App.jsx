@@ -64,11 +64,27 @@ function App() {
         conversationRecords: [],
       })
 
-      const port = Browser.runtime.connect()
+      let port
+      try {
+        port = Browser.runtime.connect()
+      } catch (err) {
+        addLog(`Error ${id.slice(0, 8)}...: failed to connect to background`, 'error')
+        sendWs({
+          type: 'error',
+          id,
+          error: err.message || 'Failed to connect to extension background',
+        })
+        return
+      }
+
       let lastAnswer = ''
+      let finished = false
 
       port.onMessage.addListener((msg) => {
+        if (finished) return
+
         if (msg.error) {
+          finished = true
           addLog(`Error ${id.slice(0, 8)}...: ${msg.error}`, 'error')
           sendWs({ type: 'error', id, error: msg.error })
           try {
@@ -87,6 +103,7 @@ function App() {
         }
 
         if (msg.done) {
+          finished = true
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
           sendWs({ type: 'done', id, answer: lastAnswer })
           try {
@@ -98,14 +115,32 @@ function App() {
       })
 
       port.onDisconnect.addListener(() => {
+        if (finished) return
+        finished = true
         if (lastAnswer) {
+          addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars (port closed)`)
           sendWs({ type: 'done', id, answer: lastAnswer })
+        } else {
+          addLog(`Error ${id.slice(0, 8)}...: port disconnected unexpectedly`, 'error')
+          sendWs({
+            type: 'error',
+            id,
+            error: 'Extension background disconnected before responding',
+          })
         }
       })
 
-      port.postMessage({ session })
+      try {
+        port.postMessage({ session })
+      } catch (err) {
+        if (!finished) {
+          finished = true
+          addLog(`Error ${id.slice(0, 8)}...: ${err.message}`, 'error')
+          sendWs({ type: 'error', id, error: err.message || 'Failed to send request to extension' })
+        }
+      }
     },
-    [addLog],
+    [addLog, sendWs],
   )
 
   const sendWs = useCallback((data) => {

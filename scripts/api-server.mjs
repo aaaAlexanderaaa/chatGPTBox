@@ -103,14 +103,44 @@ async function handleChatCompletions(req, res) {
     const requestId = crypto.randomUUID()
     const state = { resolved: false }
 
+    function safeWrite(data) {
+      if (res.destroyed || res.writableEnded) return false
+      try {
+        res.write(data)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function safeEnd() {
+      if (res.destroyed || res.writableEnded) return
+      try {
+        res.end()
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function cleanup() {
+      state.resolved = true
+      clearTimeout(timeout)
+      pendingRequests.delete(requestId)
+    }
+
+    res.on('close', () => {
+      if (!state.resolved) {
+        cleanup()
+        log(`Request ${completionId}: client disconnected`)
+      }
+    })
+
     const timeout = setTimeout(() => {
       if (!state.resolved) {
-        state.resolved = true
-        pendingRequests.delete(requestId)
-        const errChunk = makeStreamChunk(completionId, model, {}, 'error')
-        res.write(`data: ${JSON.stringify(errChunk)}\n\n`)
-        res.write('data: [DONE]\n\n')
-        res.end()
+        cleanup()
+        safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'error'))}\n\n`)
+        safeWrite('data: [DONE]\n\n')
+        safeEnd()
       }
     }, 120000)
 
@@ -121,29 +151,23 @@ async function handleChatCompletions(req, res) {
         previousAnswer = answer
         if (delta) {
           const chunk = makeStreamChunk(completionId, model, { content: delta }, null)
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`)
+          safeWrite(`data: ${JSON.stringify(chunk)}\n\n`)
         }
       },
       resolve() {
         if (state.resolved) return
-        state.resolved = true
-        clearTimeout(timeout)
-        pendingRequests.delete(requestId)
-        const finalChunk = makeStreamChunk(completionId, model, {}, 'stop')
-        res.write(`data: ${JSON.stringify(finalChunk)}\n\n`)
-        res.write('data: [DONE]\n\n')
-        res.end()
+        cleanup()
+        safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'stop'))}\n\n`)
+        safeWrite('data: [DONE]\n\n')
+        safeEnd()
         log(`Request ${completionId}: completed (streamed)`)
       },
       reject(err) {
         if (state.resolved) return
-        state.resolved = true
-        clearTimeout(timeout)
-        pendingRequests.delete(requestId)
-        const errData = { error: { message: err.message } }
-        res.write(`data: ${JSON.stringify(errData)}\n\n`)
-        res.write('data: [DONE]\n\n')
-        res.end()
+        cleanup()
+        safeWrite(`data: ${JSON.stringify({ error: { message: err.message } })}\n\n`)
+        safeWrite('data: [DONE]\n\n')
+        safeEnd()
         log(`Request ${completionId}: error - ${err.message}`)
       },
     })
@@ -153,25 +177,40 @@ async function handleChatCompletions(req, res) {
     try {
       const requestId = crypto.randomUUID()
       const result = await new Promise((resolve, reject) => {
-        const state = { answer: '' }
+        const state = { answer: '', settled: false }
+
+        function settle() {
+          state.settled = true
+          clearTimeout(timeout)
+          pendingRequests.delete(requestId)
+        }
 
         const timeout = setTimeout(() => {
-          pendingRequests.delete(requestId)
-          reject(new Error('Request timed out after 120 seconds'))
+          if (!state.settled) {
+            settle()
+            reject(new Error('Request timed out after 120 seconds'))
+          }
         }, 120000)
+
+        res.on('close', () => {
+          if (!state.settled) {
+            settle()
+            reject(new Error('Client disconnected'))
+          }
+        })
 
         pendingRequests.set(requestId, {
           onChunk(answer) {
             state.answer = answer
           },
           resolve() {
-            clearTimeout(timeout)
-            pendingRequests.delete(requestId)
+            if (state.settled) return
+            settle()
             resolve(state.answer)
           },
           reject(err) {
-            clearTimeout(timeout)
-            pendingRequests.delete(requestId)
+            if (state.settled) return
+            settle()
             reject(err)
           },
         })
