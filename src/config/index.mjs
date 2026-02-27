@@ -1374,7 +1374,10 @@ export async function getUserConfig() {
             mcpServersNeedsFix = true
             return null
           }
-          const transport = normalizeString(server.transport).trim().toLowerCase() === 'builtin' ? 'builtin' : 'http'
+          const transport =
+            normalizeString(server.transport).trim().toLowerCase() === 'builtin'
+              ? 'builtin'
+              : 'http'
           const normalized = {
             id: ensureObjectId(server, 'mcp'),
             name: normalizeString(server.name),
@@ -1404,8 +1407,8 @@ export async function getUserConfig() {
     const fixedDefaultSkillIds = normalizeStringArray(assistant.defaultSkillIds).filter((id) =>
       validSkillIds.has(id),
     )
-    const fixedDefaultMcpServerIds = normalizeStringArray(assistant.defaultMcpServerIds).filter((id) =>
-      validMcpServerIds.has(id),
+    const fixedDefaultMcpServerIds = normalizeStringArray(assistant.defaultMcpServerIds).filter(
+      (id) => validMcpServerIds.has(id),
     )
     if (
       !Array.isArray(assistant.defaultSkillIds) ||

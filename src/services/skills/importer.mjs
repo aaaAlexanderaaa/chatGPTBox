@@ -15,7 +15,10 @@ function stripFrontMatter(markdown) {
     const split = line.indexOf(':')
     if (split === -1) continue
     const key = line.slice(0, split).trim()
-    const value = line.slice(split + 1).trim().replace(/^['"]|['"]$/g, '')
+    const value = line
+      .slice(split + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, '')
     if (key) metadata[key] = value
   }
   return {

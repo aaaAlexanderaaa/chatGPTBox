@@ -48,7 +48,8 @@ export function extractResponsesOutputText(payload) {
     const content = Array.isArray(item.content) ? item.content : []
     for (const part of content) {
       if (typeof part?.text === 'string' && part.text.trim()) parts.push(part.text)
-      if (typeof part?.output_text === 'string' && part.output_text.trim()) parts.push(part.output_text)
+      if (typeof part?.output_text === 'string' && part.output_text.trim())
+        parts.push(part.output_text)
     }
   }
 
@@ -56,7 +57,9 @@ export function extractResponsesOutputText(payload) {
 }
 
 export function resolveResponsesEndpoint(baseUrlOrEndpoint) {
-  const input = String(baseUrlOrEndpoint || '').trim().replace(/\/+$/, '')
+  const input = String(baseUrlOrEndpoint || '')
+    .trim()
+    .replace(/\/+$/, '')
   if (!input) return ''
   if (input.endsWith('/responses')) return input
   return `${input}/responses`
@@ -80,7 +83,9 @@ export async function postOpenAiResponses(baseUrlOrEndpoint, apiKey, body, signa
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    throw new Error(`Responses API request failed: ${response.status} ${response.statusText}\n${text}`)
+    throw new Error(
+      `Responses API request failed: ${response.status} ${response.statusText}\n${text}`,
+    )
   }
   return response.json()
 }

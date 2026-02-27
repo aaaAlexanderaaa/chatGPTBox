@@ -40,7 +40,9 @@ export function normalizeAgentMemory(memory, options = {}) {
     objective: typeof memory.objective === 'string' ? memory.objective : '',
     lastStopReason: typeof memory.lastStopReason === 'string' ? memory.lastStopReason : '',
     nextAction: typeof memory.nextAction === 'string' ? memory.nextAction : '',
-    noProgressCount: Number.isFinite(memory.noProgressCount) ? Math.max(0, memory.noProgressCount) : 0,
+    noProgressCount: Number.isFinite(memory.noProgressCount)
+      ? Math.max(0, memory.noProgressCount)
+      : 0,
     steps: steps.slice(-stepLimit),
     updatedAt: typeof memory.updatedAt === 'string' ? memory.updatedAt : new Date().toISOString(),
   }
@@ -48,7 +50,8 @@ export function normalizeAgentMemory(memory, options = {}) {
 
 export function appendToolEvents(session, events, options = {}) {
   if (!session || typeof session !== 'object') return []
-  if (!Array.isArray(events) || events.length === 0) return Array.isArray(session.toolEvents) ? session.toolEvents : []
+  if (!Array.isArray(events) || events.length === 0)
+    return Array.isArray(session.toolEvents) ? session.toolEvents : []
   const limit = clampPositiveInt(options.limit, DEFAULT_TOOL_EVENT_LIMIT)
   const current = Array.isArray(session.toolEvents) ? session.toolEvents : []
   const next = [...current, ...events].slice(-limit)
@@ -76,7 +79,8 @@ export function updateAgentMemory(session, patch = {}, options = {}) {
   if (typeof patch.objective === 'string') memory.objective = patch.objective
   if (typeof patch.lastStopReason === 'string') memory.lastStopReason = patch.lastStopReason
   if (typeof patch.nextAction === 'string') memory.nextAction = patch.nextAction
-  if (Number.isFinite(patch.noProgressCount)) memory.noProgressCount = Math.max(0, patch.noProgressCount)
+  if (Number.isFinite(patch.noProgressCount))
+    memory.noProgressCount = Math.max(0, patch.noProgressCount)
   if (Array.isArray(patch.steps)) {
     const normalized = patch.steps.map(normalizeStep).filter(Boolean)
     const stepLimit = clampPositiveInt(options.stepLimit, DEFAULT_MEMORY_STEP_LIMIT)

@@ -76,7 +76,8 @@ function collectColorPalette() {
 function nodeLabel(element) {
   const tag = String(element.tagName || '').toLowerCase()
   const id = element.id ? `#${element.id.slice(0, 24)}` : ''
-  const classNames = typeof element.className === 'string' ? element.className.trim().split(/\s+/) : []
+  const classNames =
+    typeof element.className === 'string' ? element.className.trim().split(/\s+/) : []
   const classSuffix = classNames
     .filter(Boolean)
     .slice(0, 2)
@@ -140,7 +141,10 @@ function collectInteractiveElements() {
 function collectLinksSummary() {
   return Array.from(document.querySelectorAll('a[href]'))
     .map((element) => {
-      const label = normalizeText(element.textContent || element.getAttribute('aria-label') || '', 100)
+      const label = normalizeText(
+        element.textContent || element.getAttribute('aria-label') || '',
+        100,
+      )
       const href = normalizeText(element.getAttribute('href') || '', 260)
       if (!href) return ''
       return label ? `- ${label}: ${href}` : `- ${href}`

@@ -99,7 +99,9 @@ export const getSessions = async () => {
         needsFix = true
       }
 
-      const fixedSkillIds = Array.isArray(session.selectedSkillIds) ? session.selectedSkillIds : null
+      const fixedSkillIds = Array.isArray(session.selectedSkillIds)
+        ? session.selectedSkillIds
+        : null
       if (fixedSkillIds !== session.selectedSkillIds) {
         fixed.selectedSkillIds = fixedSkillIds
         needsFix = true

@@ -1,0 +1,184 @@
+.api-server-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px;
+  color: #1a1a2e;
+}
+
+.api-server-header h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.api-server-header .subtitle {
+  margin: 0 0 20px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.api-server-status {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.request-count {
+  margin-left: auto;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.url-row {
+  display: flex;
+  gap: 8px;
+}
+
+.url-row input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.url-row input:disabled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.url-row button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-connect {
+  background: #0d9488;
+  color: white;
+}
+
+.btn-connect:hover {
+  background: #0f766e;
+}
+
+.btn-disconnect {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-disconnect:hover {
+  background: #dc2626;
+}
+
+.api-server-usage {
+  margin-bottom: 20px;
+}
+
+.api-server-usage h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.api-server-usage ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.api-server-usage code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.api-server-usage details {
+  margin-top: 10px;
+}
+
+.api-server-usage summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.api-server-usage pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.api-server-logs h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.log-container {
+  background: #111827;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.log-empty {
+  color: #6b7280;
+  padding: 8px 0;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+.log-time {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.log-info .log-msg {
+  color: #d1d5db;
+}
+
+.log-success .log-msg {
+  color: #34d399;
+}
+
+.log-error .log-msg {
+  color: #f87171;
+}

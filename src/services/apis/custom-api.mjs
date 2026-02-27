@@ -21,7 +21,9 @@ import {
 } from './openai-responses-shared.mjs'
 
 function deriveOpenAiBaseUrl(apiUrl) {
-  const url = String(apiUrl || '').trim().replace(/\/+$/, '')
+  const url = String(apiUrl || '')
+    .trim()
+    .replace(/\/+$/, '')
   if (!url) return ''
   if (url.endsWith('/chat/completions')) return url.slice(0, -'/chat/completions'.length)
   if (url.endsWith('/responses')) return url.slice(0, -'/responses'.length)
