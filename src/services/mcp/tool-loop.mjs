@@ -157,8 +157,14 @@ function readPageContextFieldForTool(session, field, maxChars) {
 }
 
 function buildSkillDetailPayload(skill, args, session, config) {
-  const section = String(args?.section || 'overview').trim().toLowerCase()
-  const maxChars = clampMaxChars(args?.max_chars ?? args?.maxChars, 6000, MAX_BUILTIN_SKILL_DETAIL_CHARS)
+  const section = String(args?.section || 'overview')
+    .trim()
+    .toLowerCase()
+  const maxChars = clampMaxChars(
+    args?.max_chars ?? args?.maxChars,
+    6000,
+    MAX_BUILTIN_SKILL_DETAIL_CHARS,
+  )
 
   if (section === 'overview') {
     return {
@@ -223,8 +229,7 @@ function buildSkillDetailPayload(skill, args, session, config) {
   return {
     id: skill.id,
     name: skill.name,
-    error:
-      'Invalid section. Supported values: overview, instructions, resources_index, resource.',
+    error: 'Invalid section. Supported values: overview, instructions, resources_index, resource.',
   }
 }
 
@@ -506,7 +511,8 @@ function extractResponsesAnswer(payload) {
     const content = Array.isArray(item.content) ? item.content : []
     for (const part of content) {
       if (typeof part?.text === 'string' && part.text.trim()) lines.push(part.text)
-      if (typeof part?.output_text === 'string' && part.output_text.trim()) lines.push(part.output_text)
+      if (typeof part?.output_text === 'string' && part.output_text.trim())
+        lines.push(part.output_text)
     }
   }
 
@@ -983,7 +989,8 @@ export async function runMcpToolLoop({
   if (normalizedProtocol === AgentProtocol.openAiResponsesV1) {
     const converted = convertMessagesToResponsesInput(loopMessages)
     responseInput = converted.input
-    responseInstructions = converted.instructions || (typeof systemPrompt === 'string' ? systemPrompt : '')
+    responseInstructions =
+      converted.instructions || (typeof systemPrompt === 'string' ? systemPrompt : '')
   }
 
   updateAgentMemory(session, {
@@ -1052,7 +1059,14 @@ export async function runMcpToolLoop({
         turn,
         createdAt: nowIso(),
       })
-      const failure = buildResult('failed', turnResult.reason || 'turn_failed', '', usedTools, events, turns)
+      const failure = buildResult(
+        'failed',
+        turnResult.reason || 'turn_failed',
+        '',
+        usedTools,
+        events,
+        turns,
+      )
       updateAgentMemory(session, {
         lastStopReason: failure.reason,
         nextAction: 'fallback_to_standard_completion',
@@ -1083,7 +1097,14 @@ export async function runMcpToolLoop({
           usedTools,
           createdAt: nowIso(),
         })
-        const success = buildResult('succeeded', 'completed', assistantAnswer, usedTools, events, turns)
+        const success = buildResult(
+          'succeeded',
+          'completed',
+          assistantAnswer,
+          usedTools,
+          events,
+          turns,
+        )
         updateAgentMemory(session, {
           lastStopReason: success.reason,
           nextAction: 'done',
@@ -1189,7 +1210,10 @@ export async function runMcpToolLoop({
 }
 
 export async function runMcpToolLoopForOpenAiCompat(options) {
-  return runMcpToolLoop({ ...options, protocol: options?.protocol || AgentProtocol.openAiChatCompletionsV1 })
+  return runMcpToolLoop({
+    ...options,
+    protocol: options?.protocol || AgentProtocol.openAiChatCompletionsV1,
+  })
 }
 
 export async function runMcpToolLoopForAnthropic(options) {

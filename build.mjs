@@ -52,6 +52,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         import: './src/pages/IndependentPanel/index.jsx',
         dependOn: 'shared',
       },
+      ApiServer: {
+        import: './src/pages/ApiServer/index.jsx',
+        dependOn: 'shared',
+      },
       shared: shared,
     },
     output: {
@@ -317,6 +321,10 @@ async function finishOutput(outputDirSuffix) {
     { src: 'build/IndependentPanel.js', dst: 'IndependentPanel.js' },
     { src: 'build/IndependentPanel.css', dst: 'IndependentPanel.css' },
     { src: 'src/pages/IndependentPanel/index.html', dst: 'IndependentPanel.html' },
+
+    { src: 'build/ApiServer.js', dst: 'ApiServer.js' },
+    { src: 'build/ApiServer.css', dst: 'ApiServer.css' },
+    { src: 'src/pages/ApiServer/index.html', dst: 'ApiServer.html' },
   ]
 
   // chromium

@@ -144,7 +144,10 @@ function summarizeLinksFromDom() {
   if (!hasDomAccess()) return ''
   const links = Array.from(document.querySelectorAll('a[href]'))
     .map((element) => {
-      const label = normalizeText(element.textContent || element.getAttribute('aria-label') || '', 120)
+      const label = normalizeText(
+        element.textContent || element.getAttribute('aria-label') || '',
+        120,
+      )
       const href = normalizeText(element.getAttribute('href') || '', 300)
       if (!href) return ''
       return label ? `- ${label}: ${href}` : `- ${href}`
@@ -157,7 +160,9 @@ function summarizeLinksFromDom() {
 function summarizeInteractiveElementsFromDom() {
   if (!hasDomAccess()) return ''
   const elements = Array.from(
-    document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [tabindex]'),
+    document.querySelectorAll(
+      'a[href], button, input, select, textarea, [role="button"], [tabindex]',
+    ),
   )
     .slice(0, MAX_INTERACTIVE_ELEMENTS)
     .map((element) => {
@@ -179,7 +184,9 @@ function summarizeInteractiveElementsFromDom() {
       if (label) suffixParts.push(`label="${label}"`)
       if (href) suffixParts.push(`href="${href}"`)
       if (value) suffixParts.push(`value="${value}"`)
-      return `- ${tag}${id}${roleText}${suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : ''}`
+      return `- ${tag}${id}${roleText}${
+        suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : ''
+      }`
     })
 
   return elements.join('\n')
@@ -188,7 +195,8 @@ function summarizeInteractiveElementsFromDom() {
 function nodeLabel(element) {
   const tag = String(element.tagName || '').toLowerCase()
   const id = element.id ? `#${element.id.slice(0, 30)}` : ''
-  const classNames = typeof element.className === 'string' ? element.className.trim().split(/\s+/) : []
+  const classNames =
+    typeof element.className === 'string' ? element.className.trim().split(/\s+/) : []
   const classSuffix = classNames
     .filter(Boolean)
     .slice(0, 2)
@@ -276,7 +284,10 @@ function getPageContextValue(pageContext, key) {
     case 'interactiveelements':
       return normalizeText(pageContext.interactiveElements || '', 12000)
     case 'stylesummary':
-      return normalizeText(pageContext.styleSummary || pageContext.design?.styleSummary || '', 14000)
+      return normalizeText(
+        pageContext.styleSummary || pageContext.design?.styleSummary || '',
+        14000,
+      )
     case 'extractionmethod':
       return normalizeText(pageContext.extraction?.method || '', 120)
     case 'fullhtml':
@@ -397,7 +408,8 @@ export function extractTemplateVariables(template) {
 
 function createProviders(options = {}) {
   const selection = normalizeText(options.selection || '', MAX_SELECTION_CHARS)
-  const pageContext = options.pageContext && typeof options.pageContext === 'object' ? options.pageContext : null
+  const pageContext =
+    options.pageContext && typeof options.pageContext === 'object' ? options.pageContext : null
   const customExtractors = options.customExtractors
   const allowFullHtml = options.allowFullHtml !== false
 
@@ -424,7 +436,9 @@ function createProviders(options = {}) {
     domtree: () => {
       const fromContext = getPageContextValue(pageContext, 'domtree')
       if (fromContext) return fromContext
-      return hasDomAccess() ? buildDomTreeSummaryFromDom(document.body || document.documentElement) : ''
+      return hasDomAccess()
+        ? buildDomTreeSummaryFromDom(document.body || document.documentElement)
+        : ''
     },
     title: () => {
       const fromContext = getPageContextValue(pageContext, 'title')

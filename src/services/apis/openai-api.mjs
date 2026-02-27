@@ -6,7 +6,10 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
-import { buildFallbackQuestionWithContext, buildSystemPromptFromContext } from '../agent-context.mjs'
+import {
+  buildFallbackQuestionWithContext,
+  buildSystemPromptFromContext,
+} from '../agent-context.mjs'
 import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
 import { appendToolEvents } from '../agent/session-state.mjs'
 import { AgentProtocol, resolveOpenAiCompatibleProtocol } from '../agent/protocols.mjs'

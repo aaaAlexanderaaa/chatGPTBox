@@ -39,7 +39,9 @@ async function inflateRaw(compressedBytes, maxOutputBytes, fileName = 'entry') {
   const normalizedLimit = Number.isFinite(maxOutputBytes)
     ? Math.max(1, Math.floor(maxOutputBytes))
     : MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES
-  const stream = new Response(compressedBytes).body.pipeThrough(new DecompressionStream('deflate-raw'))
+  const stream = new Response(compressedBytes).body.pipeThrough(
+    new DecompressionStream('deflate-raw'),
+  )
   const reader = stream.getReader()
   const chunks = []
   let totalBytes = 0

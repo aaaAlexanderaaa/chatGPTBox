@@ -49,7 +49,8 @@ function normalizeMcpServer(server) {
   const id = normalizeString(server.id)
   const name = normalizeString(server.name)
   if (!id || !name) return null
-  const transport = normalizeString(server.transport).trim().toLowerCase() === 'builtin' ? 'builtin' : 'http'
+  const transport =
+    normalizeString(server.transport).trim().toLowerCase() === 'builtin' ? 'builtin' : 'http'
   return {
     ...server,
     id,
@@ -209,7 +210,8 @@ function summarizePageContext(pageContext) {
 
     const bodyBackgroundColor = normalizeString(design.bodyBackgroundColor).trim()
     const bodyTextColor = normalizeString(design.bodyTextColor).trim()
-    if (bodyBackgroundColor) lines.push(`- Body background color: ${bodyBackgroundColor.slice(0, 64)}`)
+    if (bodyBackgroundColor)
+      lines.push(`- Body background color: ${bodyBackgroundColor.slice(0, 64)}`)
     if (bodyTextColor) lines.push(`- Body text color: ${bodyTextColor.slice(0, 64)}`)
 
     if (Array.isArray(design.fonts) && design.fonts.length > 0) {
@@ -245,7 +247,9 @@ function summarizePageContext(pageContext) {
       ['sections', Number(design.sectionCount)],
     ].filter(([, value]) => Number.isFinite(value) && value >= 0)
     if (countItems.length > 0) {
-      lines.push(`- Element counts: ${countItems.map(([label, value]) => `${label}=${value}`).join(', ')}`)
+      lines.push(
+        `- Element counts: ${countItems.map(([label, value]) => `${label}=${value}`).join(', ')}`,
+      )
     }
   }
 

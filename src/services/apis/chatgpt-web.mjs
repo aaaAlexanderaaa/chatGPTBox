@@ -235,21 +235,29 @@ function resolveChatgptWebModel({
     if (availableModels.includes(fallbackModel)) {
       return {
         model: fallbackModel,
-        selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_default' : 'default_fallback',
+        selectionReason: hasExplicitSelection
+          ? 'legacy_selected_fallback_default'
+          : 'default_fallback',
         catalogHit: true,
       }
     }
-    const modernCandidate = availableModels.find((slug) => !LEGACY_CHATGPT_WEB_MODEL_SLUGS.has(slug))
+    const modernCandidate = availableModels.find(
+      (slug) => !LEGACY_CHATGPT_WEB_MODEL_SLUGS.has(slug),
+    )
     if (modernCandidate) {
       return {
         model: modernCandidate,
-        selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_modern' : 'fallback_modern_candidate',
+        selectionReason: hasExplicitSelection
+          ? 'legacy_selected_fallback_modern'
+          : 'fallback_modern_candidate',
         catalogHit: true,
       }
     }
     return {
       model: availableModels[0],
-      selectionReason: hasExplicitSelection ? 'legacy_selected_fallback_first' : 'fallback_first_catalog',
+      selectionReason: hasExplicitSelection
+        ? 'legacy_selected_fallback_first'
+        : 'fallback_first_catalog',
       catalogHit: true,
     }
   }

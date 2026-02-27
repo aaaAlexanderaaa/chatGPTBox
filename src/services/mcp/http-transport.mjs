@@ -128,7 +128,9 @@ async function parseEventStreamPayload(response, onEvent) {
   }
 
   const payload =
-    parsedEvents.find((item) => item && typeof item === 'object' && ('result' in item || 'error' in item)) ||
+    parsedEvents.find(
+      (item) => item && typeof item === 'object' && ('result' in item || 'error' in item),
+    ) ||
     parsedEvents[parsedEvents.length - 1] ||
     null
 
