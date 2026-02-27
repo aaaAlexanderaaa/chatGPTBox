@@ -323,6 +323,16 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         })
       break
     }
+    case 'OPEN_API_SERVER': {
+      const apiUrl = Browser.runtime.getURL('ApiServer.html')
+      const existing = await Browser.tabs.query({ url: apiUrl })
+      if (existing.length > 0) {
+        await Browser.tabs.update(existing[0].id, { active: true })
+      } else {
+        await Browser.tabs.create({ url: apiUrl })
+      }
+      break
+    }
     case 'OPEN_SIDE_PANEL': {
       // eslint-disable-next-line no-undef
       if (typeof chrome !== 'undefined' && chrome.sidePanel) {
