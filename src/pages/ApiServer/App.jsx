@@ -38,6 +38,7 @@ function App() {
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const logsEndRef = useRef(null)
+  const autoReconnect = useRef(true)
 
   const addLog = useCallback((msg, type = 'info') => {
     setLogs((prev) => {
@@ -155,9 +156,15 @@ function App() {
       reconnectTimer.current = null
     }
 
+    autoReconnect.current = true
+
     if (wsRef.current) {
-      wsRef.current.close()
+      const old = wsRef.current
       wsRef.current = null
+      old.onclose = null
+      old.onerror = null
+      old.onmessage = null
+      old.close()
     }
 
     setStatus('connecting')
@@ -172,10 +179,13 @@ function App() {
     }
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return
+      wsRef.current = null
       setStatus('disconnected')
       addLog('Disconnected from API server')
-      wsRef.current = null
-      reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
+      if (autoReconnect.current) {
+        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
+      }
     }
 
     ws.onerror = () => {
@@ -196,16 +206,22 @@ function App() {
   }, [wsUrl, addLog, handleRequest])
 
   const disconnect = useCallback(() => {
+    autoReconnect.current = false
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current)
       reconnectTimer.current = null
     }
     if (wsRef.current) {
-      wsRef.current.close()
+      const old = wsRef.current
       wsRef.current = null
+      old.onclose = null
+      old.onerror = null
+      old.onmessage = null
+      old.close()
     }
     setStatus('disconnected')
-  }, [])
+    addLog('Disconnected')
+  }, [addLog])
 
   useEffect(() => {
     connect()
