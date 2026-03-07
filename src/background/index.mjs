@@ -114,7 +114,12 @@ async function appendChatgptWebDebugLog(config, stage, payload = {}) {
 
 function setPortProxy(port, proxyTabId) {
   const proxyOnMessage = (msg) => {
-    port.postMessage(msg)
+    if (port._isClosed) return
+    try {
+      port.postMessage(msg)
+    } catch (e) {
+      console.debug('[background] Failed to forward proxy message:', e?.message)
+    }
   }
   const portOnMessage = (msg) => {
     if (port.proxy) port.proxy.postMessage(msg)
@@ -132,6 +137,7 @@ function setPortProxy(port, proxyTabId) {
     port.proxy.onDisconnect.addListener(proxyOnDisconnect)
   }
   const portOnDisconnect = () => {
+    port._isClosed = true
     if (port.proxy) {
       port.proxy.onMessage.removeListener(proxyOnMessage)
       port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
@@ -178,10 +184,10 @@ async function executeApi(session, port, config) {
         port,
         session.question,
         session,
-        session.apiMode.customUrl.trim() ||
+        session.apiMode.customUrl?.trim() ||
           config.customModelApiUrl.trim() ||
           'http://localhost:8000/v1/chat/completions',
-        session.apiMode.apiKey.trim() || config.customApiKey,
+        session.apiMode.apiKey?.trim() || config.customApiKey,
         session.apiMode.customName,
       )
   } else if (isUsingChatgptWebModel(session)) {

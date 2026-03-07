@@ -59,8 +59,8 @@ const AgentDefaultsMigrationVersion = {
   clearLegacyDesignDefaults: 1,
 }
 
-export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb51Thinking'
-export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-1-thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb54Thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-4-thinking'
 export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 
@@ -72,6 +72,8 @@ const LegacyChatgptWebModelKeyMap = {
   chatgptPlus4Browsing: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptFree35Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptPlus4Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  // Migrate 5.1 Thinking default to 5.4 Thinking (5.1 decommissioned March 11 2026)
+  chatgptWeb51Thinking: CHATGPT_WEB_DEFAULT_MODEL_KEY,
 }
 
 const LegacyChatgptWebModelSlugSet = new Set([
@@ -170,11 +172,18 @@ const defaultBuiltInAssistants = [
 ]
 
 export const chatgptWebModelKeys = [
-  'chatgptWeb51Thinking',
+  'chatgptWeb54Thinking',
+  'chatgptWeb54Auto',
+  'chatgptWeb54Instant',
+  'chatgptWeb54Pro',
+  'chatgptWeb53Thinking',
+  'chatgptWeb53Auto',
+  'chatgptWeb53Instant',
+  'chatgptWeb52Thinking',
   'chatgptWeb52Auto',
   'chatgptWeb52Instant',
-  'chatgptWeb52Thinking',
   'chatgptWeb52Pro',
+  'chatgptWeb51Thinking',
   'chatgptWeb51Auto',
   'chatgptWeb51Instant',
   'chatgptWeb51Pro',
@@ -221,6 +230,12 @@ export const chatgptApiModelKeys = [
   'chatgptApiGpt5',
   'chatgptApiGpt5Mini',
   'chatgptApiGpt5Nano',
+  'chatgptApi5_1Latest',
+  'chatgptApi5_1',
+  'chatgptApi5_2Latest',
+  'chatgptApi5_2',
+  'chatgptApi5_3Latest',
+  'chatgptApi5_4',
 ]
 export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
@@ -240,6 +255,8 @@ export const claudeApiModelKeys = [
   'claudeSonnet4Api',
   'claudeSonnet45Api',
   'claudeHaiku45Api',
+  'claudeOpus45Api',
+  'claudeOpus46Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
@@ -276,6 +293,11 @@ export const openRouterApiModelKeys = [
   'openRouter_openai_o3',
   'openRouter_openai_gpt_4_1_mini',
   'openRouter_deepseek_deepseek_chat_v3_0324_free',
+  'openRouter_anthropic_claude_opus4_5',
+  'openRouter_anthropic_claude_opus4_6',
+  'openRouter_google_gemini_3_pro',
+  'openRouter_google_gemini_3_flash',
+  'openRouter_google_gemini_3_1_pro',
 ]
 export const aimlApiModelKeys = [
   'aiml_anthropic_claude_opus_4',
@@ -394,7 +416,7 @@ export const DefaultEnabledProviderGroups = {
 
 export const DefaultActiveModelKeysByGroup = {
   chatgptWebModelKeys: [CHATGPT_WEB_DEFAULT_MODEL_KEY],
-  chatgptApiModelKeys: ['chatgptApi5Latest'],
+  chatgptApiModelKeys: ['chatgptApi5_4'],
 }
 
 export const DeprecatedModelKeys = [
@@ -497,11 +519,18 @@ export function getModelMeta(modelName) {
  * @type {Object.<string,Model>}
  */
 export const Models = {
-  chatgptWeb51Thinking: { value: 'gpt-5-1-thinking', desc: 'ChatGPT (Web, GPT-5.1 Thinking)' },
+  chatgptWeb54Thinking: { value: 'gpt-5-4-thinking', desc: 'ChatGPT (Web, GPT-5.4 Thinking)' },
+  chatgptWeb54Auto: { value: 'gpt-5-4', desc: 'ChatGPT (Web, GPT-5.4)' },
+  chatgptWeb54Instant: { value: 'gpt-5-4-instant', desc: 'ChatGPT (Web, GPT-5.4 Instant)' },
+  chatgptWeb54Pro: { value: 'gpt-5-4-pro', desc: 'ChatGPT (Web, GPT-5.4 Pro)' },
+  chatgptWeb53Thinking: { value: 'gpt-5-3-thinking', desc: 'ChatGPT (Web, GPT-5.3 Thinking)' },
+  chatgptWeb53Auto: { value: 'gpt-5-3', desc: 'ChatGPT (Web, GPT-5.3)' },
+  chatgptWeb53Instant: { value: 'gpt-5-3-instant', desc: 'ChatGPT (Web, GPT-5.3 Instant)' },
+  chatgptWeb52Thinking: { value: 'gpt-5-2-thinking', desc: 'ChatGPT (Web, GPT-5.2 Thinking)' },
   chatgptWeb52Auto: { value: 'gpt-5-2', desc: 'ChatGPT (Web, GPT-5.2)' },
   chatgptWeb52Instant: { value: 'gpt-5-2-instant', desc: 'ChatGPT (Web, GPT-5.2 Instant)' },
-  chatgptWeb52Thinking: { value: 'gpt-5-2-thinking', desc: 'ChatGPT (Web, GPT-5.2 Thinking)' },
   chatgptWeb52Pro: { value: 'gpt-5-2-pro', desc: 'ChatGPT (Web, GPT-5.2 Pro)' },
+  chatgptWeb51Thinking: { value: 'gpt-5-1-thinking', desc: 'ChatGPT (Web, GPT-5.1 Thinking)' },
   chatgptWeb51Auto: { value: 'gpt-5-1', desc: 'ChatGPT (Web, GPT-5.1)' },
   chatgptWeb51Instant: { value: 'gpt-5-1-instant', desc: 'ChatGPT (Web, GPT-5.1 Instant)' },
   chatgptWeb51Pro: { value: 'gpt-5-1-pro', desc: 'ChatGPT (Web, GPT-5.1 Pro)' },
@@ -546,6 +575,12 @@ export const Models = {
   chatgptApiGpt5: { value: 'gpt-5', desc: 'ChatGPT (gpt-5)' },
   chatgptApiGpt5Mini: { value: 'gpt-5-mini', desc: 'ChatGPT (gpt-5-mini)' },
   chatgptApiGpt5Nano: { value: 'gpt-5-nano', desc: 'ChatGPT (gpt-5-nano)' },
+  chatgptApi5_1Latest: { value: 'gpt-5.1-chat-latest', desc: 'ChatGPT (ChatGPT-5.1 latest)' },
+  chatgptApi5_1: { value: 'gpt-5.1', desc: 'ChatGPT (GPT-5.1)' },
+  chatgptApi5_2Latest: { value: 'gpt-5.2-chat-latest', desc: 'ChatGPT (ChatGPT-5.2 latest)' },
+  chatgptApi5_2: { value: 'gpt-5.2', desc: 'ChatGPT (GPT-5.2)' },
+  chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'ChatGPT (ChatGPT-5.3 latest)' },
+  chatgptApi5_4: { value: 'gpt-5.4', desc: 'ChatGPT (GPT-5.4)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
   claude12Api: { value: 'claude-instant-1.2', desc: 'Claude.ai (API, Claude Instant 1.2)' },
@@ -588,6 +623,14 @@ export const Models = {
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
     desc: 'Claude.ai (API, Claude Haiku 4.5)',
+  },
+  claudeOpus45Api: {
+    value: 'claude-opus-4-5',
+    desc: 'Claude.ai (API, Claude Opus 4.5)',
+  },
+  claudeOpus46Api: {
+    value: 'claude-opus-4-6',
+    desc: 'Claude.ai (API, Claude Opus 4.6)',
   },
 
   bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
@@ -702,6 +745,26 @@ export const Models = {
   openRouter_deepseek_deepseek_chat_v3_0324_free: {
     value: 'deepseek/deepseek-chat-v3-0324:free',
     desc: 'OpenRouter (DeepSeek Chat v3 Free)',
+  },
+  openRouter_anthropic_claude_opus4_5: {
+    value: 'anthropic/claude-opus-4.5',
+    desc: 'OpenRouter (Claude Opus 4.5)',
+  },
+  openRouter_anthropic_claude_opus4_6: {
+    value: 'anthropic/claude-opus-4.6',
+    desc: 'OpenRouter (Claude Opus 4.6)',
+  },
+  openRouter_google_gemini_3_pro: {
+    value: 'google/gemini-3-pro-preview',
+    desc: 'OpenRouter (Gemini 3 Pro)',
+  },
+  openRouter_google_gemini_3_flash: {
+    value: 'google/gemini-3-flash-preview',
+    desc: 'OpenRouter (Gemini 3 Flash)',
+  },
+  openRouter_google_gemini_3_1_pro: {
+    value: 'google/gemini-3.1-pro-preview',
+    desc: 'OpenRouter (Gemini 3.1 Pro)',
   },
 
   aiml_anthropic_claude_opus_4: {
