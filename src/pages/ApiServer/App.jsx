@@ -15,7 +15,7 @@ function slugToModelKey(slug) {
     if (Models[key] && Models[key].value === normalized) return key
   }
   if (Models[normalized]) return normalized
-  return 'chatgptWeb52Auto'
+  return 'chatgptWeb54Thinking'
 }
 
 // Flattens an OpenAI-style messages array into a single prompt string.

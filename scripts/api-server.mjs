@@ -5,12 +5,19 @@ import { WebSocketServer } from 'ws'
 const PORT = parseInt(process.env.CHATGPT_GATEWAY_PORT || '18080', 10)
 
 const AVAILABLE_MODELS = [
+  { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
+  { id: 'gpt-5-4', name: 'GPT-5.4' },
+  { id: 'gpt-5-4-instant', name: 'GPT-5.4 Instant' },
+  { id: 'gpt-5-4-pro', name: 'GPT-5.4 Pro' },
+  { id: 'gpt-5-3-thinking', name: 'GPT-5.3 Thinking' },
+  { id: 'gpt-5-3', name: 'GPT-5.3' },
+  { id: 'gpt-5-3-instant', name: 'GPT-5.3 Instant' },
+  { id: 'gpt-5-2-thinking', name: 'GPT-5.2 Thinking' },
   { id: 'gpt-5-2', name: 'GPT-5.2' },
   { id: 'gpt-5-2-instant', name: 'GPT-5.2 Instant' },
-  { id: 'gpt-5-2-thinking', name: 'GPT-5.2 Thinking' },
   { id: 'gpt-5-2-pro', name: 'GPT-5.2 Pro' },
-  { id: 'gpt-5-1', name: 'GPT-5.1' },
   { id: 'gpt-5-1-thinking', name: 'GPT-5.1 Thinking' },
+  { id: 'gpt-5-1', name: 'GPT-5.1' },
   { id: 'gpt-5-1-instant', name: 'GPT-5.1 Instant' },
   { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
 ]
@@ -61,7 +68,7 @@ async function handleChatCompletions(req, res) {
     return
   }
 
-  const model = body.model || 'gpt-5-2'
+  const model = body.model || 'gpt-5-4-thinking'
   const messages = body.messages
   const stream = body.stream === true
   const completionId = makeCompletionId()
