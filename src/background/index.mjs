@@ -339,6 +339,26 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
+    case 'API_BRIDGE_DIAGNOSE': {
+      const diagConfig = await getUserConfig()
+      let chatgptTabOk = false
+      if (diagConfig.chatgptTabId) {
+        const tab = await Browser.tabs.get(diagConfig.chatgptTabId).catch(() => null)
+        chatgptTabOk = !!(tab && isLikelyChatgptTabUrl(tab.url))
+      }
+      let canFetchChatgpt = false
+      try {
+        const r = await fetch('https://chatgpt.com/api/auth/session', { method: 'HEAD' })
+        canFetchChatgpt = r.status !== 0
+      } catch {
+        canFetchChatgpt = false
+      }
+      return {
+        chatgptTabOk,
+        canFetchChatgpt,
+        hasAccessToken: !!diagConfig.accessToken,
+      }
+    }
     case 'OPEN_SIDE_PANEL': {
       // eslint-disable-next-line no-undef
       if (typeof chrome !== 'undefined' && chrome.sidePanel) {

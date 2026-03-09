@@ -39,6 +39,7 @@ function App() {
   const [logs, setLogs] = useState([])
   const [requestCount, setRequestCount] = useState(0)
   const [serverHealth, setServerHealth] = useState(null)
+  const [diag, setDiag] = useState(null)
 
   const proxyPort = useRef(null)
   const reconnectTimer = useRef(null)
@@ -126,7 +127,14 @@ function App() {
 
         if (msg.error) {
           finished = true
-          addLog(`Error ${id.slice(0, 8)}...: ${msg.error}`, 'error')
+          const errText = msg.error
+          addLog(`Error ${id.slice(0, 8)}...: ${errText}`, 'error')
+          if (/failed to fetch/i.test(errText)) {
+            addLog(
+              'Tip: Open chatgpt.com in this browser and log in. The extension routes ChatGPT Web requests through that tab.',
+              'warn',
+            )
+          }
           sendWs({ type: 'error', id, error: msg.error })
           try {
             bgPort.disconnect()
@@ -293,27 +301,43 @@ function App() {
   }, [addLog])
 
   // -----------------------------------------------------------------------
-  // Health check (fetches directly — fine even in Brave since it's just a
-  // status read; if blocked, we silently skip without affecting the bridge)
+  // Health check + diagnostics
   // -----------------------------------------------------------------------
 
   useEffect(() => {
     if (status !== 'connected') {
       setServerHealth(null)
+      setDiag(null)
       return
     }
 
-    function check() {
+    function checkHealth() {
       fetch(`${baseUrl}/health`)
         .then((r) => r.json())
         .then((h) => setServerHealth(h))
         .catch(() => setServerHealth(null))
     }
 
-    check()
-    healthTimer.current = setInterval(check, HEALTH_CHECK_INTERVAL)
+    function runDiag() {
+      Browser.runtime
+        .sendMessage({ type: 'API_BRIDGE_DIAGNOSE' })
+        .then((result) => {
+          setDiag(result)
+          if (result && !result.chatgptTabOk && !result.canFetchChatgpt) {
+            addLog(
+              'Warning: Cannot reach chatgpt.com from background. Open chatgpt.com and log in so requests can be routed through that tab.',
+              'warn',
+            )
+          }
+        })
+        .catch(() => setDiag(null))
+    }
+
+    checkHealth()
+    runDiag()
+    healthTimer.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL)
     return () => clearInterval(healthTimer.current)
-  }, [status, baseUrl])
+  }, [status, baseUrl, addLog])
 
   // -----------------------------------------------------------------------
   // Auto-connect on mount
@@ -478,6 +502,21 @@ function App() {
               <span className="health-value">{serverHealth.stats?.pending_requests}</span>
             </div>
           </div>
+        </section>
+      )}
+
+      {diag && !diag.chatgptTabOk && !diag.canFetchChatgpt && (
+        <section className="api-server-warn">
+          <strong>ChatGPT Web models will not work yet.</strong>
+          <p>
+            This browser is blocking direct requests to chatgpt.com from the extension. To fix this,
+            open{' '}
+            <a href="https://chatgpt.com" target="_blank" rel="noreferrer">
+              chatgpt.com
+            </a>{' '}
+            in a tab in this browser and make sure you are logged in. The extension will
+            automatically route requests through that tab.
+          </p>
         </section>
       )}
 
