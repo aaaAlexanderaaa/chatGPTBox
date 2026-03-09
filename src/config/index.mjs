@@ -915,6 +915,8 @@ export const defaultConfig = {
   maxResponseTokenLength: 2000,
   maxConversationContextLength: 9,
   temperature: 1,
+  apiServerEnabled: false,
+  apiServerPort: 18080,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
@@ -1196,6 +1198,7 @@ export async function getUserConfig() {
       10,
       300,
     ),
+    apiServerPort: parseIntWithClamp(config.apiServerPort, defaultConfig.apiServerPort, 1, 65535),
   }
   const needsFix =
     numericFix.maxResponseTokenLength !== config.maxResponseTokenLength ||
@@ -1205,7 +1208,8 @@ export async function getUserConfig() {
     numericFix.agentContextTokenCap !== config.agentContextTokenCap ||
     numericFix.agentMaxSteps !== config.agentMaxSteps ||
     numericFix.agentNoProgressLimit !== config.agentNoProgressLimit ||
-    numericFix.agentToolEventLimit !== config.agentToolEventLimit
+    numericFix.agentToolEventLimit !== config.agentToolEventLimit ||
+    numericFix.apiServerPort !== config.apiServerPort
   if (needsFix) {
     config.maxResponseTokenLength = numericFix.maxResponseTokenLength
     config.maxConversationContextLength = numericFix.maxConversationContextLength
@@ -1215,6 +1219,7 @@ export async function getUserConfig() {
     config.agentMaxSteps = numericFix.agentMaxSteps
     config.agentNoProgressLimit = numericFix.agentNoProgressLimit
     config.agentToolEventLimit = numericFix.agentToolEventLimit
+    config.apiServerPort = numericFix.apiServerPort
     await Browser.storage.local.set(numericFix)
   }
   if (config.agentPreloadContextTokenCap > config.agentContextTokenCap) {
@@ -1243,6 +1248,7 @@ export async function getUserConfig() {
   // Only treat an explicit boolean `true` as enabled.
   config.showDeprecatedModels = config.showDeprecatedModels === true
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
+  config.apiServerEnabled = config.apiServerEnabled === true
 
   const normalizedChatgptWebThinkingEffort =
     config.chatgptWebThinkingEffort === 'standard'

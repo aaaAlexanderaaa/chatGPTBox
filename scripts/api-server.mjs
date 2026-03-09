@@ -2,7 +2,52 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
 
-const PORT = parseInt(process.env.CHATGPT_GATEWAY_PORT || '18080', 10)
+// ---------------------------------------------------------------------------
+// Configuration: CLI args > env vars > defaults
+// ---------------------------------------------------------------------------
+
+const argv = process.argv.slice(2)
+
+function cliArg(name, fallback) {
+  const prefix = `--${name}=`
+  for (const a of argv) {
+    if (a === `--${name}` && argv[argv.indexOf(a) + 1]) return argv[argv.indexOf(a) + 1]
+    if (a.startsWith(prefix)) return a.slice(prefix.length)
+  }
+  return fallback
+}
+
+const PORT = parseInt(cliArg('port', process.env.CHATGPT_GATEWAY_PORT || '18080'), 10)
+const HOST = cliArg('host', process.env.CHATGPT_GATEWAY_HOST || '127.0.0.1')
+
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(`ChatGPT Web API Gateway
+
+Usage:
+  node scripts/api-server.mjs [options]
+  npm run api-server -- [options]
+
+Options:
+  --port <number>   Port to listen on  (env: CHATGPT_GATEWAY_PORT, default: 18080)
+  --host <address>  Address to bind to (env: CHATGPT_GATEWAY_HOST, default: 127.0.0.1)
+  -h, --help        Show this help message
+
+Examples:
+  node scripts/api-server.mjs --port 9090
+  CHATGPT_GATEWAY_PORT=9090 npm run api-server
+`)
+  process.exit(0)
+}
+
+if (Number.isNaN(PORT) || PORT < 1 || PORT > 65535) {
+  console.error(`Error: Invalid port "${cliArg('port', process.env.CHATGPT_GATEWAY_PORT)}".`)
+  console.error('Port must be a number between 1 and 65535.')
+  process.exit(1)
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
 
 const AVAILABLE_MODELS = [
   { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
@@ -22,11 +67,31 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
 ]
 
+// ---------------------------------------------------------------------------
+// Bridge state (WebSocket + HTTP polling)
+// ---------------------------------------------------------------------------
+
 let bridgeWs = null
 const pendingRequests = new Map()
 
+let httpBridgeActive = false
+let httpBridgeLastSeen = 0
+const HTTP_BRIDGE_STALE_MS = 35_000
+const httpBridgeQueue = []
+const httpBridgePollWaiters = []
+
+const stats = { startedAt: Date.now(), totalRequests: 0, totalErrors: 0 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`)
+}
+
+function logError(msg) {
+  console.error(`[${new Date().toISOString()}] ERROR: ${msg}`)
 }
 
 function readBody(req) {
@@ -58,6 +123,88 @@ function makeStreamChunk(id, model, delta, finishReason) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Bridge abstraction
+// ---------------------------------------------------------------------------
+
+function isBridgeConnected() {
+  if (bridgeWs && bridgeWs.readyState === 1) return true
+  if (httpBridgeActive && Date.now() - httpBridgeLastSeen < HTTP_BRIDGE_STALE_MS) return true
+  return false
+}
+
+function getBridgeType() {
+  if (bridgeWs && bridgeWs.readyState === 1) return 'websocket'
+  if (httpBridgeActive && Date.now() - httpBridgeLastSeen < HTTP_BRIDGE_STALE_MS) return 'http'
+  return 'none'
+}
+
+function sendToBridge(message) {
+  if (bridgeWs && bridgeWs.readyState === 1) {
+    bridgeWs.send(JSON.stringify(message))
+    return true
+  }
+
+  if (httpBridgeActive) {
+    httpBridgeQueue.push(message)
+    flushHttpBridgeQueue()
+    return true
+  }
+
+  return false
+}
+
+function flushHttpBridgeQueue() {
+  while (httpBridgeQueue.length > 0 && httpBridgePollWaiters.length > 0) {
+    const msg = httpBridgeQueue.shift()
+    const waiter = httpBridgePollWaiters.shift()
+    clearTimeout(waiter.timeout)
+    waiter.res.writeHead(200, { 'Content-Type': 'application/json' })
+    waiter.res.end(JSON.stringify(msg))
+  }
+}
+
+function rejectAllPending(reason) {
+  for (const [, req] of pendingRequests) {
+    req.reject(new Error(reason))
+  }
+  pendingRequests.clear()
+}
+
+// Periodically check HTTP bridge health
+setInterval(() => {
+  if (httpBridgeActive && Date.now() - httpBridgeLastSeen > HTTP_BRIDGE_STALE_MS) {
+    httpBridgeActive = false
+    log('HTTP bridge disconnected (poll timeout)')
+    if (!isBridgeConnected()) {
+      rejectAllPending('Extension bridge disconnected')
+    }
+  }
+}, 5000)
+
+// ---------------------------------------------------------------------------
+// Handle incoming bridge messages (from either WebSocket or HTTP)
+// ---------------------------------------------------------------------------
+
+function handleBridgeMessage(msg) {
+  const pending = pendingRequests.get(msg.id)
+  if (!pending) return
+
+  if (msg.type === 'chunk') {
+    pending.onChunk(msg.answer)
+  } else if (msg.type === 'done') {
+    pending.onChunk(msg.answer)
+    pending.resolve(msg.answer)
+  } else if (msg.type === 'error') {
+    stats.totalErrors++
+    pending.reject(new Error(msg.error || 'Unknown error from extension'))
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handlers
+// ---------------------------------------------------------------------------
+
 async function handleChatCompletions(req, res) {
   let body
   try {
@@ -86,7 +233,8 @@ async function handleChatCompletions(req, res) {
     return
   }
 
-  if (!bridgeWs || bridgeWs.readyState !== 1) {
+  if (!isBridgeConnected()) {
+    const bridgeType = getBridgeType()
     res.writeHead(503, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify({
@@ -94,12 +242,17 @@ async function handleChatCompletions(req, res) {
           message:
             'Extension bridge not connected. Open the API Server page in the extension first.',
           type: 'server_error',
+          details: {
+            bridge_type: bridgeType,
+            hint: 'Run chrome.tabs.create({url: chrome.runtime.getURL("ApiServer.html")}) from the service worker console, or enable the API Server in extension settings.',
+          },
         },
       }),
     )
     return
   }
 
+  stats.totalRequests++
   log(`Request ${completionId}: model=${model} messages=${messages.length} stream=${stream}`)
 
   if (stream) {
@@ -158,6 +311,7 @@ async function handleChatCompletions(req, res) {
     const timeout = setTimeout(() => {
       if (!state.resolved) {
         cleanup()
+        stats.totalErrors++
         safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'error'))}\n\n`)
         safeWrite('data: [DONE]\n\n')
         safeEnd()
@@ -185,6 +339,7 @@ async function handleChatCompletions(req, res) {
       reject(err) {
         if (state.resolved) return
         cleanup()
+        stats.totalErrors++
         safeWrite(`data: ${JSON.stringify({ error: { message: err.message } })}\n\n`)
         safeWrite('data: [DONE]\n\n')
         safeEnd()
@@ -192,7 +347,7 @@ async function handleChatCompletions(req, res) {
       },
     })
 
-    bridgeWs.send(JSON.stringify({ type: 'request', id: requestId, model, messages, stream }))
+    sendToBridge({ type: 'request', id: requestId, model, messages, stream })
   } else {
     try {
       const requestId = crypto.randomUUID()
@@ -235,7 +390,7 @@ async function handleChatCompletions(req, res) {
           },
         })
 
-        bridgeWs.send(JSON.stringify({ type: 'request', id: requestId, model, messages, stream }))
+        sendToBridge({ type: 'request', id: requestId, model, messages, stream })
       })
 
       const response = {
@@ -256,6 +411,7 @@ async function handleChatCompletions(req, res) {
       res.end(JSON.stringify(response))
       log(`Request ${completionId}: completed`)
     } catch (err) {
+      stats.totalErrors++
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
       }
@@ -287,15 +443,144 @@ function handleStatus(res) {
   res.end(
     JSON.stringify({
       status: 'ok',
-      bridge_connected: bridgeWs !== null && bridgeWs.readyState === 1,
+      bridge_connected: isBridgeConnected(),
+      bridge_type: getBridgeType(),
       pending_requests: pendingRequests.size,
     }),
   )
 }
 
+function handleHealth(res) {
+  const connected = isBridgeConnected()
+  const uptimeMs = Date.now() - stats.startedAt
+  const uptimeStr = `${Math.floor(uptimeMs / 3600000)}h ${Math.floor(
+    (uptimeMs % 3600000) / 60000,
+  )}m ${Math.floor((uptimeMs % 60000) / 1000)}s`
+
+  const health = {
+    status: connected ? 'healthy' : 'degraded',
+    server: {
+      uptime: uptimeStr,
+      port: PORT,
+      host: HOST,
+    },
+    bridge: {
+      connected,
+      type: getBridgeType(),
+    },
+    stats: {
+      total_requests: stats.totalRequests,
+      total_errors: stats.totalErrors,
+      pending_requests: pendingRequests.size,
+    },
+    diagnostics: {},
+  }
+
+  if (!connected) {
+    health.diagnostics.message =
+      'No extension bridge is connected. The API server cannot process requests without it.'
+    health.diagnostics.steps = [
+      'Ensure the ChatGPTBox extension is installed and enabled.',
+      'Open the API Server bridge page in the extension.',
+      'Check that you are logged in at https://chatgpt.com.',
+      'If using Brave, the bridge page will use HTTP polling automatically.',
+    ]
+  }
+
+  res.writeHead(connected ? 200 : 503, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(health, null, 2))
+}
+
+// ---------------------------------------------------------------------------
+// HTTP polling bridge endpoints
+// ---------------------------------------------------------------------------
+
+function handleBridgePoll(req, res) {
+  if (bridgeWs && bridgeWs.readyState === 1) {
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: 'A WebSocket bridge is already connected. Only one bridge can be active.',
+      }),
+    )
+    return
+  }
+
+  if (!httpBridgeActive) {
+    httpBridgeActive = true
+    log('HTTP polling bridge connected')
+  }
+  httpBridgeLastSeen = Date.now()
+
+  if (httpBridgeQueue.length > 0) {
+    const msg = httpBridgeQueue.shift()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(msg))
+    return
+  }
+
+  const timeout = setTimeout(() => {
+    const idx = httpBridgePollWaiters.findIndex((w) => w.res === res)
+    if (idx !== -1) httpBridgePollWaiters.splice(idx, 1)
+    if (!res.destroyed && !res.writableEnded) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ type: 'heartbeat' }))
+    }
+  }, 25000)
+
+  httpBridgePollWaiters.push({ res, timeout })
+
+  res.on('close', () => {
+    clearTimeout(timeout)
+    const idx = httpBridgePollWaiters.findIndex((w) => w.res === res)
+    if (idx !== -1) httpBridgePollWaiters.splice(idx, 1)
+  })
+}
+
+async function handleBridgeRespond(req, res) {
+  let msg
+  try {
+    msg = JSON.parse(await readBody(req))
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Invalid JSON' }))
+    return
+  }
+
+  httpBridgeLastSeen = Date.now()
+  handleBridgeMessage(msg)
+
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ ok: true }))
+}
+
+function handleBridgeDisconnect(res) {
+  if (httpBridgeActive) {
+    httpBridgeActive = false
+    log('HTTP polling bridge disconnected (explicit)')
+    for (const waiter of httpBridgePollWaiters) {
+      clearTimeout(waiter.timeout)
+      if (!waiter.res.destroyed && !waiter.res.writableEnded) {
+        waiter.res.writeHead(200, { 'Content-Type': 'application/json' })
+        waiter.res.end(JSON.stringify({ type: 'shutdown' }))
+      }
+    }
+    httpBridgePollWaiters.length = 0
+    if (!isBridgeConnected()) {
+      rejectAllPending('Extension bridge disconnected')
+    }
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ ok: true }))
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server
+// ---------------------------------------------------------------------------
+
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
   if (req.method === 'OPTIONS') {
@@ -304,13 +589,14 @@ const server = http.createServer((req, res) => {
     return
   }
 
-  const url = new URL(req.url, `http://localhost:${PORT}`)
+  const url = new URL(req.url, `http://${HOST}:${PORT}`)
 
   if (url.pathname === '/v1/models' && req.method === 'GET') {
     handleModels(res)
   } else if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
     handleChatCompletions(req, res).catch((err) => {
-      log(`Unhandled error: ${err.message}`)
+      logError(`Unhandled error: ${err.message}`)
+      stats.totalErrors++
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
@@ -318,6 +604,20 @@ const server = http.createServer((req, res) => {
     })
   } else if (url.pathname === '/status' && req.method === 'GET') {
     handleStatus(res)
+  } else if (url.pathname === '/health' && req.method === 'GET') {
+    handleHealth(res)
+  } else if (url.pathname === '/bridge/poll' && req.method === 'GET') {
+    handleBridgePoll(req, res)
+  } else if (url.pathname === '/bridge/respond' && req.method === 'POST') {
+    handleBridgeRespond(req, res).catch((err) => {
+      logError(`Bridge respond error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (url.pathname === '/bridge/disconnect' && req.method === 'POST') {
+    handleBridgeDisconnect(res)
   } else {
     res.writeHead(404, { 'Content-Type': 'application/json' })
     res.end(
@@ -328,23 +628,54 @@ const server = http.createServer((req, res) => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// WebSocket bridge
+// ---------------------------------------------------------------------------
+
 const wss = new WebSocketServer({ server, path: '/bridge' })
+
+wss.on('error', () => {
+  // Handled by server 'error' listener
+})
 
 wss.on('connection', (ws) => {
   if (bridgeWs && bridgeWs.readyState === 1) {
-    log('Replacing existing bridge connection')
+    log('Replacing existing WebSocket bridge connection')
     bridgeWs.close(1000, 'Replaced by new bridge')
   }
-  log('Extension bridge connected')
+
+  if (httpBridgeActive) {
+    httpBridgeActive = false
+    log('WebSocket bridge connected; HTTP polling bridge deactivated')
+    for (const waiter of httpBridgePollWaiters) {
+      clearTimeout(waiter.timeout)
+      if (!waiter.res.destroyed && !waiter.res.writableEnded) {
+        waiter.res.writeHead(200, { 'Content-Type': 'application/json' })
+        waiter.res.end(JSON.stringify({ type: 'shutdown' }))
+      }
+    }
+    httpBridgePollWaiters.length = 0
+  } else {
+    log('Extension bridge connected (WebSocket)')
+  }
+
   bridgeWs = ws
 
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === 1) ws.ping()
+  }, 30000)
+
   ws.on('close', () => {
-    log('Extension bridge disconnected')
+    clearInterval(pingInterval)
+    log('Extension bridge disconnected (WebSocket)')
     bridgeWs = null
-    for (const [, req] of pendingRequests) {
-      req.reject(new Error('Extension bridge disconnected'))
+    if (!isBridgeConnected()) {
+      rejectAllPending('Extension bridge disconnected')
     }
-    pendingRequests.clear()
+  })
+
+  ws.on('error', (err) => {
+    logError(`WebSocket bridge error: ${err.message}`)
   })
 
   ws.on('message', (raw) => {
@@ -354,27 +685,39 @@ wss.on('connection', (ws) => {
     } catch {
       return
     }
-
-    const pending = pendingRequests.get(msg.id)
-    if (!pending) return
-
-    if (msg.type === 'chunk') {
-      pending.onChunk(msg.answer)
-    } else if (msg.type === 'done') {
-      pending.onChunk(msg.answer)
-      pending.resolve(msg.answer)
-    } else if (msg.type === 'error') {
-      pending.reject(new Error(msg.error || 'Unknown error from extension'))
-    }
+    handleBridgeMessage(msg)
   })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
-  log(`ChatGPT Web API Gateway listening on http://127.0.0.1:${PORT}`)
-  log(`Endpoints:`)
-  log(`  POST http://127.0.0.1:${PORT}/v1/chat/completions  (OpenAI-compatible)`)
-  log(`  GET  http://127.0.0.1:${PORT}/v1/models`)
-  log(`  GET  http://127.0.0.1:${PORT}/status`)
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    logError(`Port ${PORT} is already in use.`)
+    logError(`Try a different port: node scripts/api-server.mjs --port <number>`)
+    logError(`Or set CHATGPT_GATEWAY_PORT=<number> in your environment.`)
+  } else if (err.code === 'EACCES') {
+    logError(`Permission denied for port ${PORT}. Try a port above 1024.`)
+  } else {
+    logError(`Server error: ${err.message}`)
+  }
+  process.exit(1)
+})
+
+server.listen(PORT, HOST, () => {
+  log(`ChatGPT Web API Gateway listening on http://${HOST}:${PORT}`)
   log(``)
-  log(`Next: Open the extension's API Server page in Chrome to connect the bridge.`)
+  log(`Endpoints:`)
+  log(`  POST http://${HOST}:${PORT}/v1/chat/completions  (OpenAI-compatible)`)
+  log(`  GET  http://${HOST}:${PORT}/v1/models`)
+  log(`  GET  http://${HOST}:${PORT}/status`)
+  log(`  GET  http://${HOST}:${PORT}/health`)
+  log(``)
+  log(`Bridge transports:`)
+  log(`  WebSocket  ws://${HOST}:${PORT}/bridge`)
+  log(`  HTTP poll  GET /bridge/poll + POST /bridge/respond`)
+  log(``)
+  log(`Next: Open the extension's API Server page to connect the bridge.`)
 })
