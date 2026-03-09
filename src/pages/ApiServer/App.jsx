@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
+import { getUserConfig, setUserConfig } from '../../config/index.mjs'
 import { initSession } from '../../services/init-session.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import './styles.css'
 
-const DEFAULT_WS_URL = 'ws://127.0.0.1:18080/bridge'
 const RECONNECT_DELAY = 3000
-const MAX_LOG_ENTRIES = 100
+const MAX_LOG_ENTRIES = 200
+const WS_RETRY_LIMIT = 3
+const POLL_INTERVAL = 800
+const HEALTH_CHECK_INTERVAL = 15000
 
 function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
@@ -18,12 +21,6 @@ function slugToModelKey(slug) {
   return 'chatgptWeb54Thinking'
 }
 
-// Flattens an OpenAI-style messages array into a single prompt string.
-// Limitation: multi-turn conversations lose native ChatGPT Web conversation
-// threading (conversation_id / parent_message_id). Each API request starts a
-// fresh conversation. System prompts are inlined as text, not handled at the
-// system level. Acceptable for v1; a future version could maintain persistent
-// conversation sessions keyed by a client-supplied conversation ID.
 function formatMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return ''
   if (messages.length === 1) return messages[0].content
@@ -36,15 +33,39 @@ function formatMessages(messages) {
     .join('\n\n')
 }
 
+function detectBrave() {
+  try {
+    // eslint-disable-next-line no-undef
+    return navigator.brave && typeof navigator.brave.isBrave === 'function'
+  } catch {
+    return false
+  }
+}
+
 function App() {
-  const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL)
-  const [status, setStatus] = useState('disconnected')
+  const [enabled, setEnabled] = useState(null)
+  const [port, setPort] = useState(18080)
+  const [portInput, setPortInput] = useState('18080')
+  const [status, setStatus] = useState('initializing')
+  const [transport, setTransport] = useState('none')
   const [logs, setLogs] = useState([])
   const [requestCount, setRequestCount] = useState(0)
+  const [serverHealth, setServerHealth] = useState(null)
+  const [isBrave, setIsBrave] = useState(false)
+
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const logsEndRef = useRef(null)
   const autoReconnect = useRef(true)
+  const wsFailCount = useRef(0)
+  const pollAbort = useRef(null)
+  const pollActive = useRef(false)
+  const healthTimer = useRef(null)
+  const configLoaded = useRef(false)
+
+  // -----------------------------------------------------------------------
+  // Logging
+  // -----------------------------------------------------------------------
 
   const addLog = useCallback((msg, type = 'info') => {
     setLogs((prev) => {
@@ -53,8 +74,43 @@ function App() {
     })
   }, [])
 
+  // -----------------------------------------------------------------------
+  // Detect Brave
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    detectBrave().then
+      ? Promise.resolve(detectBrave()).then((v) => setIsBrave(!!v))
+      : setIsBrave(!!detectBrave())
+  }, [])
+
+  // -----------------------------------------------------------------------
+  // Load config
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    getUserConfig().then((config) => {
+      const p = Number(config.apiServerPort) || 18080
+      setPort(p)
+      setPortInput(String(p))
+      setEnabled(config.apiServerEnabled === true)
+      configLoaded.current = true
+    })
+  }, [])
+
+  // -----------------------------------------------------------------------
+  // Build base URL from port
+  // -----------------------------------------------------------------------
+
+  const baseUrl = `http://127.0.0.1:${port}`
+  const wsUrl = `ws://127.0.0.1:${port}/bridge`
+
+  // -----------------------------------------------------------------------
+  // Handle incoming request from API server
+  // -----------------------------------------------------------------------
+
   const handleRequest = useCallback(
-    (data) => {
+    (data, send) => {
       const { id, model, messages } = data
       const question = formatMessages(messages)
       const modelKey = slugToModelKey(model)
@@ -71,31 +127,27 @@ function App() {
         conversationRecords: [],
       })
 
-      let port
+      let port2
       try {
-        port = Browser.runtime.connect()
+        port2 = Browser.runtime.connect()
       } catch (err) {
-        addLog(`Error ${id.slice(0, 8)}...: failed to connect to background`, 'error')
-        sendWs({
-          type: 'error',
-          id,
-          error: err.message || 'Failed to connect to extension background',
-        })
+        addLog(`Failed to connect to extension background: ${err.message}`, 'error')
+        send({ type: 'error', id, error: err.message || 'Failed to connect to extension' })
         return
       }
 
       let lastAnswer = ''
       let finished = false
 
-      port.onMessage.addListener((msg) => {
+      port2.onMessage.addListener((msg) => {
         if (finished) return
 
         if (msg.error) {
           finished = true
           addLog(`Error ${id.slice(0, 8)}...: ${msg.error}`, 'error')
-          sendWs({ type: 'error', id, error: msg.error })
+          send({ type: 'error', id, error: msg.error })
           try {
-            port.disconnect()
+            port2.disconnect()
           } catch {
             /* ignore */
           }
@@ -105,31 +157,31 @@ function App() {
         if (msg.answer !== undefined) {
           lastAnswer = msg.answer
           if (!msg.done) {
-            sendWs({ type: 'chunk', id, answer: msg.answer })
+            send({ type: 'chunk', id, answer: msg.answer })
           }
         }
 
         if (msg.done) {
           finished = true
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
-          sendWs({ type: 'done', id, answer: lastAnswer })
+          send({ type: 'done', id, answer: lastAnswer })
           try {
-            port.disconnect()
+            port2.disconnect()
           } catch {
             /* ignore */
           }
         }
       })
 
-      port.onDisconnect.addListener(() => {
+      port2.onDisconnect.addListener(() => {
         if (finished) return
         finished = true
         if (lastAnswer) {
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars (port closed)`)
-          sendWs({ type: 'done', id, answer: lastAnswer })
+          send({ type: 'done', id, answer: lastAnswer })
         } else {
-          addLog(`Error ${id.slice(0, 8)}...: port disconnected unexpectedly`, 'error')
-          sendWs({
+          addLog(`Extension background disconnected before responding`, 'error')
+          send({
             type: 'error',
             id,
             error: 'Extension background disconnected before responding',
@@ -138,25 +190,23 @@ function App() {
       })
 
       try {
-        port.postMessage({ session })
+        port2.postMessage({ session })
       } catch (err) {
         if (!finished) {
           finished = true
-          addLog(`Error ${id.slice(0, 8)}...: ${err.message}`, 'error')
-          sendWs({ type: 'error', id, error: err.message || 'Failed to send request to extension' })
+          addLog(`Send error: ${err.message}`, 'error')
+          send({ type: 'error', id, error: err.message || 'Failed to send to extension' })
         }
       }
     },
-    [addLog, sendWs],
+    [addLog],
   )
 
-  const sendWs = useCallback((data) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(data))
-    }
-  }, [])
+  // -----------------------------------------------------------------------
+  // WebSocket transport
+  // -----------------------------------------------------------------------
 
-  const connect = useCallback(() => {
+  const connectWs = useCallback(() => {
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current)
       reconnectTimer.current = null
@@ -174,23 +224,36 @@ function App() {
     }
 
     setStatus('connecting')
-    addLog(`Connecting to ${wsUrl}...`)
+    setTransport('websocket')
+    addLog(`Connecting to ${wsUrl} (WebSocket)...`)
 
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
+      wsFailCount.current = 0
       setStatus('connected')
-      addLog('Connected to API server', 'success')
+      setTransport('websocket')
+      addLog('Connected to API server via WebSocket', 'success')
     }
 
     ws.onclose = () => {
       if (wsRef.current !== ws) return
       wsRef.current = null
+      wsFailCount.current++
       setStatus('disconnected')
-      addLog('Disconnected from API server')
+      addLog('WebSocket disconnected')
+
       if (autoReconnect.current) {
-        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
+        if (wsFailCount.current >= WS_RETRY_LIMIT) {
+          addLog(
+            `WebSocket failed ${WS_RETRY_LIMIT} times, switching to HTTP polling transport...`,
+            'warn',
+          )
+          connectHttp()
+        } else {
+          reconnectTimer.current = setTimeout(connectWs, RECONNECT_DELAY)
+        }
       }
     }
 
@@ -206,17 +269,25 @@ function App() {
         return
       }
       if (data.type === 'request') {
-        handleRequest(data)
+        const sendWs = (msg) => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(msg))
+          }
+        }
+        handleRequest(data, sendWs)
       }
     }
   }, [wsUrl, addLog, handleRequest])
 
-  const disconnect = useCallback(() => {
-    autoReconnect.current = false
-    if (reconnectTimer.current) {
-      clearTimeout(reconnectTimer.current)
-      reconnectTimer.current = null
-    }
+  // -----------------------------------------------------------------------
+  // HTTP polling transport (fallback for Brave and others)
+  // -----------------------------------------------------------------------
+
+  const connectHttp = useCallback(() => {
+    if (pollActive.current) return
+    pollActive.current = true
+    autoReconnect.current = true
+
     if (wsRef.current) {
       const old = wsRef.current
       wsRef.current = null
@@ -225,23 +296,230 @@ function App() {
       old.onmessage = null
       old.close()
     }
-    setStatus('disconnected')
-    addLog('Disconnected')
-  }, [addLog])
 
-  // Intentionally empty deps: we only want the initial connect on mount
-  // and cleanup on unmount. connect/disconnect are stable on first render.
+    setStatus('connecting')
+    setTransport('http')
+    addLog(`Connecting to ${baseUrl} (HTTP polling)...`)
+
+    const ctrl = new AbortController()
+    pollAbort.current = ctrl
+
+    async function pollLoop() {
+      let consecutive_errors = 0
+      let announced = false
+
+      while (pollActive.current && !ctrl.signal.aborted) {
+        try {
+          const resp = await fetch(`${baseUrl}/bridge/poll`, { signal: ctrl.signal })
+
+          if (!resp.ok) {
+            const body = await resp.text().catch(() => '')
+            throw new Error(`HTTP ${resp.status}: ${body}`)
+          }
+
+          consecutive_errors = 0
+
+          if (!announced) {
+            announced = true
+            setStatus('connected')
+            addLog('Connected to API server via HTTP polling', 'success')
+          }
+
+          const data = await resp.json()
+
+          if (data.type === 'request') {
+            const sendHttp = (msg) => {
+              fetch(`${baseUrl}/bridge/respond`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(msg),
+              }).catch((err) => addLog(`HTTP respond error: ${err.message}`, 'error'))
+            }
+            handleRequest(data, sendHttp)
+          } else if (data.type === 'shutdown') {
+            addLog('Server requested shutdown of HTTP bridge')
+            break
+          }
+          // 'heartbeat' — just continue polling
+        } catch (err) {
+          if (ctrl.signal.aborted) break
+          consecutive_errors++
+
+          if (consecutive_errors === 1) {
+            addLog(`HTTP poll error: ${err.message}`, 'error')
+          }
+
+          if (consecutive_errors >= 5) {
+            addLog('HTTP polling failed repeatedly, stopping.', 'error')
+            break
+          }
+
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL * consecutive_errors))
+        }
+      }
+
+      pollActive.current = false
+      if (!ctrl.signal.aborted) {
+        setStatus('disconnected')
+        addLog('HTTP polling stopped')
+        if (autoReconnect.current) {
+          reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
+        }
+      }
+    }
+
+    pollLoop()
+  }, [baseUrl, addLog, handleRequest])
+
+  // -----------------------------------------------------------------------
+  // Primary connect (chooses transport)
+  // -----------------------------------------------------------------------
+
+  const connect = useCallback(() => {
+    wsFailCount.current = 0
+    if (isBrave) {
+      addLog('Brave browser detected — using HTTP polling transport', 'warn')
+      connectHttp()
+    } else {
+      connectWs()
+    }
+  }, [isBrave, connectWs, connectHttp])
+
+  // -----------------------------------------------------------------------
+  // Disconnect
+  // -----------------------------------------------------------------------
+
+  const disconnect = useCallback(() => {
+    autoReconnect.current = false
+
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current)
+      reconnectTimer.current = null
+    }
+
+    if (wsRef.current) {
+      const old = wsRef.current
+      wsRef.current = null
+      old.onclose = null
+      old.onerror = null
+      old.onmessage = null
+      old.close()
+    }
+
+    if (pollActive.current) {
+      pollActive.current = false
+      if (pollAbort.current) {
+        pollAbort.current.abort()
+        pollAbort.current = null
+      }
+      fetch(`${baseUrl}/bridge/disconnect`, { method: 'POST' }).catch(() => {})
+    }
+
+    setStatus('disconnected')
+    setTransport('none')
+    addLog('Disconnected')
+  }, [baseUrl, addLog])
+
+  // -----------------------------------------------------------------------
+  // Health check
+  // -----------------------------------------------------------------------
+
   useEffect(() => {
+    if (status !== 'connected') {
+      setServerHealth(null)
+      return
+    }
+
+    function check() {
+      fetch(`${baseUrl}/health`)
+        .then((r) => r.json())
+        .then((h) => setServerHealth(h))
+        .catch(() => setServerHealth(null))
+    }
+
+    check()
+    healthTimer.current = setInterval(check, HEALTH_CHECK_INTERVAL)
+    return () => clearInterval(healthTimer.current)
+  }, [status, baseUrl])
+
+  // -----------------------------------------------------------------------
+  // Auto-connect on mount
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    if (enabled === null) return
+    if (!enabled) {
+      setStatus('disabled')
+      addLog('API Server bridge is disabled in extension settings.', 'warn')
+      return
+    }
     connect()
     return () => disconnect()
-  }, [])
+  }, [enabled])
+
+  // -----------------------------------------------------------------------
+  // Scroll logs
+  // -----------------------------------------------------------------------
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
+  // -----------------------------------------------------------------------
+  // Port save
+  // -----------------------------------------------------------------------
+
+  const savePort = useCallback(() => {
+    const n = parseInt(portInput, 10)
+    if (Number.isNaN(n) || n < 1 || n > 65535) {
+      addLog('Invalid port: must be 1–65535', 'error')
+      return
+    }
+    setPort(n)
+    setUserConfig({ apiServerPort: n })
+    addLog(`Port updated to ${n}. Reconnecting...`)
+    disconnect()
+    setTimeout(() => {
+      autoReconnect.current = true
+      wsFailCount.current = 0
+      if (isBrave) connectHttp()
+      else connectWs()
+    }, 500)
+  }, [portInput, addLog, disconnect, connectWs, connectHttp, isBrave])
+
+  // -----------------------------------------------------------------------
+  // Toggle enable
+  // -----------------------------------------------------------------------
+
+  const toggleEnabled = useCallback(() => {
+    const next = !enabled
+    setEnabled(next)
+    setUserConfig({ apiServerEnabled: next })
+    if (next) {
+      addLog('API Server bridge enabled')
+      wsFailCount.current = 0
+      connect()
+    } else {
+      addLog('API Server bridge disabled')
+      disconnect()
+      setStatus('disabled')
+    }
+  }, [enabled, addLog, connect, disconnect])
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
+
   const statusColor =
-    status === 'connected' ? '#22c55e' : status === 'connecting' ? '#eab308' : '#ef4444'
+    status === 'connected'
+      ? '#22c55e'
+      : status === 'connecting'
+      ? '#eab308'
+      : status === 'disabled'
+      ? '#6b7280'
+      : '#ef4444'
+
+  const showPort = port !== 18080
 
   return (
     <div className="api-server-container">
@@ -256,34 +534,92 @@ function App() {
         <div className="status-row">
           <span className="status-dot" style={{ backgroundColor: statusColor }} />
           <span className="status-text">{status}</span>
+          {transport !== 'none' && status === 'connected' && (
+            <span className="transport-badge">{transport}</span>
+          )}
           <span className="request-count">{requestCount} requests served</span>
         </div>
 
+        <div className="control-row">
+          <label className="toggle-label">
+            <input type="checkbox" checked={!!enabled} onChange={toggleEnabled} />
+            <span>Enable API Server Bridge</span>
+          </label>
+        </div>
+
         <div className="url-row">
+          <label className="port-label">Port:</label>
           <input
             type="text"
-            value={wsUrl}
-            onChange={(e) => setWsUrl(e.target.value)}
-            placeholder="ws://127.0.0.1:18080/bridge"
+            value={portInput}
+            onChange={(e) => setPortInput(e.target.value)}
+            placeholder="18080"
             disabled={status === 'connected'}
+            className="port-input"
           />
-          {status === 'connected' ? (
+          {status !== 'connected' && portInput !== String(port) && (
+            <button onClick={savePort} className="btn-save">
+              Save
+            </button>
+          )}
+          {enabled && status === 'connected' ? (
             <button onClick={disconnect} className="btn-disconnect">
               Disconnect
             </button>
-          ) : (
+          ) : enabled && status !== 'disabled' ? (
             <button onClick={connect} className="btn-connect">
               Connect
             </button>
-          )}
+          ) : null}
         </div>
       </section>
+
+      {serverHealth && (
+        <section className="api-server-health">
+          <h3>Server Health</h3>
+          <div className="health-grid">
+            <div className="health-item">
+              <span className="health-label">Status</span>
+              <span className={`health-value health-${serverHealth.status}`}>
+                {serverHealth.status}
+              </span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Uptime</span>
+              <span className="health-value">{serverHealth.server?.uptime}</span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Bridge</span>
+              <span className="health-value">{serverHealth.bridge?.type || 'none'}</span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Total Requests</span>
+              <span className="health-value">{serverHealth.stats?.total_requests}</span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Errors</span>
+              <span
+                className={`health-value ${
+                  serverHealth.stats?.total_errors > 0 ? 'health-degraded' : ''
+                }`}
+              >
+                {serverHealth.stats?.total_errors}
+              </span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Pending</span>
+              <span className="health-value">{serverHealth.stats?.pending_requests}</span>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="api-server-usage">
         <h3>Usage</h3>
         <ol>
+          <li>Enable the API Server Bridge above</li>
           <li>
-            Run <code>npm run api-server</code> in a terminal
+            Run <code>npm run api-server{showPort ? ` -- --port ${port}` : ''}</code> in a terminal
           </li>
           <li>Keep this page open (it bridges the API server to ChatGPT)</li>
           <li>
@@ -293,12 +629,12 @@ function App() {
             </a>
           </li>
           <li>
-            Send requests to <code>http://127.0.0.1:18080/v1/chat/completions</code>
+            Send requests to <code>http://127.0.0.1:{port}/v1/chat/completions</code>
           </li>
         </ol>
         <details>
           <summary>Example curl command</summary>
-          <pre>{`curl http://127.0.0.1:18080/v1/chat/completions \\
+          <pre>{`curl http://127.0.0.1:${port}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-5-2",
@@ -306,10 +642,51 @@ function App() {
     "stream": false
   }'`}</pre>
         </details>
+        <details>
+          <summary>Configuration</summary>
+          <div className="config-help">
+            <p>
+              <strong>Port:</strong> Change the port above, or start the server with{' '}
+              <code>--port &lt;number&gt;</code> or set{' '}
+              <code>CHATGPT_GATEWAY_PORT=&lt;number&gt;</code>.
+            </p>
+            <p>
+              <strong>Enable/Disable:</strong> Use the toggle above. When disabled, the bridge will
+              not connect to the API server.
+            </p>
+            <p>
+              <strong>Health check:</strong> Visit <code>http://127.0.0.1:{port}/health</code> for
+              detailed server diagnostics.
+            </p>
+          </div>
+        </details>
+        {isBrave && (
+          <details open>
+            <summary>Brave Browser Notes</summary>
+            <div className="config-help brave-note">
+              <p>
+                Brave is detected. The bridge uses HTTP polling instead of WebSocket for
+                compatibility. This works reliably but may have slightly higher latency.
+              </p>
+              <p>
+                If you experience issues, ensure Brave Shields is not blocking connections to{' '}
+                <code>127.0.0.1</code>. You can check by clicking the Shields icon in the address
+                bar for this page.
+              </p>
+            </div>
+          </details>
+        )}
       </section>
 
       <section className="api-server-logs">
-        <h3>Log</h3>
+        <h3>
+          Log
+          {logs.length > 0 && (
+            <button className="btn-clear-logs" onClick={() => setLogs([])}>
+              Clear
+            </button>
+          )}
+        </h3>
         <div className="log-container">
           {logs.length === 0 && <div className="log-empty">No log entries yet.</div>}
           {logs.map((entry, i) => (
