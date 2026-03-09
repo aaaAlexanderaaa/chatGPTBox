@@ -188,6 +188,34 @@
   color: #dc2626;
 }
 
+/* Warning banner */
+
+.api-server-warn {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #92400e;
+}
+
+.api-server-warn strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #78350f;
+}
+
+.api-server-warn p {
+  margin: 0;
+}
+
+.api-server-warn a {
+  color: #d97706;
+  font-weight: 500;
+}
+
 /* Usage section */
 
 .api-server-usage {

@@ -339,6 +339,26 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
+    case 'API_BRIDGE_DIAGNOSE': {
+      const diagConfig = await getUserConfig()
+      let chatgptTabOk = false
+      if (diagConfig.chatgptTabId) {
+        const tab = await Browser.tabs.get(diagConfig.chatgptTabId).catch(() => null)
+        chatgptTabOk = !!(tab && isLikelyChatgptTabUrl(tab.url))
+      }
+      let canFetchChatgpt = false
+      try {
+        const r = await fetch('https://chatgpt.com/api/auth/session', { method: 'HEAD' })
+        canFetchChatgpt = r.status !== 0
+      } catch {
+        canFetchChatgpt = false
+      }
+      return {
+        chatgptTabOk,
+        canFetchChatgpt,
+        hasAccessToken: !!diagConfig.accessToken,
+      }
+    }
     case 'OPEN_SIDE_PANEL': {
       // eslint-disable-next-line no-undef
       if (typeof chrome !== 'undefined' && chrome.sidePanel) {
@@ -656,6 +676,70 @@ try {
 } catch (error) {
   console.log(error)
 }
+
+// API bridge WebSocket proxy: routes the localhost connection through the
+// service worker so that it works in browsers (e.g. Brave) that block outbound
+// network requests from extension pages.
+Browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'api-bridge-proxy') return
+
+  let ws = null
+
+  port.onMessage.addListener((msg) => {
+    if (msg.action === 'connect') {
+      if (ws) {
+        try {
+          ws.close()
+        } catch {
+          /* ignore */
+        }
+        ws = null
+      }
+      try {
+        ws = new WebSocket(msg.url)
+        ws.onopen = () => {
+          port.postMessage({ type: 'open' })
+        }
+        ws.onclose = (e) => {
+          ws = null
+          port.postMessage({ type: 'close', code: e.code, reason: e.reason })
+        }
+        ws.onerror = () => {
+          port.postMessage({ type: 'error', message: 'WebSocket connection failed' })
+        }
+        ws.onmessage = (e) => {
+          port.postMessage({ type: 'message', data: e.data })
+        }
+      } catch (err) {
+        port.postMessage({ type: 'error', message: err.message })
+      }
+    } else if (msg.action === 'send') {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(msg.payload)
+      }
+    } else if (msg.action === 'close') {
+      if (ws) {
+        try {
+          ws.close()
+        } catch {
+          /* ignore */
+        }
+        ws = null
+      }
+    }
+  })
+
+  port.onDisconnect.addListener(() => {
+    if (ws) {
+      try {
+        ws.close()
+      } catch {
+        /* ignore */
+      }
+      ws = null
+    }
+  })
+})
 
 registerPortListener(async (session, port, config) => await executeApi(session, port, config))
 syncScopedHeaderRewriteRules()

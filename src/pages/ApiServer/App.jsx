@@ -8,8 +8,6 @@ import './styles.css'
 
 const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
-const WS_RETRY_LIMIT = 3
-const POLL_INTERVAL = 800
 const HEALTH_CHECK_INTERVAL = 15000
 
 function slugToModelKey(slug) {
@@ -33,35 +31,21 @@ function formatMessages(messages) {
     .join('\n\n')
 }
 
-function detectBrave() {
-  try {
-    // eslint-disable-next-line no-undef
-    return navigator.brave && typeof navigator.brave.isBrave === 'function'
-  } catch {
-    return false
-  }
-}
-
 function App() {
   const [enabled, setEnabled] = useState(null)
   const [port, setPort] = useState(18080)
   const [portInput, setPortInput] = useState('18080')
   const [status, setStatus] = useState('initializing')
-  const [transport, setTransport] = useState('none')
   const [logs, setLogs] = useState([])
   const [requestCount, setRequestCount] = useState(0)
   const [serverHealth, setServerHealth] = useState(null)
-  const [isBrave, setIsBrave] = useState(false)
+  const [diag, setDiag] = useState(null)
 
-  const wsRef = useRef(null)
+  const proxyPort = useRef(null)
   const reconnectTimer = useRef(null)
   const logsEndRef = useRef(null)
   const autoReconnect = useRef(true)
-  const wsFailCount = useRef(0)
-  const pollAbort = useRef(null)
-  const pollActive = useRef(false)
   const healthTimer = useRef(null)
-  const configLoaded = useRef(false)
 
   // -----------------------------------------------------------------------
   // Logging
@@ -75,16 +59,6 @@ function App() {
   }, [])
 
   // -----------------------------------------------------------------------
-  // Detect Brave
-  // -----------------------------------------------------------------------
-
-  useEffect(() => {
-    detectBrave().then
-      ? Promise.resolve(detectBrave()).then((v) => setIsBrave(!!v))
-      : setIsBrave(!!detectBrave())
-  }, [])
-
-  // -----------------------------------------------------------------------
   // Load config
   // -----------------------------------------------------------------------
 
@@ -94,23 +68,32 @@ function App() {
       setPort(p)
       setPortInput(String(p))
       setEnabled(config.apiServerEnabled === true)
-      configLoaded.current = true
     })
   }, [])
 
   // -----------------------------------------------------------------------
-  // Build base URL from port
+  // Build WebSocket URL from port
   // -----------------------------------------------------------------------
 
-  const baseUrl = `http://127.0.0.1:${port}`
   const wsUrl = `ws://127.0.0.1:${port}/bridge`
+  const baseUrl = `http://127.0.0.1:${port}`
+
+  // -----------------------------------------------------------------------
+  // Send data to API server via the background-proxied WebSocket
+  // -----------------------------------------------------------------------
+
+  const sendWs = useCallback((data) => {
+    if (proxyPort.current) {
+      proxyPort.current.postMessage({ action: 'send', payload: JSON.stringify(data) })
+    }
+  }, [])
 
   // -----------------------------------------------------------------------
   // Handle incoming request from API server
   // -----------------------------------------------------------------------
 
   const handleRequest = useCallback(
-    (data, send) => {
+    (data) => {
       const { id, model, messages } = data
       const question = formatMessages(messages)
       const modelKey = slugToModelKey(model)
@@ -127,27 +110,34 @@ function App() {
         conversationRecords: [],
       })
 
-      let port2
+      let bgPort
       try {
-        port2 = Browser.runtime.connect()
+        bgPort = Browser.runtime.connect()
       } catch (err) {
         addLog(`Failed to connect to extension background: ${err.message}`, 'error')
-        send({ type: 'error', id, error: err.message || 'Failed to connect to extension' })
+        sendWs({ type: 'error', id, error: err.message || 'Failed to connect to extension' })
         return
       }
 
       let lastAnswer = ''
       let finished = false
 
-      port2.onMessage.addListener((msg) => {
+      bgPort.onMessage.addListener((msg) => {
         if (finished) return
 
         if (msg.error) {
           finished = true
-          addLog(`Error ${id.slice(0, 8)}...: ${msg.error}`, 'error')
-          send({ type: 'error', id, error: msg.error })
+          const errText = msg.error
+          addLog(`Error ${id.slice(0, 8)}...: ${errText}`, 'error')
+          if (/failed to fetch/i.test(errText)) {
+            addLog(
+              'Tip: Open chatgpt.com in this browser and log in. The extension routes ChatGPT Web requests through that tab.',
+              'warn',
+            )
+          }
+          sendWs({ type: 'error', id, error: msg.error })
           try {
-            port2.disconnect()
+            bgPort.disconnect()
           } catch {
             /* ignore */
           }
@@ -157,31 +147,31 @@ function App() {
         if (msg.answer !== undefined) {
           lastAnswer = msg.answer
           if (!msg.done) {
-            send({ type: 'chunk', id, answer: msg.answer })
+            sendWs({ type: 'chunk', id, answer: msg.answer })
           }
         }
 
         if (msg.done) {
           finished = true
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
-          send({ type: 'done', id, answer: lastAnswer })
+          sendWs({ type: 'done', id, answer: lastAnswer })
           try {
-            port2.disconnect()
+            bgPort.disconnect()
           } catch {
             /* ignore */
           }
         }
       })
 
-      port2.onDisconnect.addListener(() => {
+      bgPort.onDisconnect.addListener(() => {
         if (finished) return
         finished = true
         if (lastAnswer) {
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars (port closed)`)
-          send({ type: 'done', id, answer: lastAnswer })
+          sendWs({ type: 'done', id, answer: lastAnswer })
         } else {
           addLog(`Extension background disconnected before responding`, 'error')
-          send({
+          sendWs({
             type: 'error',
             id,
             error: 'Extension background disconnected before responding',
@@ -190,23 +180,23 @@ function App() {
       })
 
       try {
-        port2.postMessage({ session })
+        bgPort.postMessage({ session })
       } catch (err) {
         if (!finished) {
           finished = true
           addLog(`Send error: ${err.message}`, 'error')
-          send({ type: 'error', id, error: err.message || 'Failed to send to extension' })
+          sendWs({ type: 'error', id, error: err.message || 'Failed to send to extension' })
         }
       }
     },
-    [addLog],
+    [addLog, sendWs],
   )
 
   // -----------------------------------------------------------------------
-  // WebSocket transport
+  // Connect via background-proxied WebSocket
   // -----------------------------------------------------------------------
 
-  const connectWs = useCallback(() => {
+  const connect = useCallback(() => {
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current)
       reconnectTimer.current = null
@@ -214,176 +204,75 @@ function App() {
 
     autoReconnect.current = true
 
-    if (wsRef.current) {
-      const old = wsRef.current
-      wsRef.current = null
-      old.onclose = null
-      old.onerror = null
-      old.onmessage = null
-      old.close()
-    }
-
-    setStatus('connecting')
-    setTransport('websocket')
-    addLog(`Connecting to ${wsUrl} (WebSocket)...`)
-
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      wsFailCount.current = 0
-      setStatus('connected')
-      setTransport('websocket')
-      addLog('Connected to API server via WebSocket', 'success')
-    }
-
-    ws.onclose = () => {
-      if (wsRef.current !== ws) return
-      wsRef.current = null
-      wsFailCount.current++
-      setStatus('disconnected')
-      addLog('WebSocket disconnected')
-
-      if (autoReconnect.current) {
-        if (wsFailCount.current >= WS_RETRY_LIMIT) {
-          addLog(
-            `WebSocket failed ${WS_RETRY_LIMIT} times, switching to HTTP polling transport...`,
-            'warn',
-          )
-          connectHttp()
-        } else {
-          reconnectTimer.current = setTimeout(connectWs, RECONNECT_DELAY)
-        }
-      }
-    }
-
-    ws.onerror = () => {
-      addLog('WebSocket error — is the API server running?', 'error')
-    }
-
-    ws.onmessage = (event) => {
-      let data
+    if (proxyPort.current) {
+      proxyPort.current.postMessage({ action: 'close' })
       try {
-        data = JSON.parse(event.data)
+        proxyPort.current.disconnect()
       } catch {
-        return
+        /* ignore */
       }
-      if (data.type === 'request') {
-        const sendWs = (msg) => {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(msg))
-          }
-        }
-        handleRequest(data, sendWs)
-      }
-    }
-  }, [wsUrl, addLog, handleRequest])
-
-  // -----------------------------------------------------------------------
-  // HTTP polling transport (fallback for Brave and others)
-  // -----------------------------------------------------------------------
-
-  const connectHttp = useCallback(() => {
-    if (pollActive.current) return
-    pollActive.current = true
-    autoReconnect.current = true
-
-    if (wsRef.current) {
-      const old = wsRef.current
-      wsRef.current = null
-      old.onclose = null
-      old.onerror = null
-      old.onmessage = null
-      old.close()
+      proxyPort.current = null
     }
 
     setStatus('connecting')
-    setTransport('http')
-    addLog(`Connecting to ${baseUrl} (HTTP polling)...`)
+    addLog(`Connecting to ${wsUrl} (via service worker)...`)
 
-    const ctrl = new AbortController()
-    pollAbort.current = ctrl
-
-    async function pollLoop() {
-      let consecutive_errors = 0
-      let announced = false
-
-      while (pollActive.current && !ctrl.signal.aborted) {
-        try {
-          const resp = await fetch(`${baseUrl}/bridge/poll`, { signal: ctrl.signal })
-
-          if (!resp.ok) {
-            const body = await resp.text().catch(() => '')
-            throw new Error(`HTTP ${resp.status}: ${body}`)
-          }
-
-          consecutive_errors = 0
-
-          if (!announced) {
-            announced = true
-            setStatus('connected')
-            addLog('Connected to API server via HTTP polling', 'success')
-          }
-
-          const data = await resp.json()
-
-          if (data.type === 'request') {
-            const sendHttp = (msg) => {
-              fetch(`${baseUrl}/bridge/respond`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(msg),
-              }).catch((err) => addLog(`HTTP respond error: ${err.message}`, 'error'))
-            }
-            handleRequest(data, sendHttp)
-          } else if (data.type === 'shutdown') {
-            addLog('Server requested shutdown of HTTP bridge')
-            break
-          }
-          // 'heartbeat' — just continue polling
-        } catch (err) {
-          if (ctrl.signal.aborted) break
-          consecutive_errors++
-
-          if (consecutive_errors === 1) {
-            addLog(`HTTP poll error: ${err.message}`, 'error')
-          }
-
-          if (consecutive_errors >= 5) {
-            addLog('HTTP polling failed repeatedly, stopping.', 'error')
-            break
-          }
-
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL * consecutive_errors))
-        }
+    let pp
+    try {
+      pp = Browser.runtime.connect({ name: 'api-bridge-proxy' })
+    } catch (err) {
+      addLog(`Failed to open proxy channel: ${err.message}`, 'error')
+      setStatus('disconnected')
+      if (autoReconnect.current) {
+        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
       }
+      return
+    }
 
-      pollActive.current = false
-      if (!ctrl.signal.aborted) {
+    proxyPort.current = pp
+
+    pp.onMessage.addListener((msg) => {
+      if (msg.type === 'open') {
+        setStatus('connected')
+        addLog('Connected to API server', 'success')
+      } else if (msg.type === 'close') {
+        if (proxyPort.current !== pp) return
+        proxyPort.current = null
         setStatus('disconnected')
-        addLog('HTTP polling stopped')
+        addLog('WebSocket disconnected')
         if (autoReconnect.current) {
           reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
         }
+      } else if (msg.type === 'error') {
+        addLog(
+          `Connection error: ${msg.message || 'unknown'} — is the API server running?`,
+          'error',
+        )
+      } else if (msg.type === 'message') {
+        let data
+        try {
+          data = JSON.parse(msg.data)
+        } catch {
+          return
+        }
+        if (data.type === 'request') {
+          handleRequest(data)
+        }
       }
-    }
+    })
 
-    pollLoop()
-  }, [baseUrl, addLog, handleRequest])
+    pp.onDisconnect.addListener(() => {
+      if (proxyPort.current !== pp) return
+      proxyPort.current = null
+      setStatus('disconnected')
+      addLog('Proxy channel closed')
+      if (autoReconnect.current) {
+        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
+      }
+    })
 
-  // -----------------------------------------------------------------------
-  // Primary connect (chooses transport)
-  // -----------------------------------------------------------------------
-
-  const connect = useCallback(() => {
-    wsFailCount.current = 0
-    if (isBrave) {
-      addLog('Brave browser detected — using HTTP polling transport', 'warn')
-      connectHttp()
-    } else {
-      connectWs()
-    }
-  }, [isBrave, connectWs, connectHttp])
+    pp.postMessage({ action: 'connect', url: wsUrl })
+  }, [wsUrl, addLog, handleRequest])
 
   // -----------------------------------------------------------------------
   // Disconnect
@@ -397,50 +286,58 @@ function App() {
       reconnectTimer.current = null
     }
 
-    if (wsRef.current) {
-      const old = wsRef.current
-      wsRef.current = null
-      old.onclose = null
-      old.onerror = null
-      old.onmessage = null
-      old.close()
-    }
-
-    if (pollActive.current) {
-      pollActive.current = false
-      if (pollAbort.current) {
-        pollAbort.current.abort()
-        pollAbort.current = null
+    if (proxyPort.current) {
+      proxyPort.current.postMessage({ action: 'close' })
+      try {
+        proxyPort.current.disconnect()
+      } catch {
+        /* ignore */
       }
-      fetch(`${baseUrl}/bridge/disconnect`, { method: 'POST' }).catch(() => {})
+      proxyPort.current = null
     }
 
     setStatus('disconnected')
-    setTransport('none')
     addLog('Disconnected')
-  }, [baseUrl, addLog])
+  }, [addLog])
 
   // -----------------------------------------------------------------------
-  // Health check
+  // Health check + diagnostics
   // -----------------------------------------------------------------------
 
   useEffect(() => {
     if (status !== 'connected') {
       setServerHealth(null)
+      setDiag(null)
       return
     }
 
-    function check() {
+    function checkHealth() {
       fetch(`${baseUrl}/health`)
         .then((r) => r.json())
         .then((h) => setServerHealth(h))
         .catch(() => setServerHealth(null))
     }
 
-    check()
-    healthTimer.current = setInterval(check, HEALTH_CHECK_INTERVAL)
+    function runDiag() {
+      Browser.runtime
+        .sendMessage({ type: 'API_BRIDGE_DIAGNOSE' })
+        .then((result) => {
+          setDiag(result)
+          if (result && !result.chatgptTabOk && !result.canFetchChatgpt) {
+            addLog(
+              'Warning: Cannot reach chatgpt.com from background. Open chatgpt.com and log in so requests can be routed through that tab.',
+              'warn',
+            )
+          }
+        })
+        .catch(() => setDiag(null))
+    }
+
+    checkHealth()
+    runDiag()
+    healthTimer.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL)
     return () => clearInterval(healthTimer.current)
-  }, [status, baseUrl])
+  }, [status, baseUrl, addLog])
 
   // -----------------------------------------------------------------------
   // Auto-connect on mount
@@ -481,11 +378,9 @@ function App() {
     disconnect()
     setTimeout(() => {
       autoReconnect.current = true
-      wsFailCount.current = 0
-      if (isBrave) connectHttp()
-      else connectWs()
+      connect()
     }, 500)
-  }, [portInput, addLog, disconnect, connectWs, connectHttp, isBrave])
+  }, [portInput, addLog, disconnect, connect])
 
   // -----------------------------------------------------------------------
   // Toggle enable
@@ -497,7 +392,6 @@ function App() {
     setUserConfig({ apiServerEnabled: next })
     if (next) {
       addLog('API Server bridge enabled')
-      wsFailCount.current = 0
       connect()
     } else {
       addLog('API Server bridge disabled')
@@ -534,9 +428,6 @@ function App() {
         <div className="status-row">
           <span className="status-dot" style={{ backgroundColor: statusColor }} />
           <span className="status-text">{status}</span>
-          {transport !== 'none' && status === 'connected' && (
-            <span className="transport-badge">{transport}</span>
-          )}
           <span className="request-count">{requestCount} requests served</span>
         </div>
 
@@ -614,6 +505,21 @@ function App() {
         </section>
       )}
 
+      {diag && !diag.chatgptTabOk && !diag.canFetchChatgpt && (
+        <section className="api-server-warn">
+          <strong>ChatGPT Web models will not work yet.</strong>
+          <p>
+            This browser is blocking direct requests to chatgpt.com from the extension. To fix this,
+            open{' '}
+            <a href="https://chatgpt.com" target="_blank" rel="noreferrer">
+              chatgpt.com
+            </a>{' '}
+            in a tab in this browser and make sure you are logged in. The extension will
+            automatically route requests through that tab.
+          </p>
+        </section>
+      )}
+
       <section className="api-server-usage">
         <h3>Usage</h3>
         <ol>
@@ -660,22 +566,6 @@ function App() {
             </p>
           </div>
         </details>
-        {isBrave && (
-          <details open>
-            <summary>Brave Browser Notes</summary>
-            <div className="config-help brave-note">
-              <p>
-                Brave is detected. The bridge uses HTTP polling instead of WebSocket for
-                compatibility. This works reliably but may have slightly higher latency.
-              </p>
-              <p>
-                If you experience issues, ensure Brave Shields is not blocking connections to{' '}
-                <code>127.0.0.1</code>. You can check by clicking the Shields icon in the address
-                bar for this page.
-              </p>
-            </div>
-          </details>
-        )}
       </section>
 
       <section className="api-server-logs">
