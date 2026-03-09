@@ -95,6 +95,7 @@ export function handlePortError(session, port, err) {
 
 export function registerPortListener(executor) {
   Browser.runtime.onConnect.addListener((port) => {
+    if (port.name === 'api-bridge-proxy') return
     console.debug('connected')
     const onMessage = async (msg) => {
       console.debug('received msg', msg)

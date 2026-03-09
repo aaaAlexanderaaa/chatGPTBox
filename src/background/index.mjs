@@ -657,6 +657,70 @@ try {
   console.log(error)
 }
 
+// API bridge WebSocket proxy: routes the localhost connection through the
+// service worker so that it works in browsers (e.g. Brave) that block outbound
+// network requests from extension pages.
+Browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'api-bridge-proxy') return
+
+  let ws = null
+
+  port.onMessage.addListener((msg) => {
+    if (msg.action === 'connect') {
+      if (ws) {
+        try {
+          ws.close()
+        } catch {
+          /* ignore */
+        }
+        ws = null
+      }
+      try {
+        ws = new WebSocket(msg.url)
+        ws.onopen = () => {
+          port.postMessage({ type: 'open' })
+        }
+        ws.onclose = (e) => {
+          ws = null
+          port.postMessage({ type: 'close', code: e.code, reason: e.reason })
+        }
+        ws.onerror = () => {
+          port.postMessage({ type: 'error', message: 'WebSocket connection failed' })
+        }
+        ws.onmessage = (e) => {
+          port.postMessage({ type: 'message', data: e.data })
+        }
+      } catch (err) {
+        port.postMessage({ type: 'error', message: err.message })
+      }
+    } else if (msg.action === 'send') {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(msg.payload)
+      }
+    } else if (msg.action === 'close') {
+      if (ws) {
+        try {
+          ws.close()
+        } catch {
+          /* ignore */
+        }
+        ws = null
+      }
+    }
+  })
+
+  port.onDisconnect.addListener(() => {
+    if (ws) {
+      try {
+        ws.close()
+      } catch {
+        /* ignore */
+      }
+      ws = null
+    }
+  })
+})
+
 registerPortListener(async (session, port, config) => await executeApi(session, port, config))
 syncScopedHeaderRewriteRules()
 registerCommands()
