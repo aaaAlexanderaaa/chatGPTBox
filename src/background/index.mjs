@@ -126,7 +126,11 @@ function isLikelyChatgptTabUrl(url) {
 
 async function discoverChatgptTab() {
   try {
-    const tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' })
+    let tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' }).catch(() => [])
+    if (!tabs.length) {
+      const all = await Browser.tabs.query({})
+      tabs = all.filter((t) => isLikelyChatgptTabUrl(t.url))
+    }
     const candidate = tabs.find(
       (t) => t.id && isLikelyChatgptTabUrl(t.url) && t.url !== 'https://chatgpt.com/auth/login',
     )
@@ -147,21 +151,72 @@ function isNetworkError(err) {
   )
 }
 
+// Brave permanently blocks cross-origin fetch from service workers
+// (brave/brave-browser#25855). Once we detect this, skip the background-fetch
+// path entirely and go straight to the proxy-tab path for the rest of the
+// browser session.  We persist the flag in chrome.storage.session so it
+// survives service-worker restarts without persisting across browser restarts.
+let bgFetchBlocked = false
+Browser.storage.session
+  ?.get?.({ bgFetchBlocked: false })
+  .then((d) => {
+    bgFetchBlocked = !!d.bgFetchBlocked
+  })
+  .catch(() => {})
+
+function markBgFetchBlocked() {
+  bgFetchBlocked = true
+  Browser.storage.session?.set?.({ bgFetchBlocked: true }).catch(() => {})
+}
+
+async function injectContentScript(tabId) {
+  try {
+    await Browser.scripting.insertCSS({ target: { tabId }, files: ['content-script.css'] })
+  } catch {
+    /* non-critical */
+  }
+  await Browser.scripting.executeScript({
+    target: { tabId },
+    files: ['shared.js', 'content-script.js'],
+  })
+}
+
 async function sendChatgptProxyRequest(tabId, session, uiPort) {
   const requestId = crypto.randomUUID()
 
   return new Promise((resolve, reject) => {
     pendingChatgptProxyRequests.set(requestId, { uiPort, resolve, reject })
 
-    Browser.tabs
-      .sendMessage(tabId, {
+    const doSend = () =>
+      Browser.tabs.sendMessage(tabId, {
         type: 'CHATGPT_PROXY_REQUEST',
         data: { session, requestId },
       })
-      .catch((err) => {
-        pendingChatgptProxyRequests.delete(requestId)
-        reject(err)
-      })
+
+    doSend().catch(async (firstErr) => {
+      if (/receiving end does not exist/i.test(firstErr?.message)) {
+        console.debug('[background] Content script not found, injecting into tab', tabId)
+        try {
+          await injectContentScript(tabId)
+          await new Promise((r) => setTimeout(r, 500))
+          await doSend()
+          return
+        } catch (retryErr) {
+          console.debug('[background] Retry after injection failed:', retryErr?.message)
+          pendingChatgptProxyRequests.delete(requestId)
+          reject(
+            new Error(
+              'Content script could not be loaded in the ChatGPT tab. ' +
+                'In Brave, click the extensions (puzzle) icon → ChatGPTBox → ' +
+                '"Allow on chatgpt.com", then reload the chatgpt.com tab and retry.',
+            ),
+          )
+          return
+        }
+      }
+      pendingChatgptProxyRequests.delete(requestId)
+      reject(firstErr)
+    })
   })
 }
 
@@ -225,6 +280,19 @@ async function executeApi(session, port, config) {
       }
     }
     const forceBackgroundInDebug = config.debugChatgptWebRequests === true
+
+    // When the background-fetch path has previously been blocked (Brave:
+    // brave/brave-browser#25855) and no proxy tab was found yet, try harder
+    // to discover one so we don't waste time on a fetch that will fail.
+    if (!tabId && bgFetchBlocked) {
+      const discovered = await discoverChatgptTab()
+      if (discovered) {
+        tabId = discovered.id
+        proxyTab = discovered
+        await setUserConfig({ chatgptTabId: tabId })
+      }
+    }
+
     if (tabId && !forceBackgroundInDebug) {
       void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-tab', {
         tabId,
@@ -232,7 +300,7 @@ async function executeApi(session, port, config) {
         route: executionRoute,
       })
       await sendChatgptProxyRequest(tabId, session, port)
-    } else {
+    } else if (!bgFetchBlocked) {
       if (tabId && forceBackgroundInDebug) {
         void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-skipped-debug', {
           tabId,
@@ -248,6 +316,7 @@ async function executeApi(session, port, config) {
         await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
       } catch (bgErr) {
         if (!isNetworkError(bgErr)) throw bgErr
+        markBgFetchBlocked()
         void appendChatgptWebDebugLog(config, 'background-fetch-blocked', {
           error: bgErr?.message || String(bgErr),
         })
@@ -268,6 +337,27 @@ async function executeApi(session, port, config) {
               ),
           )
         }
+      }
+    } else {
+      void appendChatgptWebDebugLog(config, 'background-fetch-known-blocked', {
+        route: executionRoute,
+      })
+      const fallbackTab = await discoverChatgptTab()
+      if (fallbackTab) {
+        await setUserConfig({ chatgptTabId: fallbackTab.id })
+        void appendChatgptWebDebugLog(config, 'fallback-proxy-tab', {
+          tabId: fallbackTab.id,
+          tabUrl: fallbackTab.url || null,
+        })
+        await sendChatgptProxyRequest(fallbackTab.id, session, port)
+      } else {
+        throw new Error(
+          t('Please login at https://chatgpt.com first') +
+            '\n\n' +
+            t(
+              "Please keep https://chatgpt.com open and try again. If it still doesn't work, type some characters in the input box of chatgpt web page and try again.",
+            ),
+        )
       }
     }
   } else if (isUsingClaudeWebModel(session)) {
@@ -749,13 +839,40 @@ Browser.runtime.onConnect.addListener((port) => {
 // API bridge WebSocket proxy: routes the localhost connection through the
 // service worker so that it works in browsers (e.g. Brave) that block outbound
 // network requests from extension pages.
+//
+// MV3 service workers are terminated after ~30 s of inactivity. To prevent
+// this we send an application-level ping on the WebSocket every 20 s
+// (Chrome 116+ treats active WebSocket sends as "activity") and accept
+// keepalive pings from the bridge page on the port.
+const WS_KEEPALIVE_MS = 20_000
+
 Browser.runtime.onConnect.addListener((port) => {
   if (port.name !== 'api-bridge-proxy') return
 
   let ws = null
+  let keepaliveTimer = null
+
+  function startKeepalive() {
+    stopKeepalive()
+    keepaliveTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      }
+    }, WS_KEEPALIVE_MS)
+  }
+
+  function stopKeepalive() {
+    if (keepaliveTimer) {
+      clearInterval(keepaliveTimer)
+      keepaliveTimer = null
+    }
+  }
 
   port.onMessage.addListener((msg) => {
+    if (msg.action === 'keepalive') return
+
     if (msg.action === 'connect') {
+      stopKeepalive()
       if (ws) {
         try {
           ws.close()
@@ -768,8 +885,10 @@ Browser.runtime.onConnect.addListener((port) => {
         ws = new WebSocket(msg.url)
         ws.onopen = () => {
           port.postMessage({ type: 'open' })
+          startKeepalive()
         }
         ws.onclose = (e) => {
+          stopKeepalive()
           ws = null
           port.postMessage({ type: 'close', code: e.code, reason: e.reason })
         }
@@ -787,6 +906,7 @@ Browser.runtime.onConnect.addListener((port) => {
         ws.send(msg.payload)
       }
     } else if (msg.action === 'close') {
+      stopKeepalive()
       if (ws) {
         try {
           ws.close()
@@ -799,6 +919,7 @@ Browser.runtime.onConnect.addListener((port) => {
   })
 
   port.onDisconnect.addListener(() => {
+    stopKeepalive()
     if (ws) {
       try {
         ws.close()

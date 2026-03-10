@@ -558,6 +558,9 @@ async function prepareForJumpBackNotification() {
 }
 
 async function run() {
+  if (window.__chatgptbox_cs_loaded) return
+  window.__chatgptbox_cs_loaded = true
+
   await getPreferredLanguageKey().then((lang) => {
     changeLanguage(lang)
   })
