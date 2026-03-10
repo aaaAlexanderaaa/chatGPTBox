@@ -6,7 +6,6 @@ import { config as siteConfig } from './site-adapters'
 import { config as toolsConfig } from './selection-tools'
 import { config as menuConfig } from './menu-tools'
 import {
-  chatgptWebModelKeys,
   getPreferredLanguageKey,
   getUserConfig,
   isUsingChatgptWebModel,
@@ -17,7 +16,6 @@ import {
   createElementAtPosition,
   cropText,
   endsWithQuestionMark,
-  getApiModesStringArrayFromConfig,
   getClientPosition,
   getPossibleElementByQuerySelector,
   getCoreContentText,
@@ -455,27 +453,6 @@ async function overwriteAccessToken() {
 
 async function prepareForForegroundRequests() {
   if (location.hostname !== 'chatgpt.com' || location.pathname === '/auth/login') return
-
-  const userConfig = await getUserConfig()
-
-  if (
-    !chatgptWebModelKeys.some((model) =>
-      getApiModesStringArrayFromConfig(userConfig, true).includes(model),
-    )
-  )
-    return
-
-  // if (location.pathname === '/') {
-  //   const input = document.querySelector('#prompt-textarea')
-  //   if (input) {
-  //     input.textContent = ' '
-  //     input.dispatchEvent(new Event('input', { bubbles: true }))
-  //     setTimeout(() => {
-  //       input.textContent = ''
-  //       input.dispatchEvent(new Event('input', { bubbles: true }))
-  //     }, 300)
-  //   }
-  // }
 
   await Browser.runtime.sendMessage({
     type: 'SET_CHATGPT_TAB',
