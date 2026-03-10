@@ -60,6 +60,7 @@ import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
+const pendingChatgptProxyRequests = new Map()
 
 function summarizeApiMode(apiMode) {
   if (!apiMode || typeof apiMode !== 'object') return null
@@ -113,44 +114,6 @@ async function appendChatgptWebDebugLog(config, stage, payload = {}) {
   }
 }
 
-function setPortProxy(port, proxyTabId) {
-  const proxyOnMessage = (msg) => {
-    if (port._isClosed) return
-    try {
-      port.postMessage(msg)
-    } catch (e) {
-      console.debug('[background] Failed to forward proxy message:', e?.message)
-    }
-  }
-  const portOnMessage = (msg) => {
-    if (port.proxy) port.proxy.postMessage(msg)
-  }
-  const proxyOnDisconnect = () => {
-    attachProxy()
-  }
-  const attachProxy = () => {
-    if (port.proxy) {
-      port.proxy.onMessage.removeListener(proxyOnMessage)
-      port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
-    }
-    port.proxy = Browser.tabs.connect(proxyTabId)
-    port.proxy.onMessage.addListener(proxyOnMessage)
-    port.proxy.onDisconnect.addListener(proxyOnDisconnect)
-  }
-  const portOnDisconnect = () => {
-    port._isClosed = true
-    if (port.proxy) {
-      port.proxy.onMessage.removeListener(proxyOnMessage)
-      port.proxy.onDisconnect.removeListener(proxyOnDisconnect)
-    }
-    port.onMessage.removeListener(portOnMessage)
-    port.onDisconnect.removeListener(portOnDisconnect)
-  }
-  attachProxy()
-  port.onMessage.addListener(portOnMessage)
-  port.onDisconnect.addListener(portOnDisconnect)
-}
-
 function isLikelyChatgptTabUrl(url) {
   if (typeof url !== 'string' || !url) return false
   try {
@@ -182,6 +145,24 @@ function isNetworkError(err) {
     msg.includes('network error') ||
     msg.includes('blocked')
   )
+}
+
+async function sendChatgptProxyRequest(tabId, session, uiPort) {
+  const requestId = crypto.randomUUID()
+
+  return new Promise((resolve, reject) => {
+    pendingChatgptProxyRequests.set(requestId, { uiPort, resolve, reject })
+
+    Browser.tabs
+      .sendMessage(tabId, {
+        type: 'CHATGPT_PROXY_REQUEST',
+        data: { session, requestId },
+      })
+      .catch((err) => {
+        pendingChatgptProxyRequests.delete(requestId)
+        reject(err)
+      })
+  })
 }
 
 async function executeApi(session, port, config) {
@@ -250,8 +231,7 @@ async function executeApi(session, port, config) {
         tabUrl: proxyTab?.url || null,
         route: executionRoute,
       })
-      if (!port.proxy) setPortProxy(port, tabId)
-      port.proxy?.postMessage({ session })
+      await sendChatgptProxyRequest(tabId, session, port)
     } else {
       if (tabId && forceBackgroundInDebug) {
         void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-skipped-debug', {
@@ -278,8 +258,7 @@ async function executeApi(session, port, config) {
             tabId: fallbackTab.id,
             tabUrl: fallbackTab.url || null,
           })
-          if (!port.proxy) setPortProxy(port, fallbackTab.id)
-          port.proxy?.postMessage({ session })
+          await sendChatgptProxyRequest(fallbackTab.id, session, port)
         } else {
           throw new Error(
             t('Please login at https://chatgpt.com first') +
@@ -732,6 +711,40 @@ try {
 } catch (error) {
   console.log(error)
 }
+
+// Reverse proxy port handler: content scripts on chatgpt.com create ports back
+// to the service worker when processing CHATGPT_PROXY_REQUEST messages.
+Browser.runtime.onConnect.addListener((port) => {
+  if (!port.name.startsWith('chatgpt-proxy-response:')) return
+  const requestId = port.name.replace('chatgpt-proxy-response:', '')
+  const entry = pendingChatgptProxyRequests.get(requestId)
+  if (!entry) {
+    port.disconnect()
+    return
+  }
+  pendingChatgptProxyRequests.delete(requestId)
+  const { uiPort, resolve } = entry
+
+  port.onMessage.addListener((msg) => {
+    if (uiPort._isClosed) return
+    try {
+      uiPort.postMessage(msg)
+    } catch (e) {
+      console.debug('[background] Failed to forward proxy response:', e?.message)
+    }
+  })
+  port.onDisconnect.addListener(() => {
+    resolve()
+  })
+  uiPort.onDisconnect.addListener(() => {
+    uiPort._isClosed = true
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+  })
+})
 
 // API bridge WebSocket proxy: routes the localhost connection through the
 // service worker so that it works in browsers (e.g. Brave) that block outbound

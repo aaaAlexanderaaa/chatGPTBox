@@ -28,7 +28,11 @@ import { getPreferredLanguage } from '../config/language.mjs'
 import '../_locales/i18n-react'
 import { changeLanguage } from 'i18next'
 import { initSession } from '../services/init-session.mjs'
-import { getChatGptAccessToken, registerPortListener } from '../services/wrappers.mjs'
+import {
+  getChatGptAccessToken,
+  handlePortError,
+  registerPortListener,
+} from '../services/wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from '../services/apis/chatgpt-web.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 
@@ -424,6 +428,28 @@ async function prepareForStaticCard() {
   }
 }
 
+async function handleChatgptProxyRequest(session, requestId) {
+  if (location.hostname !== 'chatgpt.com') return
+  const port = Browser.runtime.connect({ name: `chatgpt-proxy-response:${requestId}` })
+  try {
+    let accessToken
+    try {
+      accessToken = await getChatGptAccessToken()
+    } catch {
+      const resp = await fetch('https://chatgpt.com/api/auth/session')
+      const data = await resp.json()
+      if (!data.accessToken) throw new Error('UNAUTHORIZED')
+      await setAccessToken(data.accessToken)
+      accessToken = data.accessToken
+    }
+    if (isUsingChatgptWebModel(session)) {
+      await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+    }
+  } catch (err) {
+    handlePortError(session, port, err)
+  }
+}
+
 async function overwriteAccessToken() {
   if (location.hostname !== 'chatgpt.com') {
     if (location.hostname === 'kimi.moonshot.cn' || location.hostname.includes('kimi.com')) {
@@ -539,8 +565,10 @@ async function run() {
     if (message.type === 'CHANGE_LANG') {
       const data = message.data
       changeLanguage(data.lang)
+    } else if (message.type === 'CHATGPT_PROXY_REQUEST') {
+      handleChatgptProxyRequest(message.data.session, message.data.requestId)
+      return false
     } else if (message.type === 'GET_EXTRACTED_CONTENT') {
-      // Handle content extraction request from popup
       try {
         const customExtractors = message.data?.customExtractors || []
         const result = getExtractedContentWithMetadata(customExtractors)
@@ -549,11 +577,11 @@ async function run() {
         console.error('Content extraction error:', e)
         sendResponse({ error: e.message || 'Extraction failed' })
       }
-      return true // Keep channel open for async response
+      return true
     }
   })
 
-  await overwriteAccessToken()
+  overwriteAccessToken().catch((e) => console.debug('overwriteAccessToken failed:', e))
   await prepareForForegroundRequests()
 
   prepareForSelectionTools()
