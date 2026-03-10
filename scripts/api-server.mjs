@@ -20,6 +20,13 @@ function cliArg(name, fallback) {
 const PORT = parseInt(cliArg('port', process.env.CHATGPT_GATEWAY_PORT || '18080'), 10)
 const HOST = cliArg('host', process.env.CHATGPT_GATEWAY_HOST || '127.0.0.1')
 
+// Extended-thinking models (GPT-5.4 etc.) can take 30+ minutes. Default to
+// 45 minutes so there is headroom; override with --timeout or env var.
+const REQUEST_TIMEOUT_MS = parseInt(
+  cliArg('timeout', process.env.CHATGPT_GATEWAY_TIMEOUT || '2700000'),
+  10,
+)
+
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`ChatGPT Web API Gateway
 
@@ -28,12 +35,14 @@ Usage:
   npm run api-server -- [options]
 
 Options:
-  --port <number>   Port to listen on  (env: CHATGPT_GATEWAY_PORT, default: 18080)
-  --host <address>  Address to bind to (env: CHATGPT_GATEWAY_HOST, default: 127.0.0.1)
-  -h, --help        Show this help message
+  --port <number>      Port to listen on  (env: CHATGPT_GATEWAY_PORT, default: 18080)
+  --host <address>     Address to bind to (env: CHATGPT_GATEWAY_HOST, default: 127.0.0.1)
+  --timeout <ms>       Per-request timeout in ms (env: CHATGPT_GATEWAY_TIMEOUT, default: 2700000 = 45 min)
+  -h, --help           Show this help message
 
 Examples:
   node scripts/api-server.mjs --port 9090
+  node scripts/api-server.mjs --timeout 3600000   # 60-minute timeout
   CHATGPT_GATEWAY_PORT=9090 npm run api-server
 `)
   process.exit(0)
@@ -218,6 +227,7 @@ async function handleChatCompletions(req, res) {
   const model = body.model || 'gpt-5-4-thinking'
   const messages = body.messages
   const stream = body.stream === true
+  const keepConversation = body.keep_conversation === true
   const completionId = makeCompletionId()
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -316,7 +326,7 @@ async function handleChatCompletions(req, res) {
         safeWrite('data: [DONE]\n\n')
         safeEnd()
       }
-    }, 120000)
+    }, REQUEST_TIMEOUT_MS)
 
     pendingRequests.set(requestId, {
       onChunk(answer) {
@@ -347,7 +357,7 @@ async function handleChatCompletions(req, res) {
       },
     })
 
-    sendToBridge({ type: 'request', id: requestId, model, messages, stream })
+    sendToBridge({ type: 'request', id: requestId, model, messages, stream, keepConversation })
   } else {
     try {
       const requestId = crypto.randomUUID()
@@ -363,9 +373,11 @@ async function handleChatCompletions(req, res) {
         const timeout = setTimeout(() => {
           if (!state.settled) {
             settle()
-            reject(new Error('Request timed out after 120 seconds'))
+            reject(
+              new Error(`Request timed out after ${Math.round(REQUEST_TIMEOUT_MS / 1000)} seconds`),
+            )
           }
-        }, 120000)
+        }, REQUEST_TIMEOUT_MS)
 
         res.on('close', () => {
           if (!state.settled) {
@@ -390,7 +402,7 @@ async function handleChatCompletions(req, res) {
           },
         })
 
-        sendToBridge({ type: 'request', id: requestId, model, messages, stream })
+        sendToBridge({ type: 'request', id: requestId, model, messages, stream, keepConversation })
       })
 
       const response = {
@@ -710,8 +722,15 @@ server.on('error', (err) => {
   process.exit(1)
 })
 
+// Disable Node.js built-in timeouts that would otherwise kill long-running
+// requests before REQUEST_TIMEOUT_MS fires.  We handle timeouts ourselves.
+server.requestTimeout = 0
+server.headersTimeout = 0
+server.timeout = 0
+
 server.listen(PORT, HOST, () => {
   log(`ChatGPT Web API Gateway listening on http://${HOST}:${PORT}`)
+  log(`Request timeout: ${Math.round(REQUEST_TIMEOUT_MS / 60000)} minutes`)
   log(``)
   log(`Endpoints:`)
   log(`  POST http://${HOST}:${PORT}/v1/chat/completions  (OpenAI-compatible)`)

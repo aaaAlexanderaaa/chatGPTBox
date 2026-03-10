@@ -96,7 +96,7 @@ function App() {
 
   const handleRequest = useCallback(
     (data) => {
-      const { id, model, messages } = data
+      const { id, model, messages, keepConversation } = data
       const question = formatMessages(messages)
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
@@ -108,7 +108,7 @@ function App() {
         question,
         modelName: modelKey,
         apiMode: apiMode || null,
-        autoClean: true,
+        autoClean: !keepConversation,
         conversationRecords: [],
       })
 
