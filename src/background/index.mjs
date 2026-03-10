@@ -126,7 +126,11 @@ function isLikelyChatgptTabUrl(url) {
 
 async function discoverChatgptTab() {
   try {
-    const tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' })
+    let tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' }).catch(() => [])
+    if (!tabs.length) {
+      const all = await Browser.tabs.query({})
+      tabs = all.filter((t) => isLikelyChatgptTabUrl(t.url))
+    }
     const candidate = tabs.find(
       (t) => t.id && isLikelyChatgptTabUrl(t.url) && t.url !== 'https://chatgpt.com/auth/login',
     )
@@ -147,21 +151,54 @@ function isNetworkError(err) {
   )
 }
 
+async function injectContentScript(tabId) {
+  try {
+    await Browser.scripting.insertCSS({ target: { tabId }, files: ['content-script.css'] })
+  } catch {
+    /* non-critical */
+  }
+  await Browser.scripting.executeScript({
+    target: { tabId },
+    files: ['shared.js', 'content-script.js'],
+  })
+}
+
 async function sendChatgptProxyRequest(tabId, session, uiPort) {
   const requestId = crypto.randomUUID()
 
   return new Promise((resolve, reject) => {
     pendingChatgptProxyRequests.set(requestId, { uiPort, resolve, reject })
 
-    Browser.tabs
-      .sendMessage(tabId, {
+    const doSend = () =>
+      Browser.tabs.sendMessage(tabId, {
         type: 'CHATGPT_PROXY_REQUEST',
         data: { session, requestId },
       })
-      .catch((err) => {
-        pendingChatgptProxyRequests.delete(requestId)
-        reject(err)
-      })
+
+    doSend().catch(async (firstErr) => {
+      if (/receiving end does not exist/i.test(firstErr?.message)) {
+        console.debug('[background] Content script not found, injecting into tab', tabId)
+        try {
+          await injectContentScript(tabId)
+          await new Promise((r) => setTimeout(r, 500))
+          await doSend()
+          return
+        } catch (retryErr) {
+          console.debug('[background] Retry after injection failed:', retryErr?.message)
+          pendingChatgptProxyRequests.delete(requestId)
+          reject(
+            new Error(
+              'Content script could not be loaded in the ChatGPT tab. ' +
+                'In Brave, click the extensions (puzzle) icon → ChatGPTBox → ' +
+                '"Allow on chatgpt.com", then reload the chatgpt.com tab and retry.',
+            ),
+          )
+          return
+        }
+      }
+      pendingChatgptProxyRequests.delete(requestId)
+      reject(firstErr)
+    })
   })
 }
 
