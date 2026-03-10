@@ -151,6 +151,24 @@ function isNetworkError(err) {
   )
 }
 
+// Brave permanently blocks cross-origin fetch from service workers
+// (brave/brave-browser#25855). Once we detect this, skip the background-fetch
+// path entirely and go straight to the proxy-tab path for the rest of the
+// browser session.  We persist the flag in chrome.storage.session so it
+// survives service-worker restarts without persisting across browser restarts.
+let bgFetchBlocked = false
+Browser.storage.session
+  ?.get?.({ bgFetchBlocked: false })
+  .then((d) => {
+    bgFetchBlocked = !!d.bgFetchBlocked
+  })
+  .catch(() => {})
+
+function markBgFetchBlocked() {
+  bgFetchBlocked = true
+  Browser.storage.session?.set?.({ bgFetchBlocked: true }).catch(() => {})
+}
+
 async function injectContentScript(tabId) {
   try {
     await Browser.scripting.insertCSS({ target: { tabId }, files: ['content-script.css'] })
@@ -262,6 +280,19 @@ async function executeApi(session, port, config) {
       }
     }
     const forceBackgroundInDebug = config.debugChatgptWebRequests === true
+
+    // When the background-fetch path has previously been blocked (Brave:
+    // brave/brave-browser#25855) and no proxy tab was found yet, try harder
+    // to discover one so we don't waste time on a fetch that will fail.
+    if (!tabId && bgFetchBlocked) {
+      const discovered = await discoverChatgptTab()
+      if (discovered) {
+        tabId = discovered.id
+        proxyTab = discovered
+        await setUserConfig({ chatgptTabId: tabId })
+      }
+    }
+
     if (tabId && !forceBackgroundInDebug) {
       void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-tab', {
         tabId,
@@ -269,7 +300,7 @@ async function executeApi(session, port, config) {
         route: executionRoute,
       })
       await sendChatgptProxyRequest(tabId, session, port)
-    } else {
+    } else if (!bgFetchBlocked) {
       if (tabId && forceBackgroundInDebug) {
         void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-skipped-debug', {
           tabId,
@@ -285,6 +316,7 @@ async function executeApi(session, port, config) {
         await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
       } catch (bgErr) {
         if (!isNetworkError(bgErr)) throw bgErr
+        markBgFetchBlocked()
         void appendChatgptWebDebugLog(config, 'background-fetch-blocked', {
           error: bgErr?.message || String(bgErr),
         })
@@ -305,6 +337,27 @@ async function executeApi(session, port, config) {
               ),
           )
         }
+      }
+    } else {
+      void appendChatgptWebDebugLog(config, 'background-fetch-known-blocked', {
+        route: executionRoute,
+      })
+      const fallbackTab = await discoverChatgptTab()
+      if (fallbackTab) {
+        await setUserConfig({ chatgptTabId: fallbackTab.id })
+        void appendChatgptWebDebugLog(config, 'fallback-proxy-tab', {
+          tabId: fallbackTab.id,
+          tabUrl: fallbackTab.url || null,
+        })
+        await sendChatgptProxyRequest(fallbackTab.id, session, port)
+      } else {
+        throw new Error(
+          t('Please login at https://chatgpt.com first') +
+            '\n\n' +
+            t(
+              "Please keep https://chatgpt.com open and try again. If it still doesn't work, type some characters in the input box of chatgpt web page and try again.",
+            ),
+        )
       }
     }
   } else if (isUsingClaudeWebModel(session)) {
