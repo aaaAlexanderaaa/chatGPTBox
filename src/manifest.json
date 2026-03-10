@@ -20,6 +20,7 @@
     "<all_urls>"
   ],
   "permissions": [
+    "alarms",
     "cookies",
     "storage",
     "contextMenus",

@@ -663,7 +663,7 @@ wss.on('connection', (ws) => {
 
   const pingInterval = setInterval(() => {
     if (ws.readyState === 1) ws.ping()
-  }, 30000)
+  }, 20000)
 
   ws.on('close', () => {
     clearInterval(pingInterval)
@@ -683,6 +683,10 @@ wss.on('connection', (ws) => {
     try {
       msg = JSON.parse(raw)
     } catch {
+      return
+    }
+    if (msg.type === 'ping') {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }))
       return
     }
     handleBridgeMessage(msg)

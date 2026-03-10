@@ -749,13 +749,40 @@ Browser.runtime.onConnect.addListener((port) => {
 // API bridge WebSocket proxy: routes the localhost connection through the
 // service worker so that it works in browsers (e.g. Brave) that block outbound
 // network requests from extension pages.
+//
+// MV3 service workers are terminated after ~30 s of inactivity. To prevent
+// this we send an application-level ping on the WebSocket every 20 s
+// (Chrome 116+ treats active WebSocket sends as "activity") and accept
+// keepalive pings from the bridge page on the port.
+const WS_KEEPALIVE_MS = 20_000
+
 Browser.runtime.onConnect.addListener((port) => {
   if (port.name !== 'api-bridge-proxy') return
 
   let ws = null
+  let keepaliveTimer = null
+
+  function startKeepalive() {
+    stopKeepalive()
+    keepaliveTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }))
+      }
+    }, WS_KEEPALIVE_MS)
+  }
+
+  function stopKeepalive() {
+    if (keepaliveTimer) {
+      clearInterval(keepaliveTimer)
+      keepaliveTimer = null
+    }
+  }
 
   port.onMessage.addListener((msg) => {
+    if (msg.action === 'keepalive') return
+
     if (msg.action === 'connect') {
+      stopKeepalive()
       if (ws) {
         try {
           ws.close()
@@ -768,8 +795,10 @@ Browser.runtime.onConnect.addListener((port) => {
         ws = new WebSocket(msg.url)
         ws.onopen = () => {
           port.postMessage({ type: 'open' })
+          startKeepalive()
         }
         ws.onclose = (e) => {
+          stopKeepalive()
           ws = null
           port.postMessage({ type: 'close', code: e.code, reason: e.reason })
         }
@@ -787,6 +816,7 @@ Browser.runtime.onConnect.addListener((port) => {
         ws.send(msg.payload)
       }
     } else if (msg.action === 'close') {
+      stopKeepalive()
       if (ws) {
         try {
           ws.close()
@@ -799,6 +829,7 @@ Browser.runtime.onConnect.addListener((port) => {
   })
 
   port.onDisconnect.addListener(() => {
+    stopKeepalive()
     if (ws) {
       try {
         ws.close()

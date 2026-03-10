@@ -9,6 +9,7 @@ import './styles.css'
 const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
 const HEALTH_CHECK_INTERVAL = 15000
+const PORT_KEEPALIVE_MS = 20_000
 
 function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
@@ -46,6 +47,7 @@ function App() {
   const logsEndRef = useRef(null)
   const autoReconnect = useRef(true)
   const healthTimer = useRef(null)
+  const keepaliveTimer = useRef(null)
 
   // -----------------------------------------------------------------------
   // Logging
@@ -235,8 +237,21 @@ function App() {
       if (msg.type === 'open') {
         setStatus('connected')
         addLog('Connected to API server', 'success')
+
+        if (keepaliveTimer.current) clearInterval(keepaliveTimer.current)
+        keepaliveTimer.current = setInterval(() => {
+          try {
+            pp.postMessage({ action: 'keepalive' })
+          } catch {
+            /* port already dead — the onDisconnect handler will clean up */
+          }
+        }, PORT_KEEPALIVE_MS)
       } else if (msg.type === 'close') {
         if (proxyPort.current !== pp) return
+        if (keepaliveTimer.current) {
+          clearInterval(keepaliveTimer.current)
+          keepaliveTimer.current = null
+        }
         proxyPort.current = null
         setStatus('disconnected')
         addLog('WebSocket disconnected')
@@ -263,6 +278,10 @@ function App() {
 
     pp.onDisconnect.addListener(() => {
       if (proxyPort.current !== pp) return
+      if (keepaliveTimer.current) {
+        clearInterval(keepaliveTimer.current)
+        keepaliveTimer.current = null
+      }
       proxyPort.current = null
       setStatus('disconnected')
       addLog('Proxy channel closed')
@@ -284,6 +303,11 @@ function App() {
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current)
       reconnectTimer.current = null
+    }
+
+    if (keepaliveTimer.current) {
+      clearInterval(keepaliveTimer.current)
+      keepaliveTimer.current = null
     }
 
     if (proxyPort.current) {
