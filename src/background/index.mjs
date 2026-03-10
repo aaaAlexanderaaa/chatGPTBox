@@ -41,6 +41,7 @@ import {
   isUsingDeepSeekApiModel,
 } from '../config/index.mjs'
 import '../_locales/i18n'
+import { t } from 'i18next'
 import { openUrl } from '../utils/open-url'
 import {
   getBardCookies,
@@ -160,6 +161,29 @@ function isLikelyChatgptTabUrl(url) {
   }
 }
 
+async function discoverChatgptTab() {
+  try {
+    const tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' })
+    const candidate = tabs.find(
+      (t) => t.id && isLikelyChatgptTabUrl(t.url) && t.url !== 'https://chatgpt.com/auth/login',
+    )
+    return candidate || null
+  } catch {
+    return null
+  }
+}
+
+function isNetworkError(err) {
+  if (!(err instanceof Error)) return false
+  const msg = (err.message || '').toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('blocked')
+  )
+}
+
 async function executeApi(session, port, config) {
   console.debug('modelName', session.modelName)
   console.debug('apiMode', session.apiMode)
@@ -200,16 +224,23 @@ async function executeApi(session, port, config) {
 
     let tabId
     let proxyTab
-    if (
-      config.chatgptTabId &&
-      config.customChatGptWebApiUrl === defaultConfig.customChatGptWebApiUrl
-    ) {
-      const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => {})
-      if (tab && isLikelyChatgptTabUrl(tab.url)) {
-        tabId = tab.id
-        proxyTab = tab
-      } else if (config.chatgptTabId) {
-        await setUserConfig({ chatgptTabId: 0 })
+    if (config.customChatGptWebApiUrl === defaultConfig.customChatGptWebApiUrl) {
+      if (config.chatgptTabId) {
+        const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => {})
+        if (tab && isLikelyChatgptTabUrl(tab.url)) {
+          tabId = tab.id
+          proxyTab = tab
+        } else {
+          await setUserConfig({ chatgptTabId: 0 })
+        }
+      }
+      if (!tabId) {
+        const discovered = await discoverChatgptTab()
+        if (discovered) {
+          tabId = discovered.id
+          proxyTab = discovered
+          await setUserConfig({ chatgptTabId: tabId })
+        }
       }
     }
     const forceBackgroundInDebug = config.debugChatgptWebRequests === true
@@ -232,8 +263,33 @@ async function executeApi(session, port, config) {
       void appendChatgptWebDebugLog(config, 'chatgpt-web-background', {
         route: executionRoute,
       })
-      const accessToken = await getChatGptAccessToken()
-      await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+      try {
+        const accessToken = await getChatGptAccessToken()
+        await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+      } catch (bgErr) {
+        if (!isNetworkError(bgErr)) throw bgErr
+        void appendChatgptWebDebugLog(config, 'background-fetch-blocked', {
+          error: bgErr?.message || String(bgErr),
+        })
+        const fallbackTab = await discoverChatgptTab()
+        if (fallbackTab) {
+          await setUserConfig({ chatgptTabId: fallbackTab.id })
+          void appendChatgptWebDebugLog(config, 'fallback-proxy-tab', {
+            tabId: fallbackTab.id,
+            tabUrl: fallbackTab.url || null,
+          })
+          if (!port.proxy) setPortProxy(port, fallbackTab.id)
+          port.proxy?.postMessage({ session })
+        } else {
+          throw new Error(
+            t('Please login at https://chatgpt.com first') +
+              '\n\n' +
+              t(
+                "Please keep https://chatgpt.com open and try again. If it still doesn't work, type some characters in the input box of chatgpt web page and try again.",
+              ),
+          )
+        }
+      }
     }
   } else if (isUsingClaudeWebModel(session)) {
     const sessionKey = await getClaudeSessionKey()
