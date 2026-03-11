@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Sun, Moon, Monitor, Pencil, ExternalLink } from 'lucide-react'
+import { Sun, Moon, Monitor, Pencil, ExternalLink, Bot, KeyRound } from 'lucide-react'
 import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
@@ -7,6 +7,7 @@ import { changeLanguage } from 'i18next'
 import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
 import { SelectField } from './SelectField.jsx'
 import { SearchableSelect } from './SearchableSelect.jsx'
+import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { cn } from '../../utils/cn.mjs'
 import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
@@ -77,7 +78,14 @@ function modelNameToSelectLabel(modelName, config, t) {
  * GeneralTab - General settings tab (redesigned)
  * Keeps functional parity with legacy GeneralPart while using the new styles.
  */
-export function GeneralTab({ config, updateConfig, onNavigateToModules, onNavigateToAgents }) {
+export function GeneralTab({
+  config,
+  updateConfig,
+  isPopupMode,
+  openFullSettings,
+  onNavigateToModules,
+  onNavigateToAgents,
+}) {
   const { t, i18n } = useTranslation()
   const [manualModelId, setManualModelId] = useState('')
 
@@ -194,6 +202,24 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules, onNaviga
   const usingGithubThirdParty = isUsingGithubThirdPartyApiModel(config)
   const usingCustomApi = isUsingCustomModel(config)
   const usingChatGptWeb = isUsingChatgptWebModel(config)
+  const hasProviderSettings =
+    usingOpenAiApi ||
+    usingAzureOpenAi ||
+    usingOpenRouter ||
+    usingAiml ||
+    usingClaudeApi ||
+    usingMoonshotApi ||
+    usingDeepSeekApi ||
+    usingChatGLMApi ||
+    usingOllamaApi ||
+    usingGithubThirdParty ||
+    usingCustomApi
+  const assistantCount = Array.isArray(config.assistants) ? config.assistants.length : 0
+  const skillCount = Array.isArray(config.installedSkills) ? config.installedSkills.length : 0
+  const mcpCount = Array.isArray(config.mcpServers) ? config.mcpServers.length : 0
+  const customToolCount = Array.isArray(config.customSelectionTools)
+    ? config.customSelectionTools.length
+    : 0
 
   return (
     <div className="space-y-4">
@@ -384,17 +410,27 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules, onNaviga
         )}
       </SettingSection>
 
-      {(usingOpenAiApi ||
-        usingAzureOpenAi ||
-        usingOpenRouter ||
-        usingAiml ||
-        usingClaudeApi ||
-        usingMoonshotApi ||
-        usingDeepSeekApi ||
-        usingChatGLMApi ||
-        usingOllamaApi ||
-        usingGithubThirdParty ||
-        usingCustomApi) && (
+      {isPopupMode && hasProviderSettings && (
+        <>
+          <Divider />
+
+          <QuickLinkCard
+            icon={KeyRound}
+            title={t('Provider credentials live in full settings')}
+            description={t(
+              'API keys, custom endpoints, and API mode definitions were moved out of the popup so this panel stays focused on everyday controls.',
+            )}
+            stats={[
+              selectedModelName ? modelNameToSelectLabel(selectedModelName, config, t) : null,
+              usingChatGptWeb ? t('ChatGPT Web session') : t('Custom provider connection'),
+            ]}
+            actionLabel={t('Open full settings')}
+            onAction={() => openFullSettings?.('general')}
+          />
+        </>
+      )}
+
+      {!isPopupMode && hasProviderSettings && (
         <>
           <Divider />
 
@@ -692,114 +728,143 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules, onNaviga
           />
         </SettingRow>
 
-        <SettingRow
-          label={t('Agent Protocol')}
-          hint={t('Protocol-first tool loop behavior for OpenAI-compatible runtimes')}
-        >
-          <SelectField
-            value={config.agentProtocol || AgentProtocol.auto}
-            onChange={(value) => updateConfig({ agentProtocol: value })}
-            options={[
-              { value: AgentProtocol.auto, label: t('Auto (Recommended)') },
-              {
-                value: AgentProtocol.openAiChatCompletionsV1,
-                label: t('OpenAI Chat Completions v1'),
-              },
-              { value: AgentProtocol.openAiResponsesV1, label: t('OpenAI Responses v1') },
-            ]}
-            minWidth="260px"
-          />
-        </SettingRow>
+        {!isPopupMode && (
+          <>
+            <SettingRow
+              label={t('Agent Protocol')}
+              hint={t('Protocol-first tool loop behavior for OpenAI-compatible runtimes')}
+            >
+              <SelectField
+                value={config.agentProtocol || AgentProtocol.auto}
+                onChange={(value) => updateConfig({ agentProtocol: value })}
+                options={[
+                  { value: AgentProtocol.auto, label: t('Auto (Recommended)') },
+                  {
+                    value: AgentProtocol.openAiChatCompletionsV1,
+                    label: t('OpenAI Chat Completions v1'),
+                  },
+                  { value: AgentProtocol.openAiResponsesV1, label: t('OpenAI Responses v1') },
+                ]}
+                minWidth="260px"
+              />
+            </SettingRow>
 
-        <SettingRow
-          label={t('Preload Context Cap')}
-          hint={t('Max tokens for page-derived macro context (default 64000)')}
-        >
-          <input
-            type="number"
-            min={1000}
-            max={256000}
-            step={1000}
-            value={config.agentPreloadContextTokenCap || 64000}
-            onChange={(e) =>
-              updateConfig({
-                agentPreloadContextTokenCap: Number(e.target.value) || 64000,
-              })
-            }
-            className={cn(inputClassName, 'w-[180px]')}
-          />
-        </SettingRow>
+            <SettingRow
+              label={t('Preload Context Cap')}
+              hint={t('Max tokens for page-derived macro context (default 64000)')}
+            >
+              <input
+                type="number"
+                min={1000}
+                max={256000}
+                step={1000}
+                value={config.agentPreloadContextTokenCap || 64000}
+                onChange={(e) =>
+                  updateConfig({
+                    agentPreloadContextTokenCap: Number(e.target.value) || 64000,
+                  })
+                }
+                className={cn(inputClassName, 'w-[180px]')}
+              />
+            </SettingRow>
 
-        <SettingRow
-          label={t('Default Context Cap')}
-          hint={t('Total prompt token target before completion (default 128000)')}
-        >
-          <input
-            type="number"
-            min={1000}
-            max={256000}
-            step={1000}
-            value={config.agentContextTokenCap || 128000}
-            onChange={(e) =>
-              updateConfig({
-                agentContextTokenCap: Number(e.target.value) || 128000,
-              })
-            }
-            className={cn(inputClassName, 'w-[180px]')}
-          />
-        </SettingRow>
+            <SettingRow
+              label={t('Default Context Cap')}
+              hint={t('Total prompt token target before completion (default 128000)')}
+            >
+              <input
+                type="number"
+                min={1000}
+                max={256000}
+                step={1000}
+                value={config.agentContextTokenCap || 128000}
+                onChange={(e) =>
+                  updateConfig({
+                    agentContextTokenCap: Number(e.target.value) || 128000,
+                  })
+                }
+                className={cn(inputClassName, 'w-[180px]')}
+              />
+            </SettingRow>
 
-        <SettingRow label={t('Agent Max Steps')} hint={t('Multi-step runtime loop limit')}>
-          <input
-            type="number"
-            min={1}
-            max={32}
-            step={1}
-            value={config.agentMaxSteps || 8}
-            onChange={(e) =>
-              updateConfig({
-                agentMaxSteps: Number(e.target.value) || 8,
-              })
-            }
-            className={cn(inputClassName, 'w-[120px]')}
-          />
-        </SettingRow>
+            <SettingRow label={t('Agent Max Steps')} hint={t('Multi-step runtime loop limit')}>
+              <input
+                type="number"
+                min={1}
+                max={32}
+                step={1}
+                value={config.agentMaxSteps || 8}
+                onChange={(e) =>
+                  updateConfig({
+                    agentMaxSteps: Number(e.target.value) || 8,
+                  })
+                }
+                className={cn(inputClassName, 'w-[120px]')}
+              />
+            </SettingRow>
 
-        <SettingRow label={t('No-Progress Limit')} hint={t('Stop loop when no progress repeats')}>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            step={1}
-            value={config.agentNoProgressLimit || 2}
-            onChange={(e) =>
-              updateConfig({
-                agentNoProgressLimit: Number(e.target.value) || 2,
-              })
-            }
-            className={cn(inputClassName, 'w-[120px]')}
-          />
-        </SettingRow>
+            <SettingRow
+              label={t('No-Progress Limit')}
+              hint={t('Stop loop when no progress repeats')}
+            >
+              <input
+                type="number"
+                min={1}
+                max={10}
+                step={1}
+                value={config.agentNoProgressLimit || 2}
+                onChange={(e) =>
+                  updateConfig({
+                    agentNoProgressLimit: Number(e.target.value) || 2,
+                  })
+                }
+                className={cn(inputClassName, 'w-[120px]')}
+              />
+            </SettingRow>
 
-        <SettingRow
-          label={t('Tool Trace Limit')}
-          hint={t('Max number of tool events stored per session')}
-        >
-          <input
-            type="number"
-            min={10}
-            max={300}
-            step={10}
-            value={config.agentToolEventLimit || 50}
-            onChange={(e) =>
-              updateConfig({
-                agentToolEventLimit: Number(e.target.value) || 50,
-              })
-            }
-            className={cn(inputClassName, 'w-[120px]')}
-          />
-        </SettingRow>
+            <SettingRow
+              label={t('Tool Trace Limit')}
+              hint={t('Max number of tool events stored per session')}
+            >
+              <input
+                type="number"
+                min={10}
+                max={300}
+                step={10}
+                value={config.agentToolEventLimit || 50}
+                onChange={(e) =>
+                  updateConfig({
+                    agentToolEventLimit: Number(e.target.value) || 50,
+                  })
+                }
+                className={cn(inputClassName, 'w-[120px]')}
+              />
+            </SettingRow>
+          </>
+        )}
       </SettingSection>
+
+      {isPopupMode && (
+        <>
+          <Divider />
+
+          <QuickLinkCard
+            icon={Bot}
+            title={t('Agents, skills, and MCP moved to full settings')}
+            description={t(
+              'Use the popup to pick your default assistant and runtime mode. Build assistants, import ZIP skills, and manage MCP endpoints from the full settings workspace.',
+            )}
+            stats={[
+              `${assistantCount} ${t('Assistants')}`,
+              `${skillCount} ${t('Skills')}`,
+              `${mcpCount} MCP`,
+              `${customToolCount} ${t('Custom Tools')}`,
+            ]}
+            actionLabel={t('Manage in full settings')}
+            onAction={() => openFullSettings?.('agents')}
+          />
+        </>
+      )}
 
       <Divider />
 
@@ -847,6 +912,8 @@ export function GeneralTab({ config, updateConfig, onNavigateToModules, onNaviga
 GeneralTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  isPopupMode: PropTypes.bool,
+  openFullSettings: PropTypes.func,
   onNavigateToModules: PropTypes.func,
   onNavigateToAgents: PropTypes.func,
 }

@@ -1,9 +1,10 @@
 import PropTypes from 'prop-types'
-import { Download, Upload, RotateCcw, AlertTriangle, ExternalLink } from 'lucide-react'
+import { Download, Upload, RotateCcw, AlertTriangle, ExternalLink, Sliders } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
 import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
+import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import { CHATGPT_WEB_DEBUG_LOG_KEY, ModelGroups } from '../../config/index.mjs'
 
@@ -11,7 +12,15 @@ import { CHATGPT_WEB_DEBUG_LOG_KEY, ModelGroups } from '../../config/index.mjs'
  * AdvancedTab - Advanced settings and data management
  * Matches the demo design
  */
-export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset }) {
+export function AdvancedTab({
+  config,
+  updateConfig,
+  isPopupMode,
+  openFullSettings,
+  onExport,
+  onImport,
+  onReset,
+}) {
   const { t } = useTranslation()
   const [webDebugLogs, setWebDebugLogs] = useState([])
   const [webDebugLoading, setWebDebugLoading] = useState(false)
@@ -46,16 +55,18 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
   }, [])
 
   useEffect(() => {
+    if (isPopupMode) return
     void loadWebDebugLogs()
-  }, [loadWebDebugLogs])
+  }, [isPopupMode, loadWebDebugLogs])
 
   useEffect(() => {
+    if (isPopupMode) return
     if (config.debugChatgptWebRequests !== true) return
     const timer = setInterval(() => {
       void loadWebDebugLogs()
     }, 1500)
     return () => clearInterval(timer)
-  }, [config.debugChatgptWebRequests, loadWebDebugLogs])
+  }, [config.debugChatgptWebRequests, isPopupMode, loadWebDebugLogs])
 
   useEffect(() => {
     if (webDebugLogs.length === 0) {
@@ -91,6 +102,7 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
   )
   const temperatureValue = parseFloatWithClamp(config.temperature, 1, 0, 2)
   const enabledProviders = config.enabledProviders || {}
+  const enabledProviderCount = Object.values(enabledProviders).filter(Boolean).length
 
   const providerEntries = Object.entries(ModelGroups)
   const providerOrder = [
@@ -204,16 +216,18 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
           onChange={(value) => updateConfig({ debugChatgptWebRequests: value })}
         />
 
-        <div className="pt-2 space-y-2">
-          {providerEntries.map(([groupName, { desc }]) => (
-            <ToggleRow
-              key={groupName}
-              label={t(desc)}
-              checked={enabledProviders[groupName] === true}
-              onChange={(value) => updateProvider(groupName, value)}
-            />
-          ))}
-        </div>
+        {!isPopupMode && (
+          <div className="pt-2 space-y-2">
+            {providerEntries.map(([groupName, { desc }]) => (
+              <ToggleRow
+                key={groupName}
+                label={t(desc)}
+                checked={enabledProviders[groupName] === true}
+                onChange={(value) => updateProvider(groupName, value)}
+              />
+            ))}
+          </div>
+        )}
       </SettingSection>
 
       <Divider />
@@ -261,108 +275,128 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
         </SettingRow>
       </SettingSection>
 
-      <Divider />
+      {isPopupMode ? (
+        <>
+          <Divider />
 
-      <SettingSection title={t('ChatGPT Web Debug Viewer')}>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void loadWebDebugLogs()}
-            className="px-3 py-1.5 text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
-          >
-            {t('Refresh Logs')}
-          </button>
-          <button
-            onClick={() => void clearWebDebugLogs()}
-            className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors"
-          >
-            {t('Clear Logs')}
-          </button>
-          <span className="text-xs text-muted-foreground">
-            {webDebugLoading ? t('Loading...') : `${webDebugLogs.length} ${t('entries')}`}
-          </span>
-        </div>
-
-        {webDebugError && <div className="text-xs text-destructive">{webDebugError}</div>}
-
-        <div className="space-y-2">
-          <div className="max-h-40 overflow-auto border border-border rounded-lg bg-card">
-            {orderedWebDebugIndexes.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                {t('No debug logs yet')}
-              </div>
+          <QuickLinkCard
+            icon={Sliders}
+            title={t('Diagnostics and backups moved to full settings')}
+            description={t(
+              'Provider toggles, ChatGPT Web request logs, config import/export, and reset actions are available in the full settings workspace.',
             )}
-            {orderedWebDebugIndexes.map((entryIndex) => {
-              const entry = webDebugLogs[entryIndex]
-              const selected = entryIndex === selectedWebDebugIndex
-              const stage = entry?.stage || 'unknown'
-              const at = typeof entry?.at === 'string' ? entry.at : ''
-              return (
-                <button
-                  key={`${entryIndex}-${at}`}
-                  type="button"
-                  onClick={() => setSelectedWebDebugIndex(entryIndex)}
-                  className={`w-full px-3 py-2 text-left text-xs border-b border-border/50 last:border-b-0 ${
-                    selected
-                      ? 'bg-secondary text-foreground'
-                      : 'text-muted-foreground hover:bg-secondary/50'
-                  }`}
-                >
-                  <div className="font-medium">{stage}</div>
-                  <div className="truncate">{at}</div>
-                </button>
-              )
-            })}
-          </div>
-
-          <textarea
-            readOnly
-            rows={10}
-            value={selectedWebDebugEntry ? JSON.stringify(selectedWebDebugEntry, null, 2) : ''}
-            placeholder={t('Select a debug entry to inspect request/response details')}
-            className="w-full px-3 py-2 text-xs font-mono bg-input border border-border rounded-lg focus:outline-none text-foreground"
+            stats={[
+              `${enabledProviderCount} ${t('providers enabled')}`,
+              config.debugChatgptWebRequests === true ? t('Web debug on') : t('Web debug off'),
+            ]}
+            actionLabel={t('Open full settings')}
+            onAction={() => openFullSettings?.('advanced')}
           />
-        </div>
-      </SettingSection>
+        </>
+      ) : (
+        <>
+          <Divider />
 
-      <Divider />
+          <SettingSection title={t('ChatGPT Web Debug Viewer')}>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void loadWebDebugLogs()}
+                className="px-3 py-1.5 text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              >
+                {t('Refresh Logs')}
+              </button>
+              <button
+                onClick={() => void clearWebDebugLogs()}
+                className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors"
+              >
+                {t('Clear Logs')}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                {webDebugLoading ? t('Loading...') : `${webDebugLogs.length} ${t('entries')}`}
+              </span>
+            </div>
 
-      {/* Data Management */}
-      <SettingSection title={t('Data')}>
-        <div className="flex gap-3">
-          <button
-            onClick={onExport}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            {t('Export Config')}
-          </button>
-          <button
-            onClick={onImport}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
-          >
-            <Upload className="w-4 h-4" />
-            {t('Import Config')}
-          </button>
-        </div>
+            {webDebugError && <div className="text-xs text-destructive">{webDebugError}</div>}
 
-        <button
-          onClick={onReset}
-          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors mt-3"
-        >
-          <RotateCcw className="w-4 h-4" />
-          {t('Reset to Defaults')}
-        </button>
-      </SettingSection>
+            <div className="space-y-2">
+              <div className="max-h-40 overflow-auto border border-border rounded-lg bg-card">
+                {orderedWebDebugIndexes.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {t('No debug logs yet')}
+                  </div>
+                )}
+                {orderedWebDebugIndexes.map((entryIndex) => {
+                  const entry = webDebugLogs[entryIndex]
+                  const selected = entryIndex === selectedWebDebugIndex
+                  const stage = entry?.stage || 'unknown'
+                  const at = typeof entry?.at === 'string' ? entry.at : ''
+                  return (
+                    <button
+                      key={`${entryIndex}-${at}`}
+                      type="button"
+                      onClick={() => setSelectedWebDebugIndex(entryIndex)}
+                      className={`w-full px-3 py-2 text-left text-xs border-b border-border/50 last:border-b-0 ${
+                        selected
+                          ? 'bg-secondary text-foreground'
+                          : 'text-muted-foreground hover:bg-secondary/50'
+                      }`}
+                    >
+                      <div className="font-medium">{stage}</div>
+                      <div className="truncate">{at}</div>
+                    </button>
+                  )
+                })}
+              </div>
 
-      {/* Warning */}
-      <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/10">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
-          <p className="text-xs text-muted-foreground">
-            {t('Resetting will clear all your settings and conversation history.')}
-          </p>
-        </div>
-      </div>
+              <textarea
+                readOnly
+                rows={10}
+                value={selectedWebDebugEntry ? JSON.stringify(selectedWebDebugEntry, null, 2) : ''}
+                placeholder={t('Select a debug entry to inspect request/response details')}
+                className="w-full px-3 py-2 text-xs font-mono bg-input border border-border rounded-lg focus:outline-none text-foreground"
+              />
+            </div>
+          </SettingSection>
+
+          <Divider />
+
+          <SettingSection title={t('Data')}>
+            <div className="flex gap-3">
+              <button
+                onClick={onExport}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                {t('Export Config')}
+              </button>
+              <button
+                onClick={onImport}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                {t('Import Config')}
+              </button>
+            </div>
+
+            <button
+              onClick={onReset}
+              className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors mt-3"
+            >
+              <RotateCcw className="w-4 h-4" />
+              {t('Reset to Defaults')}
+            </button>
+          </SettingSection>
+
+          <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/10">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                {t('Resetting will clear all your settings and conversation history.')}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -370,6 +404,8 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
 AdvancedTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  isPopupMode: PropTypes.bool,
+  openFullSettings: PropTypes.func,
   onExport: PropTypes.func,
   onImport: PropTypes.func,
   onReset: PropTypes.func,

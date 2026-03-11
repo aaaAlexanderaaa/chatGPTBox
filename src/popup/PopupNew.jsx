@@ -1,6 +1,6 @@
 import './styles.css'
-import { useEffect, useState } from 'preact/hooks'
-import { Settings, Layers, Puzzle, Sliders, ExternalLink, Bot } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'preact/hooks'
+import { Settings, Layers, Puzzle, Sliders, ExternalLink, Bot, ArrowUpRight } from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -20,8 +20,7 @@ import { ModulesTab } from './components/ModulesTab.jsx'
 import { AgentsTab } from './components/AgentsTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
 
-// Tab configuration
-const TABS = [
+const FULL_SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'features', label: 'Features', icon: Layers },
   { id: 'agents', label: 'Agents', icon: Bot },
@@ -29,10 +28,25 @@ const TABS = [
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
 
+const POPUP_TABS = [
+  { id: 'general', label: 'General', icon: Settings },
+  { id: 'features', label: 'Sites', icon: Layers },
+  { id: 'advanced', label: 'Advanced', icon: Sliders },
+]
+
+function getInitialTab(requestedTab, tabs) {
+  if (requestedTab && tabs.some((tab) => tab.id === requestedTab)) return requestedTab
+  return tabs[0].id
+}
+
 function Popup() {
+  const search = new URLSearchParams(window.location.search)
+  const isPopupMode = search.get('popup') === 'true'
+  const requestedTab = search.get('tab')
   const { t, i18n } = useTranslation()
+  const tabs = useMemo(() => (isPopupMode ? POPUP_TABS : FULL_SETTINGS_TABS), [isPopupMode])
   const [config, setConfig] = useState(defaultConfig)
-  const [activeTab, setActiveTab] = useState('general')
+  const [activeTab, setActiveTab] = useState(() => getInitialTab(requestedTab, tabs))
   const [version, setVersion] = useState('')
   const theme = useWindowTheme()
   const resolvedTheme = config.themeMode === 'auto' ? theme : config.themeMode
@@ -66,9 +80,22 @@ function Popup() {
     config.accentStrengthDark,
   ])
 
-  const search = new URLSearchParams(window.location.search)
-  // Popup mode is explicitly opt-in via query param so `popup.html` can also be opened as a full page.
-  const isPopupMode = search.get('popup') === 'true'
+  useEffect(() => {
+    const nextTab = getInitialTab(requestedTab, tabs)
+    setActiveTab((current) => (tabs.some((tab) => tab.id === current) ? current : nextTab))
+  }, [requestedTab, tabs])
+
+  const openFullSettings = async (tab = 'general') => {
+    const params = new URLSearchParams()
+    if (tab) params.set('tab', tab)
+    const query = params.toString()
+    const url = Browser.runtime.getURL(`options.html${query ? `?${query}` : ''}`)
+    try {
+      await Browser.tabs.create({ url })
+    } catch (err) {
+      await Browser.runtime.openOptionsPage()
+    }
+  }
 
   // Export config
   const handleExport = () => {
@@ -126,13 +153,27 @@ function Popup() {
           </div>
           <div>
             <h1 className="text-base font-semibold text-foreground">ChatGPTBox Settings</h1>
-            <p className="text-xs text-muted-foreground">{t('Configure your AI assistant')}</p>
+            <p className="text-xs text-muted-foreground">
+              {isPopupMode
+                ? t('Quick controls for your default workspace')
+                : t('Configure your AI assistant')}
+            </p>
           </div>
+          {isPopupMode && (
+            <button
+              type="button"
+              onClick={() => void openFullSettings(activeTab)}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <ArrowUpRight className="w-3.5 h-3.5" />
+              {t('Full settings')}
+            </button>
+          )}
         </div>
 
         {/* Tab Navigation */}
         <div className="flex gap-1 p-1 bg-secondary/50 rounded-lg">
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const Icon = tab.icon
             return (
               <button
@@ -159,17 +200,36 @@ function Popup() {
           <GeneralTab
             config={config}
             updateConfig={updateConfig}
-            onNavigateToModules={() => setActiveTab('modules')}
-            onNavigateToAgents={() => setActiveTab('agents')}
+            isPopupMode={isPopupMode}
+            openFullSettings={openFullSettings}
+            onNavigateToModules={() =>
+              isPopupMode ? void openFullSettings('modules') : setActiveTab('modules')
+            }
+            onNavigateToAgents={() =>
+              isPopupMode ? void openFullSettings('agents') : setActiveTab('agents')
+            }
           />
         )}
-        {activeTab === 'features' && <FeaturesTab config={config} updateConfig={updateConfig} />}
-        {activeTab === 'agents' && <AgentsTab config={config} updateConfig={updateConfig} />}
-        {activeTab === 'modules' && <ModulesTab config={config} updateConfig={updateConfig} />}
+        {activeTab === 'features' && (
+          <FeaturesTab
+            config={config}
+            updateConfig={updateConfig}
+            isPopupMode={isPopupMode}
+            openFullSettings={openFullSettings}
+          />
+        )}
+        {!isPopupMode && activeTab === 'agents' && (
+          <AgentsTab config={config} updateConfig={updateConfig} />
+        )}
+        {!isPopupMode && activeTab === 'modules' && (
+          <ModulesTab config={config} updateConfig={updateConfig} />
+        )}
         {activeTab === 'advanced' && (
           <AdvancedTab
             config={config}
             updateConfig={updateConfig}
+            isPopupMode={isPopupMode}
+            openFullSettings={openFullSettings}
             onExport={handleExport}
             onImport={handleImport}
             onReset={handleReset}

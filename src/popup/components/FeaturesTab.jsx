@@ -2,12 +2,13 @@ import PropTypes from 'prop-types'
 import { Zap, Globe } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ToggleSwitch } from './SettingComponents.jsx'
+import { QuickLinkCard } from './QuickLinkCard.jsx'
 
 /**
  * FeaturesTab - Feature pages and site integrations
  * Matches the demo design
  */
-export function FeaturesTab({ config, updateConfig }) {
+export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSettings }) {
   const { t } = useTranslation()
 
   // Site adapters configuration
@@ -78,6 +79,22 @@ export function FeaturesTab({ config, updateConfig }) {
           </div>
         ))}
       </div>
+
+      {isPopupMode && (
+        <QuickLinkCard
+          icon={Globe}
+          title={t('Site adapters and extractors moved to full settings')}
+          description={t(
+            'The popup keeps the on/off switches for supported sites. Use the full settings page for adapter rules, extractor templates, and deeper context controls.',
+          )}
+          stats={[
+            `${(config.activeSiteAdapters || []).length} ${t('active sites')}`,
+            `${(config.siteAdapters || []).length} ${t('configured adapters')}`,
+          ]}
+          actionLabel={t('Open full settings')}
+          onAction={() => openFullSettings?.('modules')}
+        />
+      )}
     </div>
   )
 }
@@ -85,4 +102,6 @@ export function FeaturesTab({ config, updateConfig }) {
 FeaturesTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  isPopupMode: PropTypes.bool,
+  openFullSettings: PropTypes.func,
 }
