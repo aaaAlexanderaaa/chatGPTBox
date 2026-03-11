@@ -88,9 +88,17 @@ function Popup() {
   const openFullSettings = async (tab = 'general') => {
     const params = new URLSearchParams()
     if (tab) params.set('tab', tab)
+    params.set('settings_only', 'true')
     const query = params.toString()
     const url = Browser.runtime.getURL(`options.html${query ? `?${query}` : ''}`)
     try {
+      const existing = await Browser.tabs.query({
+        url: [Browser.runtime.getURL('options.html*')],
+      })
+      if (existing.length > 0) {
+        await Browser.tabs.update(existing[0].id, { url, active: true })
+        return
+      }
       await Browser.tabs.create({ url })
     } catch (err) {
       await Browser.runtime.openOptionsPage()

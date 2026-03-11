@@ -15,6 +15,10 @@ body {
   overflow: hidden;
 }
 
+.options-shell--settings-only {
+  display: block;
+}
+
 .options-chat {
   flex: 1 1 auto;
   height: 100%;
@@ -51,6 +55,11 @@ body {
   min-width: 0;
   overflow: auto;
   position: relative;
+}
+
+.options-settings--standalone {
+  width: 100%;
+  flex: 1 1 auto;
 }
 
 .options-settings-close {

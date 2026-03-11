@@ -19,10 +19,13 @@ function clamp(value, min, max) {
 }
 
 function OptionsApp() {
+  const search = new URLSearchParams(window.location.search)
+  const settingsOnly = search.get('settings_only') === 'true'
   const rootRef = useRef(null)
   const settingsRef = useRef(null)
 
   const [settingsOpen, setSettingsOpen] = useState(() => {
+    if (settingsOnly) return true
     const saved = localStorage.getItem(STORAGE_KEY_SETTINGS_OPEN)
     return saved !== 'false'
   })
@@ -63,6 +66,7 @@ function OptionsApp() {
   }, [settingsWidth])
 
   const handleResizePointerDown = (e) => {
+    if (settingsOnly) return
     // Only allow drag on desktop-like layouts
     if (window.matchMedia('(max-width: 900px)').matches) return
     if (!settingsOpen) return
@@ -99,6 +103,7 @@ function OptionsApp() {
   }
 
   const openSettings = () => {
+    if (settingsOnly) return
     setSettingsOpen(true)
     localStorage.setItem(STORAGE_KEY_SETTINGS_OPEN, 'true')
     setTimeout(
@@ -108,6 +113,7 @@ function OptionsApp() {
   }
 
   const closeSettings = () => {
+    if (settingsOnly) return
     setSettingsOpen(false)
     localStorage.setItem(STORAGE_KEY_SETTINGS_OPEN, 'false')
   }
@@ -122,39 +128,48 @@ function OptionsApp() {
   )
 
   return (
-    <div ref={rootRef} className="options-shell">
-      <div className="options-chat" aria-label="Chat">
-        <IndependentPanelApp {...chatProps} />
-      </div>
+    <div
+      ref={rootRef}
+      className={`options-shell${settingsOnly ? ' options-shell--settings-only' : ''}`}
+    >
+      {!settingsOnly && (
+        <div className="options-chat" aria-label="Chat">
+          <IndependentPanelApp {...chatProps} />
+        </div>
+      )}
 
       {settingsOpen && (
         <>
-          <div
-            className="options-divider"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize settings panel"
-            tabIndex={0}
-            onPointerDown={handleResizePointerDown}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizePointerUp}
-          />
+          {!settingsOnly && (
+            <div
+              className="options-divider"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize settings panel"
+              tabIndex={0}
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={handleResizePointerUp}
+            />
+          )}
 
           <div
             ref={settingsRef}
-            className="options-settings"
-            style={{ width: `${settingsWidth}px` }}
+            className={`options-settings${settingsOnly ? ' options-settings--standalone' : ''}`}
+            style={settingsOnly ? undefined : { width: `${settingsWidth}px` }}
             aria-label="Settings"
           >
-            <button
-              type="button"
-              className="options-settings-close"
-              aria-label="Close settings panel"
-              title="Close"
-              onClick={closeSettings}
-            >
-              ×
-            </button>
+            {!settingsOnly && (
+              <button
+                type="button"
+                className="options-settings-close"
+                aria-label="Close settings panel"
+                title="Close"
+                onClick={closeSettings}
+              >
+                ×
+              </button>
+            )}
             <Popup />
           </div>
         </>
