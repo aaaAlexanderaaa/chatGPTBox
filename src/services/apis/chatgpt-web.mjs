@@ -603,6 +603,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let generationPrefixAnswer = ''
   let generatedImageUrl = ''
   let responseMetaLogged = false
+  const bufferedWebsocketEvents = []
+  let websocketFinished = false
 
   if (useWebsocket) {
     try {
@@ -614,6 +616,29 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       })
       useWebsocket = false
     }
+
+    const finishWebsocketRequest = () => {
+      if (websocketFinished) return
+      websocketFinished = true
+      finishMessage()
+      wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
+    }
+
+    const handleWebsocketEvent = (entry) => {
+      if (websocketFinished) return
+      if (!session.conversationId) {
+        if (bufferedWebsocketEvents.length >= 32) bufferedWebsocketEvents.shift()
+        bufferedWebsocketEvents.push(entry)
+        return
+      }
+      if (entry.conversationId !== session.conversationId) return
+      if (entry.type === 'done') {
+        finishWebsocketRequest()
+        return
+      }
+      handleMessage(entry.data)
+    }
+
     const wsCallback = async (event) => {
       let wsData
       try {
@@ -635,16 +660,19 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           }
           const data = JSON.parse(body)
           console.debug('ws message', data)
-          if (wsData.conversation_id === session.conversationId) {
-            handleMessage(data)
-          }
+          handleWebsocketEvent({
+            type: 'message',
+            conversationId: wsData.conversation_id,
+            data,
+          })
         } catch (error) {
           if (body && body.trim() === '[DONE]') {
             console.debug('ws message', '[DONE]')
-            if (wsData.conversation_id === session.conversationId) {
-              finishMessage()
-              wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
-            }
+            handleWebsocketEvent({
+              type: 'done',
+              conversationId: wsData.conversation_id,
+              data: null,
+            })
           } else {
             console.debug('json error', error)
           }
@@ -652,15 +680,32 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       }
     }
     wsCallbacks.push(wsCallback)
-    const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
-    void appendChatgptWebDebugLog(config, 'websocket-dispatch', {
-      conversationId,
-      wsRequestId,
-      model: usedModel,
-    })
-    session.conversationId = conversationId
-    session.wsRequestId = wsRequestId
-    port.postMessage({ session: session })
+    try {
+      const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
+      void appendChatgptWebDebugLog(config, 'websocket-dispatch', {
+        conversationId,
+        wsRequestId,
+        model: usedModel,
+      })
+      session.conversationId = conversationId
+      session.wsRequestId = wsRequestId
+      port.postMessage({ session: session })
+
+      const bufferedCount = bufferedWebsocketEvents.length
+      if (bufferedCount > 0) {
+        void appendChatgptWebDebugLog(config, 'websocket-buffer-flush', {
+          bufferedCount,
+          conversationId,
+          model: usedModel,
+        })
+      }
+      while (bufferedWebsocketEvents.length > 0) {
+        handleWebsocketEvent(bufferedWebsocketEvents.shift())
+      }
+    } catch (error) {
+      wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
+      throw error
+    }
   } else {
     await fetchSSE(url, {
       ...options,
