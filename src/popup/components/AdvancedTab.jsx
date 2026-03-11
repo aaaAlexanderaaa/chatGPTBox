@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Download, Upload, RotateCcw, AlertTriangle } from 'lucide-react'
+import { Download, Upload, RotateCcw, AlertTriangle, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
@@ -214,6 +214,51 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
             />
           ))}
         </div>
+      </SettingSection>
+
+      <Divider />
+
+      <SettingSection title={t('API Server Bridge')}>
+        <SettingRow
+          label={t('Keep API Server chats in ChatGPT history')}
+          hint={t(
+            'When enabled, bridge requests create visible chats in your ChatGPT history instead of privacy-cleaned temporary conversations',
+          )}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.apiServerKeepHistory === true}
+            onClick={() =>
+              updateConfig({ apiServerKeepHistory: config.apiServerKeepHistory !== true })
+            }
+            className={`relative w-10 h-6 rounded-full transition-colors ${
+              config.apiServerKeepHistory === true ? 'bg-primary' : 'bg-secondary'
+            }`}
+          >
+            <span
+              className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${
+                config.apiServerKeepHistory === true ? 'left-5' : 'left-1'
+              }`}
+            />
+          </button>
+        </SettingRow>
+
+        <SettingRow
+          label={t('Open API Server Bridge')}
+          hint={`${t('Current port')}: ${Number(config.apiServerPort) || 18080}`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              Browser.runtime.sendMessage({ type: 'OPEN_API_SERVER' }).catch(() => {})
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            {t('Open')}
+          </button>
+        </SettingRow>
       </SettingSection>
 
       <Divider />

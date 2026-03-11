@@ -3,6 +3,10 @@
 Date: 2026-02-06
 Scope: Add assistant/skills/MCP support without breaking legacy behavior.
 
+> Historical note (2026-03-11): this is the original enhancement planning artifact from the rollout period.
+> It mixes target-state design with implementation tasks and should not be treated as the current runtime contract.
+> For the current implementation snapshot, see `docs/agents-runtime-v2.md`.
+
 > Note (2026-02-10): The skill model in this document is superseded by imported ZIP skill packs.
 > See `docs/agents-runtime-v2.md` for the current architecture.
 

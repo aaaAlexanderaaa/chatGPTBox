@@ -144,6 +144,29 @@ function Others({ config, updateConfig }) {
       <label>
         <input
           type="checkbox"
+          checked={config.apiServerKeepHistory === true}
+          onChange={(e) => {
+            const checked = e.target.checked
+            updateConfig({ apiServerKeepHistory: checked })
+          }}
+        />
+        {t(
+          'Keep API Server chats in ChatGPT history so bridge requests remain visible in your official ChatGPT conversation list',
+        )}
+      </label>
+      <button
+        type="button"
+        onClick={() => {
+          Browser.runtime.sendMessage({
+            type: 'OPEN_API_SERVER',
+          })
+        }}
+      >
+        {t('Open API Server Bridge')}
+      </button>
+      <label>
+        <input
+          type="checkbox"
           checked={config.hideContextMenu}
           onChange={async (e) => {
             const checked = e.target.checked

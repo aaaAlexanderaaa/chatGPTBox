@@ -4,6 +4,9 @@ Date: 2026-02-06
 Review mode: independent subagent-style review by artifact audit + code-path check + syntax validation where applicable.
 Primary evidence: `docs/enhancement/architecture-and-task-deliverables.md`, `plan.md`, and touched implementation files.
 
+> Historical note (2026-03-11): this file is a project-closure audit log for the February enhancement work.
+> It is useful as rollout history, but not as the current runtime reference. Use `docs/agents-runtime-v2.md` for the current behavior snapshot.
+
 | Task | Review Focus | Evidence | Result |
 | --- | --- | --- | --- |
 | T001 | CompatibilityContract contract and key result verification | `docs/enhancement/architecture-and-task-deliverables.md` (Section 1) | Passed |

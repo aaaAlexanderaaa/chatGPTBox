@@ -95,7 +95,7 @@ function App() {
   // -----------------------------------------------------------------------
 
   const handleRequest = useCallback(
-    (data) => {
+    async (data) => {
       const { id, model, messages } = data
       const question = formatMessages(messages)
       const modelKey = slugToModelKey(model)
@@ -104,11 +104,12 @@ function App() {
       addLog(`Request ${id.slice(0, 8)}...: model=${model} → ${modelKey}`)
       setRequestCount((c) => c + 1)
 
+      const runtimeConfigPromise = getUserConfig()
+
       const session = initSession({
         question,
         modelName: modelKey,
         apiMode: apiMode || null,
-        autoClean: true,
         conversationRecords: [],
       })
 
@@ -182,6 +183,9 @@ function App() {
       })
 
       try {
+        const runtimeConfig = await runtimeConfigPromise
+        session.autoClean = runtimeConfig.apiServerKeepHistory !== true
+        session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
         bgPort.postMessage({ session })
       } catch (err) {
         if (!finished) {

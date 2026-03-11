@@ -547,7 +547,10 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     model: usedModel,
     parent_message_id: session.parentMessageId,
     timezone_offset_min: new Date().getTimezoneOffset(),
-    history_and_training_disabled: config.disableWebModeHistory,
+    history_and_training_disabled:
+      typeof session.chatgptWebHistoryDisabledOverride === 'boolean'
+        ? session.chatgptWebHistoryDisabledOverride
+        : config.disableWebModeHistory,
     websocket_request_id: session.wsRequestId,
   }
   if (thinkingEffort) {

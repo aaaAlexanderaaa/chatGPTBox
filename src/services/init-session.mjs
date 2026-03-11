@@ -36,6 +36,7 @@ import { t } from 'i18next'
  * @property {object|null} pageContext
  * @property {object[]} toolEvents
  * @property {object|null} agentMemory
+ * @property {boolean|null} chatgptWebHistoryDisabledOverride
  */
 /**
  * @param {string|null} question
@@ -51,6 +52,7 @@ import { t } from 'i18next'
  * @param {string[]|null} selectedMcpServerIds
  * @param {object|null} pageContext
  * @param {object|null} agentMemory
+ * @param {boolean|null} chatgptWebHistoryDisabledOverride
  * @returns {Session}
  */
 export function initSession({
@@ -67,6 +69,7 @@ export function initSession({
   selectedMcpServerIds = null,
   pageContext = null,
   agentMemory = null,
+  chatgptWebHistoryDisabledOverride = null,
 } = {}) {
   return {
     // common
@@ -97,6 +100,10 @@ export function initSession({
     pageContext: pageContext && typeof pageContext === 'object' ? pageContext : null,
     toolEvents: [],
     agentMemory: agentMemory && typeof agentMemory === 'object' ? agentMemory : null,
+    chatgptWebHistoryDisabledOverride:
+      typeof chatgptWebHistoryDisabledOverride === 'boolean'
+        ? chatgptWebHistoryDisabledOverride
+        : null,
 
     autoClean,
     isRetry: false,

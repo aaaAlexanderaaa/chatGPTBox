@@ -917,6 +917,7 @@ export const defaultConfig = {
   temperature: 1,
   apiServerEnabled: false,
   apiServerPort: 18080,
+  apiServerKeepHistory: false,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
@@ -1249,6 +1250,7 @@ export async function getUserConfig() {
   config.showDeprecatedModels = config.showDeprecatedModels === true
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
   config.apiServerEnabled = config.apiServerEnabled === true
+  config.apiServerKeepHistory = config.apiServerKeepHistory === true
 
   const normalizedChatgptWebThinkingEffort =
     config.chatgptWebThinkingEffort === 'standard'

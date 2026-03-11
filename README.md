@@ -21,14 +21,17 @@ AI assistant in your browser: selection tools, site integrations, a floating cha
 Build installs:
 
 - GitHub releases: https://github.com/aaaAlexanderaaa/chatGPTBox/releases
+- Local development builds: run `npm run dev`, then load `build/chromium/` as an unpacked extension.
 
 ## Features
 
-- Chat on any page (floating window + dockable sidebar modes).
-- Selection tools: highlight text to translate / summarize / explain / rewrite (and add your own prompts).
-- Integrations for search engines and popular sites (with switchable per-site adapters).
-- Multiple LLM backends: web modes and API modes (OpenAI, Anthropic, Azure OpenAI, OpenRouter, Ollama, and OpenAI-compatible “Custom Model” endpoints).
-- Markdown rendering with code blocks and syntax highlighting.
+- Chat on any page with floating chat, independent conversation page/window, and side-panel support.
+- Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
+- Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
+- Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
+- Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP streaming MCP servers.
+- Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint.
+- Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
 
 ## Screenshots
 
@@ -89,11 +92,18 @@ Build installs:
 
 Open the Settings UI from the extension icon (or open the extension options page). Main areas:
 
-- **General**: model/provider selection, language, trigger behavior, and appearance (Light/Dark/Auto, accent color/strength, code theme).
-- **Features**: enable/disable site integrations and page tools.
-- **Agents**: assistants, imported skills (ZIP packages), and MCP server endpoints.
-- **Modules**: API mode list, selection tools, and extractors.
-- **Advanced**: context length, max tokens, temperature, custom endpoints, and export/import/reset settings.
+- **General**: model/provider selection, language, trigger behavior, appearance, runtime mode, default assistant, and agent protocol.
+- **Features**: enable/disable supported site integrations.
+- **Agents**: assistants, imported ZIP skill packs, and MCP servers.
+- **Modules**: API modes, selection tools, site adapters, and content extractors.
+- **Advanced**: context length, max tokens, temperature, custom endpoints, debug/export/import/reset settings.
+
+Agent/runtime notes:
+
+- Imported skills are agent/runtime assets and live under **Agents -> Skills**.
+- Legacy custom selection tools remain separate under **Modules -> Selection Tools**.
+- In `safe` runtime mode, MCP HTTP endpoints are expected to use HTTPS; `developer` mode is more permissive.
+- Assistant / Skills / MCP are intended for API/custom runtime flows. ChatGPT Web models continue to work for normal chat, but they do not use the full agent-context path.
 
 Provider notes:
 
@@ -103,15 +113,64 @@ Provider notes:
 ## Development
 
 ```bash
-npm install
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+npm ci
 npm run dev
 ```
 
-Production build (outputs zipped builds under `build/`):
+Useful commands:
+
+```bash
+npm run lint
+npm run test:agent
+npm run build
+npm run api-server
+```
+
+Development build outputs unpacked browser builds to:
+
+- `build/chromium/`
+- `build/firefox/`
+
+Production build outputs zipped builds under `build/`:
 
 ```bash
 npm run build
 ```
+
+Artifacts include:
+
+- `build/chromium.zip`
+- `build/firefox.zip`
+- `build/chromium-without-katex-and-tiktoken.zip`
+- `build/firefox-without-katex-and-tiktoken.zip`
+
+Safari packaging is separate and requires macOS/Xcode:
+
+```bash
+npm run build:safari
+```
+
+## API Server Bridge
+
+ChatGPTBox includes a local OpenAI-compatible gateway that proxies ChatGPT Web through the extension:
+
+- Start the local server with `npm run api-server`
+- Open `ApiServer.html` inside the extension and enable the bridge
+- Keep the bridge page open while using the gateway
+- Make sure you are logged in at [chatgpt.com](https://chatgpt.com)
+- Send requests to `http://127.0.0.1:18080/v1/chat/completions` by default
+
+The gateway supports `--port`, `--host`, `CHATGPT_GATEWAY_PORT`, and `CHATGPT_GATEWAY_HOST`. A health endpoint is available at `http://127.0.0.1:18080/health`.
+
+## Architecture Notes
+
+- The extension is fully client-side. There is no project backend or database.
+- Imported skills are ZIP packages that must contain `SKILL.md`.
+- Built-in assistants, built-in skills, and built-in MCP toolkits are defined in [`src/config/index.mjs`](./src/config/index.mjs).
+- The current runtime overview lives in [`docs/agents-runtime-v2.md`](./docs/agents-runtime-v2.md).
 
 ## Privacy
 
