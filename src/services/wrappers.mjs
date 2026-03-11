@@ -93,6 +93,20 @@ export function handlePortError(session, port, err) {
   }
 }
 
+// MV3 service workers are killed after 30 s of inactivity. During extended-
+// thinking requests (GPT-5.4 etc.) the model may go silent for minutes while
+// reasoning. A periodic chrome.storage.session.get() call is a lightweight
+// extension-API event that resets the idle timer without any visible side
+// effects.
+const SW_KEEPALIVE_INTERVAL_MS = 25_000
+
+function startServiceWorkerKeepalive() {
+  const id = setInterval(() => {
+    Browser.storage.session?.get?.('_keepalive').catch(() => {})
+  }, SW_KEEPALIVE_INTERVAL_MS)
+  return id
+}
+
 export function registerPortListener(executor) {
   Browser.runtime.onConnect.addListener((port) => {
     if (port.name === 'api-bridge-proxy') return
@@ -113,10 +127,13 @@ export function registerPortListener(executor) {
               config.customModelName,
             )
       port.postMessage({ session })
+      const keepalive = startServiceWorkerKeepalive()
       try {
         await executor(session, port, config)
       } catch (err) {
         handlePortError(session, port, err)
+      } finally {
+        clearInterval(keepalive)
       }
     }
 
