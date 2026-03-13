@@ -34,6 +34,12 @@ import {
   registerPortListener,
 } from '../services/wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from '../services/apis/chatgpt-web.mjs'
+import {
+  getChatgptWebConversation,
+  listChatgptWebConversations,
+  refreshChatgptWebConversation,
+} from '../services/apis/chatgpt-web-conversation-api.mjs'
+import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 
 /**
@@ -317,8 +323,10 @@ async function prepareForRightClickMenu() {
     menuY = e.clientY
   })
 
-  Browser.runtime.onMessage.addListener(async (message) => {
-    if (message.type === 'CREATE_CHAT') {
+  Browser.runtime.onMessage.addListener((message) => {
+    if (message.type !== 'CREATE_CHAT') return undefined
+
+    return (async () => {
       const data = message.data
       let prompt = ''
       const userConfig = await getUserConfig()
@@ -375,7 +383,7 @@ async function prepareForRightClickMenu() {
         />,
         container,
       )
-    }
+    })()
   })
 }
 
@@ -432,21 +440,49 @@ async function handleChatgptProxyRequest(session, requestId) {
   if (location.hostname !== 'chatgpt.com') return
   const port = Browser.runtime.connect({ name: `chatgpt-proxy-response:${requestId}` })
   try {
-    let accessToken
-    try {
-      accessToken = await getChatGptAccessToken()
-    } catch {
-      const resp = await fetch('https://chatgpt.com/api/auth/session')
-      const data = await resp.json()
-      if (!data.accessToken) throw new Error('UNAUTHORIZED')
-      await setAccessToken(data.accessToken)
-      accessToken = data.accessToken
-    }
+    const accessToken = await ensureChatgptAccessToken()
     if (isUsingChatgptWebModel(session)) {
       await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
     }
   } catch (err) {
     handlePortError(session, port, err)
+  } finally {
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function ensureChatgptAccessToken() {
+  try {
+    return await getChatGptAccessToken()
+  } catch {
+    const resp = await fetch('https://chatgpt.com/api/auth/session')
+    const data = await resp.json().catch(() => ({}))
+    if (!data.accessToken) throw new Error('UNAUTHORIZED')
+    await setAccessToken(data.accessToken)
+    return data.accessToken
+  }
+}
+
+async function handleChatgptProxyControlRequest(action, payload = {}) {
+  if (location.hostname !== 'chatgpt.com') {
+    throw new Error('ChatGPT proxy control requests require an open chatgpt.com tab')
+  }
+
+  await ensureChatgptAccessToken()
+
+  switch (action) {
+    case 'chatgpt_web_list_conversations':
+      return await listChatgptWebConversations(payload || {})
+    case 'chatgpt_web_get_conversation':
+      return await getChatgptWebConversation(payload || {})
+    case 'chatgpt_web_refresh_conversation':
+      return await refreshChatgptWebConversation(payload || {})
+    default:
+      throw new Error(`Unsupported proxy control action: ${action}`)
   }
 }
 
@@ -480,10 +516,12 @@ async function overwriteAccessToken() {
 async function prepareForForegroundRequests() {
   if (location.hostname !== 'chatgpt.com' || location.pathname === '/auth/login') return
 
-  await Browser.runtime.sendMessage({
-    type: 'SET_CHATGPT_TAB',
-    data: {},
-  })
+  if (isDedicatedChatgptProxyTabUrl(window.location.href)) {
+    await Browser.runtime.sendMessage({
+      type: 'SET_CHATGPT_TAB',
+      data: {},
+    })
+  }
 
   registerPortListener(async (session, port) => {
     if (isUsingChatgptWebModel(session)) {
@@ -571,6 +609,11 @@ async function run() {
     } else if (message.type === 'CHATGPT_PROXY_REQUEST') {
       handleChatgptProxyRequest(message.data.session, message.data.requestId)
       return false
+    } else if (message.type === 'CHATGPT_PROXY_CONTROL_REQUEST') {
+      void handleChatgptProxyControlRequest(message.data?.action, message.data?.payload)
+        .then((data) => sendResponse({ ok: true, data }))
+        .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }))
+      return true
     } else if (message.type === 'GET_EXTRACTED_CONTENT') {
       try {
         const customExtractors = message.data?.customExtractors || []

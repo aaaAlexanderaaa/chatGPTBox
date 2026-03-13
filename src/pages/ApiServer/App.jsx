@@ -2,6 +2,15 @@ import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
 import { getUserConfig, setUserConfig } from '../../config/index.mjs'
 import { initSession } from '../../services/init-session.mjs'
+import {
+  findStoredChatgptWebApiThreadContinuation,
+  saveChatgptWebApiThread,
+  saveChatgptWebSessionSnapshot,
+} from '../../services/chatgpt-web-thread-state.mjs'
+import {
+  extractChatgptWebConversationListItems,
+  formatChatgptWebConversationListItem,
+} from '../../services/apis/chatgpt-web-conversation-state.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import './styles.css'
@@ -41,6 +50,12 @@ function App() {
   const [requestCount, setRequestCount] = useState(0)
   const [serverHealth, setServerHealth] = useState(null)
   const [diag, setDiag] = useState(null)
+  const [conversationIdInput, setConversationIdInput] = useState('')
+  const [conversationList, setConversationList] = useState([])
+  const [conversationListLoading, setConversationListLoading] = useState(false)
+  const [conversationRefreshLoading, setConversationRefreshLoading] = useState(false)
+  const [conversationError, setConversationError] = useState('')
+  const [conversationPayload, setConversationPayload] = useState(null)
 
   const proxyPort = useRef(null)
   const reconnectTimer = useRef(null)
@@ -90,18 +105,63 @@ function App() {
     }
   }, [])
 
+  const fetchServerJson = useCallback(
+    async (path, options = {}) => {
+      const response = await fetch(`${baseUrl}${path}`, options)
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(
+          data?.error?.message || `Request failed with ${response.status} ${response.statusText}`,
+        )
+      }
+      return data
+    },
+    [baseUrl],
+  )
+
+  const syncBridgeConfig = useCallback(async (targetPort = proxyPort.current) => {
+    if (!targetPort) return
+    try {
+      const runtimeConfig = await getUserConfig()
+      targetPort.postMessage({
+        action: 'send',
+        payload: JSON.stringify({
+          type: 'bridge_config',
+          requestTimeoutSeconds: runtimeConfig.apiServerRequestTimeoutSeconds,
+          thinkingRequestTimeoutSeconds: runtimeConfig.apiServerThinkingTimeoutSeconds,
+        }),
+      })
+    } catch {
+      /* ignore config sync errors */
+    }
+  }, [])
+
   // -----------------------------------------------------------------------
   // Handle incoming request from API server
   // -----------------------------------------------------------------------
 
   const handleRequest = useCallback(
     async (data) => {
-      const { id, model, messages } = data
-      const question = formatMessages(messages)
+      const { id, model, messages, stream } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
+      const isThinkingRequest = typeof model === 'string' && model.trim().endsWith('-thinking')
+      const continuation = isThinkingRequest
+        ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
+        : null
+      const question = continuation
+        ? continuation.nextUserMessage.content
+        : formatMessages(messages)
 
       addLog(`Request ${id.slice(0, 8)}...: model=${model} → ${modelKey}`)
+      if (continuation) {
+        addLog(
+          `Reusing ChatGPT conversation ${continuation.conversationId.slice(
+            0,
+            8,
+          )}... for follow-up thinking request`,
+        )
+      }
       setRequestCount((c) => c + 1)
 
       const runtimeConfigPromise = getUserConfig()
@@ -111,7 +171,14 @@ function App() {
         modelName: modelKey,
         apiMode: apiMode || null,
         conversationRecords: [],
+        chatgptWebIncrementalOutput: stream === true,
       })
+      session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
+      if (continuation) {
+        session.conversationId = continuation.conversationId
+        session.parentMessageId = continuation.parentMessageId
+        void saveChatgptWebSessionSnapshot(session, { source: 'api-server-bridge' }).catch(() => {})
+      }
 
       let bgPort
       try {
@@ -124,6 +191,7 @@ function App() {
 
       let lastAnswer = ''
       let finished = false
+      let latestSession = session
 
       bgPort.onMessage.addListener((msg) => {
         if (finished) return
@@ -134,7 +202,7 @@ function App() {
           addLog(`Error ${id.slice(0, 8)}...: ${errText}`, 'error')
           if (/failed to fetch/i.test(errText)) {
             addLog(
-              'Tip: Open chatgpt.com in this browser and log in. The extension routes ChatGPT Web requests through that tab.',
+              'Tip: Open chatgpt.com in this browser and log in. The extension routes ChatGPT Web requests through a dedicated background proxy tab.',
               'warn',
             )
           }
@@ -147,6 +215,13 @@ function App() {
           return
         }
 
+        if (msg.session) {
+          latestSession = { ...latestSession, ...msg.session }
+          void saveChatgptWebSessionSnapshot(latestSession, { source: 'api-server-bridge' }).catch(
+            () => {},
+          )
+        }
+
         if (msg.answer !== undefined) {
           lastAnswer = msg.answer
           if (!msg.done) {
@@ -157,6 +232,14 @@ function App() {
         if (msg.done) {
           finished = true
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
+          if (isThinkingRequest && lastAnswer && latestSession?.conversationId) {
+            void saveChatgptWebApiThread({
+              model,
+              messages,
+              answer: lastAnswer,
+              session: latestSession,
+            }).catch(() => {})
+          }
           sendWs({ type: 'done', id, answer: lastAnswer })
           try {
             bgPort.disconnect()
@@ -169,17 +252,18 @@ function App() {
       bgPort.onDisconnect.addListener(() => {
         if (finished) return
         finished = true
-        if (lastAnswer) {
-          addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars (port closed)`)
-          sendWs({ type: 'done', id, answer: lastAnswer })
-        } else {
-          addLog(`Extension background disconnected before responding`, 'error')
-          sendWs({
-            type: 'error',
-            id,
-            error: 'Extension background disconnected before responding',
-          })
-        }
+        const errorMessage = lastAnswer
+          ? 'Extension background disconnected before response completed'
+          : 'Extension background disconnected before responding'
+        addLog(
+          `${errorMessage}${lastAnswer ? ` (${lastAnswer.length} chars received)` : ''}`,
+          'error',
+        )
+        sendWs({
+          type: 'error',
+          id,
+          error: errorMessage,
+        })
       })
 
       try {
@@ -197,6 +281,105 @@ function App() {
     },
     [addLog, sendWs],
   )
+
+  const handleControlRequest = useCallback(
+    async (data) => {
+      const { id, action, payload } = data
+      try {
+        let response
+        switch (action) {
+          case 'chatgpt_web_list_conversations':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_LIST_CONVERSATIONS',
+              data: payload || {},
+            })
+            break
+          case 'chatgpt_web_get_conversation':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_GET_CONVERSATION',
+              data: payload || {},
+            })
+            break
+          case 'chatgpt_web_refresh_conversation':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_REFRESH_CONVERSATION',
+              data: payload || {},
+            })
+            break
+          case 'chatgpt_web_list_models':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_LIST_MODELS',
+              data: payload || {},
+            })
+            break
+          default:
+            throw new Error(`Unsupported control action: ${action}`)
+        }
+        sendWs({ type: 'control_response', id, data: response })
+      } catch (error) {
+        addLog(`Control ${action}: ${error.message || error}`, 'error')
+        sendWs({ type: 'control_error', id, error: error.message || String(error) })
+      }
+    },
+    [addLog, sendWs],
+  )
+
+  const loadConversationList = useCallback(async () => {
+    setConversationListLoading(true)
+    setConversationError('')
+    try {
+      const data = await fetchServerJson('/chatgpt/conversations?offset=0&limit=28&order=updated')
+      const items = extractChatgptWebConversationListItems(data).map((item) => ({
+        ...formatChatgptWebConversationListItem(item),
+        rawItem: item,
+      }))
+      setConversationList(items)
+      setConversationPayload(data)
+      addLog(`Loaded ${items.length} ChatGPT conversations`)
+    } catch (error) {
+      setConversationError(error.message || String(error))
+      addLog(`Conversation list failed: ${error.message || error}`, 'error')
+    } finally {
+      setConversationListLoading(false)
+    }
+  }, [addLog, fetchServerJson])
+
+  const refreshConversation = useCallback(async () => {
+    const conversationId = conversationIdInput.trim()
+    if (!conversationId) {
+      setConversationError('Conversation ID is required')
+      return
+    }
+
+    setConversationRefreshLoading(true)
+    setConversationError('')
+    try {
+      const data = await fetchServerJson(
+        `/chatgpt/conversations/${encodeURIComponent(conversationId)}/refresh`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            preferResume: true,
+            resumeTimeoutMs: 10_000,
+          }),
+        },
+      )
+      setConversationPayload(data)
+      addLog(
+        `Conversation ${conversationId.slice(0, 8)}... refreshed: pending=${
+          data?.pending === true
+        }`,
+      )
+    } catch (error) {
+      setConversationError(error.message || String(error))
+      addLog(`Conversation refresh failed: ${error.message || error}`, 'error')
+    } finally {
+      setConversationRefreshLoading(false)
+    }
+  }, [addLog, conversationIdInput, fetchServerJson])
 
   // -----------------------------------------------------------------------
   // Connect via background-proxied WebSocket
@@ -241,6 +424,7 @@ function App() {
       if (msg.type === 'open') {
         setStatus('connected')
         addLog('Connected to API server', 'success')
+        void syncBridgeConfig(pp)
 
         if (keepaliveTimer.current) clearInterval(keepaliveTimer.current)
         keepaliveTimer.current = setInterval(() => {
@@ -276,6 +460,8 @@ function App() {
         }
         if (data.type === 'request') {
           handleRequest(data)
+        } else if (data.type === 'control_request') {
+          handleControlRequest(data)
         }
       }
     })
@@ -295,7 +481,7 @@ function App() {
     })
 
     pp.postMessage({ action: 'connect', url: wsUrl })
-  }, [wsUrl, addLog, handleRequest])
+  }, [wsUrl, addLog, handleControlRequest, handleRequest, syncBridgeConfig])
 
   // -----------------------------------------------------------------------
   // Disconnect
@@ -340,6 +526,7 @@ function App() {
     }
 
     function checkHealth() {
+      void syncBridgeConfig()
       fetch(`${baseUrl}/health`)
         .then((r) => r.json())
         .then((h) => setServerHealth(h))
@@ -353,7 +540,7 @@ function App() {
           setDiag(result)
           if (result && !result.chatgptTabOk && !result.canFetchChatgpt) {
             addLog(
-              'Warning: Cannot reach chatgpt.com from background. Open chatgpt.com and log in so requests can be routed through that tab.',
+              'Warning: Cannot reach chatgpt.com from background. Open chatgpt.com and log in so requests can be routed through the dedicated background proxy tab.',
               'warn',
             )
           }
@@ -365,7 +552,7 @@ function App() {
     runDiag()
     healthTimer.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL)
     return () => clearInterval(healthTimer.current)
-  }, [status, baseUrl, addLog])
+  }, [status, baseUrl, addLog, syncBridgeConfig])
 
   // -----------------------------------------------------------------------
   // Auto-connect on mount
@@ -442,6 +629,7 @@ function App() {
       : '#ef4444'
 
   const showPort = port !== 18080
+  const selectedConversationId = conversationIdInput.trim()
 
   return (
     <div className="api-server-container">
@@ -529,6 +717,16 @@ function App() {
               <span className="health-label">Pending</span>
               <span className="health-value">{serverHealth.stats?.pending_requests}</span>
             </div>
+            <div className="health-item">
+              <span className="health-label">Timeout</span>
+              <span className="health-value">{serverHealth.timeouts?.request_seconds}s</span>
+            </div>
+            <div className="health-item">
+              <span className="health-label">Thinking Timeout</span>
+              <span className="health-value">
+                {serverHealth.timeouts?.thinking_request_seconds}s
+              </span>
+            </div>
           </div>
         </section>
       )}
@@ -543,7 +741,7 @@ function App() {
               chatgpt.com
             </a>{' '}
             in a tab in this browser and make sure you are logged in. The extension will
-            automatically route requests through that tab.
+            automatically route requests through a dedicated background proxy tab.
           </p>
         </section>
       )}
@@ -589,10 +787,122 @@ function App() {
               not connect to the API server.
             </p>
             <p>
-              <strong>Health check:</strong> Visit <code>http://127.0.0.1:{port}/health</code> for
-              detailed server diagnostics.
+              <strong>Status and health:</strong> Visit <code>http://127.0.0.1:{port}/status</code>{' '}
+              for a quick bridge check, or <code>http://127.0.0.1:{port}/health</code> for detailed
+              diagnostics.
+            </p>
+            <p>
+              <strong>Conversation APIs:</strong> Use <code>GET /chatgpt/conversations</code>,{' '}
+              <code>GET /chatgpt/conversations/&lt;id&gt;</code>, and{' '}
+              <code>POST /chatgpt/conversations/&lt;id&gt;/refresh</code> for manual async
+              inspection and refresh.
             </p>
           </div>
+        </details>
+      </section>
+
+      <section className="api-server-conversations">
+        <h3>ChatGPT Conversations</h3>
+        <p className="conversation-subtitle">
+          Manually inspect async thinking conversations through the local API server.
+        </p>
+
+        <div className="conversation-toolbar">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => void loadConversationList()}
+            disabled={conversationListLoading || status !== 'connected'}
+          >
+            {conversationListLoading ? 'Loading…' : 'Refresh Conversation List'}
+          </button>
+
+          <input
+            type="text"
+            value={conversationIdInput}
+            onChange={(event) => setConversationIdInput(event.target.value)}
+            placeholder="Conversation ID"
+            className="conversation-input"
+          />
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => void refreshConversation()}
+            disabled={conversationRefreshLoading || status !== 'connected'}
+          >
+            {conversationRefreshLoading ? 'Refreshing…' : 'Refresh Conversation'}
+          </button>
+        </div>
+
+        {conversationError && <div className="conversation-error">{conversationError}</div>}
+
+        <div className="conversation-grid">
+          <div className="conversation-list">
+            {conversationList.length === 0 ? (
+              <div className="conversation-empty">No conversation list loaded yet.</div>
+            ) : (
+              conversationList.map((item) => {
+                const active = item.id === selectedConversationId
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`conversation-item ${active ? 'conversation-item-active' : ''}`}
+                    onClick={() => {
+                      setConversationIdInput(item.id || '')
+                      setConversationPayload(item.rawItem || item)
+                    }}
+                  >
+                    <div className="conversation-item-top">
+                      <span className="conversation-title">{item.title || 'Untitled'}</span>
+                      <span
+                        className={`conversation-badge ${
+                          item.pending ? 'conversation-badge-pending' : 'conversation-badge-ready'
+                        }`}
+                      >
+                        {item.pending ? `pending (${item.asyncStatus ?? '...'})` : 'ready'}
+                      </span>
+                    </div>
+                    <div className="conversation-meta">{item.id}</div>
+                    <div className="conversation-meta">
+                      Updated: {item.updateTime || item.createTime || 'unknown'}
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+
+          <div className="conversation-details">
+            {conversationPayload?.text && (
+              <div className="conversation-preview">
+                <div className="conversation-preview-label">Extracted Text</div>
+                <pre>{conversationPayload.text}</pre>
+              </div>
+            )}
+
+            <textarea
+              readOnly
+              rows={16}
+              value={conversationPayload ? JSON.stringify(conversationPayload, null, 2) : ''}
+              placeholder="Conversation details will appear here"
+              className="conversation-json"
+            />
+          </div>
+        </div>
+
+        <details className="conversation-help">
+          <summary>Example commands</summary>
+          <pre>{`curl http://127.0.0.1:${port}/status
+
+curl http://127.0.0.1:${port}/chatgpt/conversations
+
+curl http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>
+
+curl -X POST http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>/refresh \\
+  -H "Content-Type: application/json" \\
+  -d '{"preferResume":true,"resumeTimeoutMs":10000}'`}</pre>
         </details>
       </section>
 

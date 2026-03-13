@@ -6,6 +6,8 @@ import {
   CHATGPT_WEB_DEFAULT_MODEL_SLUG,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   CHATGPT_WEB_DEBUG_LOG_KEY,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   getUserConfig,
 } from '../../config/index.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
@@ -15,6 +17,15 @@ import { t } from 'i18next'
 import { sha3_512 } from 'js-sha3'
 import randomInt from 'random-int'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import {
+  createChatgptWebWebsocketBodyParser,
+  createChatgptWebWebsocketRequestController,
+} from './chatgpt-web-websocket-state.mjs'
+import {
+  extractChatgptWebConversationResult,
+  extractChatgptWebMessageText,
+  isPendingChatgptWebMessageStatus,
+} from './chatgpt-web-conversation-state.mjs'
 
 async function request(token, method, path, data) {
   const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
@@ -49,6 +60,36 @@ const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
   'openai-sentinel-proof-token',
   'oai-device-id',
 ])
+function createAbortError() {
+  const error = new Error('aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError()
+}
+
+function isThinkingModelSlug(model) {
+  return typeof model === 'string' && model.trim().endsWith('-thinking')
+}
+
+function waitWithAbort(ms, signal) {
+  throwIfAborted(signal)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort)
+      resolve()
+    }, ms)
+
+    function onAbort() {
+      clearTimeout(timer)
+      reject(createAbortError())
+    }
+
+    signal?.addEventListener?.('abort', onAbort, { once: true })
+  })
+}
 
 function truncateString(value, maxLength = 2000) {
   if (typeof value !== 'string') return value
@@ -410,6 +451,22 @@ let websocket
 let expires_at
 let wsCallbacks = []
 
+function removeWsCallback(callback) {
+  wsCallbacks = wsCallbacks.filter((entry) => entry !== callback)
+}
+
+function notifyPendingWsCallbacks(error) {
+  const callbacks = wsCallbacks.slice()
+  wsCallbacks = []
+  callbacks.forEach((entry) => {
+    try {
+      entry.onClose?.(error)
+    } catch (callbackError) {
+      console.debug('websocket close callback failed', callbackError)
+    }
+  })
+}
+
 export async function registerWebsocket(accessToken) {
   if (websocket && new Date() < expires_at - 300000) return true
 
@@ -434,9 +491,10 @@ export async function registerWebsocket(accessToken) {
       websocket = null
       expires_at = null
       console.debug('global websocket closed')
+      notifyPendingWsCallbacks(new Error('ChatGPT websocket closed before response completed'))
     }
     websocket.onmessage = (event) => {
-      wsCallbacks.forEach((cb) => cb(event))
+      wsCallbacks.forEach((entry) => entry.onMessage?.(event))
     }
     expires_at = new Date(response.expires_at)
   })
@@ -459,6 +517,19 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       if (session.autoClean) deleteConversation(accessToken, session.conversationId)
     },
   )
+  let promptDispatchCommitted = false
+  let lastEmittedSessionSignature = ''
+
+  function markReplayUnsafe(error) {
+    if (
+      (promptDispatchCommitted || session.conversationId || lastAssistantMessageId) &&
+      error &&
+      typeof error === 'object'
+    ) {
+      error.chatgptWebRequestReplayUnsafe = true
+    }
+    return error
+  }
 
   const config = await getUserConfig()
   let arkoseError
@@ -472,19 +543,35 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   ])
   let useWebsocket = Boolean(websocketFlag)
   console.debug('models', models)
-  const selectedModel = getModelValue(session)
-  const modelDecision = resolveChatgptWebModel({
-    selectedModel,
-    availableModels: models,
-  })
-  const usedModel = modelDecision.model
+  let usedModel
+  let modelDecision
+  let selectedModel
+  if (session.chatgptWebModelSlugOverride) {
+    usedModel = session.chatgptWebModelSlugOverride
+    selectedModel = usedModel
+    modelDecision = { model: usedModel, selectionReason: 'api_server_override', catalogHit: null }
+  } else {
+    selectedModel = getModelValue(session)
+    modelDecision = resolveChatgptWebModel({
+      selectedModel,
+      availableModels: models,
+    })
+    usedModel = modelDecision.model
+  }
   const thinkingEffort = resolveThinkingEffortForModel(usedModel, config)
+  const isExtendedThinkingRequest =
+    isThinkingModelSlug(usedModel) || thinkingEffort === CHATGPT_WEB_DEFAULT_THINKING_EFFORT
+  const useDispatchOnlyConversationObserver = Boolean(useWebsocket && isExtendedThinkingRequest)
+  if (!useDispatchOnlyConversationObserver) {
+    useWebsocket = false
+  }
   void appendChatgptWebDebugLog(config, 'model-resolution', {
     selectedModel,
     usedModel,
     selectionReason: modelDecision.selectionReason,
     catalogHit: modelDecision.catalogHit,
     thinkingEffort: thinkingEffort || null,
+    useDispatchOnlyConversationObserver,
     availableModelCount: Array.isArray(models) ? models.length : 0,
     availableModels: Array.isArray(models) ? models : [],
   })
@@ -603,8 +690,304 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let generationPrefixAnswer = ''
   let generatedImageUrl = ''
   let responseMetaLogged = false
-  const bufferedWebsocketEvents = []
-  let websocketFinished = false
+  let lastAssistantStatus = ''
+  let lastAssistantMessageId = null
+  let lastIncrementalAnswer = ''
+  let lastIncrementalSkipSignature = ''
+  let finalizationPromise = null
+  const conversationPollTimeoutMs =
+    Math.max(
+      1,
+      Number(config.chatgptWebConversationPollTimeoutSeconds) ||
+        DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+    ) * 1000
+  const conversationPollIntervalMs =
+    Math.max(
+      1,
+      Number(config.chatgptWebConversationPollIntervalSeconds) ||
+        DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+    ) * 1000
+  const conversationNotFoundGraceMs = Math.min(60000, conversationPollTimeoutMs)
+  const shouldEmitIncrementalAnswer =
+    typeof session.chatgptWebIncrementalOutput === 'boolean'
+      ? session.chatgptWebIncrementalOutput
+      : !isExtendedThinkingRequest
+
+  function emitSessionUpdate(force = false) {
+    const signature = [
+      session.conversationId || '',
+      session.parentMessageId || '',
+      session.messageId || '',
+      session.wsRequestId || '',
+    ].join(':')
+
+    if (!force && signature === lastEmittedSessionSignature) return
+    lastEmittedSessionSignature = signature
+    port.postMessage({ session: { ...session } })
+  }
+
+  function withRichContent(text) {
+    return (
+      generationPrefixAnswer + (generatedImageUrl && `\n\n![](${generatedImageUrl})\n\n`) + text
+    )
+  }
+
+  function emitIntermediateAnswerSnapshot({
+    channel = null,
+    pending = false,
+    source = 'unknown',
+  } = {}) {
+    if (!answer || !shouldEmitIncrementalAnswer) return
+
+    const normalizedChannel =
+      typeof channel === 'string' ? channel.trim().toLowerCase() : ''
+
+    if (isExtendedThinkingRequest && normalizedChannel === 'commentary') {
+      logSkippedIncrementalAnswer({
+        source,
+        reason: 'commentary_channel',
+        channel: normalizedChannel,
+        pending,
+        answerLength: answer.length,
+      })
+      return
+    }
+
+    if (lastIncrementalAnswer && !answer.startsWith(lastIncrementalAnswer)) {
+      logSkippedIncrementalAnswer({
+        source,
+        reason: 'non_monotonic_snapshot',
+        channel: normalizedChannel || null,
+        pending,
+        answerLength: answer.length,
+        previousAnswerLength: lastIncrementalAnswer.length,
+      })
+      return
+    }
+
+    if (answer === lastIncrementalAnswer) return
+
+    lastIncrementalAnswer = answer
+    port.postMessage({ answer: answer, done: false, session: null })
+  }
+
+  function logSkippedIncrementalAnswer(payload = {}) {
+    const signature = JSON.stringify(payload)
+    if (signature === lastIncrementalSkipSignature) return
+    lastIncrementalSkipSignature = signature
+    void appendChatgptWebDebugLog(config, 'incremental-answer-skipped', {
+      model: usedModel,
+      ...payload,
+    })
+  }
+
+  function shouldPollConversationResult(terminalError) {
+    if (!session.conversationId) return false
+    if (!isThinkingModelSlug(usedModel) && thinkingEffort !== 'extended') return false
+    if (terminalError instanceof Error) return true
+    return true
+  }
+
+  async function fetchConversationResultSnapshot() {
+    throwIfAborted(controller.signal)
+
+    const response = await fetch(
+      `${config.customChatGptWebApiUrl}/backend-api/conversation/${session.conversationId}`,
+      {
+        method: 'GET',
+        signal: controller.signal,
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(cookie && { Cookie: cookie }),
+          ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
+          'Oai-Language': 'en-US',
+        },
+      },
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      let errorPayload = null
+      try {
+        errorPayload = errorText ? JSON.parse(errorText) : null
+      } catch {
+        errorPayload = null
+      }
+
+      const errorMessage =
+        errorPayload?.detail?.message ||
+        errorPayload?.message ||
+        errorText ||
+        `Failed to fetch ChatGPT conversation ${response.status} ${response.statusText}`
+
+      const error = new Error(errorMessage)
+      error.chatgptWebConversationFetchStatus = response.status
+      error.chatgptWebConversationFetchCode =
+        errorPayload?.detail?.code || errorPayload?.code || null
+      error.chatgptWebConversationFetchRaw = errorText || null
+      throw error
+    }
+
+    return response.json()
+  }
+
+  async function pollConversationResult(reason) {
+    const startedAt = Date.now()
+    let attempts = 0
+    let lastObservedSignature = ''
+    let consecutiveFinalPolls = 0
+    const requiredConsecutiveFinal = isExtendedThinkingRequest ? 2 : 1
+
+    while (Date.now() - startedAt < conversationPollTimeoutMs) {
+      attempts += 1
+      let snapshot
+      try {
+        snapshot = await fetchConversationResultSnapshot()
+      } catch (error) {
+        const isConversationNotFound =
+          error?.chatgptWebConversationFetchStatus === 404 &&
+          error?.chatgptWebConversationFetchCode === 'conversation_not_found'
+
+        if (isConversationNotFound && Date.now() - startedAt < conversationNotFoundGraceMs) {
+          void appendChatgptWebDebugLog(config, 'conversation-poll-not-found', {
+            reason,
+            attempts,
+            conversationId: session.conversationId || null,
+            retrying: true,
+            graceSeconds: Math.round(conversationNotFoundGraceMs / 1000),
+            intervalSeconds: Math.round(conversationPollIntervalMs / 1000),
+            error: error?.message || String(error),
+          })
+          await waitWithAbort(conversationPollIntervalMs, controller.signal)
+          continue
+        }
+        throw error
+      }
+      const result = extractChatgptWebConversationResult(snapshot, {
+        userMessageId: session.messageId,
+        assistantMessageId: lastAssistantMessageId,
+      })
+
+      if (result?.messageId) {
+        lastAssistantMessageId = result.messageId
+        session.parentMessageId = result.messageId
+        emitSessionUpdate()
+      }
+      if (result?.status) {
+        lastAssistantStatus = result.status
+      }
+      if (typeof result?.text === 'string' && result.text) {
+        const nextAnswer = withRichContent(result.text)
+        if (nextAnswer !== answer) {
+          answer = nextAnswer
+          emitIntermediateAnswerSnapshot({
+            source: 'conversation_poll',
+            channel: result.channel,
+            pending: result.pending === true,
+          })
+        }
+      }
+
+      const signature = `${result?.messageId || ''}:${result?.status || ''}:${
+        result?.text?.length || 0
+      }`
+      if (signature !== lastObservedSignature) {
+        lastObservedSignature = signature
+        void appendChatgptWebDebugLog(config, 'conversation-poll-progress', {
+          reason,
+          attempts,
+          conversationId: session.conversationId || null,
+          messageId: result?.messageId || null,
+          status: result?.status || null,
+          answerLength: result?.text?.length || 0,
+        })
+      }
+
+      if (result?.isFinal && !result.pending && result.text) {
+        consecutiveFinalPolls += 1
+        if (consecutiveFinalPolls >= requiredConsecutiveFinal) {
+          void appendChatgptWebDebugLog(config, 'conversation-poll-complete', {
+            reason,
+            attempts,
+            conversationId: session.conversationId || null,
+            messageId: result.messageId || null,
+            status: result.status || null,
+            pending: result.pending === true,
+            asyncStatus: result.asyncStatus ?? null,
+            answerLength: result.text.length,
+            consecutiveFinalPolls,
+          })
+          return
+        }
+      } else {
+        consecutiveFinalPolls = 0
+      }
+
+      await waitWithAbort(conversationPollIntervalMs, controller.signal)
+    }
+
+    throw new Error(
+      `Timed out after ${Math.round(
+        conversationPollTimeoutMs / 1000,
+      )} seconds waiting for ChatGPT conversation result`,
+    )
+  }
+
+  async function finalizeMessage(reason, terminalError = null) {
+    if (finalizationPromise) return finalizationPromise
+
+    finalizationPromise = (async () => {
+      try {
+        if (shouldPollConversationResult(terminalError)) {
+          void appendChatgptWebDebugLog(config, 'conversation-poll-start', {
+            reason,
+            conversationId: session.conversationId || null,
+            messageId: session.messageId || null,
+            lastAssistantMessageId,
+            lastAssistantStatus: lastAssistantStatus || null,
+            intervalSeconds: Math.round(conversationPollIntervalMs / 1000),
+            timeoutSeconds: Math.round(conversationPollTimeoutMs / 1000),
+            currentAnswerLength: answer.length,
+            hadTerminalError: terminalError instanceof Error,
+            terminalError: terminalError?.message || null,
+          })
+          await pollConversationResult(reason)
+        } else if (terminalError) {
+          throw terminalError
+        }
+
+        finishMessage()
+      } finally {
+        cleanController()
+      }
+    })()
+
+    return finalizationPromise
+  }
+
+  if (useDispatchOnlyConversationObserver) {
+    try {
+      const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
+      promptDispatchCommitted = true
+      session.conversationId = conversationId || session.conversationId
+      session.wsRequestId = wsRequestId || session.wsRequestId
+      void appendChatgptWebDebugLog(config, 'conversation-dispatch-ack', {
+        transport: 'dispatch_only_websocket_ack',
+        conversationId: session.conversationId || null,
+        wsRequestId: session.wsRequestId || null,
+        model: usedModel,
+      })
+      emitSessionUpdate(true)
+      await pollConversationResult('dispatch_only_ack')
+      finishMessage()
+      cleanController()
+      return
+    } catch (error) {
+      cleanController()
+      throw markReplayUnsafe(error)
+    }
+  }
 
   if (useWebsocket) {
     try {
@@ -616,103 +999,132 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       })
       useWebsocket = false
     }
-
-    const finishWebsocketRequest = () => {
-      if (websocketFinished) return
-      websocketFinished = true
-      finishMessage()
-      wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
-    }
-
-    const handleWebsocketEvent = (entry) => {
-      if (websocketFinished) return
-      if (!session.conversationId) {
-        if (bufferedWebsocketEvents.length >= 32) bufferedWebsocketEvents.shift()
-        bufferedWebsocketEvents.push(entry)
-        return
-      }
-      if (entry.conversationId !== session.conversationId) return
-      if (entry.type === 'done') {
-        finishWebsocketRequest()
-        return
-      }
-      handleMessage(entry.data)
-    }
-
-    const wsCallback = async (event) => {
-      let wsData
-      try {
-        wsData = JSON.parse(event.data)
-      } catch (error) {
-        console.debug('json error', error)
-        return
-      }
-      if (wsData.type === 'http.response.body') {
-        let body
-        try {
-          body = atob(wsData.body).replace(/^data:/, '')
-          if (!responseMetaLogged && body && body.trim() && body.trim() !== '[DONE]') {
-            responseMetaLogged = true
-            void appendChatgptWebDebugLog(config, 'wire-response-meta', {
-              transport: 'websocket',
-              responseChunkRawJson: truncateString(body, 16000),
-            })
-          }
-          const data = JSON.parse(body)
-          console.debug('ws message', data)
-          handleWebsocketEvent({
-            type: 'message',
-            conversationId: wsData.conversation_id,
-            data,
-          })
-        } catch (error) {
-          if (body && body.trim() === '[DONE]') {
-            console.debug('ws message', '[DONE]')
-            handleWebsocketEvent({
-              type: 'done',
-              conversationId: wsData.conversation_id,
-              data: null,
-            })
-          } else {
-            console.debug('json error', error)
-          }
-        }
-      }
-    }
-    wsCallbacks.push(wsCallback)
-    try {
-      const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
-      void appendChatgptWebDebugLog(config, 'websocket-dispatch', {
-        conversationId,
-        wsRequestId,
-        model: usedModel,
+    await new Promise((resolve, reject) => {
+      let wsCallback
+      const requestController = createChatgptWebWebsocketRequestController({
+        session,
+        handleMessage,
+        finishMessage: () => {
+          void finalizeMessage('websocket_done').then(resolve, reject)
+        },
+        failMessage: (error) => {
+          void finalizeMessage('websocket_closed', error).then(resolve, reject)
+        },
+        cleanup: () => {
+          if (wsCallback) removeWsCallback(wsCallback)
+        },
       })
-      session.conversationId = conversationId
-      session.wsRequestId = wsRequestId
-      port.postMessage({ session: session })
+      const bodyParsers = new Map()
 
-      const bufferedCount = bufferedWebsocketEvents.length
-      if (bufferedCount > 0) {
-        void appendChatgptWebDebugLog(config, 'websocket-buffer-flush', {
-          bufferedCount,
-          conversationId,
-          model: usedModel,
-        })
+      const getBodyParser = (conversationId) => {
+        if (!bodyParsers.has(conversationId)) {
+          bodyParsers.set(
+            conversationId,
+            createChatgptWebWebsocketBodyParser({
+              handleMessage(data) {
+                console.debug('ws message', data)
+                requestController.handleSocketEvent({
+                  type: 'message',
+                  conversationId,
+                  data,
+                })
+              },
+              handleDone() {
+                console.debug('ws message', '[DONE]')
+                bodyParsers.delete(conversationId)
+                requestController.handleSocketEvent({
+                  type: 'done',
+                  conversationId,
+                  data: null,
+                })
+              },
+              handleParseError(error) {
+                console.debug('json error', error)
+              },
+            }),
+          )
+        }
+        return bodyParsers.get(conversationId)
       }
-      while (bufferedWebsocketEvents.length > 0) {
-        handleWebsocketEvent(bufferedWebsocketEvents.shift())
+
+      wsCallback = {
+        onMessage(event) {
+          let wsData
+          try {
+            wsData = JSON.parse(event.data)
+          } catch (error) {
+            console.debug('json error', error)
+            return
+          }
+          if (wsData.type !== 'http.response.body') return
+          let body
+          try {
+            body = atob(wsData.body)
+            const trimmedBody = body.trim()
+            if (
+              !responseMetaLogged &&
+              trimmedBody &&
+              trimmedBody !== '[DONE]' &&
+              trimmedBody !== 'data: [DONE]'
+            ) {
+              responseMetaLogged = true
+              void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+                transport: 'websocket',
+                responseChunkRawJson: truncateString(body, 16000),
+              })
+            }
+            getBodyParser(wsData.conversation_id).feed(body)
+          } catch (error) {
+            console.debug('json error', error)
+            requestController.handleSocketClose(error)
+          }
+        },
+        onClose(error) {
+          requestController.handleSocketClose(error)
+        },
       }
-    } catch (error) {
-      wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
-      throw error
-    }
+      wsCallbacks.push(wsCallback)
+      ;(async () => {
+        try {
+          const { conversationId, wsRequestId } = await sendWebsocketConversation(
+            accessToken,
+            options,
+          )
+          promptDispatchCommitted = true
+          const dispatchResult = requestController.confirmDispatch({
+            conversationId,
+            wsRequestId,
+          })
+          if (!dispatchResult.accepted || dispatchResult.settled) return
+
+          void appendChatgptWebDebugLog(config, 'websocket-dispatch', {
+            conversationId,
+            wsRequestId,
+            model: usedModel,
+          })
+          emitSessionUpdate(true)
+
+          if (dispatchResult.bufferedCount > 0) {
+            void appendChatgptWebDebugLog(config, 'websocket-buffer-flush', {
+              bufferedCount: dispatchResult.bufferedCount,
+              conversationId,
+              model: usedModel,
+            })
+          }
+        } catch (error) {
+          requestController.handleSocketClose(markReplayUnsafe(error))
+        }
+      })()
+    })
   } else {
     await fetchSSE(url, {
       ...options,
+      async onResponse() {
+        promptDispatchCommitted = true
+      },
       onMessage(message) {
         console.debug('sse message', message)
         if (message.trim() === '[DONE]') {
-          finishMessage()
           return
         }
         if (!responseMetaLogged) {
@@ -729,18 +1141,24 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           console.debug('json error', error)
           return
         }
-        handleMessage(data)
+        try {
+          handleMessage(data)
+        } catch (error) {
+          void finalizeMessage('sse_message_error', markReplayUnsafe(error))
+        }
       },
       async onStart() {
+        promptDispatchCommitted = true
         // sendModerations(accessToken, question, session.conversationId, session.messageId)
       },
       async onEnd() {
-        port.postMessage({ done: true })
-        cleanController()
+        await finalizeMessage('sse_end')
       },
       async onError(resp) {
-        cleanController()
-        if (resp instanceof Error) throw resp
+        if (resp instanceof Error) {
+          await finalizeMessage('sse_error', markReplayUnsafe(resp))
+          return
+        }
         const debugErrorText = await resp
           .clone()
           .text()
@@ -751,11 +1169,17 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           body: truncateString(debugErrorText, 4000),
         })
         if (resp.status === 403) {
-          throw new Error('CLOUDFLARE')
+          await finalizeMessage('sse_error', markReplayUnsafe(new Error('CLOUDFLARE')))
+          return
         }
         const error = await resp.json().catch(() => ({}))
-        throw new Error(
-          !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
+        await finalizeMessage(
+          'sse_error',
+          markReplayUnsafe(
+            new Error(
+              !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
+            ),
+          ),
         )
       },
     })
@@ -770,25 +1194,39 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       throw new Error(JSON.stringify(data.error))
     }
 
-    if (data.conversation_id) session.conversationId = data.conversation_id
-    if (data.message?.id) session.parentMessageId = data.message.id
+    if (data.conversation_id) {
+      session.conversationId = data.conversation_id
+      promptDispatchCommitted = true
+    }
+    if (data.message?.author?.role === 'assistant') {
+      lastAssistantMessageId = data.message.id || lastAssistantMessageId
+      if (data.message?.id) {
+        session.parentMessageId = data.message.id
+        promptDispatchCommitted = true
+      }
+      lastAssistantStatus =
+        typeof data.message?.status === 'string' ? data.message.status : lastAssistantStatus
+    }
+    if (session.conversationId || session.parentMessageId) {
+      emitSessionUpdate()
+    }
 
-    const respAns = data.message?.content?.parts?.[0]
+    const respAns = extractChatgptWebMessageText(data.message)
+    const respPart = data.message?.content?.parts?.[0]
     const contentType = data.message?.content?.content_type
+    const messageChannel =
+      typeof data.message?.channel === 'string' ? data.message.channel : null
     if (contentType === 'text' && respAns) {
-      answer =
-        generationPrefixAnswer +
-        (generatedImageUrl && `\n\n![](${generatedImageUrl})\n\n`) +
-        respAns
+      answer = withRichContent(respAns)
     } else if (contentType === 'code' && data.message?.status === 'in_progress') {
       const generationText = '\n\n' + t('Generating...')
       if (answer && !answer.endsWith(generationText)) generationPrefixAnswer = answer
       answer = generationPrefixAnswer + generationText
     } else if (
       contentType === 'multimodal_text' &&
-      respAns?.content_type === 'image_asset_pointer'
+      respPart?.content_type === 'image_asset_pointer'
     ) {
-      const imageAsset = respAns?.asset_pointer || ''
+      const imageAsset = respPart?.asset_pointer || ''
       if (imageAsset) {
         fetch(
           `${config.customChatGptWebApiUrl}/backend-api/files/${imageAsset.replace(
@@ -806,9 +1244,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       }
     }
 
-    if (answer) {
-      port.postMessage({ answer: answer, done: false, session: null })
-    }
+    emitIntermediateAnswerSnapshot({
+      source: 'transport',
+      channel: messageChannel,
+      pending: isPendingChatgptWebMessageStatus(data.message?.status),
+    })
   }
 
   function finishMessage() {

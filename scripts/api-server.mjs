@@ -17,8 +17,29 @@ function cliArg(name, fallback) {
   return fallback
 }
 
+function parsePositiveInt(value, fallback, min, max) {
+  const parsed = parseInt(value, 10)
+  if (Number.isNaN(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
 const PORT = parseInt(cliArg('port', process.env.CHATGPT_GATEWAY_PORT || '18080'), 10)
 const HOST = cliArg('host', process.env.CHATGPT_GATEWAY_HOST || '127.0.0.1')
+const DEFAULT_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
+  cliArg('timeout-seconds', process.env.CHATGPT_GATEWAY_TIMEOUT_SECONDS || '180'),
+  180,
+  30,
+  3600,
+)
+const DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
+  cliArg(
+    'thinking-timeout-seconds',
+    process.env.CHATGPT_GATEWAY_THINKING_TIMEOUT_SECONDS || '2700',
+  ),
+  2700,
+  30,
+  7200,
+)
 
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`ChatGPT Web API Gateway
@@ -30,6 +51,12 @@ Usage:
 Options:
   --port <number>   Port to listen on  (env: CHATGPT_GATEWAY_PORT, default: 18080)
   --host <address>  Address to bind to (env: CHATGPT_GATEWAY_HOST, default: 127.0.0.1)
+  --timeout-seconds <number>
+                    Timeout for regular requests
+                    (env: CHATGPT_GATEWAY_TIMEOUT_SECONDS, default: 180)
+  --thinking-timeout-seconds <number>
+                    Timeout for thinking requests
+                    (env: CHATGPT_GATEWAY_THINKING_TIMEOUT_SECONDS, default: 2700)
   -h, --help        Show this help message
 
 Examples:
@@ -73,6 +100,11 @@ const AVAILABLE_MODELS = [
 
 let bridgeWs = null
 const pendingRequests = new Map()
+const pendingControlRequests = new Map()
+const bridgeRuntimeConfig = {
+  requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_SECONDS * 1000,
+  thinkingRequestTimeoutMs: DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS * 1000,
+}
 
 let httpBridgeActive = false
 let httpBridgeLastSeen = 0
@@ -81,6 +113,7 @@ const httpBridgeQueue = []
 const httpBridgePollWaiters = []
 
 const stats = { startedAt: Date.now(), totalRequests: 0, totalErrors: 0 }
+const STREAM_HEARTBEAT_MS = 15_000
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,6 +153,39 @@ function makeStreamChunk(id, model, delta, finishReason) {
         finish_reason: finishReason,
       },
     ],
+  }
+}
+
+function getRequestTimeoutMs(model) {
+  return typeof model === 'string' && model.trim().endsWith('-thinking')
+    ? bridgeRuntimeConfig.thinkingRequestTimeoutMs
+    : bridgeRuntimeConfig.requestTimeoutMs
+}
+
+function applyBridgeRuntimeConfig(msg = {}) {
+  const requestTimeoutSeconds = parsePositiveInt(
+    msg.requestTimeoutSeconds,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    30,
+    3600,
+  )
+  const thinkingRequestTimeoutSeconds = parsePositiveInt(
+    msg.thinkingRequestTimeoutSeconds,
+    DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS,
+    30,
+    7200,
+  )
+  const nextRequestTimeoutMs = requestTimeoutSeconds * 1000
+  const nextThinkingRequestTimeoutMs = thinkingRequestTimeoutSeconds * 1000
+  const changed =
+    bridgeRuntimeConfig.requestTimeoutMs !== nextRequestTimeoutMs ||
+    bridgeRuntimeConfig.thinkingRequestTimeoutMs !== nextThinkingRequestTimeoutMs
+  bridgeRuntimeConfig.requestTimeoutMs = nextRequestTimeoutMs
+  bridgeRuntimeConfig.thinkingRequestTimeoutMs = nextThinkingRequestTimeoutMs
+  if (changed) {
+    log(
+      `Bridge config updated: request_timeout=${requestTimeoutSeconds}s thinking_timeout=${thinkingRequestTimeoutSeconds}s`,
+    )
   }
 }
 
@@ -169,6 +235,12 @@ function rejectAllPending(reason) {
     req.reject(new Error(reason))
   }
   pendingRequests.clear()
+
+  for (const [, req] of pendingControlRequests) {
+    clearTimeout(req.timeout)
+    req.reject(new Error(reason))
+  }
+  pendingControlRequests.clear()
 }
 
 // Periodically check HTTP bridge health
@@ -187,6 +259,24 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 function handleBridgeMessage(msg) {
+  if (msg.type === 'bridge_config') {
+    applyBridgeRuntimeConfig(msg)
+    return
+  }
+
+  if (msg.type === 'control_response' || msg.type === 'control_error') {
+    const pendingControl = pendingControlRequests.get(msg.id)
+    if (!pendingControl) return
+    pendingControlRequests.delete(msg.id)
+    clearTimeout(pendingControl.timeout)
+    if (msg.type === 'control_response') {
+      pendingControl.resolve(msg.data)
+    } else {
+      pendingControl.reject(new Error(msg.error || 'Unknown control error from extension'))
+    }
+    return
+  }
+
   const pending = pendingRequests.get(msg.id)
   if (!pending) return
 
@@ -199,6 +289,44 @@ function handleBridgeMessage(msg) {
     stats.totalErrors++
     pending.reject(new Error(msg.error || 'Unknown error from extension'))
   }
+}
+
+function sendControlRequestToBridge(
+  action,
+  payload,
+  timeoutMs = bridgeRuntimeConfig.requestTimeoutMs,
+) {
+  if (!isBridgeConnected()) {
+    return Promise.reject(new Error('Extension bridge not connected'))
+  }
+
+  const id = crypto.randomUUID()
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingControlRequests.delete(id)
+      reject(new Error(`Control request timed out after ${Math.round(timeoutMs / 1000)} seconds`))
+    }, timeoutMs)
+
+    pendingControlRequests.set(id, { resolve, reject, timeout })
+
+    try {
+      const sent = sendToBridge({
+        type: 'control_request',
+        id,
+        action,
+        payload,
+      })
+      if (!sent) {
+        clearTimeout(timeout)
+        pendingControlRequests.delete(id)
+        reject(new Error('Extension bridge not connected'))
+      }
+    } catch (error) {
+      clearTimeout(timeout)
+      pendingControlRequests.delete(id)
+      reject(error)
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +347,7 @@ async function handleChatCompletions(req, res) {
   const messages = body.messages
   const stream = body.stream === true
   const completionId = makeCompletionId()
+  const requestTimeoutMs = getRequestTimeoutMs(model)
 
   if (!Array.isArray(messages) || messages.length === 0) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
@@ -262,6 +391,7 @@ async function handleChatCompletions(req, res) {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     })
+    res.flushHeaders?.()
 
     const initialChunk = makeStreamChunk(
       completionId,
@@ -295,9 +425,15 @@ async function handleChatCompletions(req, res) {
       }
     }
 
+    const heartbeat = setInterval(() => {
+      if (state.resolved) return
+      safeWrite(': keep-alive\n\n')
+    }, STREAM_HEARTBEAT_MS)
+
     function cleanup() {
       state.resolved = true
       clearTimeout(timeout)
+      clearInterval(heartbeat)
       pendingRequests.delete(requestId)
     }
 
@@ -316,13 +452,21 @@ async function handleChatCompletions(req, res) {
         safeWrite('data: [DONE]\n\n')
         safeEnd()
       }
-    }, 120000)
+    }, requestTimeoutMs)
 
     pendingRequests.set(requestId, {
       onChunk(answer) {
         if (state.resolved) return
-        const delta = answer.slice(previousAnswer.length)
-        previousAnswer = answer
+        const nextAnswer = typeof answer === 'string' ? answer : ''
+        if (!nextAnswer) return
+        if (previousAnswer && !nextAnswer.startsWith(previousAnswer)) {
+          log(
+            `Request ${completionId}: skipped non-monotonic stream snapshot prev=${previousAnswer.length} next=${nextAnswer.length}`,
+          )
+          return
+        }
+        const delta = nextAnswer.slice(previousAnswer.length)
+        previousAnswer = nextAnswer
         if (delta) {
           const chunk = makeStreamChunk(completionId, model, { content: delta }, null)
           safeWrite(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -363,9 +507,11 @@ async function handleChatCompletions(req, res) {
         const timeout = setTimeout(() => {
           if (!state.settled) {
             settle()
-            reject(new Error('Request timed out after 120 seconds'))
+            reject(
+              new Error(`Request timed out after ${Math.round(requestTimeoutMs / 1000)} seconds`),
+            )
           }
-        }, 120000)
+        }, requestTimeoutMs)
 
         res.on('close', () => {
           if (!state.settled) {
@@ -427,9 +573,36 @@ async function handleChatCompletions(req, res) {
   }
 }
 
-function handleModels(res) {
-  const data = AVAILABLE_MODELS.map((m) => ({
-    id: m.id,
+let cachedModels = null
+let cachedModelsAt = 0
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000
+
+async function handleModels(res) {
+  let models = null
+
+  if (cachedModels && Date.now() - cachedModelsAt < MODEL_CACHE_TTL_MS) {
+    models = cachedModels
+  }
+
+  if (!models && isBridgeConnected()) {
+    try {
+      const slugs = await sendControlRequestToBridge('chatgpt_web_list_models', {}, 10_000)
+      if (Array.isArray(slugs) && slugs.length > 0) {
+        models = slugs
+        cachedModels = slugs
+        cachedModelsAt = Date.now()
+      }
+    } catch (err) {
+      log(`Model list fetch failed, using fallback: ${err.message}`)
+    }
+  }
+
+  if (!models) {
+    models = AVAILABLE_MODELS.map((m) => m.id)
+  }
+
+  const data = models.map((id) => ({
+    id,
     object: 'model',
     created: 1700000000,
     owned_by: 'chatgpt-web',
@@ -474,6 +647,10 @@ function handleHealth(res) {
       pending_requests: pendingRequests.size,
     },
     diagnostics: {},
+    timeouts: {
+      request_seconds: Math.round(bridgeRuntimeConfig.requestTimeoutMs / 1000),
+      thinking_request_seconds: Math.round(bridgeRuntimeConfig.thinkingRequestTimeoutMs / 1000),
+    },
   }
 
   if (!connected) {
@@ -489,6 +666,119 @@ function handleHealth(res) {
 
   res.writeHead(connected ? 200 : 503, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(health, null, 2))
+}
+
+async function handleChatgptConversationList(url, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  try {
+    const result = await sendControlRequestToBridge('chatgpt_web_list_conversations', {
+      offset: url.searchParams.get('offset') || 0,
+      limit: url.searchParams.get('limit') || 28,
+      order: url.searchParams.get('order') || 'updated',
+      isArchived: url.searchParams.get('is_archived') || false,
+      isStarred: url.searchParams.get('is_starred') || false,
+    })
+    if (result == null) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              'ChatGPT conversation list returned null from the extension bridge. Restart the local API server, rebuild/reload the extension, and retry.',
+            type: 'server_error',
+          },
+        }),
+      )
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleChatgptConversationGet(conversationId, url, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  try {
+    const result = await sendControlRequestToBridge('chatgpt_web_get_conversation', {
+      conversationId,
+      userMessageId: url.searchParams.get('user_message_id') || undefined,
+      assistantMessageId: url.searchParams.get('assistant_message_id') || undefined,
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleChatgptConversationRefresh(req, res, conversationId) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  let body = {}
+  try {
+    const rawBody = await readBody(req)
+    body = rawBody ? JSON.parse(rawBody) : {}
+  } catch {
+    body = {}
+  }
+
+  try {
+    const result = await sendControlRequestToBridge('chatgpt_web_refresh_conversation', {
+      conversationId,
+      userMessageId: body.userMessageId,
+      assistantMessageId: body.assistantMessageId,
+      offset: body.offset,
+      preferResume: body.preferResume,
+      resumeTimeoutMs: body.resumeTimeoutMs,
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -590,9 +880,19 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`)
+  const conversationGetMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)$/)
+  const conversationRefreshMatch = url.pathname.match(
+    /^\/chatgpt\/conversations\/([^/]+)\/refresh$/,
+  )
 
   if (url.pathname === '/v1/models' && req.method === 'GET') {
-    handleModels(res)
+    handleModels(res).catch((err) => {
+      logError(`Model list error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
   } else if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
     handleChatCompletions(req, res).catch((err) => {
       logError(`Unhandled error: ${err.message}`)
@@ -606,6 +906,36 @@ const server = http.createServer((req, res) => {
     handleStatus(res)
   } else if (url.pathname === '/health' && req.method === 'GET') {
     handleHealth(res)
+  } else if (url.pathname === '/chatgpt/conversations' && req.method === 'GET') {
+    handleChatgptConversationList(url, res).catch((err) => {
+      logError(`Conversation list error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (conversationGetMatch && req.method === 'GET') {
+    handleChatgptConversationGet(decodeURIComponent(conversationGetMatch[1]), url, res).catch(
+      (err) => {
+        logError(`Conversation get error: ${err.message}`)
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+        }
+      },
+    )
+  } else if (conversationRefreshMatch && req.method === 'POST') {
+    handleChatgptConversationRefresh(
+      req,
+      res,
+      decodeURIComponent(conversationRefreshMatch[1]),
+    ).catch((err) => {
+      logError(`Conversation refresh error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
   } else if (url.pathname === '/bridge/poll' && req.method === 'GET') {
     handleBridgePoll(req, res)
   } else if (url.pathname === '/bridge/respond' && req.method === 'POST') {
@@ -718,6 +1048,9 @@ server.listen(PORT, HOST, () => {
   log(`  GET  http://${HOST}:${PORT}/v1/models`)
   log(`  GET  http://${HOST}:${PORT}/status`)
   log(`  GET  http://${HOST}:${PORT}/health`)
+  log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations`)
+  log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations/:id`)
+  log(`  POST http://${HOST}:${PORT}/chatgpt/conversations/:id/refresh`)
   log(``)
   log(`Bridge transports:`)
   log(`  WebSocket  ws://${HOST}:${PORT}/bridge`)

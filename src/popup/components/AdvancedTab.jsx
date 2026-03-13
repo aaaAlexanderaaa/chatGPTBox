@@ -6,7 +6,25 @@ import Browser from 'webextension-polyfill'
 import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
 import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
-import { CHATGPT_WEB_DEBUG_LOG_KEY, ModelGroups } from '../../config/index.mjs'
+import {
+  CHATGPT_WEB_DEBUG_LOG_KEY,
+  DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
+  MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
+  MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
+  MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  ModelGroups,
+} from '../../config/index.mjs'
 
 /**
  * AdvancedTab - Advanced settings and data management
@@ -54,6 +72,34 @@ export function AdvancedTab({
     }
   }, [])
 
+  const exportWebDebugLogs = useCallback(() => {
+    try {
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            {
+              exportedAt: new Date().toISOString(),
+              entries: webDebugLogs,
+            },
+            null,
+            2,
+          ),
+        ],
+        { type: 'application/json;charset=utf-8' },
+      )
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `chatgpt-web-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setWebDebugError(error?.message || String(error))
+    }
+  }, [webDebugLogs])
+
   useEffect(() => {
     if (isPopupMode) return
     void loadWebDebugLogs()
@@ -90,17 +136,41 @@ export function AdvancedTab({
 
   const maxResponseTokenLengthValue = parseIntWithClamp(
     config.maxResponseTokenLength,
-    2000,
+    DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
     100,
-    40000,
+    MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
   )
   const maxConversationContextLengthValue = parseIntWithClamp(
     config.maxConversationContextLength,
     9,
     0,
-    100,
+    MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   )
   const temperatureValue = parseFloatWithClamp(config.temperature, 1, 0, 2)
+  const chatgptWebConversationPollTimeoutValue = parseIntWithClamp(
+    config.chatgptWebConversationPollTimeoutSeconds,
+    DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+    MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+    MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  )
+  const chatgptWebConversationPollIntervalValue = parseIntWithClamp(
+    config.chatgptWebConversationPollIntervalSeconds,
+    DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+    MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+    MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  )
+  const apiServerRequestTimeoutValue = parseIntWithClamp(
+    config.apiServerRequestTimeoutSeconds,
+    DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+    MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+    MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  )
+  const apiServerThinkingTimeoutValue = parseIntWithClamp(
+    config.apiServerThinkingTimeoutSeconds,
+    DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
+    MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+    MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  )
   const enabledProviders = config.enabledProviders || {}
   const enabledProviderCount = Object.values(enabledProviders).filter(Boolean).length
 
@@ -146,11 +216,14 @@ export function AdvancedTab({
     <div className="space-y-4">
       {/* Model Parameters */}
       <SettingSection title={t('Model Parameters')}>
-        <SettingRow label={t('Max Response Tokens')} hint={t('Maximum tokens in response')}>
+        <SettingRow
+          label={t('Max Response Tokens')}
+          hint={t('Maximum tokens in response (actual model/provider limits still apply)')}
+        >
           <input
             type="number"
             min={100}
-            max={40000}
+            max={MAX_RESPONSE_TOKEN_LENGTH_LIMIT}
             step={100}
             value={maxResponseTokenLengthValue}
             onChange={(e) => {
@@ -158,7 +231,7 @@ export function AdvancedTab({
                 e.target.value,
                 maxResponseTokenLengthValue,
                 100,
-                40000,
+                MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
               )
               updateConfig({ maxResponseTokenLength: value })
             }}
@@ -170,7 +243,7 @@ export function AdvancedTab({
           <input
             type="number"
             min={0}
-            max={100}
+            max={MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT}
             step={1}
             value={maxConversationContextLengthValue}
             onChange={(e) => {
@@ -178,7 +251,7 @@ export function AdvancedTab({
                 e.target.value,
                 maxConversationContextLengthValue,
                 0,
-                100,
+                MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
               )
               updateConfig({ maxConversationContextLength: value })
             }}
@@ -232,6 +305,85 @@ export function AdvancedTab({
 
       <Divider />
 
+      <SettingSection title={t('ChatGPT Web History')}>
+        <SettingRow
+          label={t('Keep ChatGPTBox chats in ChatGPT history')}
+          hint={t(
+            'When enabled, ChatGPTBox conversations stay visible in your official ChatGPT conversation list',
+          )}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.disableWebModeHistory !== true}
+            onClick={() =>
+              updateConfig({ disableWebModeHistory: config.disableWebModeHistory !== true })
+            }
+            className={`relative w-10 h-6 rounded-full transition-colors ${
+              config.disableWebModeHistory !== true ? 'bg-primary' : 'bg-secondary'
+            }`}
+          >
+            <span
+              className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${
+                config.disableWebModeHistory !== true ? 'left-5' : 'left-1'
+              }`}
+            />
+          </button>
+        </SettingRow>
+
+        <SettingRow
+          label={t('ChatGPT Web poll interval (s)')}
+          hint={t(
+            'How often ChatGPTBox checks the official conversation state while waiting for thinking or extended-thinking results',
+          )}
+        >
+          <input
+            type="number"
+            min={MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS}
+            max={MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS}
+            step={1}
+            value={chatgptWebConversationPollIntervalValue}
+            onChange={(e) => {
+              const value = parseIntWithClamp(
+                e.target.value,
+                chatgptWebConversationPollIntervalValue,
+                MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+                MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+              )
+              updateConfig({ chatgptWebConversationPollIntervalSeconds: value })
+            }}
+            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t('ChatGPT Web result timeout (s)')}
+          hint={t(
+            'How long ChatGPTBox waits for a final result when thinking sessions finish streaming before the official conversation state is ready',
+          )}
+        >
+          <input
+            type="number"
+            min={MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS}
+            max={MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS}
+            step={15}
+            value={chatgptWebConversationPollTimeoutValue}
+            onChange={(e) => {
+              const value = parseIntWithClamp(
+                e.target.value,
+                chatgptWebConversationPollTimeoutValue,
+                MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+                MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+              )
+              updateConfig({ chatgptWebConversationPollTimeoutSeconds: value })
+            }}
+            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          />
+        </SettingRow>
+      </SettingSection>
+
+      <Divider />
+
       <SettingSection title={t('API Server Bridge')}>
         <SettingRow
           label={t('Keep API Server chats in ChatGPT history')}
@@ -256,6 +408,54 @@ export function AdvancedTab({
               }`}
             />
           </button>
+        </SettingRow>
+
+        <SettingRow
+          label={t('API request timeout (s)')}
+          hint={t('How long the local API Server waits before failing non-thinking requests')}
+        >
+          <input
+            type="number"
+            min={MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS}
+            max={MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS}
+            step={15}
+            value={apiServerRequestTimeoutValue}
+            onChange={(e) => {
+              const value = parseIntWithClamp(
+                e.target.value,
+                apiServerRequestTimeoutValue,
+                MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+                MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+              )
+              updateConfig({ apiServerRequestTimeoutSeconds: value })
+            }}
+            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t('Thinking request timeout (s)')}
+          hint={t(
+            'How long the local API Server waits before failing thinking or extended-thinking requests',
+          )}
+        >
+          <input
+            type="number"
+            min={MIN_API_SERVER_THINKING_TIMEOUT_SECONDS}
+            max={MAX_API_SERVER_THINKING_TIMEOUT_SECONDS}
+            step={15}
+            value={apiServerThinkingTimeoutValue}
+            onChange={(e) => {
+              const value = parseIntWithClamp(
+                e.target.value,
+                apiServerThinkingTimeoutValue,
+                MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+                MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+              )
+              updateConfig({ apiServerThinkingTimeoutSeconds: value })
+            }}
+            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          />
         </SettingRow>
 
         <SettingRow
@@ -310,6 +510,13 @@ export function AdvancedTab({
                 className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 rounded-lg hover:bg-destructive/20 transition-colors"
               >
                 {t('Clear Logs')}
+              </button>
+              <button
+                onClick={() => exportWebDebugLogs()}
+                className="px-3 py-1.5 text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+                disabled={webDebugLogs.length === 0}
+              >
+                {t('Export Logs')}
               </button>
               <span className="text-xs text-muted-foreground">
                 {webDebugLoading ? t('Loading...') : `${webDebugLogs.length} ${t('entries')}`}

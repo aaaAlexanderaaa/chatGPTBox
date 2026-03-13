@@ -1,7 +1,7 @@
 import { createParser } from './eventsource-parser.mjs'
 
 export async function fetchSSE(resource, options) {
-  const { onMessage, onStart, onEnd, onError, ...fetchOptions } = options
+  const { onMessage, onStart, onEnd, onError, onResponse, onEvent, ...fetchOptions } = options
   const resp = await fetch(resource, fetchOptions).catch(async (err) => {
     await onError(err)
   })
@@ -10,6 +10,7 @@ export async function fetchSSE(resource, options) {
     await onError(resp)
     return
   }
+  await onResponse?.(resp)
   const contentType = resp.headers.get('content-type')?.toLowerCase() ?? ''
   const isEventStreamResponse = contentType.includes('text/event-stream')
   const encoder = new TextEncoder()
@@ -18,7 +19,8 @@ export async function fetchSSE(resource, options) {
   const parser = createParser((event) => {
     if (event.type === 'event') {
       hasSseEvent = true
-      onMessage(event.data)
+      onEvent?.(event)
+      onMessage(event.data, event)
     }
   })
   const reader = resp.body?.getReader()
@@ -61,7 +63,8 @@ export async function fetchSSE(resource, options) {
 
     const fallbackParser = createParser((event) => {
       if (event.type === 'event') {
-        onMessage(event.data)
+        onEvent?.(event)
+        onMessage(event.data, event)
       }
     })
     fallbackParser.feed(encoder.encode(fakeSseData || responseText))

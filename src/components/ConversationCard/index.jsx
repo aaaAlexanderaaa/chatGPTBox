@@ -41,6 +41,11 @@ import { v4 as uuidv4 } from 'uuid'
 import { initSession } from '../../services/init-session.mjs'
 import { findLastIndex } from 'lodash-es'
 import { generateAnswersWithBingWebApi } from '../../services/apis/bing-web.mjs'
+import {
+  deleteChatgptWebSessionSnapshot,
+  restoreChatgptWebSessionSnapshot,
+  saveChatgptWebSessionSnapshot,
+} from '../../services/chatgpt-web-thread-state.mjs'
 import { handlePortError } from '../../services/wrappers.mjs'
 import {
   getAssistants,
@@ -117,6 +122,58 @@ function ConversationCard(props) {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    if (!session?.sessionId) return () => {}
+    if (session.conversationId || session.parentMessageId || session.wsRequestId) return () => {}
+
+    void restoreChatgptWebSessionSnapshot(session)
+      .then((restoredSession) => {
+        if (cancelled || !restoredSession || restoredSession === session) return
+        if (
+          restoredSession.conversationId === session.conversationId &&
+          restoredSession.parentMessageId === session.parentMessageId &&
+          restoredSession.messageId === session.messageId &&
+          restoredSession.wsRequestId === session.wsRequestId
+        ) {
+          return
+        }
+
+        setSession((prev) => {
+          if (!prev || prev.sessionId !== restoredSession.sessionId) return prev
+          return { ...prev, ...restoredSession }
+        })
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [session?.sessionId])
+
+  useEffect(() => {
+    if (!session?.sessionId) return
+    if (!session.conversationId && !session.parentMessageId && !session.wsRequestId) return
+    void saveChatgptWebSessionSnapshot(session, {
+      source: props.pageMode
+        ? 'independent-panel'
+        : props.draggable
+        ? 'floating-toolbar'
+        : 'conversation-card',
+    }).catch(() => {})
+  }, [
+    props.draggable,
+    props.pageMode,
+    session?.sessionId,
+    session?.conversationId,
+    session?.parentMessageId,
+    session?.messageId,
+    session?.wsRequestId,
+    session?.modelName,
+    session?.question,
+  ])
+
+  useEffect(() => {
     conversationItemDataRef.current = conversationItemData
   }, [conversationItemData])
 
@@ -138,15 +195,25 @@ function ConversationCard(props) {
   }, [conversationItemData])
 
   useEffect(() => {
-    // when the page is responsive, session may accumulate redundant data and needs to be cleared after remounting and before making a new request
+    // Restore any saved ChatGPT Web state before the first request so a remount
+    // continues the same conversation instead of silently starting over.
     if (!props.question || !triggered) return
 
     let cancelled = false
     ;(async () => {
-      const runtimeConfig = await getUserConfig()
+      const [runtimeConfig, restoredSession] = await Promise.all([
+        getUserConfig(),
+        restoreChatgptWebSessionSnapshot(session).catch(() => session),
+      ])
       if (cancelled) return
-      const nextSession = initSession({ ...session, question: props.question })
-      const newSession = withCurrentPageContext(nextSession, runtimeConfig)
+      const newSession = withCurrentPageContext(
+        {
+          ...(restoredSession && typeof restoredSession === 'object' ? restoredSession : session),
+          question: props.question,
+          updatedAt: new Date().toISOString(),
+        },
+        runtimeConfig,
+      )
       setSession(newSession)
       await postMessage({ session: newSession })
     })()
@@ -1074,6 +1141,7 @@ function ConversationCard(props) {
                   conversationId: session.conversationId,
                 },
               })
+              await deleteChatgptWebSessionSnapshot(session.sessionId).catch(() => {})
               setConversationItemData([])
               const newSession = initSession({
                 ...session,

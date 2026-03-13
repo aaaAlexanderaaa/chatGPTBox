@@ -37,6 +37,7 @@ import { t } from 'i18next'
  * @property {object[]} toolEvents
  * @property {object|null} agentMemory
  * @property {boolean|null} chatgptWebHistoryDisabledOverride
+ * @property {boolean|null} chatgptWebIncrementalOutput
  */
 /**
  * @param {string|null} question
@@ -53,6 +54,7 @@ import { t } from 'i18next'
  * @param {object|null} pageContext
  * @param {object|null} agentMemory
  * @param {boolean|null} chatgptWebHistoryDisabledOverride
+ * @param {boolean|null} chatgptWebIncrementalOutput
  * @returns {Session}
  */
 export function initSession({
@@ -70,6 +72,7 @@ export function initSession({
   pageContext = null,
   agentMemory = null,
   chatgptWebHistoryDisabledOverride = null,
+  chatgptWebIncrementalOutput = null,
 } = {}) {
   return {
     // common
@@ -104,6 +107,8 @@ export function initSession({
       typeof chatgptWebHistoryDisabledOverride === 'boolean'
         ? chatgptWebHistoryDisabledOverride
         : null,
+    chatgptWebIncrementalOutput:
+      typeof chatgptWebIncrementalOutput === 'boolean' ? chatgptWebIncrementalOutput : null,
 
     autoClean,
     isRetry: false,

@@ -1,7 +1,6 @@
 import Browser from 'webextension-polyfill'
 import {
   deleteConversation,
-  generateAnswersWithChatgptWebApi,
   sendMessageFeedback,
 } from '../services/apis/chatgpt-web'
 import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
@@ -56,11 +55,22 @@ import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moonshot-api.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
-import { isUsingModelName } from '../utils/model-name-convert.mjs'
+import { getModelValue, isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
+import {
+  CHATGPT_PROXY_QUERY_PARAM,
+  CHATGPT_PROXY_QUERY_VALUE,
+  isDedicatedChatgptProxyTabUrl,
+} from '../utils/chatgpt-proxy-tab.mjs'
+import {
+  getChatgptWebConversation,
+  listChatgptWebConversations,
+  refreshChatgptWebConversation,
+} from '../services/apis/chatgpt-web-conversation-api.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const pendingChatgptProxyRequests = new Map()
+const activeChatgptWebSessionRequests = new Map()
 
 function summarizeApiMode(apiMode) {
   if (!apiMode || typeof apiMode !== 'object') return null
@@ -114,59 +124,79 @@ async function appendChatgptWebDebugLog(config, stage, payload = {}) {
   }
 }
 
-function isLikelyChatgptTabUrl(url) {
-  if (typeof url !== 'string' || !url) return false
-  try {
-    const parsed = new URL(url)
-    return parsed.hostname === 'chatgpt.com' || parsed.hostname.endsWith('.chatgpt.com')
-  } catch {
-    return false
-  }
-}
-
 async function discoverChatgptTab() {
   try {
     let tabs = await Browser.tabs.query({ url: 'https://chatgpt.com/*' }).catch(() => [])
     if (!tabs.length) {
       const all = await Browser.tabs.query({})
-      tabs = all.filter((t) => isLikelyChatgptTabUrl(t.url))
+      tabs = all
     }
-    const candidate = tabs.find(
-      (t) => t.id && isLikelyChatgptTabUrl(t.url) && t.url !== 'https://chatgpt.com/auth/login',
-    )
+    tabs = tabs.filter((t) => isDedicatedChatgptProxyTabUrl(t.url))
+    const candidate = tabs.find((t) => t.id && isDedicatedChatgptProxyTabUrl(t.url))
     return candidate || null
   } catch {
     return null
   }
 }
 
-function isNetworkError(err) {
-  if (!(err instanceof Error)) return false
-  const msg = (err.message || '').toLowerCase()
-  return (
-    msg.includes('failed to fetch') ||
-    msg.includes('networkerror') ||
-    msg.includes('network error') ||
-    msg.includes('blocked')
-  )
+async function waitForTabComplete(tabId, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    let settled = false
+
+    const finish = async () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      Browser.tabs.onUpdated.removeListener(onUpdated)
+      Browser.tabs.onRemoved.removeListener(onRemoved)
+      const latestTab = await Browser.tabs.get(tabId).catch(() => null)
+      resolve(latestTab)
+    }
+
+    const onUpdated = (updatedTabId, info) => {
+      if (updatedTabId !== tabId) return
+      if (info.status === 'complete') void finish()
+    }
+
+    const onRemoved = (removedTabId) => {
+      if (removedTabId !== tabId) return
+      void finish()
+    }
+
+    const timer = setTimeout(() => {
+      void finish()
+    }, timeoutMs)
+
+    Browser.tabs.onUpdated.addListener(onUpdated)
+    Browser.tabs.onRemoved.addListener(onRemoved)
+    void finishIfAlreadyComplete()
+
+    async function finishIfAlreadyComplete() {
+      const currentTab = await Browser.tabs.get(tabId).catch(() => null)
+      if (currentTab?.status === 'complete') {
+        void finish()
+      }
+    }
+  })
 }
 
-// Brave permanently blocks cross-origin fetch from service workers
-// (brave/brave-browser#25855). Once we detect this, skip the background-fetch
-// path entirely and go straight to the proxy-tab path for the rest of the
-// browser session.  We persist the flag in chrome.storage.session so it
-// survives service-worker restarts without persisting across browser restarts.
-let bgFetchBlocked = false
-Browser.storage.session
-  ?.get?.({ bgFetchBlocked: false })
-  .then((d) => {
-    bgFetchBlocked = !!d.bgFetchBlocked
-  })
-  .catch(() => {})
+async function ensureChatgptProxyTab() {
+  const discovered = await discoverChatgptTab()
+  if (discovered?.id) {
+    await setUserConfig({ chatgptTabId: discovered.id })
+    return discovered
+  }
 
-function markBgFetchBlocked() {
-  bgFetchBlocked = true
-  Browser.storage.session?.set?.({ bgFetchBlocked: true }).catch(() => {})
+  const createdTab = await Browser.tabs.create({
+    url: `https://chatgpt.com/?${CHATGPT_PROXY_QUERY_PARAM}=${CHATGPT_PROXY_QUERY_VALUE}`,
+    active: false,
+  })
+  const readyTab = await waitForTabComplete(createdTab.id)
+  if (readyTab?.id && isDedicatedChatgptProxyTabUrl(readyTab.url)) {
+    await setUserConfig({ chatgptTabId: readyTab.id })
+    return readyTab
+  }
+  return readyTab || createdTab || null
 }
 
 async function injectContentScript(tabId) {
@@ -220,6 +250,110 @@ async function sendChatgptProxyRequest(tabId, session, uiPort) {
   })
 }
 
+async function sendChatgptProxyControlRequest(tabId, action, payload) {
+  const doSend = async () => {
+    const response = await Browser.tabs.sendMessage(tabId, {
+      type: 'CHATGPT_PROXY_CONTROL_REQUEST',
+      data: { action, payload },
+    })
+    if (!response?.ok) {
+      throw new Error(response?.error || 'ChatGPT proxy control request failed')
+    }
+    return response.data
+  }
+
+  try {
+    return await doSend()
+  } catch (firstErr) {
+    if (/receiving end does not exist/i.test(firstErr?.message)) {
+      console.debug('[background] Content script not found for control request, injecting into tab', tabId)
+      try {
+        await injectContentScript(tabId)
+        await new Promise((r) => setTimeout(r, 500))
+        return await doSend()
+      } catch (retryErr) {
+        throw new Error(
+          'Content script could not be loaded in the ChatGPT tab. ' +
+            'In Brave, click the extensions (puzzle) icon -> ChatGPTBox -> ' +
+            '"Allow on chatgpt.com", then reload the chatgpt.com tab and retry.',
+        )
+      }
+    }
+    throw firstErr
+  }
+}
+
+async function ensureChatgptProxyTabForControlRequest() {
+  const config = await getUserConfig()
+
+  if (config.chatgptTabId) {
+    const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => null)
+    if (tab && isDedicatedChatgptProxyTabUrl(tab.url)) return tab
+    await setUserConfig({ chatgptTabId: 0 })
+  }
+
+  return await ensureChatgptProxyTab()
+}
+
+async function executeChatgptWebControlRequestViaProxy(action, payload) {
+  const tab = await ensureChatgptProxyTabForControlRequest()
+  if (!tab?.id) {
+    throw new Error(
+      t('Please login at https://chatgpt.com first') +
+        '\n\n' +
+        t(
+          'ChatGPT Web requests in this extension are sent through a dedicated background chatgpt.com proxy tab so they work reliably in Brave and similar browsers.',
+        ),
+    )
+  }
+
+  return await sendChatgptProxyControlRequest(tab.id, action, payload)
+}
+
+function shouldFallbackToChatgptProxy(error) {
+  const message = error?.message || String(error || '')
+  return /failed to fetch/i.test(message) || /networkerror/i.test(message)
+}
+
+async function listChatgptWebModels() {
+  const accessToken = await getChatGptAccessToken()
+  const { refreshChatGptWebModelList } = await import('../services/model-lists.mjs')
+  return await refreshChatGptWebModelList({ accessToken })
+}
+
+function acquireChatgptWebSessionLock(session, port, config) {
+  const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : ''
+  if (!sessionId) return () => {}
+
+  const existing = activeChatgptWebSessionRequests.get(sessionId)
+  if (existing) {
+    void appendChatgptWebDebugLog(config, 'chatgpt-web-duplicate-blocked', {
+      sessionId,
+      model: getModelValue(session) || null,
+      samePort: existing.port === port,
+      sameQuestion: existing.question === session?.question,
+      activeForMs: Date.now() - existing.startedAt,
+    })
+    if (existing.port === port && existing.question === session?.question) {
+      return null
+    }
+    throw new Error('A ChatGPT Web request is already in progress for this session.')
+  }
+
+  activeChatgptWebSessionRequests.set(sessionId, {
+    port,
+    question: session?.question || null,
+    startedAt: Date.now(),
+  })
+
+  return () => {
+    const current = activeChatgptWebSessionRequests.get(sessionId)
+    if (current?.port === port) {
+      activeChatgptWebSessionRequests.delete(sessionId)
+    }
+  }
+}
+
 async function executeApi(session, port, config) {
   console.debug('modelName', session.modelName)
   console.debug('apiMode', session.apiMode)
@@ -251,114 +385,57 @@ async function executeApi(session, port, config) {
         session.apiMode.customName,
       )
   } else if (isUsingChatgptWebModel(session)) {
-    // Agent context is disabled for ChatGPT Web requests; keep user selections intact
-    // and only drop page snapshot payload for this request path.
-    session.pageContext = null
-    void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
-      reason: 'chatgpt_web_model',
-    })
+    const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
+    if (releaseChatgptWebSessionLock === null) return
+    try {
+      // Agent context is disabled for ChatGPT Web requests; keep user selections intact
+      // and only drop page snapshot payload for this request path.
+      session.pageContext = null
+      void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
+        reason: 'chatgpt_web_model',
+      })
 
-    let tabId
-    let proxyTab
-    if (config.customChatGptWebApiUrl === defaultConfig.customChatGptWebApiUrl) {
+      let tabId
+      let proxyTab
       if (config.chatgptTabId) {
         const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => {})
-        if (tab && isLikelyChatgptTabUrl(tab.url)) {
+        if (tab && isDedicatedChatgptProxyTabUrl(tab.url)) {
           tabId = tab.id
           proxyTab = tab
         } else {
           await setUserConfig({ chatgptTabId: 0 })
         }
       }
+
       if (!tabId) {
-        const discovered = await discoverChatgptTab()
-        if (discovered) {
-          tabId = discovered.id
-          proxyTab = discovered
-          await setUserConfig({ chatgptTabId: tabId })
+        const ensured = await ensureChatgptProxyTab()
+        if (ensured?.id) {
+          tabId = ensured.id
+          proxyTab = ensured
         }
       }
-    }
-    const forceBackgroundInDebug = config.debugChatgptWebRequests === true
 
-    // When the background-fetch path has previously been blocked (Brave:
-    // brave/brave-browser#25855) and no proxy tab was found yet, try harder
-    // to discover one so we don't waste time on a fetch that will fail.
-    if (!tabId && bgFetchBlocked) {
-      const discovered = await discoverChatgptTab()
-      if (discovered) {
-        tabId = discovered.id
-        proxyTab = discovered
-        await setUserConfig({ chatgptTabId: tabId })
-      }
-    }
-
-    if (tabId && !forceBackgroundInDebug) {
-      void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-tab', {
-        tabId,
-        tabUrl: proxyTab?.url || null,
-        route: executionRoute,
-      })
-      await sendChatgptProxyRequest(tabId, session, port)
-    } else if (!bgFetchBlocked) {
-      if (tabId && forceBackgroundInDebug) {
-        void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-skipped-debug', {
+      if (tabId) {
+        void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-forced', {
           tabId,
           tabUrl: proxyTab?.url || null,
           route: executionRoute,
+          model: getModelValue(session) || null,
+          endpointUrl: config.customChatGptWebApiUrl || defaultConfig.customChatGptWebApiUrl,
         })
+        await sendChatgptProxyRequest(tabId, session, port)
+        return
       }
-      void appendChatgptWebDebugLog(config, 'chatgpt-web-background', {
-        route: executionRoute,
-      })
-      try {
-        const accessToken = await getChatGptAccessToken()
-        await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
-      } catch (bgErr) {
-        if (!isNetworkError(bgErr)) throw bgErr
-        markBgFetchBlocked()
-        void appendChatgptWebDebugLog(config, 'background-fetch-blocked', {
-          error: bgErr?.message || String(bgErr),
-        })
-        const fallbackTab = await discoverChatgptTab()
-        if (fallbackTab) {
-          await setUserConfig({ chatgptTabId: fallbackTab.id })
-          void appendChatgptWebDebugLog(config, 'fallback-proxy-tab', {
-            tabId: fallbackTab.id,
-            tabUrl: fallbackTab.url || null,
-          })
-          await sendChatgptProxyRequest(fallbackTab.id, session, port)
-        } else {
-          throw new Error(
-            t('Please login at https://chatgpt.com first') +
-              '\n\n' +
-              t(
-                "Please keep https://chatgpt.com open and try again. If it still doesn't work, type some characters in the input box of chatgpt web page and try again.",
-              ),
-          )
-        }
-      }
-    } else {
-      void appendChatgptWebDebugLog(config, 'background-fetch-known-blocked', {
-        route: executionRoute,
-      })
-      const fallbackTab = await discoverChatgptTab()
-      if (fallbackTab) {
-        await setUserConfig({ chatgptTabId: fallbackTab.id })
-        void appendChatgptWebDebugLog(config, 'fallback-proxy-tab', {
-          tabId: fallbackTab.id,
-          tabUrl: fallbackTab.url || null,
-        })
-        await sendChatgptProxyRequest(fallbackTab.id, session, port)
-      } else {
-        throw new Error(
-          t('Please login at https://chatgpt.com first') +
-            '\n\n' +
-            t(
-              "Please keep https://chatgpt.com open and try again. If it still doesn't work, type some characters in the input box of chatgpt web page and try again.",
-            ),
-        )
-      }
+
+      throw new Error(
+        t('Please login at https://chatgpt.com first') +
+          '\n\n' +
+          t(
+            'ChatGPT Web requests in this extension are sent through a dedicated background chatgpt.com proxy tab so they work reliably in Brave and similar browsers.',
+          ),
+      )
+    } finally {
+      releaseChatgptWebSessionLock()
     }
   } else if (isUsingClaudeWebModel(session)) {
     const sessionKey = await getClaudeSessionKey()
@@ -428,6 +505,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       break
     }
     case 'SET_CHATGPT_TAB': {
+      if (!isDedicatedChatgptProxyTabUrl(sender?.tab?.url)) break
       await setUserConfig({
         chatgptTabId: sender.tab.id,
       })
@@ -469,7 +547,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       let chatgptTabOk = false
       if (diagConfig.chatgptTabId) {
         const tab = await Browser.tabs.get(diagConfig.chatgptTabId).catch(() => null)
-        chatgptTabOk = !!(tab && isLikelyChatgptTabUrl(tab.url))
+        chatgptTabOk = !!(tab && isDedicatedChatgptProxyTabUrl(tab.url))
       }
       let canFetchChatgpt = false
       try {
@@ -577,6 +655,46 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         return null
       }
     }
+    case 'CHATGPT_WEB_LIST_CONVERSATIONS':
+      try {
+        return await listChatgptWebConversations(message.data || {})
+      } catch (error) {
+        if (!shouldFallbackToChatgptProxy(error)) throw error
+        return await executeChatgptWebControlRequestViaProxy(
+          'chatgpt_web_list_conversations',
+          message.data || {},
+        )
+      }
+    case 'CHATGPT_WEB_GET_CONVERSATION':
+      try {
+        return await getChatgptWebConversation(message.data || {})
+      } catch (error) {
+        if (!shouldFallbackToChatgptProxy(error)) throw error
+        return await executeChatgptWebControlRequestViaProxy(
+          'chatgpt_web_get_conversation',
+          message.data || {},
+        )
+      }
+    case 'CHATGPT_WEB_REFRESH_CONVERSATION':
+      try {
+        return await refreshChatgptWebConversation(message.data || {})
+      } catch (error) {
+        if (!shouldFallbackToChatgptProxy(error)) throw error
+        return await executeChatgptWebControlRequestViaProxy(
+          'chatgpt_web_refresh_conversation',
+          message.data || {},
+        )
+      }
+    case 'CHATGPT_WEB_LIST_MODELS':
+      try {
+        return await listChatgptWebModels()
+      } catch (error) {
+        if (!shouldFallbackToChatgptProxy(error)) throw error
+        return await executeChatgptWebControlRequestViaProxy(
+          'chatgpt_web_list_models',
+          message.data || {},
+        )
+      }
   }
 })
 
@@ -813,21 +931,37 @@ Browser.runtime.onConnect.addListener((port) => {
     return
   }
   pendingChatgptProxyRequests.delete(requestId)
-  const { uiPort, resolve } = entry
+  const { uiPort, resolve, reject } = entry
+  let settled = false
+
+  const settle = (callback, value) => {
+    if (settled) return
+    settled = true
+    callback(value)
+  }
 
   port.onMessage.addListener((msg) => {
-    if (uiPort._isClosed) return
-    try {
-      uiPort.postMessage(msg)
-    } catch (e) {
-      console.debug('[background] Failed to forward proxy response:', e?.message)
+    if (!uiPort._isClosed) {
+      try {
+        uiPort.postMessage(msg)
+      } catch (e) {
+        console.debug('[background] Failed to forward proxy response:', e?.message)
+      }
+    }
+    if (msg?.done || msg?.error) {
+      settle(resolve)
     }
   })
   port.onDisconnect.addListener(() => {
-    resolve()
+    if (uiPort._isClosed) {
+      settle(resolve)
+      return
+    }
+    settle(reject, new Error('ChatGPT proxy tab disconnected before response completed'))
   })
   uiPort.onDisconnect.addListener(() => {
     uiPort._isClosed = true
+    settle(resolve)
     try {
       port.disconnect()
     } catch {

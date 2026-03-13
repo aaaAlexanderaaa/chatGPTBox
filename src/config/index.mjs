@@ -63,6 +63,21 @@ export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb54Thinking'
 export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-4-thinking'
 export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
+export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 256000
+export const MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT = 200
+export const DEFAULT_MAX_RESPONSE_TOKEN_LENGTH = 2000
+export const DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS = 2700
+export const MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS = 30
+export const MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS = 7200
+export const DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 10
+export const MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 1
+export const MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 300
+export const DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS = 180
+export const MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS = 30
+export const MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS = 3600
+export const DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS = 2700
+export const MIN_API_SERVER_THINKING_TIMEOUT_SECONDS = 30
+export const MAX_API_SERVER_THINKING_TIMEOUT_SECONDS = 7200
 
 const LegacyChatgptWebModelKeyMap = {
   chatgptFree35: CHATGPT_WEB_DEFAULT_MODEL_KEY,
@@ -912,15 +927,20 @@ export const defaultConfig = {
 
   // advanced
 
-  maxResponseTokenLength: 2000,
+  maxResponseTokenLength: DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
   maxConversationContextLength: 9,
   temperature: 1,
   apiServerEnabled: false,
   apiServerPort: 18080,
   apiServerKeepHistory: false,
+  apiServerRequestTimeoutSeconds: DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  apiServerThinkingTimeoutSeconds: DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
+  chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  chatgptWebConversationPollIntervalSeconds:
+    DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
@@ -1165,13 +1185,13 @@ export async function getUserConfig() {
       config.maxResponseTokenLength,
       defaultConfig.maxResponseTokenLength,
       100,
-      40000,
+      MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
     ),
     maxConversationContextLength: parseIntWithClamp(
       config.maxConversationContextLength,
       defaultConfig.maxConversationContextLength,
       0,
-      100,
+      MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
     ),
     temperature: parseFloatWithClamp(config.temperature, defaultConfig.temperature, 0, 2),
     agentPreloadContextTokenCap: parseIntWithClamp(
@@ -1199,6 +1219,30 @@ export async function getUserConfig() {
       10,
       300,
     ),
+    apiServerRequestTimeoutSeconds: parseIntWithClamp(
+      config.apiServerRequestTimeoutSeconds,
+      defaultConfig.apiServerRequestTimeoutSeconds,
+      MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+      MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+    ),
+    apiServerThinkingTimeoutSeconds: parseIntWithClamp(
+      config.apiServerThinkingTimeoutSeconds,
+      defaultConfig.apiServerThinkingTimeoutSeconds,
+      MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+      MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+    ),
+    chatgptWebConversationPollTimeoutSeconds: parseIntWithClamp(
+      config.chatgptWebConversationPollTimeoutSeconds,
+      defaultConfig.chatgptWebConversationPollTimeoutSeconds,
+      MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+      MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+    ),
+    chatgptWebConversationPollIntervalSeconds: parseIntWithClamp(
+      config.chatgptWebConversationPollIntervalSeconds,
+      defaultConfig.chatgptWebConversationPollIntervalSeconds,
+      MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+      MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+    ),
     apiServerPort: parseIntWithClamp(config.apiServerPort, defaultConfig.apiServerPort, 1, 65535),
   }
   const needsFix =
@@ -1210,6 +1254,12 @@ export async function getUserConfig() {
     numericFix.agentMaxSteps !== config.agentMaxSteps ||
     numericFix.agentNoProgressLimit !== config.agentNoProgressLimit ||
     numericFix.agentToolEventLimit !== config.agentToolEventLimit ||
+    numericFix.apiServerRequestTimeoutSeconds !== config.apiServerRequestTimeoutSeconds ||
+    numericFix.apiServerThinkingTimeoutSeconds !== config.apiServerThinkingTimeoutSeconds ||
+    numericFix.chatgptWebConversationPollTimeoutSeconds !==
+      config.chatgptWebConversationPollTimeoutSeconds ||
+    numericFix.chatgptWebConversationPollIntervalSeconds !==
+      config.chatgptWebConversationPollIntervalSeconds ||
     numericFix.apiServerPort !== config.apiServerPort
   if (needsFix) {
     config.maxResponseTokenLength = numericFix.maxResponseTokenLength
@@ -1220,6 +1270,12 @@ export async function getUserConfig() {
     config.agentMaxSteps = numericFix.agentMaxSteps
     config.agentNoProgressLimit = numericFix.agentNoProgressLimit
     config.agentToolEventLimit = numericFix.agentToolEventLimit
+    config.apiServerRequestTimeoutSeconds = numericFix.apiServerRequestTimeoutSeconds
+    config.apiServerThinkingTimeoutSeconds = numericFix.apiServerThinkingTimeoutSeconds
+    config.chatgptWebConversationPollTimeoutSeconds =
+      numericFix.chatgptWebConversationPollTimeoutSeconds
+    config.chatgptWebConversationPollIntervalSeconds =
+      numericFix.chatgptWebConversationPollIntervalSeconds
     config.apiServerPort = numericFix.apiServerPort
     await Browser.storage.local.set(numericFix)
   }

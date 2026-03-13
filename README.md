@@ -12,13 +12,25 @@ AI assistant in your browser: selection tools, site integrations, a floating cha
 [![release][release-image]][release-url]
 [![verify][verify-image]][verify-url]
 
-[Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Features](#features) &nbsp;&nbsp;|&nbsp;&nbsp; [Screenshots](#screenshots) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#credits)
+[![Chrome][Chrome-image]][Chrome-url]
+[![Edge][Edge-image]][Edge-url]
+[![Firefox][Firefox-image]][Firefox-url]
+[![Safari][Safari-image]][Safari-url]
+
+[Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Features](#features) &nbsp;&nbsp;|&nbsp;&nbsp; [Screenshots](#screenshots) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [API Server Bridge](#api-server-bridge) &nbsp;&nbsp;|&nbsp;&nbsp; [Architecture Notes](#architecture-notes) &nbsp;&nbsp;|&nbsp;&nbsp; [Privacy](#privacy)
 
 </div>
 
 ## Install
 
-Build installs:
+Official browser installs:
+
+- Chrome: [Chrome Web Store][Chrome-url]
+- Edge: [Microsoft Edge Add-ons][Edge-url]
+- Firefox: [Firefox Add-ons][Firefox-url]
+- Safari: [App Store][Safari-url]
+
+Builds from source:
 
 - GitHub releases: https://github.com/aaaAlexanderaaa/chatGPTBox/releases
 - Local development builds: run `npm run dev`, then load `build/chromium/` as an unpacked extension.
@@ -29,7 +41,7 @@ Build installs:
 - Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
 - Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
-- Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP streaming MCP servers.
+- Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP/SSE JSON-RPC MCP servers.
 - Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
 
@@ -87,10 +99,16 @@ Build installs:
 - Summarize page: <kbd>Alt</kbd>+<kbd>B</kbd> (via shortcut or context menu).
 - Independent conversation panel: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd>.
 - Select text on a page to open the selection toolbar.
+- Click the extension icon to open the quick workspace with `General`, `Sites`, and `Advanced`. Use `Full settings` for the complete configuration workspace.
 
 ## Configuration
 
-Open the Settings UI from the extension icon (or open the extension options page). Main areas:
+Open the Settings UI from the extension icon or the extension options page.
+
+- The toolbar popup is a quick workspace with `General`, `Sites`, and `Advanced`, plus a `Full settings` button.
+- The full settings workspace exposes all top-level tabs: `General`, `Features`, `Agents`, `Modules`, and `Advanced`.
+
+Main areas in the full settings workspace:
 
 - **General**: model/provider selection, language, trigger behavior, appearance, runtime mode, default assistant, and agent protocol.
 - **Features**: enable/disable supported site integrations.
@@ -112,27 +130,38 @@ Provider notes:
 
 ## Development
 
+ChatGPTBox targets **Node.js 20** in CI.
+
 ```bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 nvm use 20
 npm ci
-npm run dev
 ```
 
-Useful commands:
+Common commands:
 
 ```bash
+npm run dev
 npm run lint
 npm run test:agent
+npm run verify
+npm run pretty
 npm run build
+npm run build:safari
 npm run api-server
 ```
 
-Development build outputs unpacked browser builds to:
+`npm run dev` writes unpacked browser builds to:
 
 - `build/chromium/`
 - `build/firefox/`
+
+Browser testing:
+
+- Chromium-based browsers: enable Developer mode on the extensions page and load `build/chromium/`.
+- Firefox: load `build/firefox/` as a temporary add-on.
+- Without a valid provider credential or ChatGPT Web login, sending a chat request can return `UNAUTHORIZED`. That usually means missing auth, not a broken build.
 
 Production build outputs zipped builds under `build/`:
 
@@ -157,13 +186,53 @@ npm run build:safari
 
 ChatGPTBox includes a local OpenAI-compatible gateway that proxies ChatGPT Web through the extension:
 
-- Start the local server with `npm run api-server`
-- Open `ApiServer.html` inside the extension and enable the bridge
-- Keep the bridge page open while using the gateway
-- Make sure you are logged in at [chatgpt.com](https://chatgpt.com)
-- Send requests to `http://127.0.0.1:18080/v1/chat/completions` by default
+- Open `Advanced -> API Server Bridge -> Open API Server Bridge` in the extension.
+- On that page, turn on `Enable API Server Bridge`.
+- Start the local server with `npm run api-server`.
+- Keep the API Server page open while using the gateway.
+- Make sure you are logged in at [chatgpt.com](https://chatgpt.com).
+- Send requests to `http://127.0.0.1:18080/v1/chat/completions` by default.
 
-The gateway supports `--port`, `--host`, `CHATGPT_GATEWAY_PORT`, and `CHATGPT_GATEWAY_HOST`. A health endpoint is available at `http://127.0.0.1:18080/health`.
+If you need to open the page manually, you can also run this from the extension service worker console:
+
+```js
+chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
+```
+
+How the bridge works:
+
+- Your client sends an HTTP request to the local Node.js gateway in [`scripts/api-server.mjs`](./scripts/api-server.mjs).
+- The gateway forwards the request to the extension page at [`src/pages/ApiServer/App.jsx`](./src/pages/ApiServer/App.jsx) over WebSocket or HTTP polling.
+- That page asks the extension background to send the prompt through the ChatGPT Web flow.
+- The response is streamed back to your client in an OpenAI-compatible format.
+
+Supported endpoints:
+
+- `POST /v1/chat/completions`
+- `GET /v1/models`
+- `GET /status`
+- `GET /health`
+- `GET /chatgpt/conversations`
+- `GET /chatgpt/conversations/:id`
+- `POST /chatgpt/conversations/:id/refresh`
+
+Gateway configuration:
+
+- CLI flags: `--port`, `--host`, `--timeout-seconds`, `--thinking-timeout-seconds`
+- Environment variables: `CHATGPT_GATEWAY_PORT`, `CHATGPT_GATEWAY_HOST`, `CHATGPT_GATEWAY_TIMEOUT_SECONDS`, `CHATGPT_GATEWAY_THINKING_TIMEOUT_SECONDS`
+- Extension settings: `Keep API Server chats in ChatGPT history`, `API request timeout (s)`, `Thinking request timeout (s)`
+
+The default health endpoint is `http://127.0.0.1:18080/health`.
+
+The three conversation APIs are implemented now:
+
+- `GET /chatgpt/conversations`
+- `GET /chatgpt/conversations/:id`
+- `POST /chatgpt/conversations/:id/refresh`
+
+`GET /chatgpt/conversations` now preserves the upstream ChatGPT Web list response shape.
+
+Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 
 ## Architecture Notes
 

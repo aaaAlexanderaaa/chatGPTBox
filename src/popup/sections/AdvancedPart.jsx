@@ -3,6 +3,23 @@ import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import PropTypes from 'prop-types'
 import { Tab, TabList, TabPanel, Tabs } from 'react-tabs'
 import Browser from 'webextension-polyfill'
+import {
+  DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
+  MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
+  MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
+  MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+  MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+} from '../../config/index.mjs'
 
 ApiParams.propTypes = {
   config: PropTypes.object.isRequired,
@@ -19,11 +36,16 @@ function ApiParams({ config, updateConfig }) {
         <input
           type="range"
           min="100"
-          max="40000"
+          max={String(MAX_RESPONSE_TOKEN_LENGTH_LIMIT)}
           step="100"
           value={config.maxResponseTokenLength}
           onChange={(e) => {
-            const value = parseIntWithClamp(e.target.value, 1000, 100, 40000)
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
+              100,
+              MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
+            )
             updateConfig({ maxResponseTokenLength: value })
           }}
         />
@@ -33,11 +55,16 @@ function ApiParams({ config, updateConfig }) {
         <input
           type="range"
           min="0"
-          max="100"
+          max={String(MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT)}
           step="1"
           value={config.maxConversationContextLength}
           onChange={(e) => {
-            const value = parseIntWithClamp(e.target.value, 9, 0, 100)
+            const value = parseIntWithClamp(
+              e.target.value,
+              9,
+              0,
+              MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
+            )
             updateConfig({ maxConversationContextLength: value })
           }}
         />
@@ -53,6 +80,84 @@ function ApiParams({ config, updateConfig }) {
           onChange={(e) => {
             const value = parseFloatWithClamp(e.target.value, 1, 0, 2)
             updateConfig({ temperature: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('ChatGPT Web poll interval (s)') +
+          `: ${config.chatgptWebConversationPollIntervalSeconds}`}
+        <input
+          type="number"
+          min={String(MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS)}
+          max={String(MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS)}
+          step="1"
+          value={config.chatgptWebConversationPollIntervalSeconds}
+          onChange={(e) => {
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+              MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+              MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+            )
+            updateConfig({ chatgptWebConversationPollIntervalSeconds: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('ChatGPT Web result timeout (s)') +
+          `: ${config.chatgptWebConversationPollTimeoutSeconds}`}
+        <input
+          type="number"
+          min={String(MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS)}
+          max={String(MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS)}
+          step="15"
+          value={config.chatgptWebConversationPollTimeoutSeconds}
+          onChange={(e) => {
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+              MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+              MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+            )
+            updateConfig({ chatgptWebConversationPollTimeoutSeconds: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('API request timeout (s)') + `: ${config.apiServerRequestTimeoutSeconds}`}
+        <input
+          type="number"
+          min={String(MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS)}
+          max={String(MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS)}
+          step="15"
+          value={config.apiServerRequestTimeoutSeconds}
+          onChange={(e) => {
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+              MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+              MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
+            )
+            updateConfig({ apiServerRequestTimeoutSeconds: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('Thinking request timeout (s)') + `: ${config.apiServerThinkingTimeoutSeconds}`}
+        <input
+          type="number"
+          min={String(MIN_API_SERVER_THINKING_TIMEOUT_SECONDS)}
+          max={String(MAX_API_SERVER_THINKING_TIMEOUT_SECONDS)}
+          step="15"
+          value={config.apiServerThinkingTimeoutSeconds}
+          onChange={(e) => {
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
+              MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
+              MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
+            )
+            updateConfig({ apiServerThinkingTimeoutSeconds: value })
           }}
         />
       </label>
@@ -131,15 +236,13 @@ function Others({ config, updateConfig }) {
       <label>
         <input
           type="checkbox"
-          checked={config.disableWebModeHistory}
+          checked={config.disableWebModeHistory !== true}
           onChange={(e) => {
             const checked = e.target.checked
-            updateConfig({ disableWebModeHistory: checked })
+            updateConfig({ disableWebModeHistory: !checked })
           }}
         />
-        {t(
-          'Disable web mode history for better privacy protection, but it will result in unavailable conversations after a period of time',
-        )}
+        {t('Keep ChatGPTBox chats in ChatGPT history')}
       </label>
       <label>
         <input
