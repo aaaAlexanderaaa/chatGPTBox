@@ -939,8 +939,7 @@ export const defaultConfig = {
   customChatGptWebApiPath: '/backend-api/conversation',
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  chatgptWebConversationPollIntervalSeconds:
-    DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  chatgptWebConversationPollIntervalSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
