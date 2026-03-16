@@ -7,6 +7,8 @@ The gateway has two layers:
 - The local Node.js server in [`scripts/api-server.mjs`](../scripts/api-server.mjs)
 - The extension bridge page in [`src/pages/ApiServer/App.jsx`](../src/pages/ApiServer/App.jsx)
 
+Unless you changed the host or port, all examples below use the default local gateway at `http://127.0.0.1:18080`.
+
 ## Startup
 
 1. Open the extension settings.
@@ -125,13 +127,17 @@ curl http://127.0.0.1:18080/health
 
 ### `GET /chatgpt/conversations`
 
-Proxies ChatGPT Web conversation listing through the logged-in browser session.
+Returns the locally cached ChatGPT conversation list from the extension.
 
-This endpoint is intended to mirror:
+To keep request volume down, the extension syncs the active conversation list hourly and only pulls the archived list when it is needed (for example, an archived view request or when an active thread disappears and needs to be reconciled).
 
-`GET https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false`
+The cache uses incremental upserts:
 
-The response keeps the upstream JSON shape instead of returning a ChatGPTBox-specific DTO.
+- new active IDs are appended and hydrated into local conversation snapshots
+- missing upstream IDs are kept locally instead of being deleted
+- changed `update_time` / `async_status` / `is_archived` values update the cached list entry
+
+The response still uses the upstream-style list shape (`items`, `total`, `limit`, `offset`), but the source is the local browser cache rather than a fresh upstream proxy call.
 
 Query parameters:
 
@@ -140,42 +146,110 @@ Query parameters:
 - `order`
 - `is_archived`
 - `is_starred`
+- `force_sync`
 
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/chatgpt/conversations?offset=0&limit=28&order=updated"
+curl "http://127.0.0.1:18080/chatgpt/conversations?offset=0&limit=100&order=updated&force_sync=true"
 ```
 
-Typical upstream fields include:
+Typical response fields include:
 
 - `items`
 - `total`
 - `limit`
 - `offset`
+- `source`
+- `cached_at`
 
 ### `GET /chatgpt/conversations/:id`
 
-Fetches a normalized conversation snapshot and the best assistant message currently available.
+Returns a normalized conversation snapshot from the local browser cache by default.
+
+When the cached list entry shows a newer `update_time` or different `async_status`, the gateway overlays the latest status immediately and attempts to fetch a fresher snapshot before responding.
 
 Optional query parameters:
 
 - `user_message_id`
 - `assistant_message_id`
+- `think`
+- `force_refresh`
 
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>"
+curl "http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>?think=true"
 ```
 
 The response includes fields such as:
 
 - `conversationId`
 - `title`
+- `query`
+- `queryMessage`
+- `messages`
+- `thinking` when `think=true`
+- `defaultModel`
+- `currentNode`
 - `asyncStatus`
 - `pending`
 - `message`
+- `cache`
+
+`thinking` is best-effort data extracted from ChatGPT Web reasoning-related nodes such as `thoughts`, `reasoning_recap`, and reasoning metadata that are present in the conversation snapshot.
+
+### `POST /chatgpt/conversations`
+
+Starts a brand-new ChatGPT conversation from a user prompt and returns as soon as the gateway knows the new `conversationId`. The assistant response continues in the browser after the HTTP response returns, so this is useful for fire-and-forget tools that only need the thread created.
+
+JSON body:
+
+- `query` or `message`
+- `model` (optional)
+
+Example:
+
+```bash
+curl -X POST http://100.104.70.122:18081/chatgpt/conversations \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Start a new thread from this note"}'
+```
+
+The response includes:
+
+- `conversationId`
+- `defaultModel`
+- `createdAt`
+- `pending`
+- `query`
+
+### `POST /chatgpt/conversations/:id/messages`
+
+Sends a follow-up user message into an existing ChatGPT conversation, then refreshes the conversation snapshot.
+
+JSON body:
+
+- `query` or `message`
+- `model` (optional, defaults to the conversation's default model when present)
+- `think` (optional; when true, the refreshed response includes `thinking`)
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/messages \
+  -H "Content-Type: application/json" \
+  -d '{"query":"continue from the cached thread","think":true}'
+```
+
+The response includes:
+
+- `query`
+- `pending`
+- `asyncStatus`
+- `conversation`
+- `resume`
+- `text`
 
 ### `POST /chatgpt/conversations/:id/refresh`
 
@@ -188,13 +262,14 @@ Optional JSON body:
 - `offset`
 - `preferResume`
 - `resumeTimeoutMs`
+- `think`
 
 Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/refresh \
   -H "Content-Type: application/json" \
-  -d '{"preferResume":true,"resumeTimeoutMs":10000}'
+  -d '{"preferResume":true,"resumeTimeoutMs":10000,"think":true}'
 ```
 
 The response includes:
@@ -216,12 +291,14 @@ These are transport endpoints used by the extension bridge page, not the main cl
 - `POST /bridge/disconnect`
 - `WS /bridge`
 
-## About The "3 Endpoints"
+## Conversation Endpoints
 
-If the three endpoints you meant were the conversation APIs, they are implemented:
+If you meant the manual ChatGPT conversation APIs, these are the current endpoints:
 
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
+- `POST /chatgpt/conversations`
+- `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
 The HTTP routing for them is in [`scripts/api-server.mjs`](../scripts/api-server.mjs), and the ChatGPT Web data-fetching logic is in [`src/services/apis/chatgpt-web-conversation-api.mjs`](../src/services/apis/chatgpt-web-conversation-api.mjs).

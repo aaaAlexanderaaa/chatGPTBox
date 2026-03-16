@@ -1,8 +1,5 @@
 import Browser from 'webextension-polyfill'
-import {
-  deleteConversation,
-  sendMessageFeedback,
-} from '../services/apis/chatgpt-web'
+import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
 import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
 import {
   generateAnswersWithChatgptApi,
@@ -17,6 +14,7 @@ import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidw
 import { generateAnswersWithOpenRouterApi } from '../services/apis/openrouter-api.mjs'
 import { generateAnswersWithAimlApi } from '../services/apis/aiml-api.mjs'
 import {
+  CHATGPT_WEB_DEFAULT_MODEL_KEY,
   CHATGPT_WEB_DEBUG_LOG_KEY,
   defaultConfig,
   getUserConfig,
@@ -42,6 +40,8 @@ import {
 import '../_locales/i18n'
 import { t } from 'i18next'
 import { openUrl } from '../utils/open-url'
+import { initSession } from '../services/init-session.mjs'
+import { saveChatgptWebSessionSnapshot } from '../services/chatgpt-web-thread-state.mjs'
 import {
   getBardCookies,
   getBingAccessToken,
@@ -66,11 +66,266 @@ import {
   getChatgptWebConversation,
   listChatgptWebConversations,
   refreshChatgptWebConversation,
+  syncChatgptWebConversationCache,
 } from '../services/apis/chatgpt-web-conversation-api.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
+const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'
+const CHATGPT_WEB_CONVERSATION_CREATE_ACK_TIMEOUT_MS = 60_000
 const pendingChatgptProxyRequests = new Map()
 const activeChatgptWebSessionRequests = new Map()
+
+function createMemoryPort(onPostMessage) {
+  const disconnectListeners = new Set()
+  const messageListeners = new Set()
+
+  return {
+    _isClosed: false,
+    postMessage(message) {
+      onPostMessage(message)
+    },
+    disconnect() {
+      if (this._isClosed) return
+      this._isClosed = true
+      disconnectListeners.forEach((listener) => {
+        try {
+          listener()
+        } catch {
+          /* ignore */
+        }
+      })
+    },
+    onMessage: {
+      addListener(listener) {
+        messageListeners.add(listener)
+      },
+      removeListener(listener) {
+        messageListeners.delete(listener)
+      },
+    },
+    onDisconnect: {
+      addListener(listener) {
+        disconnectListeners.add(listener)
+      },
+      removeListener(listener) {
+        disconnectListeners.delete(listener)
+      },
+    },
+  }
+}
+
+async function getChatgptWebConversationWithFallback(payload = {}) {
+  try {
+    return await getChatgptWebConversation(payload)
+  } catch (error) {
+    if (!shouldFallbackToChatgptProxy(error)) throw error
+    return await executeChatgptWebControlRequestViaProxy(
+      'chatgpt_web_get_conversation',
+      payload,
+    )
+  }
+}
+
+async function refreshChatgptWebConversationWithFallback(payload = {}) {
+  try {
+    return await refreshChatgptWebConversation(payload)
+  } catch (error) {
+    if (!shouldFallbackToChatgptProxy(error)) throw error
+    return await executeChatgptWebControlRequestViaProxy(
+      'chatgpt_web_refresh_conversation',
+      payload,
+    )
+  }
+}
+
+async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
+  try {
+    return await syncChatgptWebConversationCache(payload)
+  } catch (error) {
+    if (!shouldFallbackToChatgptProxy(error)) throw error
+    return await executeChatgptWebControlRequestViaProxy(
+      'chatgpt_web_sync_conversations',
+      payload,
+    )
+  }
+}
+
+async function ensureChatgptWebConversationSyncAlarm() {
+  if (!Browser.alarms?.create) return
+  await Browser.alarms.create(CHATGPT_WEB_CONVERSATION_SYNC_ALARM, {
+    periodInMinutes: 60,
+    delayInMinutes: 1,
+  })
+}
+
+async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
+  const conversationId =
+    typeof payload.conversationId === 'string' ? payload.conversationId.trim() : ''
+  const query = typeof payload.query === 'string' ? payload.query.trim() : ''
+  const model = typeof payload.model === 'string' ? payload.model.trim() : ''
+  if (!conversationId) throw new Error('conversationId is required')
+  if (!query) throw new Error('query is required')
+
+  let conversation = await getChatgptWebConversationWithFallback({
+    conversationId,
+    forceRefresh: true,
+  }).catch(() => null)
+  if (!conversation) {
+    conversation = await getChatgptWebConversationWithFallback({ conversationId })
+  }
+  if (!conversation?.currentNode) {
+    throw new Error('Conversation current node is required before sending a follow-up')
+  }
+
+  const config = await getUserConfig()
+  const session = initSession({
+    question: query,
+    modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+    autoClean: false,
+    chatgptWebHistoryDisabledOverride: false,
+    chatgptWebIncrementalOutput: false,
+  })
+  session.conversationId = conversationId
+  session.parentMessageId = conversation.currentNode
+  session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
+
+  const execution = await new Promise((resolve, reject) => {
+    let latestAnswer = ''
+    let latestSession = session
+    const port = createMemoryPort((message) => {
+      if (message?.error) {
+        port.disconnect()
+        reject(new Error(message.error))
+        return
+      }
+      if (message?.session && typeof message.session === 'object') {
+        latestSession = { ...latestSession, ...message.session }
+      }
+      if (typeof message?.answer === 'string') latestAnswer = message.answer
+      if (message?.done === true) {
+        port.disconnect()
+        resolve({ answer: latestAnswer, session: latestSession })
+      }
+    })
+
+    executeApi(session, port, config).catch((error) => {
+      port.disconnect()
+      reject(error)
+    })
+  })
+
+  const refreshed = await refreshChatgptWebConversationWithFallback({
+    conversationId,
+    preferResume: true,
+    think: payload.think === true,
+  }).catch(async () => ({
+    fetchedAt: new Date().toISOString(),
+    conversationId,
+    pending: conversation.pending === true,
+    asyncStatus: conversation.asyncStatus,
+    source: 'conversation',
+    conversation: await getChatgptWebConversationWithFallback({
+      conversationId,
+      think: payload.think === true,
+      forceRefresh: true,
+    }).catch(() => conversation),
+    resume: null,
+    text: execution.answer || conversation?.message?.text || '',
+  }))
+
+  return {
+    ...refreshed,
+    query,
+  }
+}
+
+async function createChatgptWebConversation(payload = {}) {
+  const query = typeof payload.query === 'string' ? payload.query.trim() : ''
+  const model = typeof payload.model === 'string' ? payload.model.trim() : ''
+  if (!query) throw new Error('query is required')
+
+  const config = await getUserConfig()
+  const session = initSession({
+    question: query,
+    modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+    autoClean: false,
+    chatgptWebHistoryDisabledOverride: false,
+    chatgptWebIncrementalOutput: false,
+  })
+  session.chatgptWebModelSlugOverride = model || undefined
+
+  return await new Promise((resolveOriginal, rejectOriginal) => {
+    let latestSession = session
+    let acknowledged = false
+    let settled = false
+    const createdAt = new Date().toISOString()
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      fn(value)
+    }
+    const resolvePromise = (value) => finish(resolveOriginal, value)
+    const rejectPromise = (value) => finish(rejectOriginal, value)
+    const port = createMemoryPort((message) => {
+      if (message?.session && typeof message.session === 'object') {
+        latestSession = { ...latestSession, ...message.session }
+        if (!acknowledged && latestSession.conversationId) {
+          acknowledged = true
+          void saveChatgptWebSessionSnapshot(latestSession, {
+            source: 'conversation_create_ack',
+          }).catch(() => {})
+          resolvePromise({
+            conversationId: latestSession.conversationId,
+            defaultModel: latestSession.chatgptWebModelSlugOverride || null,
+            createdAt,
+            pending: true,
+            query,
+          })
+        }
+      }
+
+      if (message?.error) {
+        if (!acknowledged) {
+          port.disconnect()
+          rejectPromise(new Error(message.error))
+          return
+        }
+        console.debug('[background] Async conversation create error:', message.error)
+      }
+
+      if (message?.done === true || message?.error) {
+        void saveChatgptWebSessionSnapshot(latestSession, {
+          source: 'conversation_create_complete',
+        }).catch(() => {})
+        port.disconnect()
+      }
+    })
+
+    const timeout = setTimeout(() => {
+      if (acknowledged) return
+      port.disconnect()
+      rejectPromise(new Error('Timed out waiting for conversation creation acknowledgement'))
+    }, CHATGPT_WEB_CONVERSATION_CREATE_ACK_TIMEOUT_MS)
+
+    void executeApi(session, port, config)
+      .then(() => {
+        clearTimeout(timeout)
+        if (!acknowledged) {
+          rejectPromise(new Error('Conversation finished before an id was reported'))
+        }
+      })
+      .catch((error) => {
+        clearTimeout(timeout)
+        if (!acknowledged) {
+          port.disconnect()
+          rejectPromise(error)
+          return
+        }
+        console.debug('[background] Async conversation create failed after ack:', error?.message)
+      })
+  })
+}
 
 function summarizeApiMode(apiMode) {
   if (!apiMode || typeof apiMode !== 'object') return null
@@ -266,7 +521,10 @@ async function sendChatgptProxyControlRequest(tabId, action, payload) {
     return await doSend()
   } catch (firstErr) {
     if (/receiving end does not exist/i.test(firstErr?.message)) {
-      console.debug('[background] Content script not found for control request, injecting into tab', tabId)
+      console.debug(
+        '[background] Content script not found for control request, injecting into tab',
+        tabId,
+      )
       try {
         await injectContentScript(tabId)
         await new Promise((r) => setTimeout(r, 500))
@@ -480,6 +738,22 @@ async function executeApi(session, port, config) {
   }
 }
 
+Browser.runtime.onInstalled.addListener(() => {
+  void ensureChatgptWebConversationSyncAlarm()
+  void syncChatgptWebConversationCacheWithFallback().catch(() => {})
+})
+
+Browser.runtime.onStartup?.addListener(() => {
+  void ensureChatgptWebConversationSyncAlarm()
+})
+
+Browser.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm?.name !== CHATGPT_WEB_CONVERSATION_SYNC_ALARM) return
+  void syncChatgptWebConversationCacheWithFallback({ force: true }).catch(() => {})
+})
+
+void ensureChatgptWebConversationSyncAlarm()
+
 Browser.runtime.onMessage.addListener(async (message, sender) => {
   switch (message.type) {
     case 'FEEDBACK': {
@@ -685,6 +959,15 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           message.data || {},
         )
       }
+    case 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE':
+      return await sendChatgptWebConversationMessageThroughProxy(message.data || {})
+    case 'CHATGPT_WEB_CREATE_CONVERSATION':
+      return await createChatgptWebConversation(message.data || {})
+    case 'CHATGPT_WEB_SYNC_CONVERSATIONS':
+      return await syncChatgptWebConversationCacheWithFallback({
+        force: message?.data?.force === true,
+        includeArchived: message?.data?.includeArchived === true,
+      })
     case 'CHATGPT_WEB_LIST_MODELS':
       try {
         return await listChatgptWebModels()

@@ -136,6 +136,36 @@ function readBody(req) {
   })
 }
 
+async function readBodyObject(req) {
+  let rawBody = ''
+  try {
+    rawBody = await readBody(req)
+  } catch {
+    rawBody = ''
+  }
+
+  if (!rawBody) return {}
+
+  try {
+    const parsed = JSON.parse(rawBody)
+    return parsed && typeof parsed === 'object' ? parsed : { raw: rawBody }
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const params = new URLSearchParams(rawBody)
+    const entries = [...params.entries()]
+    if (entries.length > 0) {
+      return Object.fromEntries(entries)
+    }
+  } catch {
+    /* fall through */
+  }
+
+  return { raw: rawBody }
+}
+
 function makeCompletionId() {
   return 'chatcmpl-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24)
 }
@@ -684,6 +714,12 @@ async function handleChatgptConversationList(url, res) {
   }
 
   try {
+    if (url.searchParams.get('force_sync') === 'true') {
+      await sendControlRequestToBridge('chatgpt_web_sync_conversations', {
+        force: true,
+        includeArchived: url.searchParams.get('is_archived') === 'true',
+      })
+    }
     const result = await sendControlRequestToBridge('chatgpt_web_list_conversations', {
       offset: url.searchParams.get('offset') || 0,
       limit: url.searchParams.get('limit') || 28,
@@ -712,6 +748,45 @@ async function handleChatgptConversationList(url, res) {
   }
 }
 
+async function handleChatgptConversationCreate(req, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  const body = await readBodyObject(req)
+
+  try {
+    const query =
+      (typeof body.query === 'string' && body.query.trim()) ||
+      (typeof body.message === 'string' && body.message.trim()) ||
+      (typeof body.raw === 'string' && body.raw.trim()) ||
+      ''
+    const result = await sendControlRequestToBridge(
+      'chatgpt_web_create_conversation',
+      {
+        query,
+        model: body.model,
+      },
+      Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
+    )
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
 async function handleChatgptConversationGet(conversationId, url, res) {
   if (!isBridgeConnected()) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
@@ -732,6 +807,8 @@ async function handleChatgptConversationGet(conversationId, url, res) {
       conversationId,
       userMessageId: url.searchParams.get('user_message_id') || undefined,
       assistantMessageId: url.searchParams.get('assistant_message_id') || undefined,
+      think: url.searchParams.get('think') === 'true',
+      forceRefresh: url.searchParams.get('force_refresh') === 'true',
     })
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
@@ -756,13 +833,7 @@ async function handleChatgptConversationRefresh(req, res, conversationId) {
     return
   }
 
-  let body = {}
-  try {
-    const rawBody = await readBody(req)
-    body = rawBody ? JSON.parse(rawBody) : {}
-  } catch {
-    body = {}
-  }
+  const body = await readBodyObject(req)
 
   try {
     const result = await sendControlRequestToBridge('chatgpt_web_refresh_conversation', {
@@ -772,6 +843,44 @@ async function handleChatgptConversationRefresh(req, res, conversationId) {
       offset: body.offset,
       preferResume: body.preferResume,
       resumeTimeoutMs: body.resumeTimeoutMs,
+      think: body.think,
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleChatgptConversationMessage(req, res, conversationId) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  const body = await readBodyObject(req)
+
+  try {
+    const query =
+      (typeof body.query === 'string' && body.query.trim()) ||
+      (typeof body.message === 'string' && body.message.trim()) ||
+      (typeof body.raw === 'string' && body.raw.trim()) ||
+      ''
+    const result = await sendControlRequestToBridge('chatgpt_web_send_conversation_message', {
+      conversationId,
+      query,
+      model: body.model,
+      think: body.think === true,
     })
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
@@ -881,6 +990,9 @@ const server = http.createServer((req, res) => {
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`)
   const conversationGetMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)$/)
+  const conversationMessageMatch = url.pathname.match(
+    /^\/chatgpt\/conversations\/([^/]+)\/messages$/,
+  )
   const conversationRefreshMatch = url.pathname.match(
     /^\/chatgpt\/conversations\/([^/]+)\/refresh$/,
   )
@@ -906,6 +1018,14 @@ const server = http.createServer((req, res) => {
     handleStatus(res)
   } else if (url.pathname === '/health' && req.method === 'GET') {
     handleHealth(res)
+  } else if (url.pathname === '/chatgpt/conversations' && req.method === 'POST') {
+    handleChatgptConversationCreate(req, res).catch((err) => {
+      logError(`Conversation create error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
   } else if (url.pathname === '/chatgpt/conversations' && req.method === 'GET') {
     handleChatgptConversationList(url, res).catch((err) => {
       logError(`Conversation list error: ${err.message}`)
@@ -924,6 +1044,18 @@ const server = http.createServer((req, res) => {
         }
       },
     )
+  } else if (conversationMessageMatch && req.method === 'POST') {
+    handleChatgptConversationMessage(
+      req,
+      res,
+      decodeURIComponent(conversationMessageMatch[1]),
+    ).catch((err) => {
+      logError(`Conversation message error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
   } else if (conversationRefreshMatch && req.method === 'POST') {
     handleChatgptConversationRefresh(
       req,
@@ -1048,8 +1180,10 @@ server.listen(PORT, HOST, () => {
   log(`  GET  http://${HOST}:${PORT}/v1/models`)
   log(`  GET  http://${HOST}:${PORT}/status`)
   log(`  GET  http://${HOST}:${PORT}/health`)
+  log(`  POST http://${HOST}:${PORT}/chatgpt/conversations`)
   log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations`)
   log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations/:id`)
+  log(`  POST http://${HOST}:${PORT}/chatgpt/conversations/:id/messages`)
   log(`  POST http://${HOST}:${PORT}/chatgpt/conversations/:id/refresh`)
   log(``)
   log(`Bridge transports:`)

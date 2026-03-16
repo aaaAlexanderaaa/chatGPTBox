@@ -288,6 +288,12 @@ function App() {
       try {
         let response
         switch (action) {
+          case 'chatgpt_web_create_conversation':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_CREATE_CONVERSATION',
+              data: payload || {},
+            })
+            break
           case 'chatgpt_web_list_conversations':
             response = await Browser.runtime.sendMessage({
               type: 'CHATGPT_WEB_LIST_CONVERSATIONS',
@@ -303,6 +309,18 @@ function App() {
           case 'chatgpt_web_refresh_conversation':
             response = await Browser.runtime.sendMessage({
               type: 'CHATGPT_WEB_REFRESH_CONVERSATION',
+              data: payload || {},
+            })
+            break
+          case 'chatgpt_web_send_conversation_message':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
+              data: payload || {},
+            })
+            break
+          case 'chatgpt_web_sync_conversations':
+            response = await Browser.runtime.sendMessage({
+              type: 'CHATGPT_WEB_SYNC_CONVERSATIONS',
               data: payload || {},
             })
             break
@@ -792,10 +810,13 @@ function App() {
               diagnostics.
             </p>
             <p>
-              <strong>Conversation APIs:</strong> Use <code>GET /chatgpt/conversations</code>,{' '}
-              <code>GET /chatgpt/conversations/&lt;id&gt;</code>, and{' '}
-              <code>POST /chatgpt/conversations/&lt;id&gt;/refresh</code> for manual async
-              inspection and refresh.
+              <strong>Conversation APIs:</strong> Use{' '}
+              <code>GET /chatgpt/conversations?force_sync=true</code> for a fresh cached list,{' '}
+              <code>POST /chatgpt/conversations</code> to start a new background thread without
+              waiting for the answer, <code>GET /chatgpt/conversations/&lt;id&gt;?think=true</code>{' '}
+              for a normalized snapshot with reasoning data,{' '}
+              <code>POST /chatgpt/conversations/&lt;id&gt;/messages</code> to send a follow-up, and{' '}
+              <code>POST /chatgpt/conversations/&lt;id&gt;/refresh</code> to refresh pending output.
             </p>
           </div>
         </details>
@@ -804,7 +825,8 @@ function App() {
       <section className="api-server-conversations">
         <h3>ChatGPT Conversations</h3>
         <p className="conversation-subtitle">
-          Manually inspect async thinking conversations through the local API server.
+          Manually inspect cached ChatGPT conversations, reasoning data, and follow-up endpoints
+          through the local API server.
         </p>
 
         <div className="conversation-toolbar">
@@ -896,13 +918,21 @@ function App() {
           <summary>Example commands</summary>
           <pre>{`curl http://127.0.0.1:${port}/status
 
-curl http://127.0.0.1:${port}/chatgpt/conversations
+curl "http://127.0.0.1:${port}/chatgpt/conversations?offset=0&limit=100&order=updated&force_sync=true"
 
-curl http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>
+curl -X POST http://127.0.0.1:${port}/chatgpt/conversations \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"start a new thread from this note"}'
+
+curl "http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>?think=true"
+
+curl -X POST http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>/messages \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"continue from the cached thread","think":true}'
 
 curl -X POST http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>/refresh \\
   -H "Content-Type: application/json" \\
-  -d '{"preferResume":true,"resumeTimeoutMs":10000}'`}</pre>
+  -d '{"preferResume":true,"resumeTimeoutMs":10000,"think":true}'`}</pre>
         </details>
       </section>
 

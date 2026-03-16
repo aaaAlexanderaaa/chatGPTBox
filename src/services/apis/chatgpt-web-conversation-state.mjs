@@ -29,6 +29,10 @@ function getMessageRole(node) {
   return node?.message?.author?.role || ''
 }
 
+function getNodeMessage(node) {
+  return node?.message && typeof node.message === 'object' ? node.message : null
+}
+
 function buildAncestorPath(mapping, startNodeId, maxDepth = 256) {
   const path = []
   const visited = new Set()
@@ -43,6 +47,10 @@ function buildAncestorPath(mapping, startNodeId, maxDepth = 256) {
   }
 
   return path
+}
+
+function buildRootPath(mapping, startNodeId, maxDepth = 256) {
+  return buildAncestorPath(mapping, startNodeId, maxDepth).reverse()
 }
 
 function collectAssistantDescendants(mapping, startNodeId, maxNodes = 256) {
@@ -99,8 +107,7 @@ function normalizeChatgptWebReferenceText(text, contentReferences = []) {
 
   const replacements = (Array.isArray(contentReferences) ? contentReferences : [])
     .map((reference) => {
-      const matchedText =
-        typeof reference?.matched_text === 'string' ? reference.matched_text : ''
+      const matchedText = typeof reference?.matched_text === 'string' ? reference.matched_text : ''
       if (!matchedText || !matchedText.trim()) return null
       return {
         matchedText,
@@ -144,6 +151,42 @@ function getNodeContentType(node) {
 
 function getNodeText(node) {
   return extractChatgptWebMessageText(node?.message)
+}
+
+function findClosestAncestorNode(mapping, startNodeId, predicate) {
+  const path = buildAncestorPath(mapping, startNodeId)
+  return path.find((node) => predicate(node)) || null
+}
+
+function extractChatgptWebThoughts(message) {
+  const thoughts = Array.isArray(message?.content?.thoughts) ? message.content.thoughts : []
+  return thoughts
+    .map((thought, index) => {
+      if (!thought || typeof thought !== 'object') return null
+      const summary = typeof thought.summary === 'string' ? thought.summary : ''
+      const content = typeof thought.content === 'string' ? thought.content : ''
+      if (!summary && !content) return null
+      return {
+        index,
+        summary,
+        content,
+        finished: thought.finished === true,
+      }
+    })
+    .filter(Boolean)
+}
+
+function shouldExposeThinkingNode(node) {
+  const message = getNodeMessage(node)
+  if (!message || message.author?.role !== 'assistant') return false
+  const contentType = getNodeContentType(node)
+  if (contentType === 'thoughts' || contentType === 'reasoning_recap') return true
+  if (extractChatgptWebThoughts(message).length > 0) return true
+  return Boolean(
+    message?.metadata?.reasoning_status ||
+      message?.metadata?.reasoning_title ||
+      message?.metadata?.reasoning_start_time,
+  )
 }
 
 function isUserVisibleAssistantNode(node) {
@@ -205,6 +248,97 @@ function scoreAssistantNode(node, { currentNodeId, assistantMessageId, pathNodeI
   return score
 }
 
+function selectChatgptWebConversationAssistantCandidate(
+  conversation,
+  { userMessageId, assistantMessageId } = {},
+) {
+  const mapping = conversation?.mapping
+  if (!mapping || typeof mapping !== 'object') return null
+
+  const currentNodeId = conversation?.current_node || null
+  const pathNodes = collectAssistantNodesOnCurrentPath(mapping, currentNodeId, userMessageId)
+  const pathNodeIds = new Set(pathNodes.map((node) => node.id))
+  const candidates = []
+
+  if (assistantMessageId) {
+    const assistantNode = getMappingNode(mapping, assistantMessageId)
+    if (getMessageRole(assistantNode) === 'assistant') candidates.push(assistantNode)
+  }
+
+  if (currentNodeId) {
+    const currentNode = getMappingNode(mapping, currentNodeId)
+    if (getMessageRole(currentNode) === 'assistant') candidates.push(currentNode)
+  }
+
+  candidates.push(...pathNodes)
+  if (userMessageId) candidates.push(...collectAssistantDescendants(mapping, userMessageId))
+
+  const candidate = dedupeNodes(candidates).sort((left, right) => {
+    const scoreDelta =
+      scoreAssistantNode(right, { currentNodeId, assistantMessageId, pathNodeIds }) -
+      scoreAssistantNode(left, { currentNodeId, assistantMessageId, pathNodeIds })
+    if (scoreDelta !== 0) return scoreDelta
+    return String(right?.id || '').localeCompare(String(left?.id || ''))
+  })[0]
+
+  return candidate || null
+}
+
+function formatConversationMessageNode(node) {
+  const message = getNodeMessage(node)
+  if (!message) return null
+
+  return {
+    messageId: message.id || node?.id || null,
+    role: message.author?.role || '',
+    status: typeof message.status === 'string' ? message.status : '',
+    channel: message.channel || null,
+    contentType: message.content?.content_type || '',
+    createTime: message.create_time || null,
+    updateTime: message.update_time || null,
+    text: extractChatgptWebMessageText(message),
+  }
+}
+
+function isVisibleConversationMessageNode(node) {
+  const message = getNodeMessage(node)
+  if (!message) return false
+  if (message?.metadata?.is_visually_hidden_from_conversation === true) return false
+
+  const role = message.author?.role || ''
+  if (role === 'user') return true
+  if (role !== 'assistant') return false
+
+  const contentType = message.content?.content_type || ''
+  return contentType !== 'thoughts' && contentType !== 'reasoning_recap'
+}
+
+function formatThinkingNode(node) {
+  const message = getNodeMessage(node)
+  if (!message) return null
+
+  const thoughts = extractChatgptWebThoughts(message)
+  const text = extractChatgptWebMessageText(message)
+  const reasoningTitle =
+    typeof message?.metadata?.reasoning_title === 'string' ? message.metadata.reasoning_title : ''
+  const reasoningStatus =
+    typeof message?.metadata?.reasoning_status === 'string' ? message.metadata.reasoning_status : ''
+
+  return {
+    messageId: message.id || node?.id || null,
+    status: typeof message.status === 'string' ? message.status : '',
+    channel: message.channel || null,
+    contentType: message.content?.content_type || '',
+    createTime: message.create_time || null,
+    updateTime: message.update_time || null,
+    text,
+    reasoningTitle,
+    reasoningStatus,
+    thoughtCount: thoughts.length,
+    thoughts,
+  }
+}
+
 export function flattenChatgptWebMessageText(content) {
   if (!content || typeof content !== 'object') return ''
   const parts = Array.isArray(content.parts) ? content.parts : []
@@ -252,35 +386,10 @@ export function extractChatgptWebConversationResult(
   conversation,
   { userMessageId, assistantMessageId } = {},
 ) {
-  const mapping = conversation?.mapping
-  if (!mapping || typeof mapping !== 'object') return null
-
-  const currentNodeId = conversation?.current_node || null
-  const pathNodes = collectAssistantNodesOnCurrentPath(mapping, currentNodeId, userMessageId)
-  const pathNodeIds = new Set(pathNodes.map((node) => node.id))
-  const candidates = []
-
-  if (assistantMessageId) {
-    const assistantNode = getMappingNode(mapping, assistantMessageId)
-    if (getMessageRole(assistantNode) === 'assistant') candidates.push(assistantNode)
-  }
-
-  if (currentNodeId) {
-    const currentNode = getMappingNode(mapping, currentNodeId)
-    if (getMessageRole(currentNode) === 'assistant') candidates.push(currentNode)
-  }
-
-  candidates.push(...pathNodes)
-  if (userMessageId) candidates.push(...collectAssistantDescendants(mapping, userMessageId))
-
-  const candidate = dedupeNodes(candidates).sort((left, right) => {
-    const scoreDelta =
-      scoreAssistantNode(right, { currentNodeId, assistantMessageId, pathNodeIds }) -
-      scoreAssistantNode(left, { currentNodeId, assistantMessageId, pathNodeIds })
-    if (scoreDelta !== 0) return scoreDelta
-    return String(right?.id || '').localeCompare(String(left?.id || ''))
-  })[0]
-
+  const candidate = selectChatgptWebConversationAssistantCandidate(conversation, {
+    userMessageId,
+    assistantMessageId,
+  })
   if (!candidate || getMessageRole(candidate) !== 'assistant') return null
 
   const message = candidate.message || {}
@@ -291,9 +400,7 @@ export function extractChatgptWebConversationResult(
   const isFinal =
     !pending &&
     Boolean(
-      isFinalChatgptWebMessageStatus(status) ||
-        message.end_turn ||
-        (hasAsyncStatusField && text),
+      isFinalChatgptWebMessageStatus(status) || message.end_turn || (hasAsyncStatusField && text),
     )
 
   return {
@@ -309,6 +416,77 @@ export function extractChatgptWebConversationResult(
     pending,
     isFinal,
   }
+}
+
+export function extractChatgptWebConversationQuery(
+  conversation,
+  { userMessageId, assistantMessageId } = {},
+) {
+  const mapping = conversation?.mapping
+  if (!mapping || typeof mapping !== 'object') return null
+
+  const candidate = selectChatgptWebConversationAssistantCandidate(conversation, {
+    userMessageId,
+    assistantMessageId,
+  })
+  const fallbackNodeId = candidate?.id || conversation?.current_node || null
+  const userNode =
+    (userMessageId && getMappingNode(mapping, userMessageId)) ||
+    findClosestAncestorNode(mapping, fallbackNodeId, (node) => getMessageRole(node) === 'user')
+  const message = getNodeMessage(userNode)
+  if (!message || message.author?.role !== 'user') return null
+
+  return {
+    messageId: message.id || userNode.id || null,
+    text: extractChatgptWebMessageText(message),
+    createTime: message.create_time || null,
+    updateTime: message.update_time || null,
+  }
+}
+
+export function extractChatgptWebConversationMessages(conversation = {}) {
+  const mapping = conversation?.mapping
+  if (!mapping || typeof mapping !== 'object') return []
+
+  const rootPath = buildRootPath(mapping, conversation?.current_node || null)
+  return rootPath
+    .filter((node) => isVisibleConversationMessageNode(node))
+    .map((node) => formatConversationMessageNode(node))
+    .filter(Boolean)
+}
+
+export function extractChatgptWebConversationThinking(
+  conversation,
+  { userMessageId, assistantMessageId } = {},
+) {
+  const mapping = conversation?.mapping
+  if (!mapping || typeof mapping !== 'object') return []
+
+  const candidate = selectChatgptWebConversationAssistantCandidate(conversation, {
+    userMessageId,
+    assistantMessageId,
+  })
+  if (!candidate) return []
+
+  const userNode = findClosestAncestorNode(
+    mapping,
+    candidate.id,
+    (node) => getMessageRole(node) === 'user',
+  )
+  const path = buildAncestorPath(mapping, candidate.id)
+  const thinkingNodes = []
+
+  for (const node of path) {
+    if (node.id === userNode?.id) break
+    if (node.id === candidate.id) continue
+    if (!shouldExposeThinkingNode(node)) continue
+    thinkingNodes.push(node)
+  }
+
+  return thinkingNodes
+    .reverse()
+    .map((node) => formatThinkingNode(node))
+    .filter(Boolean)
 }
 
 export function formatChatgptWebConversationListItem(item = {}) {
@@ -337,12 +515,23 @@ export function extractChatgptWebConversationListItems(response) {
 
 export function formatChatgptWebConversationSnapshot(
   conversation = {},
-  { userMessageId, assistantMessageId } = {},
+  { userMessageId, assistantMessageId, think = false } = {},
 ) {
   const result = extractChatgptWebConversationResult(conversation, {
     userMessageId,
     assistantMessageId,
   })
+  const query = extractChatgptWebConversationQuery(conversation, {
+    userMessageId,
+    assistantMessageId,
+  })
+  const messages = extractChatgptWebConversationMessages(conversation)
+  const thinking = think
+    ? extractChatgptWebConversationThinking(conversation, {
+        userMessageId,
+        assistantMessageId,
+      })
+    : undefined
 
   return {
     conversationId: conversation.conversation_id || null,
@@ -358,6 +547,10 @@ export function formatChatgptWebConversationSnapshot(
     blockedUrlCount: Array.isArray(conversation.blocked_urls)
       ? conversation.blocked_urls.length
       : 0,
+    query: query?.text || '',
+    queryMessage: query,
+    messages,
+    thinking,
     message: result,
   }
 }

@@ -21,7 +21,10 @@ import {
   createChatgptWebWebsocketRequestController,
 } from '../src/services/apis/chatgpt-web-websocket-state.mjs'
 import {
+  extractChatgptWebConversationMessages,
+  extractChatgptWebConversationQuery,
   extractChatgptWebConversationListItems,
+  extractChatgptWebConversationThinking,
   extractChatgptWebConversationResult,
   flattenChatgptWebMessageText,
   formatChatgptWebConversationListItem,
@@ -34,6 +37,12 @@ import {
   findChatgptWebApiThreadContinuation,
   normalizeChatgptWebBridgeMessages,
 } from '../src/services/chatgpt-web-thread-state.mjs'
+import {
+  buildChatgptWebConversationListResponse,
+  createChatgptWebConversationSnapshotRecord,
+  isChatgptWebConversationSnapshotStale,
+  mergeChatgptWebConversationIndexEntries,
+} from '../src/services/chatgpt-web-conversation-cache.mjs'
 
 function bufferToArrayBuffer(buffer) {
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
@@ -732,6 +741,154 @@ async function testChatgptWebConversationListItemExtractionSupportsRawUpstreamSh
   assert.deepEqual(extractChatgptWebConversationListItems({ nope: true }), [])
 }
 
+async function testChatgptWebConversationSnapshotIncludesQueryMessagesAndThinking() {
+  const conversation = {
+    conversation_id: 'conv-1',
+    current_node: 'assistant-final',
+    mapping: {
+      root: {
+        id: 'root',
+        parent: null,
+        children: ['user-1'],
+        message: null,
+      },
+      'user-1': {
+        id: 'user-1',
+        parent: 'root',
+        children: ['assistant-thinking'],
+        message: {
+          id: 'user-1',
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['show me the trace'] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-thinking': {
+        id: 'assistant-thinking',
+        parent: 'user-1',
+        children: ['assistant-final'],
+        message: {
+          id: 'assistant-thinking',
+          author: { role: 'assistant' },
+          content: {
+            content_type: 'thoughts',
+            parts: [''],
+            thoughts: [{ summary: 'Inspecting cache', content: 'Looking at local state' }],
+          },
+          status: 'finished_successfully',
+          metadata: {
+            reasoning_status: 'completed',
+            reasoning_title: 'Reasoning',
+          },
+        },
+      },
+      'assistant-final': {
+        id: 'assistant-final',
+        parent: 'assistant-thinking',
+        children: [],
+        message: {
+          id: 'assistant-final',
+          author: { role: 'assistant' },
+          content: { content_type: 'text', parts: ['final answer'] },
+          status: 'finished_successfully',
+          end_turn: true,
+          channel: 'final',
+        },
+      },
+    },
+  }
+
+  const query = extractChatgptWebConversationQuery(conversation)
+  const messages = extractChatgptWebConversationMessages(conversation)
+  const thinking = extractChatgptWebConversationThinking(conversation)
+  const snapshot = formatChatgptWebConversationSnapshot(conversation, { think: true })
+
+  assert.equal(query.text, 'show me the trace')
+  assert.deepEqual(
+    messages.map((message) => ({ role: message.role, text: message.text })),
+    [
+      { role: 'user', text: 'show me the trace' },
+      { role: 'assistant', text: 'final answer' },
+    ],
+  )
+  assert.equal(thinking.length, 1)
+  assert.equal(thinking[0].thoughtCount, 1)
+  assert.equal(thinking[0].thoughts[0].summary, 'Inspecting cache')
+  assert.equal(snapshot.query, 'show me the trace')
+  assert.equal(snapshot.thinking.length, 1)
+}
+
+async function testChatgptWebConversationCacheMergeKeepsMissingIdsAndBuildsList() {
+  const mergeResult = mergeChatgptWebConversationIndexEntries(
+    {
+      'conv-old': {
+        id: 'conv-old',
+        title: 'Older cached conversation',
+        createTime: '2026-03-10T00:00:00.000Z',
+        updateTime: '2026-03-10T00:00:00.000Z',
+        asyncStatus: null,
+        pending: false,
+        isArchived: false,
+        isStarred: false,
+        rawItem: { id: 'conv-old', title: 'Older cached conversation' },
+      },
+    },
+    [
+      {
+        id: 'conv-new',
+        title: 'Fresh conversation',
+        create_time: '2026-03-12T00:00:00.000Z',
+        update_time: '2026-03-12T00:00:00.000Z',
+        async_status: null,
+      },
+      {
+        id: 'conv-old',
+        title: 'Older cached conversation',
+        create_time: '2026-03-10T00:00:00.000Z',
+        update_time: '2026-03-13T00:00:00.000Z',
+        async_status: 2,
+      },
+    ],
+    '2026-03-13T12:00:00.000Z',
+  )
+
+  assert.deepEqual(mergeResult.newIds, ['conv-new'])
+  assert.deepEqual(mergeResult.updatedIds, ['conv-old'])
+  assert.ok(mergeResult.entries['conv-old'])
+  assert.ok(mergeResult.entries['conv-new'])
+
+  const response = buildChatgptWebConversationListResponse(
+    mergeResult.entries,
+    { offset: 0, limit: 10, order: 'updated', isArchived: false, isStarred: false },
+    { lastSyncAt: '2026-03-13T12:00:00.000Z' },
+  )
+  assert.equal(response.total, 2)
+  assert.equal(response.items[0].id, 'conv-old')
+  assert.equal(response.cached_at, '2026-03-13T12:00:00.000Z')
+}
+
+async function testChatgptWebConversationSnapshotStaleDetectionTracksStatus() {
+  const indexEntry = {
+    id: 'conv-1',
+    updateTime: '2026-03-13T12:00:00.000Z',
+    asyncStatus: 3,
+    pending: true,
+  }
+  const snapshotRecord = createChatgptWebConversationSnapshotRecord(
+    {
+      conversation_id: 'conv-1',
+      update_time: '2026-03-12T12:00:00.000Z',
+      async_status: null,
+    },
+    {
+      cachedAt: '2026-03-12T12:00:00.000Z',
+      source: 'test',
+    },
+  )
+
+  assert.equal(isChatgptWebConversationSnapshotStale(indexEntry, snapshotRecord), true)
+}
+
 async function testChatgptWebApiThreadContinuationUsesLongestPrefix() {
   const match = findChatgptWebApiThreadContinuation(
     [
@@ -858,6 +1015,9 @@ async function run() {
   await testChatgptWebConversationFormattingExposesPendingState()
   await testChatgptWebConversationMarksTextFinalWhenAsyncCompletes()
   await testChatgptWebConversationListItemExtractionSupportsRawUpstreamShapes()
+  await testChatgptWebConversationSnapshotIncludesQueryMessagesAndThinking()
+  await testChatgptWebConversationCacheMergeKeepsMissingIdsAndBuildsList()
+  await testChatgptWebConversationSnapshotStaleDetectionTracksStatus()
   await testChatgptWebApiThreadContinuationUsesLongestPrefix()
   await testChatgptWebApiThreadContinuationNormalizesMultipartContent()
   await testChatgptWebApiThreadContinuationRejectsNonUserSuffix()

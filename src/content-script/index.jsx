@@ -38,6 +38,7 @@ import {
   getChatgptWebConversation,
   listChatgptWebConversations,
   refreshChatgptWebConversation,
+  syncChatgptWebConversationCache,
 } from '../services/apis/chatgpt-web-conversation-api.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
@@ -481,6 +482,8 @@ async function handleChatgptProxyControlRequest(action, payload = {}) {
       return await getChatgptWebConversation(payload || {})
     case 'chatgpt_web_refresh_conversation':
       return await refreshChatgptWebConversation(payload || {})
+    case 'chatgpt_web_sync_conversations':
+      return await syncChatgptWebConversationCache(payload || {})
     default:
       throw new Error(`Unsupported proxy control action: ${action}`)
   }

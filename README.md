@@ -42,7 +42,7 @@ Builds from source:
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
 - Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
 - Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP/SSE JSON-RPC MCP servers.
-- Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint.
+- Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
 
 ## Screenshots
@@ -214,6 +214,7 @@ Supported endpoints:
 - `GET /health`
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
+- `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
 Gateway configuration:
@@ -224,13 +225,12 @@ Gateway configuration:
 
 The default health endpoint is `http://127.0.0.1:18080/health`.
 
-The three conversation APIs are implemented now:
+Conversation API notes:
 
-- `GET /chatgpt/conversations`
-- `GET /chatgpt/conversations/:id`
-- `POST /chatgpt/conversations/:id/refresh`
-
-`GET /chatgpt/conversations` now preserves the upstream ChatGPT Web list response shape.
+- `GET /chatgpt/conversations` returns the locally cached ChatGPT Web list in the upstream-style shape. Add `force_sync=true` to trigger a fresh sync before reading it.
+- `GET /chatgpt/conversations/:id` returns a normalized conversation snapshot. Add `think=true` to include reasoning-related nodes and `force_refresh=true` to fetch a fresh snapshot immediately.
+- `POST /chatgpt/conversations/:id/messages` sends a follow-up into an existing ChatGPT conversation, then refreshes the snapshot.
+- `POST /chatgpt/conversations/:id/refresh` refreshes a conversation and can optionally resume pending assistant output.
 
 Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 
