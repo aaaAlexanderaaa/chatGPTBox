@@ -12,28 +12,11 @@ AI assistant in your browser: selection tools, site integrations, a floating cha
 [![release][release-image]][release-url]
 [![verify][verify-image]][verify-url]
 
-[![Chrome][Chrome-image]][Chrome-url]
-[![Edge][Edge-image]][Edge-url]
-[![Firefox][Firefox-image]][Firefox-url]
-[![Safari][Safari-image]][Safari-url]
+English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 
-[Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Features](#features) &nbsp;&nbsp;|&nbsp;&nbsp; [Screenshots](#screenshots) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [API Server Bridge](#api-server-bridge) &nbsp;&nbsp;|&nbsp;&nbsp; [Architecture Notes](#architecture-notes) &nbsp;&nbsp;|&nbsp;&nbsp; [Privacy](#privacy)
+[Features](#features) &nbsp;&nbsp;|&nbsp;&nbsp; [Screenshots](#screenshots) &nbsp;&nbsp;|&nbsp;&nbsp; [Install](#install) &nbsp;&nbsp;|&nbsp;&nbsp; [Usage](#usage) &nbsp;&nbsp;|&nbsp;&nbsp; [Configuration](#configuration) &nbsp;&nbsp;|&nbsp;&nbsp; [Development](#development) &nbsp;&nbsp;|&nbsp;&nbsp; [API Server Bridge](#api-server-bridge) &nbsp;&nbsp;|&nbsp;&nbsp; [Changelog](#changelog) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#credits)
 
 </div>
-
-## Install
-
-Official browser installs:
-
-- Chrome: [Chrome Web Store][Chrome-url]
-- Edge: [Microsoft Edge Add-ons][Edge-url]
-- Firefox: [Firefox Add-ons][Firefox-url]
-- Safari: [App Store][Safari-url]
-
-Builds from source:
-
-- GitHub releases: https://github.com/aaaAlexanderaaa/chatGPTBox/releases
-- Local development builds: run `npm run dev`, then load `build/chromium/` as an unpacked extension.
 
 ## Features
 
@@ -50,48 +33,82 @@ Builds from source:
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_site_integration.png" alt="Site Integration" /><br />
+      <img src="./screenshots/preview_site_integration.webp" alt="Site Integration" /><br />
       <b>Site Integration</b><br />
       <sub>Integrates with search engines like DuckDuckGo, showing AI responses alongside search results</sub>
     </td>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_selection_tools.png" alt="Selection Tools" /><br />
-      <b>Selection Tools</b><br />
-      <sub>Highlight text to access quick actions: translate, summarize, explain, and more</sub>
+      <img src="./screenshots/preview_google_integration.webp" alt="Google Integration" /><br />
+      <b>Google Integration</b><br />
+      <sub>AI assistant panel alongside Google search results</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_context_menu.png" alt="Context Menu" /><br />
-      <b>Context Menu</b><br />
-      <sub>Right-click menu for quick access to chat, summarize page, and other features</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="./screenshots/preview_popup_window.png" alt="Popup Window" /><br />
-      <b>Popup Window</b><br />
-      <sub>Click the extension icon to access settings directly from the browser toolbar</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="./screenshots/preview_options_page.png" alt="Options Page (Light)" /><br />
+      <img src="./screenshots/preview_options_page.webp" alt="Options Page (Light)" /><br />
       <b>Options Page (Light Mode)</b><br />
       <sub>Full-featured settings panel with chat history and configuration options</sub>
     </td>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_darkmode.png" alt="Options Page (Dark)" /><br />
+      <img src="./screenshots/preview_darkmode.webp" alt="Options Page (Dark)" /><br />
       <b>Options Page (Dark Mode)</b><br />
       <sub>Beautiful dark theme with customizable accent colors</sub>
     </td>
   </tr>
   <tr>
-    <td align="center" colspan="2">
-      <img src="./screenshots/preview_context_extractor.png" alt="Context Extractor" width="400" /><br />
-      <b>Context Extractor</b><br />
-      <sub>Preview and customize what content is extracted from web pages for AI context</sub>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_popup_window.webp" alt="Popup Window" /><br />
+      <b>Popup Window</b><br />
+      <sub>Click the extension icon to access quick settings directly from the browser toolbar</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_context_menu.webp" alt="Context Menu" /><br />
+      <b>Context Menu</b><br />
+      <sub>Right-click menu for quick access to chat, summarize page, and other features</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_independent_panel.webp" alt="Independent Panel" /><br />
+      <b>Independent Conversation Panel</b><br />
+      <sub>Dedicated conversation page opened via keyboard shortcut or context menu</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_features_tab.webp" alt="Features Tab" /><br />
+      <b>Site Integrations</b><br />
+      <sub>Toggle integrations for Google, GitHub, YouTube, Reddit, Stack Overflow, and more</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_agents_tab.webp" alt="Agents Tab" /><br />
+      <b>Agents &amp; Assistants</b><br />
+      <sub>Manage assistants, imported skill packs, and MCP servers</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./screenshots/preview_modules_tab.webp" alt="Modules Tab" /><br />
+      <b>Modules &amp; API Modes</b><br />
+      <sub>Configure API modes, selection tools, site adapters, and content extractors</sub>
     </td>
   </tr>
 </table>
+
+## Install
+
+This is a community fork. It is not listed on official browser extension stores.
+
+To install, grab a build from [GitHub Releases](https://github.com/aaaAlexanderaaa/chatGPTBox/releases) or build from source:
+
+```bash
+npm ci
+npm run dev        # development build → build/chromium/, build/firefox/
+npm run build      # production build → build/*.zip
+```
+
+Load the extension:
+
+- **Chromium-based browsers**: enable Developer mode on the extensions page and load `build/chromium/` as an unpacked extension.
+- **Firefox**: load `build/firefox/` as a temporary add-on.
 
 ## Usage
 
@@ -245,14 +262,27 @@ Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 
 ChatGPTBox runs locally in your browser. Network requests are only made to the providers/endpoints you configure and when you explicitly trigger a tool.
 
+## Changelog
+
+### v3.2.0
+
+- Added cached ChatGPT conversation APIs to the local API Server Bridge, including list, detail, create, follow-up message, and refresh endpoints.
+- Added local conversation caching plus draft workflow scripts for inspecting threads and sending queued follow-ups through the gateway.
+- Redesigned the settings experience around quick settings and clearer top-level tabs for General, Features, Agents, Modules, and Advanced configuration.
+- Improved gateway and Brave compatibility with reverse-port messaging, connection health handling, buffered websocket events, and safer settings-page behavior.
+- Updated model handling so ChatGPT Web conversation requests preserve upstream slugs and work with the newer dynamic model list flow.
+- Expanded the API server documentation with exact endpoint behavior, cache semantics, and request/response examples.
+- Improved ChatGPT Web bridge reliability on Brave and macOS with safer proxy routing, connection recovery, and buffered websocket handling.
+
 ## Maintainer
 
 This fork is maintained by [@aaaAlexanderaaa](https://github.com/aaaAlexanderaaa).
 
 ## Credits
 
-This project is based on [josStorer/chatGPT-search-engine-extension](https://github.com/josStorer/chatGPT-search-engine-extension),
-which was originally forked from [wong2/chat-gpt-google-extension](https://github.com/wong2/chat-gpt-google-extension) and inspired by
+This project is forked from [ChatGPTBox-dev/chatGPTBox](https://github.com/ChatGPTBox-dev/chatGPTBox),
+which was originally based on [josStorer/chatGPT-search-engine-extension](https://github.com/josStorer/chatGPT-search-engine-extension),
+itself forked from [wong2/chat-gpt-google-extension](https://github.com/wong2/chat-gpt-google-extension) and inspired by
 [ZohaibAhmed/ChatGPT-Google](https://github.com/ZohaibAhmed/ChatGPT-Google).
 
 [license-image]: https://img.shields.io/badge/license-MIT-blue.svg
@@ -263,15 +293,3 @@ which was originally forked from [wong2/chat-gpt-google-extension](https://githu
 
 [verify-image]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml/badge.svg
 [verify-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml
-
-[Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
-[Chrome-url]: https://chrome.google.com/webstore/detail/chatgptbox/eobbhoofkanlmddnplfhnmkfbnlhpbbo
-
-[Edge-image]: https://img.shields.io/badge/-Edge-blue?logo=microsoft-edge&logoColor=white
-[Edge-url]: https://microsoftedge.microsoft.com/addons/detail/fission-chatbox-best/enjmfilpkbbabhgeoadmdpjjpnahkogf
-
-[Firefox-image]: https://img.shields.io/badge/-Firefox-orange?logo=firefox-browser&logoColor=white
-[Firefox-url]: https://addons.mozilla.org/firefox/addon/chatgptbox/
-
-[Safari-image]: https://img.shields.io/badge/-Safari-blue?logo=safari&logoColor=white
-[Safari-url]: https://apps.apple.com/app/fission-chatbox/id6446611121
