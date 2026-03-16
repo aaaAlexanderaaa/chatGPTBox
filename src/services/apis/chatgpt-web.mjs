@@ -739,8 +739,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   } = {}) {
     if (!answer || !shouldEmitIncrementalAnswer) return
 
-    const normalizedChannel =
-      typeof channel === 'string' ? channel.trim().toLowerCase() : ''
+    const normalizedChannel = typeof channel === 'string' ? channel.trim().toLowerCase() : ''
 
     if (isExtendedThinkingRequest && normalizedChannel === 'commentary') {
       logSkippedIncrementalAnswer({
@@ -1214,8 +1213,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     const respAns = extractChatgptWebMessageText(data.message)
     const respPart = data.message?.content?.parts?.[0]
     const contentType = data.message?.content?.content_type
-    const messageChannel =
-      typeof data.message?.channel === 'string' ? data.message.channel : null
+    const messageChannel = typeof data.message?.channel === 'string' ? data.message.channel : null
     if (contentType === 'text' && respAns) {
       answer = withRichContent(respAns)
     } else if (contentType === 'code' && data.message?.status === 'in_progress') {

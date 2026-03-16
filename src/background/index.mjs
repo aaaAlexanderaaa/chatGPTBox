@@ -119,10 +119,7 @@ async function getChatgptWebConversationWithFallback(payload = {}) {
     return await getChatgptWebConversation(payload)
   } catch (error) {
     if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy(
-      'chatgpt_web_get_conversation',
-      payload,
-    )
+    return await executeChatgptWebControlRequestViaProxy('chatgpt_web_get_conversation', payload)
   }
 }
 
@@ -143,10 +140,7 @@ async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
     return await syncChatgptWebConversationCache(payload)
   } catch (error) {
     if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy(
-      'chatgpt_web_sync_conversations',
-      payload,
-    )
+    return await executeChatgptWebControlRequestViaProxy('chatgpt_web_sync_conversations', payload)
   }
 }
 

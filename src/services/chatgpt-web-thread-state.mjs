@@ -106,8 +106,7 @@ export function findChatgptWebApiThreadContinuation(threads = [], { model, messa
       !bestMatch ||
       transcript.length > bestMatch.transcript.length ||
       (transcript.length === bestMatch.transcript.length &&
-        (Date.parse(thread.updatedAt || '') || 0) >
-          (Date.parse(bestMatch.updatedAt || '') || 0))
+        (Date.parse(thread.updatedAt || '') || 0) > (Date.parse(bestMatch.updatedAt || '') || 0))
     ) {
       bestMatch = {
         ...thread,
@@ -151,7 +150,10 @@ export async function saveChatgptWebSessionSnapshot(session, { source = 'unknown
 
   snapshots[session.sessionId] = snapshot
 
-  const trimmedEntries = trimEntriesByCount(Object.values(snapshots), MAX_CHATGPT_WEB_SESSION_SNAPSHOTS)
+  const trimmedEntries = trimEntriesByCount(
+    Object.values(snapshots),
+    MAX_CHATGPT_WEB_SESSION_SNAPSHOTS,
+  )
   const trimmedSnapshots = Object.fromEntries(
     trimmedEntries
       .filter((entry) => typeof entry?.sessionId === 'string' && entry.sessionId)
@@ -180,7 +182,8 @@ export async function restoreChatgptWebSessionSnapshot(session) {
   if (!snapshot || typeof snapshot !== 'object') return session
 
   const merged = { ...session }
-  if (!merged.conversationId && snapshot.conversationId) merged.conversationId = snapshot.conversationId
+  if (!merged.conversationId && snapshot.conversationId)
+    merged.conversationId = snapshot.conversationId
   if (!merged.parentMessageId && snapshot.parentMessageId)
     merged.parentMessageId = snapshot.parentMessageId
   if (!merged.messageId && snapshot.messageId) merged.messageId = snapshot.messageId
@@ -246,7 +249,10 @@ export async function saveChatgptWebApiThread({ model, messages, answer, session
     return threadKey !== dedupeKey
   })
 
-  const nextThreads = trimEntriesByCount([nextThread, ...filteredThreads], MAX_CHATGPT_WEB_API_THREADS)
+  const nextThreads = trimEntriesByCount(
+    [nextThread, ...filteredThreads],
+    MAX_CHATGPT_WEB_API_THREADS,
+  )
 
   await storage.set({
     [CHATGPT_WEB_API_THREADS_KEY]: nextThreads,

@@ -449,8 +449,7 @@ export async function syncChatgptWebConversationCache({
       const missingActiveConversationIds = Array.isArray(activeItems)
         ? findMissingActiveConversationIds(nextEntries, activeItems)
         : []
-      const shouldFetchArchived =
-        shouldRefreshArchived || missingActiveConversationIds.length > 0
+      const shouldFetchArchived = shouldRefreshArchived || missingActiveConversationIds.length > 0
       if (shouldFetchArchived) {
         const archivedItems = await fetchAllChatgptWebConversationListItems({ isArchived: true })
         const archivedMergeResult = mergeChatgptWebConversationIndexEntries(
