@@ -11,17 +11,20 @@ import {
   DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
   MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
   MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   ModelGroups,
 } from '../../config/index.mjs'
@@ -158,6 +161,12 @@ export function AdvancedTab({
     DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
     MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
     MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  )
+  const chatgptWebConversationSyncIntervalValue = parseIntWithClamp(
+    config.chatgptWebConversationSyncIntervalMinutes,
+    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+    MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+    MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   )
   const apiServerRequestTimeoutValue = parseIntWithClamp(
     config.apiServerRequestTimeoutSeconds,
@@ -376,6 +385,31 @@ export function AdvancedTab({
                 MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
               )
               updateConfig({ chatgptWebConversationPollTimeoutSeconds: value })
+            }}
+            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t('Conversation cache sync interval (min)')}
+          hint={t(
+            'How often the extension refreshes the cached ChatGPT conversation list in the background',
+          )}
+        >
+          <input
+            type="number"
+            min={MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES}
+            max={MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES}
+            step={1}
+            value={chatgptWebConversationSyncIntervalValue}
+            onChange={(e) => {
+              const value = parseIntWithClamp(
+                e.target.value,
+                chatgptWebConversationSyncIntervalValue,
+                MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+                MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+              )
+              updateConfig({ chatgptWebConversationSyncIntervalMinutes: value })
             }}
             className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
           />

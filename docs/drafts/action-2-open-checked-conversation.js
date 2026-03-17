@@ -1,6 +1,8 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
+// Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
+const INCLUDE_THINKING = false
 
 function fail(message) {
   app.displayErrorMessage(message)
@@ -56,12 +58,27 @@ function section(title, body) {
   return body && body.trim() ? '## ' + title + '\n\n' + body.trim() + '\n' : ''
 }
 
+function normalizeText(text) {
+  return typeof text === 'string' ? text.trim() : ''
+}
+
+function getLastMessageText(messages, role) {
+  const normalizedRole = normalizeText(role).toLowerCase()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (normalizeText(message && message.role).toLowerCase() !== normalizedRole) continue
+    const text = normalizeText(message && message.text)
+    if (text) return text
+  }
+  return ''
+}
+
 function renderMessages(messages) {
   return messages
+    .filter((message) => normalizeText(message && message.text))
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
-      const text = message.text && message.text.trim() ? message.text.trim() : '(empty)'
-      return '### ' + role + '\n\n' + text
+      return '### ' + role + '\n\n' + normalizeText(message.text)
     })
     .join('\n\n')
 }
@@ -109,6 +126,13 @@ function renderWaitingReplyBlock(conversation) {
 
 function renderConversation(conversation) {
   const lines = []
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : []
+  const transcript = renderMessages(messages)
+  const lastUserText = getLastMessageText(messages, 'user')
+  const lastAssistantText = getLastMessageText(messages, 'assistant')
+  const latestQuery = normalizeText(conversation.query)
+  const latestAnswer = normalizeText(conversation.message && conversation.message.text)
+
   lines.push('# ' + (conversation.title || conversation.conversationId || 'Conversation'))
   lines.push('')
   lines.push('Conversation ID: ' + conversation.conversationId)
@@ -123,22 +147,17 @@ function renderConversation(conversation) {
   if (conversation.defaultModel) lines.push('Model: ' + conversation.defaultModel)
   lines.push('')
 
-  const transcript = renderMessages(
-    Array.isArray(conversation.messages) ? conversation.messages : [],
-  )
   if (transcript) lines.push(section('Transcript', transcript).trimEnd())
 
-  if (conversation.query) {
-    lines.push(section('Latest Query', conversation.query).trimEnd())
+  if (latestQuery && latestQuery !== lastUserText) {
+    lines.push(section('Latest Query', latestQuery).trimEnd())
   }
 
   if (Array.isArray(conversation.thinking) && conversation.thinking.length) {
     lines.push(section('Thinking', renderThinking(conversation.thinking)).trimEnd())
   }
 
-  const latestAnswer =
-    conversation.message && conversation.message.text ? conversation.message.text.trim() : ''
-  if (latestAnswer) {
+  if (latestAnswer && latestAnswer !== lastAssistantText) {
     lines.push(section('Latest Answer', latestAnswer).trimEnd())
   }
 
@@ -149,7 +168,11 @@ function renderConversation(conversation) {
 try {
   const conversationId = getCheckedConversationId(draft.content || '')
   const payload = requestJson(
-    BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(conversationId) + '?think=true',
+    BASE_URL +
+      '/chatgpt/conversations/' +
+      encodeURIComponent(conversationId) +
+      '?think=' +
+      String(INCLUDE_THINKING),
     'GET',
   )
   draft.content = renderConversation(payload)

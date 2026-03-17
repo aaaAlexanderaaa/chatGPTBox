@@ -10,6 +10,8 @@ Before running them:
 4. Keep the bridge page open and stay logged in at `https://chatgpt.com`.
 
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
+If you want Drafts notes to include ChatGPT reasoning blocks, set `INCLUDE_THINKING = true` in
+`action-2-open-checked-conversation.js` and `action-3-send-waiting-reply.js`.
 
 Files:
 
@@ -26,7 +28,7 @@ Suggested Drafts action names:
 Expected workflow:
 
 1. Run action 1 to force-sync the cached conversation list and replace the draft with a Markdown task list.
-2. Check exactly one conversation line, then run action 2 to load that conversation into the note, including `Thinking` data from `?think=true` when available.
+2. Check exactly one conversation line, then run action 2 to load that conversation into the note. The script defaults to a compact user/assistant transcript; turn on `INCLUDE_THINKING` if you also want the `Thinking` section.
 3. Type the next user message between the `chatgptbox-waiting-reply` markers at the bottom of the note, then run action 3 to `POST /chatgpt/conversations/:id/messages` and refresh the transcript.
 
 Action 3 also supports two shortcut modes:

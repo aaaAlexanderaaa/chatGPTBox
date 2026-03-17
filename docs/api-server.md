@@ -129,7 +129,7 @@ curl http://127.0.0.1:18080/health
 
 Returns the locally cached ChatGPT conversation list from the extension.
 
-To keep request volume down, the extension syncs the active conversation list hourly and only pulls the archived list when it is needed (for example, an archived view request or when an active thread disappears and needs to be reconciled).
+To keep request volume down, the extension syncs the active conversation list on a configurable background interval (15 minutes by default) and only pulls the archived list when it is needed (for example, an archived view request or when an active thread disappears and needs to be reconciled).
 
 The cache uses incremental upserts:
 

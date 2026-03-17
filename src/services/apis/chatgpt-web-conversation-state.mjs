@@ -300,6 +300,48 @@ function formatConversationMessageNode(node) {
   }
 }
 
+function scoreConversationTurnAssistantNode(node, order) {
+  const message = getNodeMessage(node)
+  if (!message || message.author?.role !== 'assistant') return -Infinity
+
+  const text = getNodeText(node)
+  const status = typeof message.status === 'string' ? message.status : ''
+  const contentType = getNodeContentType(node)
+  const timestamp = getNodeTimestamp(node)
+  let score = order
+
+  if (text) score += 10_000 + Math.min(text.length, 4000)
+  else score -= 5_000
+  if (message.channel === 'final') score += 2_000
+  if (message.channel === 'commentary') score += 200
+  if (contentType === 'text') score += 1_000
+  else if (contentType === 'multimodal_text') score += 900
+  else if (contentType === 'code') score += 800
+  if (message.end_turn === true) score += 600
+  if (isFinalChatgptWebMessageStatus(status)) score += 400
+  if (isPendingChatgptWebMessageStatus(status)) score += 200
+  if (!isUserVisibleAssistantNode(node)) score -= 2_000
+  if (Number.isFinite(timestamp)) score += Math.floor(timestamp)
+
+  return score
+}
+
+function pickBestConversationTurnAssistant(nodes = []) {
+  return (
+    nodes
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftOrder = nodes.indexOf(left)
+        const rightOrder = nodes.indexOf(right)
+        const scoreDelta =
+          scoreConversationTurnAssistantNode(right, rightOrder) -
+          scoreConversationTurnAssistantNode(left, leftOrder)
+        if (scoreDelta !== 0) return scoreDelta
+        return String(right?.id || '').localeCompare(String(left?.id || ''))
+      })[0] || null
+  )
+}
+
 function isVisibleConversationMessageNode(node) {
   const message = getNodeMessage(node)
   if (!message) return false
@@ -449,10 +491,39 @@ export function extractChatgptWebConversationMessages(conversation = {}) {
   if (!mapping || typeof mapping !== 'object') return []
 
   const rootPath = buildRootPath(mapping, conversation?.current_node || null)
-  return rootPath
-    .filter((node) => isVisibleConversationMessageNode(node))
-    .map((node) => formatConversationMessageNode(node))
-    .filter(Boolean)
+  const messages = []
+  let activeUserNode = null
+  let assistantNodes = []
+
+  function flushTurn() {
+    if (!activeUserNode) return
+
+    const userMessage = formatConversationMessageNode(activeUserNode)
+    if (userMessage?.text) messages.push(userMessage)
+
+    const assistantNode = pickBestConversationTurnAssistant(assistantNodes)
+    const assistantMessage = formatConversationMessageNode(assistantNode)
+    if (assistantMessage?.text) messages.push(assistantMessage)
+
+    activeUserNode = null
+    assistantNodes = []
+  }
+
+  rootPath.forEach((node) => {
+    const role = getMessageRole(node)
+    if (role === 'user') {
+      flushTurn()
+      activeUserNode = node
+      return
+    }
+
+    if (role !== 'assistant' || !activeUserNode) return
+    if (!isVisibleConversationMessageNode(node)) return
+    assistantNodes.push(node)
+  })
+
+  flushTurn()
+  return messages
 }
 
 export function extractChatgptWebConversationThinking(

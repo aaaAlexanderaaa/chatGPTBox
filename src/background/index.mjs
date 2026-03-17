@@ -16,6 +16,7 @@ import { generateAnswersWithAimlApi } from '../services/apis/aiml-api.mjs'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
   CHATGPT_WEB_DEBUG_LOG_KEY,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   defaultConfig,
   getUserConfig,
   setUserConfig,
@@ -146,8 +147,14 @@ async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
 
 async function ensureChatgptWebConversationSyncAlarm() {
   if (!Browser.alarms?.create) return
+  const config = await getUserConfig().catch(() => defaultConfig)
+  const periodInMinutes = Math.max(
+    5,
+    Number(config?.chatgptWebConversationSyncIntervalMinutes) ||
+      DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  )
   await Browser.alarms.create(CHATGPT_WEB_CONVERSATION_SYNC_ALARM, {
-    periodInMinutes: 60,
+    periodInMinutes,
     delayInMinutes: 1,
   })
 }
@@ -744,6 +751,11 @@ Browser.runtime.onStartup?.addListener(() => {
 Browser.alarms?.onAlarm.addListener((alarm) => {
   if (alarm?.name !== CHATGPT_WEB_CONVERSATION_SYNC_ALARM) return
   void syncChatgptWebConversationCacheWithFallback({ force: true }).catch(() => {})
+})
+
+Browser.storage?.local?.onChanged?.addListener((changes) => {
+  if (!changes || !changes.chatgptWebConversationSyncIntervalMinutes) return
+  void ensureChatgptWebConversationSyncAlarm()
 })
 
 void ensureChatgptWebConversationSyncAlarm()

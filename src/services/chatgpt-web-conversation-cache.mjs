@@ -5,7 +5,6 @@ import {
 
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
 export const CHATGPT_WEB_CONVERSATION_META_KEY = 'chatgptWebConversationMeta'
-export const CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES = 60
 const CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX = 'chatgptWebConversationSnapshot:'
 
 function cloneJson(value) {

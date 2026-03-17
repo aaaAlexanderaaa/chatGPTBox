@@ -7,17 +7,20 @@ import {
   DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
   MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
   MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
 } from '../../config/index.mjs'
 
@@ -120,6 +123,26 @@ function ApiParams({ config, updateConfig }) {
               MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
             )
             updateConfig({ chatgptWebConversationPollTimeoutSeconds: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('Conversation cache sync interval (min)') +
+          `: ${config.chatgptWebConversationSyncIntervalMinutes}`}
+        <input
+          type="number"
+          min={String(MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES)}
+          max={String(MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES)}
+          step="1"
+          value={config.chatgptWebConversationSyncIntervalMinutes}
+          onChange={(e) => {
+            const value = parseIntWithClamp(
+              e.target.value,
+              DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+              MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+              MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+            )
+            updateConfig({ chatgptWebConversationSyncIntervalMinutes: value })
           }}
         />
       </label>

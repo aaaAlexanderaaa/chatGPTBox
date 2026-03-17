@@ -1,12 +1,16 @@
 import Browser from 'webextension-polyfill'
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/index.mjs'
+import {
+  CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+} from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getUserConfig } from '../../config/index.mjs'
 import { initSession } from '../init-session.mjs'
 import { saveChatgptWebSessionSnapshot } from '../chatgpt-web-thread-state.mjs'
 import {
   buildChatgptWebConversationListResponse,
-  CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   getCachedChatgptWebConversationRecord,
   getChatgptWebConversationIndex,
   getChatgptWebConversationMeta,
@@ -33,7 +37,6 @@ const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
 const DEFAULT_RESUME_TIMEOUT_MS = 10_000
 const DEFAULT_CONVERSATION_LIST_PAGE_SIZE = 100
 const MAX_CONVERSATION_LIST_PAGES = 200
-const CONVERSATION_SYNC_INTERVAL_MS = CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES * 60 * 1000
 let activeConversationCacheSync = null
 let activeConversationCacheSyncIncludesArchived = false
 
@@ -78,18 +81,29 @@ function normalizeConversationId(conversationId) {
   return typeof conversationId === 'string' ? conversationId.trim() : ''
 }
 
-function hasSyncTimestampExpired(syncAt, now = Date.now()) {
+async function getChatgptWebConversationSyncIntervalMs() {
+  const config = await getUserConfig().catch(() => null)
+  const minutes = parsePositiveInt(
+    config?.chatgptWebConversationSyncIntervalMinutes,
+    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+    MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+    MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  )
+  return minutes * 60 * 1000
+}
+
+async function hasSyncTimestampExpired(syncAt, now = Date.now()) {
   const parsed = Date.parse(syncAt || '')
   if (!Number.isFinite(parsed)) return true
-  return now - parsed >= CONVERSATION_SYNC_INTERVAL_MS
+  return now - parsed >= (await getChatgptWebConversationSyncIntervalMs())
 }
 
-function hasConversationCacheExpired(meta, now = Date.now()) {
-  return hasSyncTimestampExpired(meta?.lastSyncAt, now)
+async function hasConversationCacheExpired(meta, now = Date.now()) {
+  return await hasSyncTimestampExpired(meta?.lastSyncAt, now)
 }
 
-function hasArchivedConversationCacheExpired(meta, now = Date.now()) {
-  return hasSyncTimestampExpired(meta?.lastArchivedSyncAt, now)
+async function hasArchivedConversationCacheExpired(meta, now = Date.now()) {
+  return await hasSyncTimestampExpired(meta?.lastArchivedSyncAt, now)
 }
 
 function createInMemoryPort(onPostMessage) {
@@ -407,9 +421,10 @@ export async function syncChatgptWebConversationCache({
     try {
       const meta = await getChatgptWebConversationMeta()
       const currentIndex = await getChatgptWebConversationIndex()
-      const shouldRefreshActive = force === true || hasConversationCacheExpired(meta)
+      const shouldRefreshActive = force === true || (await hasConversationCacheExpired(meta))
       const shouldRefreshArchived =
-        shouldIncludeArchived && (force === true || hasArchivedConversationCacheExpired(meta))
+        shouldIncludeArchived &&
+        (force === true || (await hasArchivedConversationCacheExpired(meta)))
 
       if (!shouldRefreshActive && !shouldRefreshArchived) {
         return {
@@ -467,7 +482,7 @@ export async function syncChatgptWebConversationCache({
 
       for (const conversationId of hydrateIds) {
         try {
-          await cacheChatgptWebConversationSnapshotById(conversationId, 'hourly_sync_new')
+          await cacheChatgptWebConversationSnapshotById(conversationId, 'scheduled_sync_new')
         } catch {
           /* keep the list entry even when detail hydration fails */
         }
@@ -520,8 +535,8 @@ export async function listChatgptWebConversations({
   const shouldSync =
     forceSync ||
     Object.keys(index).length === 0 ||
-    hasConversationCacheExpired(meta) ||
-    (shouldIncludeArchived && hasArchivedConversationCacheExpired(meta))
+    (await hasConversationCacheExpired(meta)) ||
+    (shouldIncludeArchived && (await hasArchivedConversationCacheExpired(meta)))
   if (shouldSync) {
     try {
       const syncResult = await syncChatgptWebConversationCache({

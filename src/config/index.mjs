@@ -72,6 +72,9 @@ export const MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS = 7200
 export const DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 10
 export const MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 1
 export const MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS = 300
+export const DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES = 15
+export const MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES = 5
+export const MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES = 1440
 export const DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS = 180
 export const MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS = 30
 export const MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS = 3600
@@ -940,6 +943,8 @@ export const defaultConfig = {
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   chatgptWebConversationPollIntervalSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
+  chatgptWebConversationSyncIntervalMinutes:
+    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
@@ -1242,6 +1247,12 @@ export async function getUserConfig() {
       MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
       MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
     ),
+    chatgptWebConversationSyncIntervalMinutes: parseIntWithClamp(
+      config.chatgptWebConversationSyncIntervalMinutes,
+      defaultConfig.chatgptWebConversationSyncIntervalMinutes,
+      MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+      MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+    ),
     apiServerPort: parseIntWithClamp(config.apiServerPort, defaultConfig.apiServerPort, 1, 65535),
   }
   const needsFix =
@@ -1259,6 +1270,8 @@ export async function getUserConfig() {
       config.chatgptWebConversationPollTimeoutSeconds ||
     numericFix.chatgptWebConversationPollIntervalSeconds !==
       config.chatgptWebConversationPollIntervalSeconds ||
+    numericFix.chatgptWebConversationSyncIntervalMinutes !==
+      config.chatgptWebConversationSyncIntervalMinutes ||
     numericFix.apiServerPort !== config.apiServerPort
   if (needsFix) {
     config.maxResponseTokenLength = numericFix.maxResponseTokenLength
@@ -1275,6 +1288,8 @@ export async function getUserConfig() {
       numericFix.chatgptWebConversationPollTimeoutSeconds
     config.chatgptWebConversationPollIntervalSeconds =
       numericFix.chatgptWebConversationPollIntervalSeconds
+    config.chatgptWebConversationSyncIntervalMinutes =
+      numericFix.chatgptWebConversationSyncIntervalMinutes
     config.apiServerPort = numericFix.apiServerPort
     await Browser.storage.local.set(numericFix)
   }

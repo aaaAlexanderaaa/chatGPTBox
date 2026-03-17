@@ -818,6 +818,115 @@ async function testChatgptWebConversationSnapshotIncludesQueryMessagesAndThinkin
   assert.equal(snapshot.thinking.length, 1)
 }
 
+async function testChatgptWebConversationMessagesCollapseAssistantNoiseIntoTurns() {
+  const conversation = {
+    conversation_id: 'conv-2',
+    current_node: 'assistant-final-2',
+    mapping: {
+      root: {
+        id: 'root',
+        parent: null,
+        children: ['user-1'],
+        message: null,
+      },
+      'user-1': {
+        id: 'user-1',
+        parent: 'root',
+        children: ['assistant-commentary-1'],
+        message: {
+          id: 'user-1',
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['first question'] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-commentary-1': {
+        id: 'assistant-commentary-1',
+        parent: 'user-1',
+        children: ['assistant-final-1'],
+        message: {
+          id: 'assistant-commentary-1',
+          author: { role: 'assistant' },
+          channel: 'commentary',
+          content: { content_type: 'text', parts: ['Let me check that.'] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-final-1': {
+        id: 'assistant-final-1',
+        parent: 'assistant-commentary-1',
+        children: ['user-2'],
+        message: {
+          id: 'assistant-final-1',
+          author: { role: 'assistant' },
+          channel: 'final',
+          content: { content_type: 'text', parts: ['first answer'] },
+          status: 'finished_successfully',
+          end_turn: true,
+        },
+      },
+      'user-2': {
+        id: 'user-2',
+        parent: 'assistant-final-1',
+        children: ['assistant-commentary-2'],
+        message: {
+          id: 'user-2',
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['second question'] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-commentary-2': {
+        id: 'assistant-commentary-2',
+        parent: 'user-2',
+        children: ['assistant-recap-2'],
+        message: {
+          id: 'assistant-commentary-2',
+          author: { role: 'assistant' },
+          channel: 'commentary',
+          content: { content_type: 'text', parts: ['Still working on the second one.'] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-recap-2': {
+        id: 'assistant-recap-2',
+        parent: 'assistant-commentary-2',
+        children: ['assistant-final-2'],
+        message: {
+          id: 'assistant-recap-2',
+          author: { role: 'assistant' },
+          content: { content_type: 'reasoning_recap', parts: [''] },
+          status: 'finished_successfully',
+        },
+      },
+      'assistant-final-2': {
+        id: 'assistant-final-2',
+        parent: 'assistant-recap-2',
+        children: [],
+        message: {
+          id: 'assistant-final-2',
+          author: { role: 'assistant' },
+          channel: 'final',
+          content: { content_type: 'text', parts: [''] },
+          status: 'in_progress',
+        },
+      },
+    },
+  }
+
+  const messages = extractChatgptWebConversationMessages(conversation)
+
+  assert.deepEqual(
+    messages.map((message) => ({ role: message.role, text: message.text })),
+    [
+      { role: 'user', text: 'first question' },
+      { role: 'assistant', text: 'first answer' },
+      { role: 'user', text: 'second question' },
+      { role: 'assistant', text: 'Still working on the second one.' },
+    ],
+  )
+}
+
 async function testChatgptWebConversationCacheMergeKeepsMissingIdsAndBuildsList() {
   const mergeResult = mergeChatgptWebConversationIndexEntries(
     {
@@ -1016,6 +1125,7 @@ async function run() {
   await testChatgptWebConversationMarksTextFinalWhenAsyncCompletes()
   await testChatgptWebConversationListItemExtractionSupportsRawUpstreamShapes()
   await testChatgptWebConversationSnapshotIncludesQueryMessagesAndThinking()
+  await testChatgptWebConversationMessagesCollapseAssistantNoiseIntoTurns()
   await testChatgptWebConversationCacheMergeKeepsMissingIdsAndBuildsList()
   await testChatgptWebConversationSnapshotStaleDetectionTracksStatus()
   await testChatgptWebApiThreadContinuationUsesLongestPrefix()
