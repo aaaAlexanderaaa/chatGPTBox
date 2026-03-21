@@ -205,6 +205,14 @@
   "When enabled, tool will appear in context menu even without selecting text": "When enabled, tool will appear in context menu even without selecting text",
   "Built-in Tools": "Built-in Tools",
   "Custom Tools": "Custom Tools",
+  "ChatGPT History Backup": "ChatGPT History Backup",
+  "Export ChatGPT History": "Export ChatGPT History",
+  "Import ChatGPT History": "Import ChatGPT History",
+  "Working...": "Working...",
+  "ChatGPT history export completed": "ChatGPT history export completed",
+  "Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.": "Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.",
+  "Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads": "Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads",
+  "Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads": "Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads",
   "Edit": "Edit",
   "Delete": "Delete"
 }

@@ -40,6 +40,8 @@ export function AdvancedTab({
   openFullSettings,
   onExport,
   onImport,
+  onExportChatgptHistory,
+  onImportChatgptHistory,
   onReset,
 }) {
   const { t } = useTranslation()
@@ -47,6 +49,9 @@ export function AdvancedTab({
   const [webDebugLoading, setWebDebugLoading] = useState(false)
   const [webDebugError, setWebDebugError] = useState('')
   const [selectedWebDebugIndex, setSelectedWebDebugIndex] = useState(-1)
+  const [historyTransferBusy, setHistoryTransferBusy] = useState(false)
+  const [historyTransferMessage, setHistoryTransferMessage] = useState('')
+  const [historyTransferError, setHistoryTransferError] = useState('')
 
   const loadWebDebugLogs = useCallback(async () => {
     setWebDebugLoading(true)
@@ -220,6 +225,57 @@ export function AdvancedTab({
       },
     })
   }
+
+  const handleExportChatgptHistory = useCallback(async () => {
+    if (!onExportChatgptHistory) return
+    setHistoryTransferBusy(true)
+    setHistoryTransferMessage('')
+    setHistoryTransferError('')
+    try {
+      const summary = await onExportChatgptHistory()
+      if (summary) {
+        setHistoryTransferMessage(
+          t(
+            'Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads',
+            summary,
+          ),
+        )
+      } else {
+        setHistoryTransferMessage(t('ChatGPT history export completed'))
+      }
+    } catch (error) {
+      setHistoryTransferError(error?.message || String(error))
+    } finally {
+      setHistoryTransferBusy(false)
+    }
+  }, [onExportChatgptHistory, t])
+
+  const handleImportChatgptHistory = useCallback(async () => {
+    if (!onImportChatgptHistory) return
+    setHistoryTransferBusy(true)
+    setHistoryTransferMessage('')
+    setHistoryTransferError('')
+    try {
+      const result = await onImportChatgptHistory()
+      if (!result) return
+      setHistoryTransferMessage(
+        t(
+          'Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads',
+          {
+            keysWritten: result.keysWritten,
+            conversationCount: result.after?.conversationCount || 0,
+            snapshotCount: result.after?.snapshotCount || 0,
+            sessionSnapshotCount: result.after?.sessionSnapshotCount || 0,
+            apiThreadCount: result.after?.apiThreadCount || 0,
+          },
+        ),
+      )
+    } catch (error) {
+      setHistoryTransferError(error?.message || String(error))
+    } finally {
+      setHistoryTransferBusy(false)
+    }
+  }, [onImportChatgptHistory, t])
 
   return (
     <div className="space-y-4">
@@ -628,6 +684,42 @@ export function AdvancedTab({
             </button>
           </SettingSection>
 
+          <Divider />
+
+          <SettingSection title={t('ChatGPT History Backup')}>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.',
+              )}
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => void handleExportChatgptHistory()}
+                disabled={historyTransferBusy}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-60"
+              >
+                <Download className="w-4 h-4" />
+                {historyTransferBusy ? t('Working...') : t('Export ChatGPT History')}
+              </button>
+              <button
+                onClick={() => void handleImportChatgptHistory()}
+                disabled={historyTransferBusy}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors disabled:opacity-60"
+              >
+                <Upload className="w-4 h-4" />
+                {historyTransferBusy ? t('Working...') : t('Import ChatGPT History')}
+              </button>
+            </div>
+
+            {historyTransferMessage && (
+              <div className="mt-3 text-xs text-muted-foreground">{historyTransferMessage}</div>
+            )}
+            {historyTransferError && (
+              <div className="mt-2 text-xs text-destructive">{historyTransferError}</div>
+            )}
+          </SettingSection>
+
           <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/10">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
@@ -649,5 +741,7 @@ AdvancedTab.propTypes = {
   openFullSettings: PropTypes.func,
   onExport: PropTypes.func,
   onImport: PropTypes.func,
+  onExportChatgptHistory: PropTypes.func,
+  onImportChatgptHistory: PropTypes.func,
   onReset: PropTypes.func,
 }

@@ -1,7 +1,7 @@
-const CHATGPT_WEB_SESSION_SNAPSHOTS_KEY = 'chatgptWebSessionSnapshots'
-const CHATGPT_WEB_API_THREADS_KEY = 'chatgptWebApiThreads'
-const MAX_CHATGPT_WEB_SESSION_SNAPSHOTS = 200
-const MAX_CHATGPT_WEB_API_THREADS = 100
+export const CHATGPT_WEB_SESSION_SNAPSHOTS_KEY = 'chatgptWebSessionSnapshots'
+export const CHATGPT_WEB_API_THREADS_KEY = 'chatgptWebApiThreads'
+export const MAX_CHATGPT_WEB_SESSION_SNAPSHOTS = 200
+export const MAX_CHATGPT_WEB_API_THREADS = 100
 
 async function getBrowserStorage() {
   const { default: Browser } = await import('webextension-polyfill')

@@ -5,7 +5,7 @@ import {
 
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
 export const CHATGPT_WEB_CONVERSATION_META_KEY = 'chatgptWebConversationMeta'
-const CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX = 'chatgptWebConversationSnapshot:'
+export const CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX = 'chatgptWebConversationSnapshot:'
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))

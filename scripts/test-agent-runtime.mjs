@@ -39,10 +39,21 @@ import {
 } from '../src/services/chatgpt-web-thread-state.mjs'
 import {
   buildChatgptWebConversationListResponse,
+  CHATGPT_WEB_CONVERSATION_INDEX_KEY,
+  CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX,
   createChatgptWebConversationSnapshotRecord,
   isChatgptWebConversationSnapshotStale,
   mergeChatgptWebConversationIndexEntries,
 } from '../src/services/chatgpt-web-conversation-cache.mjs'
+import {
+  filterChatgptHistoryStorageData,
+  mergeChatgptHistoryStorageData,
+  summarizeChatgptHistoryStorageData,
+} from '../src/services/chatgpt-web-history-transfer.mjs'
+import {
+  CHATGPT_WEB_API_THREADS_KEY,
+  CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
+} from '../src/services/chatgpt-web-thread-state.mjs'
 
 function bufferToArrayBuffer(buffer) {
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
@@ -1104,6 +1115,124 @@ async function testChatgptWebRefreshPrefersResumeTextForPendingConversation() {
   })
 }
 
+async function testChatgptHistoryTransferKeepsNewerListMetadataWhenSnapshotWasViewedLater() {
+  const conversationId = 'conv-1'
+  const merged = mergeChatgptHistoryStorageData(
+    {
+      [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: {
+        [conversationId]: {
+          id: conversationId,
+          title: 'New title',
+          createTime: '2026-03-01T10:00:00.000Z',
+          updateTime: '2026-03-20T10:00:00.000Z',
+          rawItem: {
+            id: conversationId,
+            title: 'New title',
+            update_time: '2026-03-20T10:00:00.000Z',
+            is_archived: false,
+            is_starred: false,
+          },
+          lastSeenAt: '2026-03-20T10:05:00.000Z',
+          snapshotCachedAt: '2026-03-20T10:06:00.000Z',
+        },
+      },
+    },
+    {
+      [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: {
+        [conversationId]: {
+          id: conversationId,
+          title: 'Old title',
+          createTime: '2026-03-01T10:00:00.000Z',
+          updateTime: '2026-03-10T10:00:00.000Z',
+          rawItem: {
+            id: conversationId,
+            title: 'Old title',
+            update_time: '2026-03-10T10:00:00.000Z',
+            is_archived: true,
+            is_starred: true,
+          },
+          lastSeenAt: '2026-03-10T10:05:00.000Z',
+          snapshotCachedAt: '2026-03-21T10:00:00.000Z',
+        },
+      },
+    },
+  )
+
+  assert.equal(merged[CHATGPT_WEB_CONVERSATION_INDEX_KEY][conversationId].title, 'New title')
+  assert.equal(
+    merged[CHATGPT_WEB_CONVERSATION_INDEX_KEY][conversationId].rawItem.title,
+    'New title',
+  )
+  assert.equal(
+    merged[CHATGPT_WEB_CONVERSATION_INDEX_KEY][conversationId].snapshotCachedAt,
+    '2026-03-21T10:00:00.000Z',
+  )
+}
+
+async function testChatgptHistoryTransferIncludesContinuationStateKeys() {
+  const filtered = filterChatgptHistoryStorageData({
+    [CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]: {
+      'session-1': {
+        sessionId: 'session-1',
+        conversationId: 'conv-1',
+        parentMessageId: 'msg-1',
+        updatedAt: '2026-03-20T09:00:00.000Z',
+      },
+    },
+    [CHATGPT_WEB_API_THREADS_KEY]: [
+      {
+        model: 'gpt-5-4-thinking',
+        conversationId: 'conv-1',
+        parentMessageId: 'msg-1',
+        transcript: [
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: 'hi' },
+        ],
+        updatedAt: '2026-03-20T09:00:00.000Z',
+      },
+    ],
+    [`${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}conv-1`]: {
+      conversationId: 'conv-1',
+      updatedAt: '2026-03-20T09:00:00.000Z',
+      snapshot: { conversation_id: 'conv-1' },
+    },
+    ignored: true,
+  })
+
+  assert.deepEqual(Object.keys(filtered).sort(), [
+    CHATGPT_WEB_API_THREADS_KEY,
+    `${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}conv-1`,
+    CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
+  ])
+
+  const merged = mergeChatgptHistoryStorageData(
+    {
+      [CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]: {
+        'session-1': {
+          sessionId: 'session-1',
+          conversationId: 'conv-1',
+          parentMessageId: 'msg-1',
+          updatedAt: '2026-03-19T09:00:00.000Z',
+        },
+      },
+      [CHATGPT_WEB_API_THREADS_KEY]: [],
+    },
+    filtered,
+  )
+
+  assert.equal(
+    merged[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]['session-1'].updatedAt,
+    '2026-03-20T09:00:00.000Z',
+  )
+  assert.equal(merged[CHATGPT_WEB_API_THREADS_KEY].length, 1)
+  assert.deepEqual(summarizeChatgptHistoryStorageData(merged), {
+    conversationCount: 0,
+    snapshotCount: 1,
+    sessionSnapshotCount: 1,
+    apiThreadCount: 1,
+  })
+}
+
 async function run() {
   await testAliasUniqueness()
   await testShortCircuitDecision()
@@ -1132,6 +1261,8 @@ async function run() {
   await testChatgptWebApiThreadContinuationNormalizesMultipartContent()
   await testChatgptWebApiThreadContinuationRejectsNonUserSuffix()
   await testChatgptWebRefreshPrefersResumeTextForPendingConversation()
+  await testChatgptHistoryTransferKeepsNewerListMetadataWhenSnapshotWasViewedLater()
+  await testChatgptHistoryTransferIncludesContinuationStateKeys()
   console.log('Agent runtime tests passed')
 }
 

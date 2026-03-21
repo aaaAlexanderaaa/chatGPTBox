@@ -211,6 +211,14 @@
   "When enabled, tool will appear in context menu even without selecting text": "启用后，即使不选中文本，工具也会出现在右键菜单中",
   "Built-in Tools": "内置工具",
   "Custom Tools": "自定义工具",
+  "ChatGPT History Backup": "ChatGPT 历史备份",
+  "Export ChatGPT History": "导出 ChatGPT 历史",
+  "Import ChatGPT History": "导入 ChatGPT 历史",
+  "Working...": "处理中...",
+  "ChatGPT history export completed": "ChatGPT 历史导出完成",
+  "Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.": "导出和导入插件本地的 ChatGPT 会话缓存及续聊状态，其中包含原始 conversation JSON 快照。导入会按 conversation ID、session ID 和续聊线程键合并，不会删除文件中不存在或当前登录账号下不可见的现有历史。",
+  "Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads": "已导出 ChatGPT 历史：{{conversationCount}} 个会话，{{snapshotCount}} 个原始快照，{{sessionSnapshotCount}} 个会话快照，{{apiThreadCount}} 个续聊线程",
+  "Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads": "已导入 ChatGPT 历史：写入 {{keysWritten}} 个存储 key；当前共保留 {{conversationCount}} 个会话、{{snapshotCount}} 个原始快照、{{sessionSnapshotCount}} 个会话快照和 {{apiThreadCount}} 个续聊线程",
   "Edit": "编辑",
   "Delete": "删除"
 }

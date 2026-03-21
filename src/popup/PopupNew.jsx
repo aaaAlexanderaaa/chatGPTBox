@@ -8,6 +8,10 @@ import {
   getUserConfig,
   setUserConfig,
 } from '../config/index.mjs'
+import {
+  exportChatgptHistoryData,
+  importChatgptHistoryData,
+} from '../services/chatgpt-web-history-transfer.mjs'
 import { useWindowTheme } from '../hooks/use-window-theme.mjs'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../utils/cn.mjs'
@@ -37,6 +41,50 @@ const POPUP_TABS = [
 function getInitialTab(requestedTab, tabs) {
   if (requestedTab && tabs.some((tab) => tab.id === requestedTab)) return requestedTab
   return tabs[0].id
+}
+
+function downloadJsonFile(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function pickJsonFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+    let settled = false
+    let focusTimer = null
+
+    const finish = (file = null) => {
+      if (settled) return
+      settled = true
+      if (focusTimer !== null) {
+        window.clearTimeout(focusTimer)
+      }
+      window.removeEventListener('focus', handleWindowFocus, true)
+      input.removeEventListener('cancel', handleCancel)
+      resolve(file)
+    }
+
+    const handleCancel = () => finish(null)
+
+    const handleWindowFocus = () => {
+      focusTimer = window.setTimeout(() => {
+        finish(input.files?.[0] || null)
+      }, 400)
+    }
+
+    input.onchange = (event) => finish(event.target.files?.[0] || null)
+    input.addEventListener('cancel', handleCancel)
+    window.addEventListener('focus', handleWindowFocus, true)
+    input.click()
+  })
 }
 
 function Popup() {
@@ -107,34 +155,39 @@ function Popup() {
 
   // Export config
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'chatgptbox-config.json'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadJsonFile(config, 'chatgptbox-config.json')
   }
 
   // Import config
   const handleImport = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.onchange = async (e) => {
-      const file = e.target.files[0]
-      if (file) {
-        const text = await file.text()
-        try {
-          const imported = JSON.parse(text)
-          await setUserConfig(imported)
-          setConfig((prev) => ({ ...prev, ...imported }))
-        } catch (err) {
-          console.error('Failed to import config:', err)
-        }
+    void pickJsonFile().then(async (file) => {
+      if (!file) return
+      const text = await file.text()
+      try {
+        const imported = JSON.parse(text)
+        await setUserConfig(imported)
+        setConfig((prev) => ({ ...prev, ...imported }))
+      } catch (err) {
+        console.error('Failed to import config:', err)
       }
-    }
-    input.click()
+    })
+  }
+
+  const handleExportChatgptHistory = async () => {
+    const payload = await exportChatgptHistoryData()
+    downloadJsonFile(
+      payload,
+      `chatgptbox-chatgpt-history-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+    )
+    return payload.summary
+  }
+
+  const handleImportChatgptHistory = async () => {
+    const file = await pickJsonFile()
+    if (!file) return null
+    const text = await file.text()
+    const imported = JSON.parse(text)
+    return await importChatgptHistoryData(imported)
   }
 
   // Reset config
@@ -240,6 +293,8 @@ function Popup() {
             openFullSettings={openFullSettings}
             onExport={handleExport}
             onImport={handleImport}
+            onExportChatgptHistory={handleExportChatgptHistory}
+            onImportChatgptHistory={handleImportChatgptHistory}
             onReset={handleReset}
           />
         )}
