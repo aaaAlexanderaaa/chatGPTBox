@@ -876,12 +876,16 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
       (typeof body.message === 'string' && body.message.trim()) ||
       (typeof body.raw === 'string' && body.raw.trim()) ||
       ''
-    const result = await sendControlRequestToBridge('chatgpt_web_send_conversation_message', {
-      conversationId,
-      query,
-      model: body.model,
-      think: body.think === true,
-    })
+    const result = await sendControlRequestToBridge(
+      'chatgpt_web_send_conversation_message',
+      {
+        conversationId,
+        query,
+        model: body.model,
+        think: body.think === true,
+      },
+      Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
+    )
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {

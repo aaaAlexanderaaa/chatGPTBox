@@ -63,6 +63,7 @@ function App() {
   const autoReconnect = useRef(true)
   const healthTimer = useRef(null)
   const keepaliveTimer = useRef(null)
+  const fileInputRef = useRef(null)
 
   // -----------------------------------------------------------------------
   // Logging
@@ -633,6 +634,53 @@ function App() {
     }
   }, [enabled, addLog, connect, disconnect])
 
+  const handleExportCache = useCallback(async () => {
+    try {
+      const { exportConversationCache } = await import(
+        '../../services/chatgpt-web-conversation-cache.mjs'
+      )
+      const cache = await exportConversationCache()
+      const blob = new Blob([JSON.stringify(cache, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `chatgpt-web-cache-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      addLog('Conversation cache exported successfully')
+    } catch (err) {
+      addLog(`Failed to export cache: ${err.message}`, 'error')
+    }
+  }, [addLog])
+
+  const handleImportCache = useCallback(
+    async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      try {
+        const reader = new FileReader()
+        reader.onload = async (event) => {
+          try {
+            const data = JSON.parse(event.target.result)
+            const { importConversationCache } = await import(
+              '../../services/chatgpt-web-conversation-cache.mjs'
+            )
+            const result = await importConversationCache(data)
+            addLog(`Conversation cache imported successfully: ${result.count} conversations`)
+            void loadConversationList()
+          } catch (err) {
+            addLog(`Failed to import cache: ${err.message}`, 'error')
+          }
+        }
+        reader.readAsText(file)
+      } catch (err) {
+        addLog(`Failed to read file: ${err.message}`, 'error')
+      }
+      e.target.value = ''
+    },
+    [addLog, loadConversationList],
+  )
+
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
@@ -836,8 +884,27 @@ function App() {
             onClick={() => void loadConversationList()}
             disabled={conversationListLoading || status !== 'connected'}
           >
-            {conversationListLoading ? 'Loading…' : 'Refresh Conversation List'}
+            {conversationListLoading ? 'Loading…' : 'Refresh List'}
           </button>
+
+          <button type="button" className="btn-secondary" onClick={() => void handleExportCache()}>
+            Export Cache
+          </button>
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Import Cache
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportCache}
+            style={{ display: 'none' }}
+          />
 
           <input
             type="text"

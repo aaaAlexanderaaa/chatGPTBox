@@ -20,6 +20,7 @@ import {
   saveChatgptWebConversationSnapshot,
   setChatgptWebConversationIndex,
   setChatgptWebConversationMeta,
+  clearInvalidation,
 } from '../chatgpt-web-conversation-cache.mjs'
 import { getChatGptAccessToken } from '../wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from './chatgpt-web.mjs'
@@ -496,6 +497,7 @@ export async function syncChatgptWebConversationCache({
         lastSyncItemCount: nextLastSyncItemCount,
       }
       await setChatgptWebConversationMeta(nextMeta)
+      clearInvalidation()
       return {
         index: nextEntries,
         meta: nextMeta,

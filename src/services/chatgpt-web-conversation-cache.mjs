@@ -6,6 +6,10 @@ import {
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
 export const CHATGPT_WEB_CONVERSATION_META_KEY = 'chatgptWebConversationMeta'
 export const CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX = 'chatgptWebConversationSnapshot:'
+export const CHATGPT_WEB_CONVERSATION_CACHE_VERSION = 1
+
+const invalidatedConversationIds = new Set()
+let allInvalidated = false
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
@@ -193,6 +197,10 @@ export function createChatgptWebConversationSnapshotRecord(
 }
 
 export function isChatgptWebConversationSnapshotStale(indexEntry, snapshotRecord) {
+  const id = normalizeConversationId(indexEntry?.id || snapshotRecord?.conversationId)
+  if (allInvalidated) return true
+  if (id && invalidatedConversationIds.has(id)) return true
+
   if (!indexEntry || typeof indexEntry !== 'object') return snapshotRecord == null
   if (!snapshotRecord || typeof snapshotRecord !== 'object') return true
 
@@ -205,6 +213,123 @@ export function isChatgptWebConversationSnapshotStale(indexEntry, snapshotRecord
   if (indexEntry.pending === true && snapshotRecord.pending !== true) return true
 
   return false
+}
+
+export function invalidateConversation(conversationId) {
+  const id = normalizeConversationId(conversationId)
+  if (id) {
+    invalidatedConversationIds.add(id)
+    void (async () => {
+      try {
+        const { syncChatgptWebConversationCache } = await import(
+          './apis/chatgpt-web-conversation-api.mjs'
+        )
+        void syncChatgptWebConversationCache({ force: true }).catch(() => {})
+      } catch (err) {
+        console.debug('Failed to trigger sync after invalidation', err)
+      }
+    })()
+  }
+}
+
+export function invalidateAll() {
+  allInvalidated = true
+  void (async () => {
+    try {
+      const { syncChatgptWebConversationCache } = await import(
+        './apis/chatgpt-web-conversation-api.mjs'
+      )
+      void syncChatgptWebConversationCache({ force: true }).catch(() => {})
+    } catch (err) {
+      console.debug('Failed to trigger full sync after invalidation', err)
+    }
+  })()
+}
+
+export function clearInvalidation(conversationId) {
+  if (conversationId) {
+    invalidatedConversationIds.delete(normalizeConversationId(conversationId))
+  } else {
+    invalidatedConversationIds.clear()
+    allInvalidated = false
+  }
+}
+
+export async function exportConversationCache() {
+  const index = await getChatgptWebConversationIndex()
+  const meta = await getChatgptWebConversationMeta()
+
+  const snapshots = {}
+  const conversationIds = Object.keys(index)
+  for (const id of conversationIds) {
+    const record = await getCachedChatgptWebConversationRecord(id)
+    if (record) {
+      snapshots[id] = record
+    }
+  }
+
+  return {
+    version: CHATGPT_WEB_CONVERSATION_CACHE_VERSION,
+    timestamp: new Date().toISOString(),
+    count: conversationIds.length,
+    data: {
+      index,
+      meta,
+      snapshots,
+    },
+  }
+}
+
+export async function importConversationCache(data) {
+  if (!data || typeof data !== 'object') throw new Error('Invalid import data')
+  if (data.version !== CHATGPT_WEB_CONVERSATION_CACHE_VERSION) {
+    throw new Error(`Unsupported cache version: ${data.version}`)
+  }
+
+  const { index, meta, snapshots } = data.data || {}
+  if (!index || typeof index !== 'object') throw new Error('Invalid index in import data')
+
+  const storage = await getBrowserStorage()
+
+  // Merge index
+  const currentIndex = await getChatgptWebConversationIndex()
+  const nextIndex = { ...currentIndex, ...index }
+  await setChatgptWebConversationIndex(nextIndex)
+
+  // Update meta if newer
+  if (meta && typeof meta === 'object') {
+    const currentMeta = await getChatgptWebConversationMeta()
+    const nextMeta = {
+      ...currentMeta,
+      lastSyncAt:
+        timestampToSortableNumber(meta.lastSyncAt) > timestampToSortableNumber(currentMeta.lastSyncAt)
+          ? meta.lastSyncAt
+          : currentMeta.lastSyncAt,
+      lastArchivedSyncAt:
+        timestampToSortableNumber(meta.lastArchivedSyncAt) >
+        timestampToSortableNumber(currentMeta.lastArchivedSyncAt)
+          ? meta.lastArchivedSyncAt
+          : currentMeta.lastArchivedSyncAt,
+    }
+    await setChatgptWebConversationMeta(nextMeta)
+  }
+
+  // Import snapshots
+  if (snapshots && typeof snapshots === 'object') {
+    const storageUpdates = {}
+    for (const [id, record] of Object.entries(snapshots)) {
+      if (record && typeof record === 'object' && record.conversationId === id) {
+        const key = makeChatgptWebConversationSnapshotStorageKey(id)
+        storageUpdates[key] = record
+      }
+    }
+    if (Object.keys(storageUpdates).length > 0) {
+      await storage.set(storageUpdates)
+    }
+  }
+
+  invalidateAll()
+  return { success: true, count: Object.keys(index).length }
 }
 
 export function overlayChatgptWebConversationStatus(conversation, indexEntry) {
@@ -291,5 +416,6 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
     await setChatgptWebConversationIndex(index)
   }
 
+  clearInvalidation(record.conversationId)
   return record
 }

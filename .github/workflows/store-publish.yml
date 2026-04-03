@@ -1,0 +1,34 @@
+name: Chrome Web Store Publish
+
+on:
+  workflow_run:
+    workflows: ["tagged-release"]
+    types:
+      - completed
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download release artifact from Release
+        run: |
+          # Get the tag that triggered the workflow run
+          # For tag pushes, head_branch is the tag name
+          TAG=${{ github.event.workflow_run.head_branch }}
+          echo "Downloading from release $TAG"
+          gh release download $TAG -p 'chromium.zip'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload and Publish to Chrome Web Store
+        uses: mnao305/chrome-extension-upload@v5.0.0
+        with:
+          file-path: chromium.zip
+          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          publish: true

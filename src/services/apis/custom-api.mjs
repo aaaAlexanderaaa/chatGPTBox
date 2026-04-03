@@ -54,7 +54,7 @@ export async function generateAnswersWithCustomApi(
 
   const config = await getUserConfig()
   const protocol = resolveOpenAiCompatibleProtocol(apiUrl, config?.agentProtocol)
-  const systemPrompt = buildSystemPromptFromContext(session, config, question)
+  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,

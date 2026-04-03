@@ -237,6 +237,7 @@ function getBuiltInServerToolDefinitions(server, options = {}) {
   if (!server || typeof server !== 'object') return []
 
   if (server.id === BuiltInMcpServerIds.skillLibrary) {
+    if (options.enableSkills === false) return []
     const selectedSkills = Array.isArray(options.selectedSkills) ? options.selectedSkills : []
     return selectedSkills.map((skill) => ({
       kind: 'builtin_skill',
@@ -392,10 +393,10 @@ async function collectToolCatalog(servers, options = {}) {
   }
 
   const selectedSkills = Array.isArray(options.selectedSkills) ? options.selectedSkills : []
-  if (!hasExplicitSkillLibrary && selectedSkills.length > 0) {
+  if (options.enableSkills !== false && !hasExplicitSkillLibrary && selectedSkills.length > 0) {
     const listed = getBuiltInServerToolDefinitions(
       { id: BuiltInMcpServerIds.skillLibrary, name: 'Skill Library (Built-in)' },
-      { selectedSkills },
+      { ...options, selectedSkills },
     )
     for (const remoteTool of listed) {
       const remoteName = String(remoteTool.remoteName || '').trim()
@@ -944,7 +945,7 @@ export async function runMcpToolLoop({
   extraBody = {},
   signal,
 }) {
-  const selectedSkills = getSelectedSkills(session, config)
+  const selectedSkills = await getSelectedSkills(session, config)
   const selectedServers = getSelectedMcpServers(session, config).filter((server) => {
     if (server.transport === 'builtin') return true
     return server.transport === 'http' && server.httpUrl
@@ -956,6 +957,7 @@ export async function runMcpToolLoop({
     requireHttps,
     signal,
     selectedSkills,
+    enableSkills: config?.enableSkills,
   })
   if (catalog.tools.length === 0) {
     const result = buildResult('failed', 'no_tools_available', '', false, catalog.events, 0)

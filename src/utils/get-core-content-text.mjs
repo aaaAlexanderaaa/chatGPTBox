@@ -1,5 +1,6 @@
 import { getPossibleElementByQuerySelector } from './get-possible-element-by-query-selector.mjs'
 import { Readability, isProbablyReaderable } from '@mozilla/readability'
+import TurndownService from 'turndown'
 
 const adapters = {
   'scholar.google': ['#gs_res_ccl_mid'],
@@ -12,6 +13,11 @@ const adapters = {
   eetimes: ['article'],
   'new.qq.com': ['.content-article'],
 }
+
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+})
 
 function getArea(e) {
   const rect = e.getBoundingClientRect()
@@ -44,16 +50,11 @@ function findLargestElement(e) {
 }
 
 function getTextFrom(e) {
-  return e.innerText || e.textContent
+  return turndownService.turndown(e.innerHTML)
 }
 
 function postProcessText(text) {
-  return text
-    .trim()
-    .replaceAll('  ', '')
-    .replaceAll('\t', '')
-    .replaceAll('\n\n', '')
-    .replaceAll(',,', '')
+  return text.trim().replace(/\n{3,}/g, '\n\n')
 }
 
 /**
@@ -191,9 +192,9 @@ function extractByReadability(excludeSelectors) {
   }
 
   const article = new Readability(docClone, { keepClasses: true }).parse()
-  if (article?.textContent) {
+  if (article?.content) {
     return {
-      content: postProcessText(article.textContent),
+      content: postProcessText(turndownService.turndown(article.content)),
       method: 'readability',
     }
   }
@@ -361,9 +362,9 @@ export function getCoreContentText() {
     let article = new Readability(document.cloneNode(true), {
       keepClasses: true,
     }).parse()
-    if (article?.textContent) {
+    if (article?.content) {
       console.log('readerable: successfully extracted content')
-      return postProcessText(article.textContent)
+      return postProcessText(turndownService.turndown(article.content))
     } else {
       console.log('readerable: parsing failed despite probability check')
     }

@@ -861,6 +861,7 @@ export const defaultConfig = {
   defaultAssistantId: '',
   installedSkills: defaultBuiltInSkills,
   defaultSkillIds: [],
+  enableSkills: true,
   mcpServers: defaultBuiltInMcpServers,
   defaultMcpServerIds: [],
 
@@ -1321,6 +1322,7 @@ export async function getUserConfig() {
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
   config.apiServerEnabled = config.apiServerEnabled === true
   config.apiServerKeepHistory = config.apiServerKeepHistory === true
+  config.enableSkills = config.enableSkills !== false
 
   const normalizedChatgptWebThinkingEffort =
     config.chatgptWebThinkingEffort === 'standard'

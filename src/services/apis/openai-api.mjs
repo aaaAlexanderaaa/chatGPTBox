@@ -85,7 +85,7 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
   const model = getModelValue(session)
 
   const config = await getUserConfig()
-  const systemPrompt = buildSystemPromptFromContext(session, config, question)
+  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
   const prompt =
     (await getCompletionPromptBase()) +
     getConversationPairs(
@@ -201,9 +201,9 @@ export async function generateAnswersWithChatgptApiCompat(
   const protocol = resolveOpenAiCompatibleProtocol(baseUrl, config?.agentProtocol)
   const systemPrompt = isReasoningModel
     ? ''
-    : buildSystemPromptFromContext(session, config, question)
+    : await buildSystemPromptFromContext(session, config, question)
   const composedQuestion = isReasoningModel
-    ? buildFallbackQuestionWithContext(question, session, config)
+    ? await buildFallbackQuestionWithContext(question, session, config)
     : question
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),

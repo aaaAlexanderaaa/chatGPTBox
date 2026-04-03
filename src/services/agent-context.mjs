@@ -1,4 +1,4 @@
-import { RuntimeMode, isUsingChatgptWebModel } from '../config/index.mjs'
+import { RuntimeMode, isUsingChatgptWebModel, getUserConfig } from '../config/index.mjs'
 import { resolvePromptTemplate } from '../utils/prompt-template-context.mjs'
 
 function normalizeString(value, fallback = '') {
@@ -136,7 +136,9 @@ export function resolveSelectedMcpServerIds(session, config, assistant = null) {
   return dedupeStringArray(config?.defaultMcpServerIds)
 }
 
-export function getSelectedSkills(session, config) {
+export async function getSelectedSkills(session, config) {
+  const currentConfig = await getUserConfig()
+  if (!currentConfig.enableSkills) return []
   const assistant = resolveAssistant(session, config)
   const ids = new Set(resolveSelectedSkillIds(session, config, assistant))
   return getSkills(config).filter((skill) => skill.active !== false && ids.has(skill.id))
@@ -277,7 +279,7 @@ function summarizePageContext(pageContext) {
   return `Current webpage context captured from the active tab:\n${lines.join('\n')}`
 }
 
-export function buildSystemPromptFromContext(session, config, question = '') {
+export async function buildSystemPromptFromContext(session, config, question = '') {
   if (!isAgentContextAllowedForSession(session)) return ''
   const assistant = resolveAssistant(session, config)
   const sections = []
@@ -290,7 +292,7 @@ export function buildSystemPromptFromContext(session, config, question = '') {
     sections.push(renderPromptTemplateWithPageContext(assistantPrompt, session, config))
   }
 
-  const skills = getSelectedSkills(session, config)
+  const skills = await getSelectedSkills(session, config)
   if (skills.length > 0) {
     const skillText = skills.map((skill) => summarizeSkill(skill)).join('\n')
     sections.push(
@@ -335,9 +337,9 @@ export function buildSystemPromptFromContext(session, config, question = '') {
     .join('\n\n')
 }
 
-export function buildFallbackQuestionWithContext(question, session, config) {
+export async function buildFallbackQuestionWithContext(question, session, config) {
   const baseQuestion = typeof question === 'string' ? question : ''
-  const systemPrompt = buildSystemPromptFromContext(session, config, baseQuestion)
+  const systemPrompt = await buildSystemPromptFromContext(session, config, baseQuestion)
   if (!systemPrompt) return baseQuestion
   return (
     `Follow these instructions while answering:\n${systemPrompt}\n\n` +

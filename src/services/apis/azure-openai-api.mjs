@@ -17,7 +17,7 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
   let model = getModelValue(session)
   if (!model) model = config.azureDeploymentName
 
-  const systemPrompt = buildSystemPromptFromContext(session, config, question)
+  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,

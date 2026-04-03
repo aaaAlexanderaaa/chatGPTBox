@@ -64,6 +64,9 @@ import {
   isDedicatedChatgptProxyTabUrl,
 } from '../utils/chatgpt-proxy-tab.mjs'
 import {
+  invalidateConversation,
+} from '../services/chatgpt-web-conversation-cache.mjs'
+import {
   getChatgptWebConversation,
   listChatgptWebConversations,
   refreshChatgptWebConversation,
@@ -124,18 +127,6 @@ async function getChatgptWebConversationWithFallback(payload = {}) {
   }
 }
 
-async function refreshChatgptWebConversationWithFallback(payload = {}) {
-  try {
-    return await refreshChatgptWebConversation(payload)
-  } catch (error) {
-    if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy(
-      'chatgpt_web_refresh_conversation',
-      payload,
-    )
-  }
-}
-
 async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
   try {
     return await syncChatgptWebConversationCache(payload)
@@ -167,6 +158,9 @@ async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
   if (!conversationId) throw new Error('conversationId is required')
   if (!query) throw new Error('query is required')
 
+  const messageId = crypto.randomUUID()
+  const createdAt = new Date().toISOString()
+
   let conversation = await getChatgptWebConversationWithFallback({
     conversationId,
     forceRefresh: true,
@@ -187,57 +181,81 @@ async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
     chatgptWebIncrementalOutput: false,
   })
   session.conversationId = conversationId
+  session.messageId = messageId
   session.parentMessageId = conversation.currentNode
   session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
 
-  const execution = await new Promise((resolve, reject) => {
-    let latestAnswer = ''
+  return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session
+    let acknowledged = false
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      fn(value)
+    }
+    const resolvePromise = (value) => finish(resolveOriginal, value)
+    const rejectPromise = (value) => finish(rejectOriginal, value)
     const port = createMemoryPort((message) => {
-      if (message?.error) {
-        port.disconnect()
-        reject(new Error(message.error))
-        return
-      }
       if (message?.session && typeof message.session === 'object') {
         latestSession = { ...latestSession, ...message.session }
+        if (!acknowledged) {
+          acknowledged = true
+          invalidateConversation(conversationId)
+          void saveChatgptWebSessionSnapshot(latestSession, {
+            source: 'conversation_reply_ack',
+          }).catch(() => {})
+          resolvePromise({
+            conversationId,
+            messageId,
+            createdAt,
+            pending: true,
+            query,
+          })
+        }
       }
-      if (typeof message?.answer === 'string') latestAnswer = message.answer
-      if (message?.done === true) {
+
+      if (message?.error) {
+        if (!acknowledged) {
+          port.disconnect()
+          rejectPromise(new Error(message.error))
+          return
+        }
+        console.debug('[background] Async conversation reply error:', message.error)
+      }
+
+      if (message?.done === true || message?.error) {
+        void saveChatgptWebSessionSnapshot(latestSession, {
+          source: 'conversation_reply_complete',
+        }).catch(() => {})
         port.disconnect()
-        resolve({ answer: latestAnswer, session: latestSession })
       }
     })
 
-    executeApi(session, port, config).catch((error) => {
+    const timeout = setTimeout(() => {
+      if (acknowledged) return
       port.disconnect()
-      reject(error)
-    })
+      rejectPromise(new Error('Timed out waiting for conversation reply acknowledgement'))
+    }, CHATGPT_WEB_CONVERSATION_CREATE_ACK_TIMEOUT_MS)
+
+    void executeApi(session, port, config)
+      .then(() => {
+        clearTimeout(timeout)
+        if (!acknowledged) {
+          rejectPromise(new Error('Conversation finished before acknowledgement'))
+        }
+      })
+      .catch((error) => {
+        clearTimeout(timeout)
+        if (!acknowledged) {
+          port.disconnect()
+          rejectPromise(error)
+          return
+        }
+        console.debug('[background] Async conversation reply failed after ack:', error?.message)
+      })
   })
-
-  const refreshed = await refreshChatgptWebConversationWithFallback({
-    conversationId,
-    preferResume: true,
-    think: payload.think === true,
-  }).catch(async () => ({
-    fetchedAt: new Date().toISOString(),
-    conversationId,
-    pending: conversation.pending === true,
-    asyncStatus: conversation.asyncStatus,
-    source: 'conversation',
-    conversation: await getChatgptWebConversationWithFallback({
-      conversationId,
-      think: payload.think === true,
-      forceRefresh: true,
-    }).catch(() => conversation),
-    resume: null,
-    text: execution.answer || conversation?.message?.text || '',
-  }))
-
-  return {
-    ...refreshed,
-    query,
-  }
 }
 
 async function createChatgptWebConversation(payload = {}) {
@@ -273,6 +291,7 @@ async function createChatgptWebConversation(payload = {}) {
         latestSession = { ...latestSession, ...message.session }
         if (!acknowledged && latestSession.conversationId) {
           acknowledged = true
+          invalidateConversation(latestSession.conversationId)
           void saveChatgptWebSessionSnapshot(latestSession, {
             source: 'conversation_create_ack',
           }).catch(() => {})

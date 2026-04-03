@@ -22,7 +22,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   const config = await getUserConfig()
   const apiUrl = String(config.customClaudeApiUrl || '').replace(/\/+$/, '')
   const model = getModelValue(session)
-  const systemPrompt = buildSystemPromptFromContext(session, config, question)
+  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
 
   // Claude API uses a top-level `system` field rather than a system-role message
   // in the messages array. Do NOT pass { systemPrompt } to getConversationPairs
