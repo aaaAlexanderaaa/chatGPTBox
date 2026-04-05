@@ -284,10 +284,27 @@ function selectChatgptWebConversationAssistantCandidate(
   return candidate || null
 }
 
+function extractContentReferences(message) {
+  const refs = message?.metadata?.content_references
+  if (!Array.isArray(refs) || refs.length === 0) return []
+  return refs
+    .map((ref) => {
+      if (!ref || typeof ref !== 'object') return null
+      const url = typeof ref.url === 'string' ? ref.url : ''
+      const title = typeof ref.title === 'string' ? ref.title : ''
+      const alt = typeof ref.alt === 'string' ? ref.alt : ''
+      const snippet = typeof ref.snippet === 'string' ? ref.snippet : ''
+      if (!url && !title && !alt) return null
+      return { url, title, alt, snippet }
+    })
+    .filter(Boolean)
+}
+
 function formatConversationMessageNode(node) {
   const message = getNodeMessage(node)
   if (!message) return null
 
+  const references = extractContentReferences(message)
   return {
     messageId: message.id || node?.id || null,
     role: message.author?.role || '',
@@ -297,6 +314,7 @@ function formatConversationMessageNode(node) {
     createTime: message.create_time || null,
     updateTime: message.update_time || null,
     text: extractChatgptWebMessageText(message),
+    ...(references.length > 0 ? { references } : {}),
   }
 }
 
@@ -444,6 +462,7 @@ export function extractChatgptWebConversationResult(
     Boolean(
       isFinalChatgptWebMessageStatus(status) || message.end_turn || (hasAsyncStatusField && text),
     )
+  const references = extractContentReferences(message)
 
   return {
     messageId: message.id || candidate.id || null,
@@ -457,6 +476,7 @@ export function extractChatgptWebConversationResult(
         : conversation?.async_status,
     pending,
     isFinal,
+    ...(references.length > 0 ? { references } : {}),
   }
 }
 

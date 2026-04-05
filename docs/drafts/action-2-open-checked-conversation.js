@@ -73,12 +73,28 @@ function getLastMessageText(messages, role) {
   return ''
 }
 
+function renderReferences(references) {
+  if (!Array.isArray(references) || references.length === 0) return ''
+  var lines = references
+    .map(function (ref) {
+      var label = ref.alt || ref.title || ref.url || ''
+      if (!label) return null
+      if (ref.url) return '- [' + (ref.title || ref.alt || ref.url) + '](' + ref.url + ')'
+      return '- ' + label
+    })
+    .filter(Boolean)
+  if (lines.length === 0) return ''
+  return '\n\n**References**\n\n' + lines.join('\n')
+}
+
 function renderMessages(messages) {
   return messages
     .filter((message) => normalizeText(message && message.text))
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
-      return '### ' + role + '\n\n' + normalizeText(message.text)
+      var body = '### ' + role + '\n\n' + normalizeText(message.text)
+      if (role === 'ASSISTANT') body += renderReferences(message.references)
+      return body
     })
     .join('\n\n')
 }
@@ -158,7 +174,8 @@ function renderConversation(conversation) {
   }
 
   if (latestAnswer && latestAnswer !== lastAssistantText) {
-    lines.push(section('Latest Answer', latestAnswer).trimEnd())
+    var answerBody = latestAnswer + renderReferences(conversation.message && conversation.message.references)
+    lines.push(section('Latest Answer', answerBody).trimEnd())
   }
 
   lines.push(renderWaitingReplyBlock(conversation))
