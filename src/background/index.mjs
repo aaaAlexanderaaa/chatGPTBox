@@ -512,8 +512,8 @@ async function sendChatgptProxyRequest(tabId, session, uiPort) {
           reject(
             new Error(
               'Content script could not be loaded in the ChatGPT tab. ' +
-                'In Brave, click the extensions (puzzle) icon → ChatGPTBox → ' +
-                '"Allow on chatgpt.com", then reload the chatgpt.com tab and retry.',
+                'Please make sure ChatGPTBox has permission to access chatgpt.com ' +
+                '(check the extensions icon or extension settings), then reload the tab and retry.',
             ),
           )
           return
@@ -552,8 +552,8 @@ async function sendChatgptProxyControlRequest(tabId, action, payload) {
       } catch (retryErr) {
         throw new Error(
           'Content script could not be loaded in the ChatGPT tab. ' +
-            'In Brave, click the extensions (puzzle) icon -> ChatGPTBox -> ' +
-            '"Allow on chatgpt.com", then reload the chatgpt.com tab and retry.',
+            'Please make sure ChatGPTBox has permission to access chatgpt.com ' +
+            '(check the extensions icon or extension settings), then reload the tab and retry.',
         )
       }
     }

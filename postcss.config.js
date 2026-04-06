@@ -1,4 +1,6 @@
-export default {
+/* eslint-env node */
+
+module.exports = {
   plugins: {
     tailwindcss: {},
     autoprefixer: {},

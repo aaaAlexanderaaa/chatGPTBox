@@ -11,6 +11,10 @@ import {
   extractChatgptWebConversationListItems,
   formatChatgptWebConversationListItem,
 } from '../../services/apis/chatgpt-web-conversation-state.mjs'
+import {
+  exportConversationCache,
+  importConversationCache,
+} from '../../services/chatgpt-web-conversation-cache.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import './styles.css'
@@ -19,6 +23,13 @@ const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
 const HEALTH_CHECK_INTERVAL = 15000
 const PORT_KEEPALIVE_MS = 20_000
+const RETRYABLE_CONTROL_ACTIONS = new Set([
+  'chatgpt_web_list_conversations',
+  'chatgpt_web_get_conversation',
+  'chatgpt_web_refresh_conversation',
+  'chatgpt_web_sync_conversations',
+  'chatgpt_web_list_models',
+])
 
 function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
@@ -286,55 +297,49 @@ function App() {
   const handleControlRequest = useCallback(
     async (data) => {
       const { id, action, payload } = data
+
+      const actionToMessageType = {
+        chatgpt_web_create_conversation: 'CHATGPT_WEB_CREATE_CONVERSATION',
+        chatgpt_web_list_conversations: 'CHATGPT_WEB_LIST_CONVERSATIONS',
+        chatgpt_web_get_conversation: 'CHATGPT_WEB_GET_CONVERSATION',
+        chatgpt_web_refresh_conversation: 'CHATGPT_WEB_REFRESH_CONVERSATION',
+        chatgpt_web_send_conversation_message: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
+        chatgpt_web_sync_conversations: 'CHATGPT_WEB_SYNC_CONVERSATIONS',
+        chatgpt_web_list_models: 'CHATGPT_WEB_LIST_MODELS',
+      }
+
       try {
-        let response
-        switch (action) {
-          case 'chatgpt_web_create_conversation':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_CREATE_CONVERSATION',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_list_conversations':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_LIST_CONVERSATIONS',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_get_conversation':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_GET_CONVERSATION',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_refresh_conversation':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_REFRESH_CONVERSATION',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_send_conversation_message':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_sync_conversations':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_SYNC_CONVERSATIONS',
-              data: payload || {},
-            })
-            break
-          case 'chatgpt_web_list_models':
-            response = await Browser.runtime.sendMessage({
-              type: 'CHATGPT_WEB_LIST_MODELS',
-              data: payload || {},
-            })
-            break
-          default:
-            throw new Error(`Unsupported control action: ${action}`)
+        const messageType = actionToMessageType[action]
+        if (!messageType) throw new Error(`Unsupported control action: ${action}`)
+        const canRetry = RETRYABLE_CONTROL_ACTIONS.has(action)
+
+        let response = await Browser.runtime.sendMessage({
+          type: messageType,
+          data: payload || {},
+        })
+
+        // Service worker may have been terminated mid-request (MV3), retry once
+        if (response === undefined && canRetry) {
+          addLog(`Control ${action}: no response, retrying once...`, 'warn')
+          response = await Browser.runtime.sendMessage({
+            type: messageType,
+            data: payload || {},
+          })
         }
-        sendWs({ type: 'control_response', id, data: response })
+
+        if (response === undefined) {
+          addLog(
+            `Control ${action}: background returned no response${canRetry ? ' after retry' : ''}`,
+            'error',
+          )
+          sendWs({
+            type: 'control_error',
+            id,
+            error: `Background returned no response for ${action}. The service worker may have been terminated. Check that chatgpt.com is open and you are logged in.`,
+          })
+        } else {
+          sendWs({ type: 'control_response', id, data: response })
+        }
       } catch (error) {
         addLog(`Control ${action}: ${error.message || error}`, 'error')
         sendWs({ type: 'control_error', id, error: error.message || String(error) })
@@ -636,9 +641,6 @@ function App() {
 
   const handleExportCache = useCallback(async () => {
     try {
-      const { exportConversationCache } = await import(
-        '../../services/chatgpt-web-conversation-cache.mjs'
-      )
       const cache = await exportConversationCache()
       const blob = new Blob([JSON.stringify(cache, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -662,9 +664,6 @@ function App() {
         reader.onload = async (event) => {
           try {
             const data = JSON.parse(event.target.result)
-            const { importConversationCache } = await import(
-              '../../services/chatgpt-web-conversation-cache.mjs'
-            )
             const result = await importConversationCache(data)
             addLog(`Conversation cache imported successfully: ${result.count} conversations`)
             void loadConversationList()

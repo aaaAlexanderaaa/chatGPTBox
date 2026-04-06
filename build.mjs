@@ -61,6 +61,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
     output: {
       filename: '[name].js',
       path: path.resolve(__dirname, outdir),
+      publicPath: '',
     },
     mode: isProduction ? 'production' : 'development',
     devtool: isProduction ? false : 'inline-source-map',
