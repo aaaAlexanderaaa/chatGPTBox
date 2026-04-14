@@ -6,6 +6,7 @@ import {
   CHATGPT_WEB_DEFAULT_MODEL_SLUG,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   CHATGPT_WEB_DEBUG_LOG_KEY,
+  CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   getUserConfig,
@@ -51,6 +52,7 @@ const LEGACY_CHATGPT_WEB_MODEL_SLUGS = new Set([
   'text-davinci-002-render-sha-mobile',
   'gpt-4-mobile',
 ])
+const EXTRA_THINKING_EFFORT_MODEL_SLUGS = new Set(CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS)
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
   'authorization',
@@ -319,7 +321,9 @@ function resolveChatgptWebModel({
 
 function resolveThinkingEffortForModel(modelSlug, config) {
   const normalized = typeof modelSlug === 'string' ? modelSlug.trim() : ''
-  if (!normalized.endsWith('-thinking')) return null
+  if (!normalized.endsWith('-thinking') && !EXTRA_THINKING_EFFORT_MODEL_SLUGS.has(normalized)) {
+    return null
+  }
   if (config?.chatgptWebThinkingEffort === 'standard') return 'standard'
   return CHATGPT_WEB_DEFAULT_THINKING_EFFORT
 }

@@ -62,6 +62,7 @@ const AgentDefaultsMigrationVersion = {
 export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb54Thinking'
 export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-4-thinking'
 export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
+export const CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS = ['gpt-5-4-pro']
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 256000
 export const MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT = 200
@@ -940,7 +941,7 @@ export const defaultConfig = {
   apiServerRequestTimeoutSeconds: DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   apiServerThinkingTimeoutSeconds: DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   customChatGptWebApiUrl: 'https://chatgpt.com',
-  customChatGptWebApiPath: '/backend-api/conversation',
+  customChatGptWebApiPath: '/backend-api/f/conversation',
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   chatgptWebConversationPollIntervalSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
