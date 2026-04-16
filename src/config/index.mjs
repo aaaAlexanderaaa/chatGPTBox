@@ -8,8 +8,11 @@ import {
   isUsingModelName,
   modelNameToDesc,
 } from '../utils/model-name-convert.mjs'
+import { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../utils/chatgpt-web-thinking.mjs'
 import { t } from 'i18next'
 import { AgentProtocol, normalizeAgentProtocol } from '../services/agent/protocols.mjs'
+
+export { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS }
 
 export const TriggerMode = {
   always: 'Always',
@@ -62,7 +65,6 @@ const AgentDefaultsMigrationVersion = {
 export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb54Thinking'
 export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-4-thinking'
 export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
-export const CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS = ['gpt-5-4-pro']
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 256000
 export const MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT = 200

@@ -17,6 +17,7 @@ import {
 } from '../../services/chatgpt-web-conversation-cache.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
+import { needsChatgptWebThinkingEffort } from '../../utils/chatgpt-web-thinking.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000
@@ -157,7 +158,7 @@ function App() {
       const { id, model, messages, stream } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
-      const isThinkingRequest = typeof model === 'string' && model.trim().endsWith('-thinking')
+      const isThinkingRequest = needsChatgptWebThinkingEffort(model)
       const continuation = isThinkingRequest
         ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
         : null

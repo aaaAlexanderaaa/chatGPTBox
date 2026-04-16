@@ -1,6 +1,7 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
+import { needsChatgptWebThinkingEffort } from '../src/utils/chatgpt-web-thinking.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults
@@ -187,7 +188,7 @@ function makeStreamChunk(id, model, delta, finishReason) {
 }
 
 function getRequestTimeoutMs(model) {
-  return typeof model === 'string' && model.trim().endsWith('-thinking')
+  return needsChatgptWebThinkingEffort(model)
     ? bridgeRuntimeConfig.thinkingRequestTimeoutMs
     : bridgeRuntimeConfig.requestTimeoutMs
 }

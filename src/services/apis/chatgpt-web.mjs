@@ -6,7 +6,6 @@ import {
   CHATGPT_WEB_DEFAULT_MODEL_SLUG,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   CHATGPT_WEB_DEBUG_LOG_KEY,
-  CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   getUserConfig,
@@ -18,6 +17,10 @@ import { t } from 'i18next'
 import { sha3_512 } from 'js-sha3'
 import randomInt from 'random-int'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import {
+  needsChatgptWebThinkingEffort,
+  requiresChatgptWebExtendedThinkingEffort,
+} from '../../utils/chatgpt-web-thinking.mjs'
 import {
   createChatgptWebWebsocketBodyParser,
   createChatgptWebWebsocketRequestController,
@@ -52,7 +55,6 @@ const LEGACY_CHATGPT_WEB_MODEL_SLUGS = new Set([
   'text-davinci-002-render-sha-mobile',
   'gpt-4-mobile',
 ])
-const EXTRA_THINKING_EFFORT_MODEL_SLUGS = new Set(CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS)
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
   'authorization',
@@ -70,10 +72,6 @@ function createAbortError() {
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw createAbortError()
-}
-
-function isThinkingModelSlug(model) {
-  return typeof model === 'string' && model.trim().endsWith('-thinking')
 }
 
 function waitWithAbort(ms, signal) {
@@ -320,9 +318,9 @@ function resolveChatgptWebModel({
 }
 
 function resolveThinkingEffortForModel(modelSlug, config) {
-  const normalized = typeof modelSlug === 'string' ? modelSlug.trim() : ''
-  if (!normalized.endsWith('-thinking') && !EXTRA_THINKING_EFFORT_MODEL_SLUGS.has(normalized)) {
-    return null
+  if (!needsChatgptWebThinkingEffort(modelSlug)) return null
+  if (requiresChatgptWebExtendedThinkingEffort(modelSlug)) {
+    return CHATGPT_WEB_DEFAULT_THINKING_EFFORT
   }
   if (config?.chatgptWebThinkingEffort === 'standard') return 'standard'
   return CHATGPT_WEB_DEFAULT_THINKING_EFFORT
@@ -564,7 +562,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
   const thinkingEffort = resolveThinkingEffortForModel(usedModel, config)
   const isExtendedThinkingRequest =
-    isThinkingModelSlug(usedModel) || thinkingEffort === CHATGPT_WEB_DEFAULT_THINKING_EFFORT
+    requiresChatgptWebExtendedThinkingEffort(usedModel) ||
+    thinkingEffort === CHATGPT_WEB_DEFAULT_THINKING_EFFORT
   const useDispatchOnlyConversationObserver = Boolean(useWebsocket && isExtendedThinkingRequest)
   if (!useDispatchOnlyConversationObserver) {
     useWebsocket = false
@@ -786,7 +785,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   function shouldPollConversationResult(terminalError) {
     if (!session.conversationId) return false
-    if (!isThinkingModelSlug(usedModel) && thinkingEffort !== 'extended') return false
+    if (!needsChatgptWebThinkingEffort(usedModel)) return false
     if (terminalError instanceof Error) return true
     return true
   }

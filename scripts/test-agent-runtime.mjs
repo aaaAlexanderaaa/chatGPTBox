@@ -54,6 +54,10 @@ import {
   CHATGPT_WEB_API_THREADS_KEY,
   CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
 } from '../src/services/chatgpt-web-thread-state.mjs'
+import {
+  needsChatgptWebThinkingEffort,
+  requiresChatgptWebExtendedThinkingEffort,
+} from '../src/utils/chatgpt-web-thinking.mjs'
 
 function bufferToArrayBuffer(buffer) {
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
@@ -204,6 +208,13 @@ async function testChatgptProxyTabUrlDetection() {
     isDedicatedChatgptProxyTabUrl('https://chatgpt.com/auth/login?chatgptbox_proxy=1'),
     false,
   )
+}
+
+async function testChatgptWebThinkingEffortModelRules() {
+  assert.equal(needsChatgptWebThinkingEffort('gpt-5-4-pro'), true)
+  assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-4-pro'), true)
+  assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-4-thinking'), false)
+  assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-4'), false)
 }
 
 async function testChatgptWebBuffersEarlyEventsUntilConversationId() {
@@ -1240,6 +1251,7 @@ async function run() {
   await testTemplateExpansionAndBudget()
   await testSkillImporterZipParsing()
   await testChatgptProxyTabUrlDetection()
+  await testChatgptWebThinkingEffortModelRules()
   await testChatgptWebBuffersEarlyEventsUntilConversationId()
   await testChatgptWebIgnoresEventsFromOtherConversations()
   await testChatgptWebFailsImmediatelyWhenSocketCloses()
