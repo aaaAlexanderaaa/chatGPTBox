@@ -44,7 +44,7 @@ OpenAI-compatible chat completions endpoint.
 
 - Supports `stream: true` and `stream: false`
 - Requires a non-empty `messages` array
-- Defaults to model `gpt-5-4-thinking` if `model` is omitted
+- Defaults to model `gpt-5-5-thinking` if `model` is omitted
 - Any model slug is passed through directly to ChatGPT's backend, including `auto` (which enables web search) and new model slugs not yet in the extension's local config
 
 Minimal request:
@@ -53,7 +53,7 @@ Minimal request:
 curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-4",
+    "model": "gpt-5-5-thinking",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": false
   }'
@@ -65,7 +65,7 @@ Streaming request:
 curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-4-thinking",
+    "model": "gpt-5-5-thinking",
     "messages": [{"role": "user", "content": "Summarize this page"}],
     "stream": true
   }'

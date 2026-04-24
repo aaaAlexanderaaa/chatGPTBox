@@ -698,7 +698,8 @@ async function executeApi(session, port, config) {
           tabId,
           tabUrl: proxyTab?.url || null,
           route: executionRoute,
-          model: getModelValue(session) || null,
+          model: session.chatgptWebModelSlugOverride || getModelValue(session) || null,
+          selectedModel: getModelValue(session) || null,
           endpointUrl: config.customChatGptWebApiUrl || defaultConfig.customChatGptWebApiUrl,
         })
         await sendChatgptProxyRequest(tabId, session, port)

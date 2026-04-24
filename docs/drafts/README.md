@@ -12,6 +12,11 @@ Before running them:
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
 If you want Drafts notes to include ChatGPT reasoning blocks, set `INCLUDE_THINKING = true` in
 `action-2-open-checked-conversation.js` and `action-3-send-waiting-reply.js`.
+`action-3-send-waiting-reply.js` now declares its model choice explicitly:
+
+- `DEFAULT_MODEL = 'gpt-5-4-thinking'` is the script's built-in default for new conversations.
+- `MODEL_OVERRIDE = null` means follow-up replies keep using the conversation's stored default model when one exists.
+- Set `MODEL_OVERRIDE = 'gpt-5-4-pro'` when you want this Drafts action to force GPT-5.4 Pro for both new conversations and follow-up replies.
 
 Files:
 

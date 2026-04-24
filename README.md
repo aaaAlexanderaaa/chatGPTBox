@@ -264,7 +264,7 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
-### v3.2.0
+### v3.2.1
 
 - Added cached ChatGPT conversation APIs to the local API Server Bridge, including list, detail, create, follow-up message, and refresh endpoints.
 - Added local conversation caching plus draft workflow scripts for inspecting threads and sending queued follow-ups through the gateway.

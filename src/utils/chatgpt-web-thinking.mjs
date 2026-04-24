@@ -1,4 +1,8 @@
-export const CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS = Object.freeze(['gpt-5-4-pro'])
+export const CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS = Object.freeze([
+  'gpt-5-5-thinking',
+  'gpt-5-5-pro',
+  'gpt-5-4-pro',
+])
 
 const EXTRA_THINKING_EFFORT_MODEL_SLUG_SET = new Set(CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS)
 

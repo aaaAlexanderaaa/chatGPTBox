@@ -62,8 +62,8 @@ const AgentDefaultsMigrationVersion = {
   clearLegacyDesignDefaults: 1,
 }
 
-export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb54Thinking'
-export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-4-thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb55Thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-5-thinking'
 export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 256000
@@ -93,7 +93,7 @@ const LegacyChatgptWebModelKeyMap = {
   chatgptPlus4Browsing: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptFree35Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptPlus4Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
-  // Migrate 5.1 Thinking default to 5.4 Thinking (5.1 decommissioned March 11 2026)
+  // Migrate 5.1 Thinking default to the current ChatGPT Web default.
   chatgptWeb51Thinking: CHATGPT_WEB_DEFAULT_MODEL_KEY,
 }
 
@@ -193,6 +193,8 @@ const defaultBuiltInAssistants = [
 ]
 
 export const chatgptWebModelKeys = [
+  'chatgptWeb55Thinking',
+  'chatgptWeb55Pro',
   'chatgptWeb54Thinking',
   'chatgptWeb54Auto',
   'chatgptWeb54Instant',
@@ -540,6 +542,8 @@ export function getModelMeta(modelName) {
  * @type {Object.<string,Model>}
  */
 export const Models = {
+  chatgptWeb55Thinking: { value: 'gpt-5-5-thinking', desc: 'ChatGPT (Web, GPT-5.5 Thinking)' },
+  chatgptWeb55Pro: { value: 'gpt-5-5-pro', desc: 'ChatGPT (Web, GPT-5.5 Pro)' },
   chatgptWeb54Thinking: { value: 'gpt-5-4-thinking', desc: 'ChatGPT (Web, GPT-5.4 Thinking)' },
   chatgptWeb54Auto: { value: 'gpt-5-4', desc: 'ChatGPT (Web, GPT-5.4)' },
   chatgptWeb54Instant: { value: 'gpt-5-4-instant', desc: 'ChatGPT (Web, GPT-5.4 Instant)' },

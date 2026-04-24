@@ -1,6 +1,11 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
+// Explicit default for new conversations created by this script.
+const DEFAULT_MODEL = 'gpt-5-4-thinking'
+// Set this to a model slug like 'gpt-5-4-pro' to force all sends to use that model.
+// Leave it as null to keep using each conversation's stored default model when available.
+const MODEL_OVERRIDE = null
 // Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
 const INCLUDE_THINKING = false
 const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
@@ -77,6 +82,10 @@ function section(title, body) {
 
 function normalizeText(text) {
   return typeof text === 'string' ? text.trim() : ''
+}
+
+function resolveModel(defaultModel) {
+  return MODEL_OVERRIDE || defaultModel || DEFAULT_MODEL
 }
 
 function getLastMessageText(messages, role) {
@@ -198,6 +207,7 @@ try {
 
     const payload = requestJson(BASE_URL + '/chatgpt/conversations', 'POST', {
       query: noteContent,
+      model: resolveModel(),
     })
     draft.content = renderConversation(
       {
@@ -206,7 +216,7 @@ try {
         pending: true,
         asyncStatus: null,
         updateTime: payload.createdAt || null,
-        defaultModel: payload.defaultModel || null,
+        defaultModel: payload.defaultModel || resolveModel(),
         messages: [],
         thinking: [],
         message: null,
@@ -242,7 +252,7 @@ try {
         'POST',
         {
           query: waitingReply.query,
-          model: waitingReply.metadata.defaultModel || undefined,
+          model: resolveModel(waitingReply.metadata.defaultModel),
           think: INCLUDE_THINKING,
         },
       )

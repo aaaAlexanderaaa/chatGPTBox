@@ -389,7 +389,7 @@ export function GeneralTab({
                 type="text"
                 value={manualModelId}
                 onChange={(e) => setManualModelId(e.target.value)}
-                placeholder={usingChatGptWeb ? 'gpt-5-2-thinking' : 'gpt-5'}
+                placeholder={usingChatGptWeb ? 'gpt-5-5-thinking' : 'gpt-5'}
                 className={cn(inputClassName, 'w-[260px]')}
               />
               <button

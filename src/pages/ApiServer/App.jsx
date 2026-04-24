@@ -15,7 +15,7 @@ import {
   exportConversationCache,
   importConversationCache,
 } from '../../services/chatgpt-web-conversation-cache.mjs'
-import { Models, chatgptWebModelKeys } from '../../config/index.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_KEY, Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../utils/chatgpt-web-thinking.mjs'
 import './styles.css'
@@ -38,7 +38,7 @@ function slugToModelKey(slug) {
     if (Models[key] && Models[key].value === normalized) return key
   }
   if (Models[normalized]) return normalized
-  return 'chatgptWeb54Thinking'
+  return CHATGPT_WEB_DEFAULT_MODEL_KEY
 }
 
 function formatMessages(messages) {
@@ -835,7 +835,7 @@ function App() {
           <pre>{`curl http://127.0.0.1:${port}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-5-2",
+    "model": "gpt-5-5-thinking",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": false
   }'`}</pre>

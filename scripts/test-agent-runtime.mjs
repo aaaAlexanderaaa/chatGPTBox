@@ -211,6 +211,10 @@ async function testChatgptProxyTabUrlDetection() {
 }
 
 async function testChatgptWebThinkingEffortModelRules() {
+  assert.equal(needsChatgptWebThinkingEffort('gpt-5-5-thinking'), true)
+  assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-5-thinking'), true)
+  assert.equal(needsChatgptWebThinkingEffort('gpt-5-5-pro'), true)
+  assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-5-pro'), true)
   assert.equal(needsChatgptWebThinkingEffort('gpt-5-4-pro'), true)
   assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-4-pro'), true)
   assert.equal(requiresChatgptWebExtendedThinkingEffort('gpt-5-4-thinking'), false)

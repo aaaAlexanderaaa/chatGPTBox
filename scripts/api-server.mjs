@@ -78,6 +78,8 @@ if (Number.isNaN(PORT) || PORT < 1 || PORT > 65535) {
 // ---------------------------------------------------------------------------
 
 const AVAILABLE_MODELS = [
+  { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking' },
+  { id: 'gpt-5-5-pro', name: 'GPT-5.5 Pro' },
   { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
   { id: 'gpt-5-4', name: 'GPT-5.4' },
   { id: 'gpt-5-4-instant', name: 'GPT-5.4 Instant' },
@@ -94,6 +96,8 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5-1-instant', name: 'GPT-5.1 Instant' },
   { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
 ]
+
+const DEFAULT_MODEL = 'gpt-5-5-thinking'
 
 // ---------------------------------------------------------------------------
 // Bridge state (WebSocket + HTTP polling)
@@ -374,7 +378,7 @@ async function handleChatCompletions(req, res) {
     return
   }
 
-  const model = body.model || 'gpt-5-4-thinking'
+  const model = body.model || DEFAULT_MODEL
   const messages = body.messages
   const stream = body.stream === true
   const completionId = makeCompletionId()

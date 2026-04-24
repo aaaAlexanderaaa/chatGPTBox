@@ -148,6 +148,91 @@ function sanitizeDebugRequestBody(body) {
   return safeBody
 }
 
+function getChatgptWebTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getChatgptWebClientContextualInfo() {
+  const page =
+    typeof window === 'object' && window
+      ? {
+          height: Number(window.innerHeight) || 0,
+          width: Number(window.innerWidth) || 0,
+          pixelRatio: Number(window.devicePixelRatio) || 1,
+        }
+      : {
+          height: 0,
+          width: 0,
+          pixelRatio: 1,
+        }
+  const screenInfo =
+    typeof screen === 'object' && screen
+      ? {
+          height: Number(screen.height) || 0,
+          width: Number(screen.width) || 0,
+        }
+      : {
+          height: 0,
+          width: 0,
+        }
+  const documentHeight =
+    typeof document === 'object' && document?.documentElement
+      ? Number(document.documentElement.scrollHeight) || page.height
+      : page.height
+  let isDarkMode = false
+  try {
+    isDarkMode = Boolean(window?.matchMedia?.('(prefers-color-scheme: dark)')?.matches)
+  } catch {
+    isDarkMode = false
+  }
+
+  return {
+    is_dark_mode: isDarkMode,
+    time_since_loaded:
+      typeof performance === 'object' && typeof performance.now === 'function'
+        ? Math.max(0, Math.round(performance.now() / 1000))
+        : 0,
+    page_height: documentHeight,
+    page_width: page.width,
+    pixel_ratio: page.pixelRatio,
+    screen_height: screenInfo.height,
+    screen_width: screenInfo.width,
+    app_name:
+      typeof location === 'object' && typeof location.hostname === 'string' && location.hostname
+        ? location.hostname
+        : 'chatgpt.com',
+  }
+}
+
+function buildChatgptWebUserMessage(question, messageId) {
+  return {
+    id: messageId,
+    author: {
+      role: 'user',
+    },
+    create_time: Date.now() / 1000,
+    content: {
+      content_type: 'text',
+      parts: [question],
+    },
+    metadata: {
+      developer_mode_connector_ids: [],
+      selected_connector_ids: [],
+      selected_sync_knowledge_store_ids: [],
+      selected_sources: [],
+      selected_github_repos: [],
+      selected_all_github_repos: false,
+      serialization_metadata: {
+        custom_symbol_offsets: [],
+      },
+    },
+  }
+}
+
 async function appendChatgptWebDebugLog(config, stage, payload = {}) {
   if (config?.debugChatgptWebRequests !== true) return
   const entry = {
@@ -611,37 +696,38 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   session.messageId = uuidv4()
   session.wsRequestId = uuidv4()
   if (session.parentMessageId == null) {
-    session.parentMessageId = uuidv4()
+    session.parentMessageId = 'client-created-root'
   }
+  const timezone = getChatgptWebTimezone()
   const requestBody = {
     action: 'next',
     conversation_id: session.conversationId || undefined,
-    messages: [
-      {
-        id: session.messageId,
-        author: {
-          role: 'user',
-        },
-        content: {
-          content_type: 'text',
-          parts: [question],
-        },
-      },
-    ],
+    messages: [buildChatgptWebUserMessage(question, session.messageId)],
+    client_prepare_state: 'success',
     conversation_mode: {
       kind: 'primary_assistant',
     },
-    force_paragen: false,
-    force_rate_limit: false,
-    suggestions: [],
+    enable_message_followups: true,
+    system_hints: [],
+    supports_buffering: true,
+    supported_encodings: ['v1'],
+    client_contextual_info: getChatgptWebClientContextualInfo(),
+    paragen_cot_summary_display_override: 'allow',
+    force_parallel_switch: 'auto',
     model: usedModel,
     parent_message_id: session.parentMessageId,
     timezone_offset_min: new Date().getTimezoneOffset(),
-    history_and_training_disabled:
-      typeof session.chatgptWebHistoryDisabledOverride === 'boolean'
-        ? session.chatgptWebHistoryDisabledOverride
-        : config.disableWebModeHistory,
-    websocket_request_id: session.wsRequestId,
+    ...(timezone ? { timezone } : {}),
+  }
+  const historyAndTrainingDisabled =
+    typeof session.chatgptWebHistoryDisabledOverride === 'boolean'
+      ? session.chatgptWebHistoryDisabledOverride
+      : config.disableWebModeHistory
+  if (historyAndTrainingDisabled === true) {
+    requestBody.history_and_training_disabled = true
+  }
+  if (useWebsocket && session.wsRequestId) {
+    requestBody.websocket_request_id = session.wsRequestId
   }
   if (thinkingEffort) {
     requestBody.thinking_effort = thinkingEffort
@@ -659,6 +745,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     signal: controller.signal,
     credentials: 'include',
     headers: {
+      Accept: 'text/event-stream',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       ...(cookie && { Cookie: cookie }),
@@ -900,6 +987,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           reason,
           attempts,
           conversationId: session.conversationId || null,
+          defaultModel: snapshot?.default_model_slug || null,
           messageId: result?.messageId || null,
           status: result?.status || null,
           answerLength: result?.text?.length || 0,
@@ -913,6 +1001,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             reason,
             attempts,
             conversationId: session.conversationId || null,
+            defaultModel: snapshot?.default_model_slug || null,
             messageId: result.messageId || null,
             status: result.status || null,
             pending: result.pending === true,
