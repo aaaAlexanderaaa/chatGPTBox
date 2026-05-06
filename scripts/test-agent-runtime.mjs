@@ -58,6 +58,17 @@ import {
   needsChatgptWebThinkingEffort,
   requiresChatgptWebExtendedThinkingEffort,
 } from '../src/utils/chatgpt-web-thinking.mjs'
+import {
+  buildCustomApiHeaders,
+  createCustomApiHttpError,
+  createCustomApiNetworkError,
+  extractCustomApiChunkText,
+  formatCustomApiDisplayAnswer,
+  formatCustomApiErrorPayload,
+  normalizeCustomChatCompletionsUrl,
+} from '../src/services/apis/custom-api-utils.mjs'
+import { normalizeAgentMemory as normalizeDisabledAgentMemory } from '../src/services/agent/session-state.disabled.mjs'
+import { ENABLE_AGENT_FEATURES } from '../src/utils/build-flags.mjs'
 
 function bufferToArrayBuffer(buffer) {
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
@@ -135,6 +146,155 @@ async function testProtocolResolver() {
   assert.equal(
     resolveOpenAiCompatibleProtocol('https://api.openai.com/v1', AgentProtocol.openAiResponsesV1),
     AgentProtocol.openAiResponsesV1,
+  )
+}
+
+async function testAgentFeaturesDefaultOffAtBuildTime() {
+  assert.equal(ENABLE_AGENT_FEATURES, false)
+}
+
+async function testDisabledAgentMemoryPreservesStoredState() {
+  const memory = {
+    objective: 'audit page',
+    lastStopReason: 'done',
+    nextAction: 'summarize',
+    noProgressCount: 2,
+    steps: [
+      {
+        type: 'tool',
+        detail: 'read page context',
+        status: 'ok',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    updatedAt: '2026-01-01T00:00:01.000Z',
+  }
+
+  assert.deepEqual(normalizeDisabledAgentMemory(memory), memory)
+  assert.equal(
+    normalizeDisabledAgentMemory({
+      steps: Array.from({ length: 40 }, () => memory.steps[0]),
+    }).steps.length,
+    32,
+  )
+}
+
+async function testCustomApiUrlAndHeaders() {
+  assert.equal(
+    normalizeCustomChatCompletionsUrl('http://localhost:8000/v1'),
+    'http://localhost:8000/v1/chat/completions',
+  )
+  assert.equal(
+    normalizeCustomChatCompletionsUrl('http://localhost:8000/v1/chat/completions'),
+    'http://localhost:8000/v1/chat/completions',
+  )
+  assert.deepEqual(buildCustomApiHeaders(''), { 'Content-Type': 'application/json' })
+  assert.deepEqual(buildCustomApiHeaders('  sk-test  '), {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer sk-test',
+  })
+}
+
+async function testCustomApiErrorFormatting() {
+  assert.equal(formatCustomApiErrorPayload({ error: { message: 'bad model' } }), 'bad model')
+  const error = await createCustomApiHttpError(
+    new Response(JSON.stringify({ error: { message: 'missing model' } }), {
+      status: 400,
+      statusText: 'Bad Request',
+    }),
+  )
+  assert.match(error.message, /Custom API request failed: 400 Bad Request/)
+  assert.match(error.message, /missing model/)
+
+  const networkError = createCustomApiNetworkError(
+    new TypeError('Failed to fetch'),
+    'http://192.168.1.10:8000/v1/chat/completions',
+  )
+  assert.match(networkError.message, /Failed to fetch/)
+  assert.match(networkError.message, /192\.168\.1\.10/)
+}
+
+async function testCustomApiChunkExtractionIgnoresNullDeltas() {
+  assert.deepEqual(extractCustomApiChunkText({ choices: [{ delta: { content: null } }] }), {
+    recognized: true,
+    hasContent: false,
+    content: '',
+    reasoning: '',
+    replace: false,
+  })
+  assert.deepEqual(extractCustomApiChunkText({ choices: [{ delta: { role: 'assistant' } }] }), {
+    recognized: true,
+    hasContent: false,
+    content: '',
+    reasoning: '',
+    replace: false,
+  })
+  assert.deepEqual(extractCustomApiChunkText({ choices: [{ delta: { content: 'hi' } }] }), {
+    recognized: true,
+    hasContent: true,
+    content: 'hi',
+    reasoning: '',
+    replace: false,
+  })
+  assert.deepEqual(
+    extractCustomApiChunkText({ choices: [{ delta: { reasoning_content: 'thinking' } }] }),
+    {
+      recognized: true,
+      hasContent: true,
+      content: '',
+      reasoning: 'thinking',
+      replace: false,
+    },
+  )
+  assert.deepEqual(
+    extractCustomApiChunkText({ choices: [{ delta: { reasoning: 'openrouter' } }] }),
+    {
+      recognized: true,
+      hasContent: true,
+      content: '',
+      reasoning: 'openrouter',
+      replace: false,
+    },
+  )
+  assert.deepEqual(
+    extractCustomApiChunkText({
+      choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'detail' }] } }],
+    }),
+    {
+      recognized: true,
+      hasContent: true,
+      content: '',
+      reasoning: 'detail',
+      replace: false,
+    },
+  )
+  assert.deepEqual(extractCustomApiChunkText({ choices: [] }), {
+    recognized: true,
+    hasContent: false,
+    content: '',
+    reasoning: '',
+    replace: false,
+  })
+  assert.deepEqual(extractCustomApiChunkText({ type: 'response.reasoning.delta', delta: 'r' }), {
+    recognized: true,
+    hasContent: true,
+    content: '',
+    reasoning: 'r',
+    replace: false,
+  })
+  assert.deepEqual(
+    extractCustomApiChunkText({ type: 'response.reasoning.delta', delta: { text: 'rt' } }),
+    {
+      recognized: true,
+      hasContent: true,
+      content: '',
+      reasoning: 'rt',
+      replace: false,
+    },
+  )
+  assert.equal(
+    formatCustomApiDisplayAnswer('thinking', 'answer'),
+    '<think>\nthinking\n</think>\n\nanswer',
   )
 }
 
@@ -1252,6 +1412,11 @@ async function run() {
   await testAliasUniqueness()
   await testShortCircuitDecision()
   await testProtocolResolver()
+  await testAgentFeaturesDefaultOffAtBuildTime()
+  await testDisabledAgentMemoryPreservesStoredState()
+  await testCustomApiUrlAndHeaders()
+  await testCustomApiErrorFormatting()
+  await testCustomApiChunkExtractionIgnoresNullDeltas()
   await testTemplateExpansionAndBudget()
   await testSkillImporterZipParsing()
   await testChatgptProxyTabUrlDetection()

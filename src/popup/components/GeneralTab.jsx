@@ -34,6 +34,10 @@ import {
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { AgentProtocol } from '../../services/agent/protocols.mjs'
 
+/* global __CHATGPTBOX_ENABLE_AGENTS__ */
+const ENABLE_AGENT_FEATURES =
+  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
+
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
 
@@ -679,190 +683,194 @@ export function GeneralTab({
         </>
       )}
 
-      <Divider />
-
-      <SettingSection title={t('Agent Runtime')}>
-        <SettingRow
-          label={t('Runtime Mode')}
-          hint={t('Safe mode is default; developer mode allows more permissive tool behavior')}
-          action={
-            onNavigateToAgents && (
-              <button
-                onClick={onNavigateToAgents}
-                className="text-muted-foreground hover:text-primary transition-colors"
-                title={t('Configure assistants / skills / MCP')}
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-            )
-          }
-        >
-          <SelectField
-            value={config.runtimeMode || RuntimeMode.safe}
-            onChange={(value) => updateConfig({ runtimeMode: value })}
-            options={[
-              { value: RuntimeMode.safe, label: t('Safe') },
-              { value: RuntimeMode.developer, label: t('Developer') },
-            ]}
-            minWidth="180px"
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={t('Default Assistant')}
-          hint={t('Used when no per-session assistant is selected')}
-        >
-          <SelectField
-            value={config.defaultAssistantId || ''}
-            onChange={(value) => updateConfig({ defaultAssistantId: value })}
-            options={[
-              { value: '', label: t('None') },
-              ...(config.assistants || [])
-                .filter((assistant) => assistant?.id && assistant?.name)
-                .map((assistant) => ({
-                  value: assistant.id,
-                  label: assistant.name,
-                })),
-            ]}
-            minWidth="240px"
-          />
-        </SettingRow>
-
-        {!isPopupMode && (
-          <>
-            <SettingRow
-              label={t('Agent Protocol')}
-              hint={t('Protocol-first tool loop behavior for OpenAI-compatible runtimes')}
-            >
-              <SelectField
-                value={config.agentProtocol || AgentProtocol.auto}
-                onChange={(value) => updateConfig({ agentProtocol: value })}
-                options={[
-                  { value: AgentProtocol.auto, label: t('Auto (Recommended)') },
-                  {
-                    value: AgentProtocol.openAiChatCompletionsV1,
-                    label: t('OpenAI Chat Completions v1'),
-                  },
-                  { value: AgentProtocol.openAiResponsesV1, label: t('OpenAI Responses v1') },
-                ]}
-                minWidth="260px"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Preload Context Cap')}
-              hint={t('Max tokens for page-derived macro context (default 64000)')}
-            >
-              <input
-                type="number"
-                min={1000}
-                max={256000}
-                step={1000}
-                value={config.agentPreloadContextTokenCap || 64000}
-                onChange={(e) =>
-                  updateConfig({
-                    agentPreloadContextTokenCap: Number(e.target.value) || 64000,
-                  })
-                }
-                className={cn(inputClassName, 'w-[180px]')}
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Default Context Cap')}
-              hint={t('Total prompt token target before completion (default 128000)')}
-            >
-              <input
-                type="number"
-                min={1000}
-                max={256000}
-                step={1000}
-                value={config.agentContextTokenCap || 128000}
-                onChange={(e) =>
-                  updateConfig({
-                    agentContextTokenCap: Number(e.target.value) || 128000,
-                  })
-                }
-                className={cn(inputClassName, 'w-[180px]')}
-              />
-            </SettingRow>
-
-            <SettingRow label={t('Agent Max Steps')} hint={t('Multi-step runtime loop limit')}>
-              <input
-                type="number"
-                min={1}
-                max={32}
-                step={1}
-                value={config.agentMaxSteps || 8}
-                onChange={(e) =>
-                  updateConfig({
-                    agentMaxSteps: Number(e.target.value) || 8,
-                  })
-                }
-                className={cn(inputClassName, 'w-[120px]')}
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('No-Progress Limit')}
-              hint={t('Stop loop when no progress repeats')}
-            >
-              <input
-                type="number"
-                min={1}
-                max={10}
-                step={1}
-                value={config.agentNoProgressLimit || 2}
-                onChange={(e) =>
-                  updateConfig({
-                    agentNoProgressLimit: Number(e.target.value) || 2,
-                  })
-                }
-                className={cn(inputClassName, 'w-[120px]')}
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Tool Trace Limit')}
-              hint={t('Max number of tool events stored per session')}
-            >
-              <input
-                type="number"
-                min={10}
-                max={300}
-                step={10}
-                value={config.agentToolEventLimit || 50}
-                onChange={(e) =>
-                  updateConfig({
-                    agentToolEventLimit: Number(e.target.value) || 50,
-                  })
-                }
-                className={cn(inputClassName, 'w-[120px]')}
-              />
-            </SettingRow>
-          </>
-        )}
-      </SettingSection>
-
-      {isPopupMode && (
+      {ENABLE_AGENT_FEATURES && (
         <>
           <Divider />
 
-          <QuickLinkCard
-            icon={Bot}
-            title={t('Agents, skills, and MCP moved to full settings')}
-            description={t(
-              'Use the popup to pick your default assistant and runtime mode. Build assistants, import ZIP skills, and manage MCP endpoints from the full settings workspace.',
+          <SettingSection title={t('Agent Runtime')}>
+            <SettingRow
+              label={t('Runtime Mode')}
+              hint={t('Safe mode is default; developer mode allows more permissive tool behavior')}
+              action={
+                onNavigateToAgents && (
+                  <button
+                    onClick={onNavigateToAgents}
+                    className="text-muted-foreground hover:text-primary transition-colors"
+                    title={t('Configure assistants / skills / MCP')}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )
+              }
+            >
+              <SelectField
+                value={config.runtimeMode || RuntimeMode.safe}
+                onChange={(value) => updateConfig({ runtimeMode: value })}
+                options={[
+                  { value: RuntimeMode.safe, label: t('Safe') },
+                  { value: RuntimeMode.developer, label: t('Developer') },
+                ]}
+                minWidth="180px"
+              />
+            </SettingRow>
+
+            <SettingRow
+              label={t('Default Assistant')}
+              hint={t('Used when no per-session assistant is selected')}
+            >
+              <SelectField
+                value={config.defaultAssistantId || ''}
+                onChange={(value) => updateConfig({ defaultAssistantId: value })}
+                options={[
+                  { value: '', label: t('None') },
+                  ...(config.assistants || [])
+                    .filter((assistant) => assistant?.id && assistant?.name)
+                    .map((assistant) => ({
+                      value: assistant.id,
+                      label: assistant.name,
+                    })),
+                ]}
+                minWidth="240px"
+              />
+            </SettingRow>
+
+            {!isPopupMode && (
+              <>
+                <SettingRow
+                  label={t('Agent Protocol')}
+                  hint={t('Protocol-first tool loop behavior for OpenAI-compatible runtimes')}
+                >
+                  <SelectField
+                    value={config.agentProtocol || AgentProtocol.auto}
+                    onChange={(value) => updateConfig({ agentProtocol: value })}
+                    options={[
+                      { value: AgentProtocol.auto, label: t('Auto (Recommended)') },
+                      {
+                        value: AgentProtocol.openAiChatCompletionsV1,
+                        label: t('OpenAI Chat Completions v1'),
+                      },
+                      { value: AgentProtocol.openAiResponsesV1, label: t('OpenAI Responses v1') },
+                    ]}
+                    minWidth="260px"
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label={t('Preload Context Cap')}
+                  hint={t('Max tokens for page-derived macro context (default 64000)')}
+                >
+                  <input
+                    type="number"
+                    min={1000}
+                    max={256000}
+                    step={1000}
+                    value={config.agentPreloadContextTokenCap || 64000}
+                    onChange={(e) =>
+                      updateConfig({
+                        agentPreloadContextTokenCap: Number(e.target.value) || 64000,
+                      })
+                    }
+                    className={cn(inputClassName, 'w-[180px]')}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label={t('Default Context Cap')}
+                  hint={t('Total prompt token target before completion (default 128000)')}
+                >
+                  <input
+                    type="number"
+                    min={1000}
+                    max={256000}
+                    step={1000}
+                    value={config.agentContextTokenCap || 128000}
+                    onChange={(e) =>
+                      updateConfig({
+                        agentContextTokenCap: Number(e.target.value) || 128000,
+                      })
+                    }
+                    className={cn(inputClassName, 'w-[180px]')}
+                  />
+                </SettingRow>
+
+                <SettingRow label={t('Agent Max Steps')} hint={t('Multi-step runtime loop limit')}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    step={1}
+                    value={config.agentMaxSteps || 8}
+                    onChange={(e) =>
+                      updateConfig({
+                        agentMaxSteps: Number(e.target.value) || 8,
+                      })
+                    }
+                    className={cn(inputClassName, 'w-[120px]')}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label={t('No-Progress Limit')}
+                  hint={t('Stop loop when no progress repeats')}
+                >
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={config.agentNoProgressLimit || 2}
+                    onChange={(e) =>
+                      updateConfig({
+                        agentNoProgressLimit: Number(e.target.value) || 2,
+                      })
+                    }
+                    className={cn(inputClassName, 'w-[120px]')}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label={t('Tool Trace Limit')}
+                  hint={t('Max number of tool events stored per session')}
+                >
+                  <input
+                    type="number"
+                    min={10}
+                    max={300}
+                    step={10}
+                    value={config.agentToolEventLimit || 50}
+                    onChange={(e) =>
+                      updateConfig({
+                        agentToolEventLimit: Number(e.target.value) || 50,
+                      })
+                    }
+                    className={cn(inputClassName, 'w-[120px]')}
+                  />
+                </SettingRow>
+              </>
             )}
-            stats={[
-              `${assistantCount} ${t('Assistants')}`,
-              `${skillCount} ${t('Skills')}`,
-              `${mcpCount} MCP`,
-              `${customToolCount} ${t('Custom Tools')}`,
-            ]}
-            actionLabel={t('Manage in full settings')}
-            onAction={() => openFullSettings?.('agents')}
-          />
+          </SettingSection>
+
+          {isPopupMode && (
+            <>
+              <Divider />
+
+              <QuickLinkCard
+                icon={Bot}
+                title={t('Agents, skills, and MCP moved to full settings')}
+                description={t(
+                  'Use the popup to pick your default assistant and runtime mode. Build assistants, import ZIP skills, and manage MCP endpoints from the full settings workspace.',
+                )}
+                stats={[
+                  `${assistantCount} ${t('Assistants')}`,
+                  `${skillCount} ${t('Skills')}`,
+                  `${mcpCount} MCP`,
+                  `${customToolCount} ${t('Custom Tools')}`,
+                ]}
+                actionLabel={t('Manage in full settings')}
+                onAction={() => openFullSettings?.('agents')}
+              />
+            </>
+          )}
         </>
       )}
 

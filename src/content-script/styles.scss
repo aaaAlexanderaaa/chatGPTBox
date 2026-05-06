@@ -520,6 +520,8 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    position: relative;
+    z-index: 20;
     padding: 8px 12px;
     min-height: 48px;
     margin-bottom: 0;

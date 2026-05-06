@@ -24,10 +24,14 @@ import { ModulesTab } from './components/ModulesTab.jsx'
 import { AgentsTab } from './components/AgentsTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
 
+/* global __CHATGPTBOX_ENABLE_AGENTS__ */
+const ENABLE_AGENT_FEATURES =
+  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
+
 const FULL_SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'features', label: 'Features', icon: Layers },
-  { id: 'agents', label: 'Agents', icon: Bot },
+  ...(ENABLE_AGENT_FEATURES ? [{ id: 'agents', label: 'Agents', icon: Bot }] : []),
   { id: 'modules', label: 'Modules', icon: Puzzle },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
@@ -279,7 +283,7 @@ function Popup() {
             openFullSettings={openFullSettings}
           />
         )}
-        {!isPopupMode && activeTab === 'agents' && (
+        {ENABLE_AGENT_FEATURES && !isPopupMode && activeTab === 'agents' && (
           <AgentsTab config={config} updateConfig={updateConfig} />
         )}
         {!isPopupMode && activeTab === 'modules' && (

@@ -11,8 +11,22 @@ import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer'
 const outdir = 'build'
 
 const __dirname = path.resolve()
-const isProduction = process.argv[2] !== '--development' // --production and --analyze are both production
-const isAnalyzing = process.argv[2] === '--analyze'
+const args = process.argv.slice(2)
+const isProduction = !args.includes('--development') // --production and --analyze are both production
+const isAnalyzing = args.includes('--analyze')
+const enableAgents =
+  process.env.CHATGPTBOX_ENABLE_AGENTS === 'true' ||
+  args.includes('--enable-agents') ||
+  args.includes('--agents')
+
+function replaceModuleWhenAgentsDisabled(requestPattern, replacementPath) {
+  if (enableAgents) return []
+  return [
+    new webpack.NormalModuleReplacementPlugin(requestPattern, (resource) => {
+      resource.request = path.resolve(__dirname, replacementPath)
+    }),
+  ]
+}
 
 async function deleteOldDir() {
   await fs.rm(outdir, { recursive: true, force: true })
@@ -92,9 +106,32 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       new MiniCssExtractPlugin({
         filename: '[name].css',
       }),
+      new webpack.DefinePlugin({
+        __CHATGPTBOX_ENABLE_AGENTS__: JSON.stringify(enableAgents),
+      }),
       new BundleAnalyzerPlugin({
         analyzerMode: isAnalyzing ? 'static' : 'disable',
       }),
+      ...replaceModuleWhenAgentsDisabled(
+        /agent-context\.mjs$/,
+        'src/services/agent-context.disabled.mjs',
+      ),
+      ...replaceModuleWhenAgentsDisabled(
+        /mcp\/tool-loop\.mjs$/,
+        'src/services/mcp/tool-loop.disabled.mjs',
+      ),
+      ...replaceModuleWhenAgentsDisabled(
+        /agent\/session-state\.mjs$/,
+        'src/services/agent/session-state.disabled.mjs',
+      ),
+      ...replaceModuleWhenAgentsDisabled(
+        /skills\/importer\.mjs$/,
+        'src/services/skills/importer.disabled.mjs',
+      ),
+      ...replaceModuleWhenAgentsDisabled(
+        /components\/AgentsTab\.jsx$/,
+        'src/popup/components/AgentsTab.disabled.jsx',
+      ),
       ...(isWithoutKatex
         ? [
             new webpack.NormalModuleReplacementPlugin(/markdown\.jsx/, (result) => {

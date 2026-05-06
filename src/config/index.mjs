@@ -14,6 +14,10 @@ import { AgentProtocol, normalizeAgentProtocol } from '../services/agent/protoco
 
 export { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS }
 
+/* global __CHATGPTBOX_ENABLE_AGENTS__ */
+const ENABLE_AGENT_FEATURES =
+  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
+
 export const TriggerMode = {
   always: 'Always',
   questionMark: 'When query ends with question mark (?)',
@@ -43,20 +47,28 @@ export const RuntimeMode = {
   developer: 'developer',
 }
 
-const BuiltInSkillIds = {
-  analyzeWebDesignPatterns: 'builtin-skill-analyze-web-design-patterns',
-}
+const BuiltInSkillIds = ENABLE_AGENT_FEATURES
+  ? {
+      analyzeWebDesignPatterns: 'builtin-skill-analyze-web-design-patterns',
+    }
+  : {}
 
-export const BUILTIN_DESIGN_ASSISTANT_ID = 'builtin-assistant-design-analyst'
+export const BUILTIN_DESIGN_ASSISTANT_ID = ENABLE_AGENT_FEATURES
+  ? 'builtin-assistant-design-analyst'
+  : ''
 
-const BuiltInAssistantIds = {
-  designAssistant: BUILTIN_DESIGN_ASSISTANT_ID,
-}
+const BuiltInAssistantIds = ENABLE_AGENT_FEATURES
+  ? {
+      designAssistant: BUILTIN_DESIGN_ASSISTANT_ID,
+    }
+  : {}
 
-const BuiltInMcpServerIds = {
-  skillLibrary: 'mcp-builtin-skill-library',
-  browserContextToolkit: 'mcp-builtin-browser-context-toolkit',
-}
+const BuiltInMcpServerIds = ENABLE_AGENT_FEATURES
+  ? {
+      skillLibrary: 'mcp-builtin-skill-library',
+      browserContextToolkit: 'mcp-builtin-browser-context-toolkit',
+    }
+  : {}
 
 const AgentDefaultsMigrationVersion = {
   clearLegacyDesignDefaults: 1,
@@ -117,17 +129,18 @@ function normalizeLegacyChatgptWebModelName(modelName) {
   return modelName
 }
 
-const defaultBuiltInSkills = [
-  {
-    id: BuiltInSkillIds.analyzeWebDesignPatterns,
-    name: 'Analyze Current Web Design Patterns',
-    description:
-      'Review the current page UI for hierarchy, typography, spacing, color, interaction clarity, and accessibility.',
-    version: 'builtin-v1',
-    sourceName: 'Built-in',
-    sourceHash: 'builtin:analyze-web-design-patterns:v1',
-    entryPath: 'builtin://skills/analyze-current-web-design-patterns',
-    instructions: `Goal:
+const defaultBuiltInSkills = ENABLE_AGENT_FEATURES
+  ? [
+      {
+        id: BuiltInSkillIds.analyzeWebDesignPatterns,
+        name: 'Analyze Current Web Design Patterns',
+        description:
+          'Review the current page UI for hierarchy, typography, spacing, color, interaction clarity, and accessibility.',
+        version: 'builtin-v1',
+        sourceName: 'Built-in',
+        sourceHash: 'builtin:analyze-web-design-patterns:v1',
+        entryPath: 'builtin://skills/analyze-current-web-design-patterns',
+        instructions: `Goal:
 Audit the current webpage design and produce a practical UX/UI review.
 
 Checklist:
@@ -142,55 +155,60 @@ Output format:
 1) Strengths
 2) Top issues (ordered by impact)
 3) Concrete fixes with implementation hints`,
-    resources: [
-      {
-        path: 'references/design-review-checklist.md',
-        content: `Design review checklist:
+        resources: [
+          {
+            path: 'references/design-review-checklist.md',
+            content: `Design review checklist:
 - Identify information scent and primary call-to-action clarity.
 - Validate spacing system consistency (vertical rhythm).
 - Check color contrast for body text and interactive controls.
 - Verify heading hierarchy and semantic grouping.`,
+          },
+        ],
+        active: true,
+        importedAt: 0,
+        builtIn: true,
       },
-    ],
-    active: true,
-    importedAt: 0,
-    builtIn: true,
-  },
-]
+    ]
+  : []
 
-const defaultBuiltInMcpServers = [
-  {
-    id: BuiltInMcpServerIds.skillLibrary,
-    name: 'Skill Library (Built-in)',
-    transport: 'builtin',
-    httpUrl: '',
-    apiKey: '',
-    active: true,
-    builtIn: true,
-  },
-  {
-    id: BuiltInMcpServerIds.browserContextToolkit,
-    name: 'Browser Context Toolkit (Built-in)',
-    transport: 'builtin',
-    httpUrl: '',
-    apiKey: '',
-    active: false,
-    builtIn: true,
-  },
-]
+const defaultBuiltInMcpServers = ENABLE_AGENT_FEATURES
+  ? [
+      {
+        id: BuiltInMcpServerIds.skillLibrary,
+        name: 'Skill Library (Built-in)',
+        transport: 'builtin',
+        httpUrl: '',
+        apiKey: '',
+        active: true,
+        builtIn: true,
+      },
+      {
+        id: BuiltInMcpServerIds.browserContextToolkit,
+        name: 'Browser Context Toolkit (Built-in)',
+        transport: 'builtin',
+        httpUrl: '',
+        apiKey: '',
+        active: false,
+        builtIn: true,
+      },
+    ]
+  : []
 
-const defaultBuiltInAssistants = [
-  {
-    id: BuiltInAssistantIds.designAssistant,
-    name: 'Design Pattern Analyst',
-    systemPrompt:
-      'You are a practical web UI/UX analyst. Focus on concrete, high-impact recommendations and cite specific page evidence whenever possible.',
-    defaultSkillIds: [BuiltInSkillIds.analyzeWebDesignPatterns],
-    defaultMcpServerIds: [BuiltInMcpServerIds.skillLibrary],
-    active: true,
-    builtIn: true,
-  },
-]
+const defaultBuiltInAssistants = ENABLE_AGENT_FEATURES
+  ? [
+      {
+        id: BuiltInAssistantIds.designAssistant,
+        name: 'Design Pattern Analyst',
+        systemPrompt:
+          'You are a practical web UI/UX analyst. Focus on concrete, high-impact recommendations and cite specific page evidence whenever possible.',
+        defaultSkillIds: [BuiltInSkillIds.analyzeWebDesignPatterns],
+        defaultMcpServerIds: [BuiltInMcpServerIds.skillLibrary],
+        active: true,
+        builtIn: true,
+      },
+    ]
+  : []
 
 export const chatgptWebModelKeys = [
   'chatgptWeb55Thinking',
@@ -868,7 +886,7 @@ export const defaultConfig = {
   defaultAssistantId: '',
   installedSkills: defaultBuiltInSkills,
   defaultSkillIds: [],
-  enableSkills: true,
+  enableSkills: ENABLE_AGENT_FEATURES,
   mcpServers: defaultBuiltInMcpServers,
   defaultMcpServerIds: [],
 
@@ -951,8 +969,7 @@ export const defaultConfig = {
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   chatgptWebConversationPollIntervalSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  chatgptWebConversationSyncIntervalMinutes:
-    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  chatgptWebConversationSyncIntervalMinutes: DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
@@ -1329,7 +1346,7 @@ export async function getUserConfig() {
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
   config.apiServerEnabled = config.apiServerEnabled === true
   config.apiServerKeepHistory = config.apiServerKeepHistory === true
-  config.enableSkills = config.enableSkills !== false
+  config.enableSkills = ENABLE_AGENT_FEATURES && config.enableSkills === true
 
   const normalizedChatgptWebThinkingEffort =
     config.chatgptWebThinkingEffort === 'standard'
@@ -1661,6 +1678,16 @@ export async function getUserConfig() {
       newSiteAdapters.includes(key),
     )
     config.activeSiteAdapters = Array.from(new Set([...storedActive, ...newActive]))
+  }
+
+  if (!ENABLE_AGENT_FEATURES) {
+    config.assistants = []
+    config.defaultAssistantId = ''
+    config.installedSkills = []
+    config.defaultSkillIds = []
+    config.mcpServers = []
+    config.defaultMcpServerIds = []
+    config.enableSkills = false
   }
 
   return config

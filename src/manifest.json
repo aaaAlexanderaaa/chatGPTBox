@@ -1,7 +1,7 @@
 {
   "name": "ChatGPTBox",
   "description": "Integrating ChatGPT into your browser deeply, everything you need is here",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "manifest_version": 3,
   "icons": {
     "16": "logo.png",
@@ -53,7 +53,7 @@
     ]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http: https: ws: wss:"
   },
   "options_ui": {
     "page": "options.html",

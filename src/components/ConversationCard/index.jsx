@@ -57,6 +57,10 @@ import {
   resolveSelectedSkillIds,
 } from '../../services/agent-context.mjs'
 
+/* global __CHATGPTBOX_ENABLE_AGENTS__ */
+const ENABLE_AGENT_FEATURES =
+  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
+
 const logo = Browser.runtime.getURL('logo.png')
 
 class ConversationItemData extends Object {
@@ -619,7 +623,7 @@ function ConversationCard(props) {
       if (!shouldAttachPageContext) return { ...baseSession, pageContext: null }
 
       let shouldCaptureFullHtmlContext = false
-      if (runtimeConfig.runtimeMode === 'developer') {
+      if (ENABLE_AGENT_FEATURES && runtimeConfig.runtimeMode === 'developer') {
         const templates = []
         if (
           typeof baseSession.systemPromptOverride === 'string' &&
@@ -864,227 +868,229 @@ function ConversationCard(props) {
               </div>
             )}
           </div>
-          <div ref={agentPickerRef} style={{ position: 'relative', marginLeft: '8px' }}>
-            <button
-              type="button"
-              className="normal-button"
-              onClick={() => setAgentPickerOpen((v) => !v)}
-              title={t('Assistant / Skills / MCP')}
-            >
-              {resolvedAssistant?.name || t('No assistant')}
-              <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
-            </button>
-            {agentPickerOpen && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: '6px',
-                  zIndex: 1000,
-                  minWidth: '320px',
-                  maxWidth: '420px',
-                  background: 'var(--popover)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '0.75rem',
-                  overflow: 'hidden',
-                  boxShadow: 'var(--shadow-lg)',
-                }}
+          {ENABLE_AGENT_FEATURES && (
+            <div ref={agentPickerRef} style={{ position: 'relative', marginLeft: '8px' }}>
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setAgentPickerOpen((v) => !v)}
+                title={t('Assistant / Skills / MCP')}
               >
+                {resolvedAssistant?.name || t('No assistant')}
+                <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
+              </button>
+              {agentPickerOpen && (
                 <div
                   style={{
-                    padding: '12px',
-                    borderBottom: '1px solid var(--border)',
-                    background: 'var(--card)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '6px',
+                    zIndex: 1000,
+                    minWidth: '320px',
+                    maxWidth: '420px',
+                    background: 'var(--popover)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.75rem',
+                    overflow: 'hidden',
+                    boxShadow: 'var(--shadow-lg)',
                   }}
                 >
-                  {!agentContextEnabled && (
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: 'var(--muted-foreground)',
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {t(
-                        'Assistant/Skills/MCP are disabled for ChatGPT Web models. Switch to API or Custom API to use agent context.',
-                      )}
-                    </div>
-                  )}
-                  <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Assistant')}</div>
-                  <select
-                    value={assistantSelectValue}
-                    disabled={!agentContextEnabled}
-                    onChange={(e) => {
-                      if (!agentContextEnabled) return
-                      const assistantId = e.target.value
-                      setSession({
-                        ...session,
-                        assistantId,
-                        selectedSkillIds: null,
-                        selectedMcpServerIds: null,
-                      })
-                    }}
+                  <div
                     style={{
-                      width: '100%',
-                      height: '32px',
-                      border: '1px solid var(--border)',
-                      background: 'var(--input)',
-                      color: 'var(--foreground)',
-                      borderRadius: '0.5rem',
-                      padding: '0 10px',
-                      fontSize: '13px',
+                      padding: '12px',
+                      borderBottom: '1px solid var(--border)',
+                      background: 'var(--card)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
                     }}
                   >
-                    <option value="">{t('None')}</option>
-                    {assistants.map((assistant) => (
-                      <option key={assistant.id} value={assistant.id}>
-                        {assistant.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
-                    {t('Runtime mode')}: {config.runtimeMode || 'safe'}
-                  </div>
-                </div>
-
-                <div style={{ padding: '12px', maxHeight: '360px', overflow: 'auto' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('System Prompt')}</div>
-                    <textarea
-                      value={session.systemPromptOverride || ''}
+                    {!agentContextEnabled && (
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          color: 'var(--muted-foreground)',
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {t(
+                          'Assistant/Skills/MCP are disabled for ChatGPT Web models. Switch to API or Custom API to use agent context.',
+                        )}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Assistant')}</div>
+                    <select
+                      value={assistantSelectValue}
                       disabled={!agentContextEnabled}
                       onChange={(e) => {
                         if (!agentContextEnabled) return
-                        setSession({ ...session, systemPromptOverride: e.target.value })
+                        const assistantId = e.target.value
+                        setSession({
+                          ...session,
+                          assistantId,
+                          selectedSkillIds: null,
+                          selectedMcpServerIds: null,
+                        })
                       }}
-                      placeholder={resolvedAssistant?.systemPrompt || t('Optional override')}
                       style={{
                         width: '100%',
-                        minHeight: '72px',
+                        height: '32px',
                         border: '1px solid var(--border)',
                         background: 'var(--input)',
                         color: 'var(--foreground)',
                         borderRadius: '0.5rem',
-                        padding: '8px 10px',
-                        fontSize: '12px',
-                        resize: 'vertical',
+                        padding: '0 10px',
+                        fontSize: '13px',
                       }}
-                    />
-
-                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Skills')}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {skills.length === 0 && (
-                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
-                          {t('No skills configured')}
-                        </div>
-                      )}
-                      {skills.map((skill) => (
-                        <label
-                          key={skill.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            fontSize: '12px',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedSkillIds.includes(skill.id)}
-                            disabled={!agentContextEnabled}
-                            onChange={() => {
-                              if (!agentContextEnabled) return
-                              setSession({
-                                ...session,
-                                selectedSkillIds: toggleSelectedId(selectedSkillIds, skill.id),
-                              })
-                            }}
-                          />
-                          <span>
-                            {skill.name}
-                            {skill.version ? ` (v${skill.version})` : ''}
-                          </span>
-                        </label>
+                    >
+                      <option value="">{t('None')}</option>
+                      {assistants.map((assistant) => (
+                        <option key={assistant.id} value={assistant.id}>
+                          {assistant.name}
+                        </option>
                       ))}
+                    </select>
+                    <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                      {t('Runtime mode')}: {config.runtimeMode || 'safe'}
                     </div>
+                  </div>
 
-                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('MCP')}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {mcpServers.length === 0 && (
-                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
-                          {t('No MCP servers configured')}
-                        </div>
-                      )}
-                      {mcpServers.map((server) => (
-                        <label
-                          key={server.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            fontSize: '12px',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedMcpServerIds.includes(server.id)}
-                            disabled={!agentContextEnabled}
-                            onChange={() => {
-                              if (!agentContextEnabled) return
-                              setSession({
-                                ...session,
-                                selectedMcpServerIds: toggleSelectedId(
-                                  selectedMcpServerIds,
-                                  server.id,
-                                ),
-                              })
+                  <div style={{ padding: '12px', maxHeight: '360px', overflow: 'auto' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('System Prompt')}</div>
+                      <textarea
+                        value={session.systemPromptOverride || ''}
+                        disabled={!agentContextEnabled}
+                        onChange={(e) => {
+                          if (!agentContextEnabled) return
+                          setSession({ ...session, systemPromptOverride: e.target.value })
+                        }}
+                        placeholder={resolvedAssistant?.systemPrompt || t('Optional override')}
+                        style={{
+                          width: '100%',
+                          minHeight: '72px',
+                          border: '1px solid var(--border)',
+                          background: 'var(--input)',
+                          color: 'var(--foreground)',
+                          borderRadius: '0.5rem',
+                          padding: '8px 10px',
+                          fontSize: '12px',
+                          resize: 'vertical',
+                        }}
+                      />
+
+                      <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Skills')}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {skills.length === 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                            {t('No skills configured')}
+                          </div>
+                        )}
+                        {skills.map((skill) => (
+                          <label
+                            key={skill.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '12px',
                             }}
-                          />
-                          <span>
-                            {server.name} [{server.transport}]
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedSkillIds.includes(skill.id)}
+                              disabled={!agentContextEnabled}
+                              onChange={() => {
+                                if (!agentContextEnabled) return
+                                setSession({
+                                  ...session,
+                                  selectedSkillIds: toggleSelectedId(selectedSkillIds, skill.id),
+                                })
+                              }}
+                            />
+                            <span>
+                              {skill.name}
+                              {skill.version ? ` (v${skill.version})` : ''}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
 
-                    <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Tool Trace')}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {recentToolEvents.length === 0 && (
-                        <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
-                          {t('No tool events yet')}
-                        </div>
-                      )}
-                      {recentToolEvents.map((event, index) => (
-                        <div
-                          key={`${event.createdAt || 'evt'}-${index}`}
-                          style={{
-                            fontSize: '11px',
-                            color: 'var(--muted-foreground)',
-                            border: '1px solid var(--border)',
-                            borderRadius: '6px',
-                            padding: '6px 8px',
-                            background: 'var(--input)',
-                          }}
-                        >
-                          <div>
-                            {event.type || 'event'} / {event.status || 'unknown'}
+                      <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('MCP')}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {mcpServers.length === 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                            {t('No MCP servers configured')}
                           </div>
-                          <div>
-                            {[event.serverName, event.toolName].filter(Boolean).join(' · ') ||
-                              (event.reason ? event.reason : t('No details'))}
+                        )}
+                        {mcpServers.map((server) => (
+                          <label
+                            key={server.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '12px',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMcpServerIds.includes(server.id)}
+                              disabled={!agentContextEnabled}
+                              onChange={() => {
+                                if (!agentContextEnabled) return
+                                setSession({
+                                  ...session,
+                                  selectedMcpServerIds: toggleSelectedId(
+                                    selectedMcpServerIds,
+                                    server.id,
+                                  ),
+                                })
+                              }}
+                            />
+                            <span>
+                              {server.name} [{server.transport}]
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+
+                      <div style={{ fontSize: '12px', fontWeight: 600 }}>{t('Tool Trace')}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {recentToolEvents.length === 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--muted-foreground)' }}>
+                            {t('No tool events yet')}
                           </div>
-                        </div>
-                      ))}
+                        )}
+                        {recentToolEvents.map((event, index) => (
+                          <div
+                            key={`${event.createdAt || 'evt'}-${index}`}
+                            style={{
+                              fontSize: '11px',
+                              color: 'var(--muted-foreground)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '6px',
+                              padding: '6px 8px',
+                              background: 'var(--input)',
+                            }}
+                          >
+                            <div>
+                              {event.type || 'event'} / {event.status || 'unknown'}
+                            </div>
+                            <div>
+                              {[event.serverName, event.toolName].filter(Boolean).join(' · ') ||
+                                (event.reason ? event.reason : t('No details'))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </span>
         {props.draggable && !completeDraggable && (
           <div className="draggable" style={{ flexGrow: 2, cursor: 'move', height: '55px' }} />

@@ -8,7 +8,6 @@
 import { getUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
-import { isEmpty } from 'lodash-es'
 import { pushRecord, setAbortController } from './shared.mjs'
 import { buildSystemPromptFromContext } from '../agent-context.mjs'
 import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
@@ -19,11 +18,19 @@ import {
   extractResponsesOutputText,
   postOpenAiResponses,
 } from './openai-responses-shared.mjs'
+import {
+  buildCustomApiHeaders,
+  createCustomApiHttpError,
+  createCustomApiNetworkError,
+  createUnexpectedCustomApiPayloadError,
+  extractCustomApiChunkText,
+  formatCustomApiDisplayAnswer,
+  formatCustomApiErrorPayload,
+  normalizeCustomChatCompletionsUrl,
+} from './custom-api-utils.mjs'
 
 function deriveOpenAiBaseUrl(apiUrl) {
-  const url = String(apiUrl || '')
-    .trim()
-    .replace(/\/+$/, '')
+  const url = normalizeCustomChatCompletionsUrl(apiUrl)
   if (!url) return ''
   if (url.endsWith('/chat/completions')) return url.slice(0, -'/chat/completions'.length)
   if (url.endsWith('/responses')) return url.slice(0, -'/responses'.length)
@@ -51,9 +58,18 @@ export async function generateAnswersWithCustomApi(
     port.onMessage.removeListener(messageListener)
     port.onDisconnect.removeListener(disconnectListener)
   }
+  const failRequest = (error) => {
+    cleanupPortListeners()
+    throw error
+  }
 
   const config = await getUserConfig()
-  const protocol = resolveOpenAiCompatibleProtocol(apiUrl, config?.agentProtocol)
+  const requestUrl = normalizeCustomChatCompletionsUrl(apiUrl)
+  if (!requestUrl) throw new Error('Missing Custom API URL')
+  const model = typeof modelName === 'string' ? modelName.trim() : ''
+  if (!model) throw new Error('Missing Custom Model Name')
+
+  const protocol = resolveOpenAiCompatibleProtocol(requestUrl, config?.agentProtocol)
   const systemPrompt = await buildSystemPromptFromContext(session, config, question)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
@@ -63,22 +79,29 @@ export async function generateAnswersWithCustomApi(
   prompt.push({ role: 'user', content: question })
 
   let answer = ''
+  let reasoning = ''
+  let finalContent = ''
   let finished = false
+  const updateDisplayedAnswer = () => {
+    answer = formatCustomApiDisplayAnswer(reasoning, finalContent)
+    if (answer) port.postMessage({ answer, done: false, session: null })
+  }
   const finish = () => {
+    if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    pushRecord(session, question, finalContent || answer)
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: null, done: true, session: session })
   }
 
-  const derivedBaseUrl = deriveOpenAiBaseUrl(apiUrl)
+  const derivedBaseUrl = deriveOpenAiBaseUrl(requestUrl)
   if (derivedBaseUrl) {
     try {
       const toolLoop = await runMcpToolLoopForOpenAiCompat({
         protocol,
         baseUrl: derivedBaseUrl,
         apiKey,
-        model: modelName,
+        model,
         messages: prompt,
         config,
         session,
@@ -116,7 +139,7 @@ export async function generateAnswersWithCustomApi(
     try {
       const converted = convertMessagesToResponsesInput(prompt)
       const requestBody = {
-        model: modelName,
+        model,
         input: converted.input,
         max_output_tokens: config.maxResponseTokenLength,
         temperature: config.temperature,
@@ -125,7 +148,7 @@ export async function generateAnswersWithCustomApi(
       if (converted.instructions) requestBody.instructions = converted.instructions
       const payload = await postOpenAiResponses(
         derivedBaseUrl,
-        apiKey,
+        typeof apiKey === 'string' ? apiKey.trim() : '',
         requestBody,
         controller.signal,
       )
@@ -138,16 +161,13 @@ export async function generateAnswersWithCustomApi(
     }
   }
 
-  await fetchSSE(apiUrl, {
+  await fetchSSE(requestUrl, {
     method: 'POST',
     signal: controller.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: buildCustomApiHeaders(apiKey),
     body: JSON.stringify({
       messages: prompt,
-      model: modelName,
+      model,
       stream: true,
       max_tokens: config.maxResponseTokenLength,
       temperature: config.temperature,
@@ -167,36 +187,41 @@ export async function generateAnswersWithCustomApi(
         return
       }
 
-      if (data.response) answer = data.response
-      else {
-        const delta = data.choices[0]?.delta?.content
-        const content = data.choices[0]?.message?.content
-        const text = data.choices[0]?.text
-        if (delta !== undefined) {
-          answer += delta
-        } else if (content) {
-          answer = content
-        } else if (text) {
-          answer += text
-        }
-      }
-      port.postMessage({ answer: answer, done: false, session: null })
+      if (data.error) failRequest(new Error(formatCustomApiErrorPayload(data.error)))
 
-      if (data.choices[0]?.finish_reason) {
+      const chunk = extractCustomApiChunkText(data)
+      if (!chunk.recognized) failRequest(createUnexpectedCustomApiPayloadError(data))
+      if (chunk.hasContent) {
+        if (chunk.reasoning) reasoning += chunk.reasoning
+        if (chunk.content) {
+          if (chunk.replace) finalContent = chunk.content
+          else finalContent += chunk.content
+        }
+        updateDisplayedAnswer()
+      }
+
+      if (data.choices?.[0]?.finish_reason) {
         finish()
         return
       }
     },
     async onStart() {},
-    async onEnd() {
-      port.postMessage({ done: true })
+    async onEnd(result = {}) {
       cleanupPortListeners()
+      if (result.aborted) return
+      if (!finished) {
+        if (answer.trim()) {
+          finish()
+          return
+        }
+        throw new Error('Custom API response ended without answer content')
+      }
+      port.postMessage({ done: true })
     },
     async onError(resp) {
       cleanupPortListeners()
-      if (resp instanceof Error) throw resp
-      const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      if (resp instanceof Error) throw createCustomApiNetworkError(resp, requestUrl)
+      throw await createCustomApiHttpError(resp)
     },
   })
 }

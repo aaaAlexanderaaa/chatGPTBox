@@ -3,6 +3,10 @@ import { createParser } from './eventsource-parser.mjs'
 export async function fetchSSE(resource, options) {
   const { onMessage, onStart, onEnd, onError, onResponse, onEvent, ...fetchOptions } = options
   const resp = await fetch(resource, fetchOptions).catch(async (err) => {
+    if (fetchOptions.signal?.aborted) {
+      await onEnd?.({ aborted: true })
+      return null
+    }
     await onError(err)
   })
   if (!resp) return
@@ -35,15 +39,35 @@ export async function fetchSSE(resource, options) {
   let hasStarted = false
   let bufferedResponseText = ''
   let result
-  while (!(result = await reader.read()).done) {
-    const chunk = result.value
-    const decodedChunk = decoder.decode(chunk, { stream: true })
-    bufferedResponseText += decodedChunk
-    if (!hasStarted) {
-      hasStarted = true
-      await onStart(decodedChunk)
+  let aborted = false
+  const abortReader = () => {
+    aborted = true
+    void reader.cancel().catch(() => {})
+  }
+  fetchOptions.signal?.addEventListener('abort', abortReader, { once: true })
+  try {
+    while (!(result = await reader.read()).done) {
+      const chunk = result.value
+      const decodedChunk = decoder.decode(chunk, { stream: true })
+      bufferedResponseText += decodedChunk
+      if (!hasStarted) {
+        hasStarted = true
+        await onStart(decodedChunk)
+      }
+      parser.feed(chunk)
     }
-    parser.feed(chunk)
+  } catch (error) {
+    if (aborted || fetchOptions.signal?.aborted) {
+      await onEnd?.({ aborted: true })
+      return
+    }
+    throw error
+  } finally {
+    fetchOptions.signal?.removeEventListener('abort', abortReader)
+  }
+  if (aborted || fetchOptions.signal?.aborted) {
+    await onEnd?.({ aborted: true })
+    return
   }
 
   bufferedResponseText += decoder.decode()

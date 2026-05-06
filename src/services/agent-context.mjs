@@ -1,6 +1,10 @@
 import { RuntimeMode, isUsingChatgptWebModel, getUserConfig } from '../config/index.mjs'
 import { resolvePromptTemplate } from '../utils/prompt-template-context.mjs'
 
+/* global __CHATGPTBOX_ENABLE_AGENTS__ */
+const ENABLE_AGENT_FEATURES =
+  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
+
 function normalizeString(value, fallback = '') {
   return typeof value === 'string' ? value : fallback
 }
@@ -79,22 +83,25 @@ function normalizeAssistant(assistant) {
 }
 
 export function getAssistants(config) {
+  if (!ENABLE_AGENT_FEATURES) return []
   return (Array.isArray(config?.assistants) ? config.assistants : [])
     .map(normalizeAssistant)
     .filter(Boolean)
 }
 
 export function isAgentContextAllowedForSession(session) {
-  return !isUsingChatgptWebModel(session || {})
+  return ENABLE_AGENT_FEATURES && !isUsingChatgptWebModel(session || {})
 }
 
 export function getSkills(config) {
+  if (!ENABLE_AGENT_FEATURES) return []
   return (Array.isArray(config?.installedSkills) ? config.installedSkills : [])
     .map(normalizeSkill)
     .filter(Boolean)
 }
 
 export function getMcpServers(config) {
+  if (!ENABLE_AGENT_FEATURES) return []
   return (Array.isArray(config?.mcpServers) ? config.mcpServers : [])
     .map(normalizeMcpServer)
     .filter(Boolean)
@@ -137,6 +144,7 @@ export function resolveSelectedMcpServerIds(session, config, assistant = null) {
 }
 
 export async function getSelectedSkills(session, config) {
+  if (!ENABLE_AGENT_FEATURES) return []
   const currentConfig = await getUserConfig()
   if (!currentConfig.enableSkills) return []
   const assistant = resolveAssistant(session, config)
@@ -145,6 +153,7 @@ export async function getSelectedSkills(session, config) {
 }
 
 export function getSelectedMcpServers(session, config) {
+  if (!ENABLE_AGENT_FEATURES) return []
   const assistant = resolveAssistant(session, config)
   const ids = new Set(resolveSelectedMcpServerIds(session, config, assistant))
   return getMcpServers(config).filter((server) => server.active !== false && ids.has(server.id))
