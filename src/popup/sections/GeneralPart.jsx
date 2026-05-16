@@ -653,6 +653,8 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               reader.readAsText(file)
             })
             await Browser.storage.local.set(data)
+            // Clear migration flags so any field-level fixups re-run against the imported data.
+            await Browser.storage.local.remove(['customScriptMigrationDone'])
             window.location.reload()
           }}
         >

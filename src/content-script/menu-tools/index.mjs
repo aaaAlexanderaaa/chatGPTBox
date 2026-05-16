@@ -1,4 +1,4 @@
-import { getCoreContentText } from '../../utils/get-core-content-text'
+import { getExtractedContentWithMetadata } from '../../utils/get-core-content-text'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/index.mjs'
 import { openUrl } from '../../utils/open-url'
@@ -13,7 +13,9 @@ export const config = {
   summarizePage: {
     label: 'Summarize Page',
     genPrompt: async () => {
-      return `You are an expert summarizer. Carefully analyze the following web page content and provide a concise summary focusing on the key points:\n${getCoreContentText()}`
+      const { customContentExtractors } = await getUserConfig()
+      const { content } = getExtractedContentWithMetadata(customContentExtractors || [])
+      return `You are an expert summarizer. Carefully analyze the following web page content and provide a concise summary focusing on the key points:\n${content}`
     },
   },
   openConversationPage: {

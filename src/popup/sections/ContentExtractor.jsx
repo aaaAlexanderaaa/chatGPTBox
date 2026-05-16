@@ -3,20 +3,11 @@ import PropTypes from 'prop-types'
 import { useState, useCallback } from 'react'
 import { PencilIcon, TrashIcon, EyeIcon, SyncIcon, CopyIcon } from '@primer/octicons-react'
 import Browser from 'webextension-polyfill'
+import { defaultExtractor } from '../../config/extractors.mjs'
 
 ContentExtractor.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
-}
-
-const defaultExtractor = {
-  name: '',
-  urlPattern: '',
-  method: 'auto',
-  selectors: '',
-  excludeSelectors: '',
-  customScript: '',
-  active: true,
 }
 
 const extractionMethods = [
@@ -40,18 +31,13 @@ const extractionMethods = [
     label: 'Largest Block',
     desc: 'Find the biggest content area on the page',
   },
-  {
-    key: 'custom',
-    label: 'Custom Script',
-    desc: 'Write JavaScript to extract exactly what you need',
-  },
 ]
 
 export function ContentExtractor({ config, updateConfig }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const [editingExtractor, setEditingExtractor] = useState(defaultExtractor)
+  const [editingExtractor, setEditingExtractor] = useState(() => ({ ...defaultExtractor }))
   const [editingIndex, setEditingIndex] = useState(-1)
 
   // Preview state
@@ -192,45 +178,22 @@ export function ContentExtractor({ config, updateConfig }) {
         </div>
       )}
 
-      {/* Show Exclude Selectors for all methods except 'custom' */}
-      {editingExtractor.method !== 'custom' && (
-        <div className="form-group">
-          <label className="form-label">{t('Exclude Elements')}</label>
-          <div className="hint-text">
-            {t('Remove these elements before extraction (ads, sidebars, navigation, etc.)')}
-          </div>
-          <input
-            type="text"
-            className="form-input"
-            placeholder=".sidebar, .comments, .ads, nav, footer"
-            value={editingExtractor.excludeSelectors}
-            onChange={(e) =>
-              setEditingExtractor({ ...editingExtractor, excludeSelectors: e.target.value })
-            }
-          />
+      {/* Exclude Selectors */}
+      <div className="form-group">
+        <label className="form-label">{t('Exclude Elements')}</label>
+        <div className="hint-text">
+          {t('Remove these elements before extraction (ads, sidebars, navigation, etc.)')}
         </div>
-      )}
-
-      {/* Show Custom Script only for 'custom' method */}
-      {editingExtractor.method === 'custom' && (
-        <div className="form-group">
-          <label className="form-label">
-            {t('Custom Script')} <span className="required">*</span>
-          </label>
-          <div className="hint-text">{t('Write JavaScript that returns the extracted text.')}</div>
-          <textarea
-            className="form-textarea"
-            placeholder={`// Example: extract article text
-const article = document.querySelector('article');
-return article ? article.innerText : '';`}
-            value={editingExtractor.customScript || ''}
-            onChange={(e) =>
-              setEditingExtractor({ ...editingExtractor, customScript: e.target.value })
-            }
-            rows={6}
-          />
-        </div>
-      )}
+        <input
+          type="text"
+          className="form-input"
+          placeholder=".sidebar, .comments, .ads, nav, footer"
+          value={editingExtractor.excludeSelectors}
+          onChange={(e) =>
+            setEditingExtractor({ ...editingExtractor, excludeSelectors: e.target.value })
+          }
+        />
+      </div>
 
       <div className="button-group">
         <button
@@ -266,10 +229,6 @@ return article ? article.innerText : '';`}
             // Validate method-specific requirements
             if (editingExtractor.method === 'selectors' && !editingExtractor.selectors) {
               setErrorMessage(t('Content Selectors are required for CSS Selectors method'))
-              return
-            }
-            if (editingExtractor.method === 'custom' && !editingExtractor.customScript) {
-              setErrorMessage(t('Custom Script is required for Custom Script method'))
               return
             }
 
@@ -411,7 +370,7 @@ return article ? article.innerText : '';`}
                   onClick={(e) => {
                     e.preventDefault()
                     setEditing(true)
-                    setEditingExtractor(defaultExtractor)
+                    setEditingExtractor({ ...defaultExtractor })
                     setEditingIndex(-1)
                     setErrorMessage('')
                   }}

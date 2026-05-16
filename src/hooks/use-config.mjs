@@ -15,16 +15,16 @@ export function useConfig(initFn, ignoreSession = true) {
       if (ignoreSession) if (Object.keys(changes).length === 1 && 'sessions' in changes) return
 
       const changedItems = Object.keys(changes)
-      let newConfig = {}
+      const newConfig = {}
       for (const key of changedItems) {
         newConfig[key] = changes[key].newValue
       }
-      setConfig({ ...config, ...newConfig })
+      setConfig((prev) => ({ ...prev, ...newConfig }))
     }
     Browser.storage.local.onChanged.addListener(listener)
     return () => {
       Browser.storage.local.onChanged.removeListener(listener)
     }
-  }, [config])
+  }, [ignoreSession])
   return config
 }

@@ -82,24 +82,6 @@ function removeExcludedElements(element, excludeSelectors) {
 }
 
 /**
- * Execute a custom extraction script safely
- * @param {string} script - JavaScript function body
- * @returns {string|null} - Extracted text or null if failed
- */
-function executeCustomScript(script) {
-  if (!script) return null
-  try {
-    // Create a function from the script body
-    const fn = new Function('document', 'window', script)
-    const result = fn(document, window)
-    return typeof result === 'string' ? result : null
-  } catch (e) {
-    console.error('Custom extraction script error:', e)
-    return null
-  }
-}
-
-/**
  * Find matching custom extractor for current URL
  * @param {Array} customExtractors - Array of custom extractor configurations
  * @returns {Object|null} - Matching extractor or null
@@ -298,15 +280,6 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
     const method = matchedExtractor.method || 'auto'
     const excludeSelectors = matchedExtractor.excludeSelectors || ''
 
-    // Try custom script first if method is 'custom'
-    if (method === 'custom' && matchedExtractor.customScript) {
-      const customResult = executeCustomScript(matchedExtractor.customScript)
-      if (customResult) {
-        metadata.method = 'custom-script'
-        return { content: postProcessText(customResult), metadata }
-      }
-    }
-
     // Try selectors if provided (for 'selectors' method or as primary extraction)
     if (matchedExtractor.selectors) {
       const selectorResult = extractBySelectors(matchedExtractor.selectors, excludeSelectors)
@@ -342,52 +315,4 @@ export function getExtractedContentWithMetadata(customExtractors = []) {
 
   // No custom rule matched - use default extraction without exclude selectors
   return performAutoExtraction('', metadata)
-}
-
-export function getCoreContentText() {
-  for (const [siteName, selectors] of Object.entries(adapters)) {
-    if (location.hostname.includes(siteName)) {
-      const element = getPossibleElementByQuerySelector(selectors)
-      if (element) return postProcessText(getTextFrom(element))
-      break
-    }
-  }
-
-  const element = document.querySelector('article')
-  if (element) {
-    return postProcessText(getTextFrom(element))
-  }
-
-  if (isProbablyReaderable(document)) {
-    let article = new Readability(document.cloneNode(true), {
-      keepClasses: true,
-    }).parse()
-    if (article?.content) {
-      console.log('readerable: successfully extracted content')
-      return postProcessText(turndownService.turndown(article.content))
-    } else {
-      console.log('readerable: parsing failed despite probability check')
-    }
-  }
-
-  const largestElement = findLargestElement(document.body)
-  const secondLargestElement = findLargestElement(largestElement)
-  console.log(largestElement)
-  console.log(secondLargestElement)
-
-  let ret
-  if (!largestElement) {
-    ret = getTextFrom(document.body)
-    console.log('use document.body')
-  } else if (
-    secondLargestElement &&
-    getArea(secondLargestElement) > 0.5 * getArea(largestElement)
-  ) {
-    ret = getTextFrom(secondLargestElement)
-    console.log('use second')
-  } else {
-    ret = getTextFrom(largestElement)
-    console.log('use first')
-  }
-  return postProcessText(ret)
 }

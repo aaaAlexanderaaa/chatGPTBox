@@ -11,6 +11,7 @@ import {
 import { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../utils/chatgpt-web-thinking.mjs'
 import { t } from 'i18next'
 import { AgentProtocol, normalizeAgentProtocol } from '../services/agent/protocols.mjs'
+import { defaultExtractor } from './extractors.mjs'
 
 export { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS }
 
@@ -1018,17 +1019,7 @@ export const defaultConfig = {
       usePageContext: false,
     },
   ],
-  customContentExtractors: [
-    {
-      name: '',
-      urlPattern: '',
-      method: 'auto',
-      selectors: '',
-      excludeSelectors: '',
-      customScript: '',
-      active: true,
-    },
-  ],
+  customContentExtractors: [{ ...defaultExtractor }],
   activeSiteAdapters: [
     'google',
     'bilibili',
@@ -1102,7 +1093,7 @@ export const defaultConfig = {
 export function getNavigatorLanguage() {
   const l = navigator.language.toLowerCase()
   if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
-  return navigator.language.substring(0, 2)
+  return l.substring(0, 2)
 }
 
 export function isUsingChatgptWebModel(configOrSession) {
@@ -1195,6 +1186,26 @@ export async function getPreferredLanguageKey() {
 }
 
 /**
+ * Walk an array field on the config, replace items via `mapFn`, and persist if anything changed.
+ * Returning the same reference from `mapFn` is treated as "no change". Non-array fields are skipped.
+ * @returns {Promise<boolean>} whether anything changed and was written back.
+ */
+async function migrateArrayField(config, key, mapFn) {
+  const current = config[key]
+  if (!Array.isArray(current)) return false
+  let dirty = false
+  const next = current.map((item) => {
+    const result = mapFn(item)
+    if (result !== item) dirty = true
+    return result
+  })
+  if (!dirty) return false
+  config[key] = next
+  await Browser.storage.local.set({ [key]: next })
+  return true
+}
+
+/**
  * get user config from local storage
  * @returns {Promise<UserConfig>}
  */
@@ -1202,6 +1213,7 @@ export async function getUserConfig() {
   const options = await Browser.storage.local.get(Object.keys(defaultConfig))
   const migrationMeta = await Browser.storage.local.get({
     agentDefaultsMigrationVersion: 0,
+    customScriptMigrationDone: false,
   })
   const agentDefaultsMigrationVersion = Number(migrationMeta.agentDefaultsMigrationVersion) || 0
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
@@ -1366,24 +1378,32 @@ export async function getUserConfig() {
     }
   }
 
-  let customApiModesNeedsFix = false
   if (Array.isArray(config.customApiModes)) {
-    const fixedCustomApiModes = config.customApiModes.map((apiMode) => {
+    await migrateArrayField(config, 'customApiModes', (apiMode) => {
       if (!apiMode || typeof apiMode !== 'object') return apiMode
       if (typeof apiMode.displayName === 'string') return apiMode
-      customApiModesNeedsFix = true
       return { ...apiMode, displayName: '' }
     })
-    if (customApiModesNeedsFix) {
-      config.customApiModes = fixedCustomApiModes
-    }
   }
 
   if (apiModeNeedsFix) {
     await Browser.storage.local.set({ apiMode: config.apiMode })
   }
-  if (customApiModesNeedsFix) {
-    await Browser.storage.local.set({ customApiModes: config.customApiModes })
+
+  // Strip the removed 'custom script' extractor field and coerce its method to 'auto'.
+  // The dynamic-script extraction path was unsafe and has been removed.
+  // Gated behind a one-shot flag so we don't re-walk the array on every load.
+  if (!migrationMeta.customScriptMigrationDone) {
+    await migrateArrayField(config, 'customContentExtractors', (ex) => {
+      if (!ex || typeof ex !== 'object') return ex
+      const hasCustomScript = 'customScript' in ex
+      const hasCustomMethod = ex.method === 'custom'
+      if (!hasCustomScript && !hasCustomMethod) return ex
+      // eslint-disable-next-line no-unused-vars
+      const { customScript, ...rest } = ex
+      return hasCustomMethod ? { ...rest, method: 'auto' } : rest
+    })
+    await Browser.storage.local.set({ customScriptMigrationDone: true })
   }
 
   let webModelMigrationNeedsFix = false

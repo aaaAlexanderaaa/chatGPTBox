@@ -417,11 +417,12 @@ async function discoverChatgptTab() {
 async function waitForTabComplete(tabId, timeoutMs = 15000) {
   return new Promise((resolve) => {
     let settled = false
+    let timer = null
 
     const finish = async () => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       Browser.tabs.onUpdated.removeListener(onUpdated)
       Browser.tabs.onRemoved.removeListener(onRemoved)
       const latestTab = await Browser.tabs.get(tabId).catch(() => null)
@@ -438,20 +439,25 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
       void finish()
     }
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       void finish()
     }, timeoutMs)
 
     Browser.tabs.onUpdated.addListener(onUpdated)
     Browser.tabs.onRemoved.addListener(onRemoved)
-    void finishIfAlreadyComplete()
 
-    async function finishIfAlreadyComplete() {
-      const currentTab = await Browser.tabs.get(tabId).catch(() => null)
-      if (currentTab?.status === 'complete') {
+    // Resolve immediately if the tab was already complete before listeners attached.
+    // The `.catch` handles the "tab already gone" case (e.g. closed mid-check);
+    // `onRemoved` would have handled it too, but resolving here avoids the full
+    // timeout if Browser.tabs.get throws a "no tab with id" error.
+    Browser.tabs
+      .get(tabId)
+      .then((currentTab) => {
+        if (currentTab?.status === 'complete') void finish()
+      })
+      .catch(() => {
         void finish()
-      }
-    }
+      })
   })
 }
 
@@ -1250,6 +1256,7 @@ Browser.runtime.onConnect.addListener((port) => {
   }
 
   port.onMessage.addListener((msg) => {
+    if (settled) return
     if (!uiPort._isClosed) {
       try {
         uiPort.postMessage(msg)
@@ -1259,6 +1266,11 @@ Browser.runtime.onConnect.addListener((port) => {
     }
     if (msg?.done || msg?.error) {
       settle(resolve)
+      try {
+        port.disconnect()
+      } catch {
+        /* ignore */
+      }
     }
   })
   port.onDisconnect.addListener(() => {
@@ -1294,6 +1306,16 @@ Browser.runtime.onConnect.addListener((port) => {
 
   let ws = null
   let keepaliveTimer = null
+  let portClosed = false
+
+  function safePost(msg) {
+    if (portClosed) return
+    try {
+      port.postMessage(msg)
+    } catch {
+      portClosed = true
+    }
+  }
 
   function startKeepalive() {
     stopKeepalive()
@@ -1327,22 +1349,22 @@ Browser.runtime.onConnect.addListener((port) => {
       try {
         ws = new WebSocket(msg.url)
         ws.onopen = () => {
-          port.postMessage({ type: 'open' })
+          safePost({ type: 'open' })
           startKeepalive()
         }
         ws.onclose = (e) => {
           stopKeepalive()
           ws = null
-          port.postMessage({ type: 'close', code: e.code, reason: e.reason })
+          safePost({ type: 'close', code: e.code, reason: e.reason })
         }
         ws.onerror = () => {
-          port.postMessage({ type: 'error', message: 'WebSocket connection failed' })
+          safePost({ type: 'error', message: 'WebSocket connection failed' })
         }
         ws.onmessage = (e) => {
-          port.postMessage({ type: 'message', data: e.data })
+          safePost({ type: 'message', data: e.data })
         }
       } catch (err) {
-        port.postMessage({ type: 'error', message: err.message })
+        safePost({ type: 'error', message: err.message })
       }
     } else if (msg.action === 'send') {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1362,6 +1384,7 @@ Browser.runtime.onConnect.addListener((port) => {
   })
 
   port.onDisconnect.addListener(() => {
+    portClosed = true
     stopKeepalive()
     if (ws) {
       try {

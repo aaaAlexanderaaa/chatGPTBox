@@ -25,11 +25,13 @@ function ReadButton({ className, contentFn, size }) {
     const voices = synth.getVoices()
 
     let voice
-    if (config.preferredLanguage.includes('en') && navigator.language.includes('en'))
+    const browserLang = navigator.language.toLowerCase()
+    const preferredLang = (config.preferredLanguage || '').toLowerCase()
+    if (preferredLang.includes('en') && browserLang.includes('en'))
       voice = voices.find((v) => v.name.toLowerCase().includes('microsoft aria'))
-    else if (config.preferredLanguage.includes('zh') || navigator.language.includes('zh'))
+    else if (preferredLang.includes('zh') || browserLang.includes('zh'))
       voice = voices.find((v) => v.name.toLowerCase().includes('xiaoyi'))
-    else if (config.preferredLanguage.includes('ja') || navigator.language.includes('ja'))
+    else if (preferredLang.includes('ja') || browserLang.includes('ja'))
       voice = voices.find((v) => v.name.toLowerCase().includes('nanami'))
     if (!voice) voice = voices.find((v) => v.lang.substring(0, 2) === config.preferredLanguage)
     if (!voice) voice = voices.find((v) => v.lang === navigator.language)

@@ -1,4 +1,4 @@
-import { getExtractedContentWithMetadata, getCoreContentText } from './get-core-content-text.mjs'
+import { getExtractedContentWithMetadata } from './get-core-content-text.mjs'
 import { clampTokenBudget, estimateTokenCount, truncateToTokenBudget } from './token-budget.mjs'
 
 const PLACEHOLDER_PATTERN = /{{\s*([a-zA-Z0-9_.-]+)\s*}}/g
@@ -431,7 +431,9 @@ function createProviders(options = {}) {
       const extracted = getExtracted()
       const fromExtractor = normalizeText(extracted?.content || '', MAX_CONTENT_CHARS)
       if (fromExtractor) return fromExtractor
-      return hasDomAccess() ? normalizeText(getCoreContentText(), MAX_CONTENT_CHARS) : ''
+      // Fallback: extract without custom rules in case the matched extractor returned empty.
+      const fallback = resolveContentSnapshot([])
+      return normalizeText(fallback?.content || '', MAX_CONTENT_CHARS)
     },
     domtree: () => {
       const fromContext = getPageContextValue(pageContext, 'domtree')

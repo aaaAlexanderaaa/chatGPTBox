@@ -18,7 +18,6 @@ import {
   endsWithQuestionMark,
   getClientPosition,
   getPossibleElementByQuerySelector,
-  getCoreContentText,
   getExtractedContentWithMetadata,
   resolvePromptTemplate,
 } from '../utils'
@@ -28,6 +27,12 @@ import { getPreferredLanguage } from '../config/language.mjs'
 import '../_locales/i18n-react'
 import { changeLanguage } from 'i18next'
 import { initSession } from '../services/init-session.mjs'
+import {
+  addManagedListener,
+  clearManagedInterval,
+  installPageLifecycleTeardown,
+  setManagedInterval,
+} from './managed-listeners.mjs'
 import {
   getChatGptAccessToken,
   handlePortError,
@@ -213,7 +218,7 @@ const createSelectionTools = async (toolbarContainer, selection) => {
 }
 
 async function prepareForSelectionTools() {
-  document.addEventListener('mouseup', (e) => {
+  addManagedListener(document, 'mouseup', (e) => {
     if (toolbarContainer && toolbarContainer.contains(e.target)) return
     const selectionElement =
       window.getSelection()?.rangeCount > 0 &&
@@ -249,7 +254,8 @@ async function prepareForSelectionTools() {
       }
     })
   })
-  document.addEventListener(
+  addManagedListener(
+    document,
     'mousedown',
     (e) => {
       if (toolbarContainer && toolbarContainer.contains(e.target)) return
@@ -262,7 +268,7 @@ async function prepareForSelectionTools() {
     },
     true,
   )
-  document.addEventListener('keydown', (e) => {
+  addManagedListener(document, 'keydown', (e) => {
     if (
       toolbarContainer &&
       !toolbarContainer.contains(e.target) &&
@@ -276,7 +282,7 @@ async function prepareForSelectionTools() {
 }
 
 async function prepareForSelectionToolsTouch() {
-  document.addEventListener('touchend', (e) => {
+  addManagedListener(document, 'touchend', (e) => {
     if (toolbarContainer && toolbarContainer.contains(e.target)) return
     if (
       toolbarContainer &&
@@ -301,7 +307,8 @@ async function prepareForSelectionToolsTouch() {
       }
     })
   })
-  document.addEventListener(
+  addManagedListener(
+    document,
     'touchstart',
     (e) => {
       if (toolbarContainer && toolbarContainer.contains(e.target)) return
@@ -319,7 +326,7 @@ async function prepareForSelectionToolsTouch() {
 let menuX, menuY
 
 async function prepareForRightClickMenu() {
-  document.addEventListener('contextmenu', (e) => {
+  addManagedListener(document, 'contextmenu', (e) => {
     menuX = e.clientX
     menuY = e.clientY
   })
@@ -343,7 +350,9 @@ async function prepareForRightClickMenu() {
             // If no selection text and tool supports page context, use page content
             let textToUse = data.selectionText
             if (!textToUse && customTool.usePageContext) {
-              textToUse = getCoreContentText()
+              textToUse = getExtractedContentWithMetadata(
+                userConfig.customContentExtractors || [],
+              ).content
             }
             prompt = resolvePromptTemplate(customTool.prompt, {
               selection: textToUse || '',
@@ -556,10 +565,10 @@ async function prepareForJumpBackNotification() {
       console.log('claude not logged in')
 
       await new Promise((resolve) => {
-        const timer = setInterval(async () => {
+        const timer = setManagedInterval(async () => {
           const token = await getClaudeSessionKey()
           if (token) {
-            clearInterval(timer)
+            clearManagedInterval(timer)
             resolve()
           }
         }, 500)
@@ -576,13 +585,13 @@ async function prepareForJumpBackNotification() {
       }, 1000)
 
       await new Promise((resolve) => {
-        const timer = setInterval(() => {
+        const timer = setManagedInterval(() => {
           const token = window.localStorage.refresh_token
           if (token) {
             setUserConfig({
               kimiMoonShotRefreshToken: token,
             })
-            clearInterval(timer)
+            clearManagedInterval(timer)
             resolve()
           }
         }, 500)
@@ -601,6 +610,7 @@ async function prepareForJumpBackNotification() {
 async function run() {
   if (window.__chatgptbox_cs_loaded) return
   window.__chatgptbox_cs_loaded = true
+  installPageLifecycleTeardown()
 
   await getPreferredLanguageKey().then((lang) => {
     changeLanguage(lang)
