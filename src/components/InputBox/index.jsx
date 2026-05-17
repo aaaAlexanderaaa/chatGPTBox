@@ -47,7 +47,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
         virtualInputRef.current.style.maxHeight = '160px'
       }
     }
-  })
+  }, [value, internalReverseResizeDir])
 
   useEffect(() => {
     if (enabled)

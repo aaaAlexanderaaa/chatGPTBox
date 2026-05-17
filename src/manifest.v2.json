@@ -10,6 +10,7 @@
     "128": "logo.png"
   },
   "permissions": [
+    "alarms",
     "cookies",
     "storage",
     "contextMenus",
@@ -64,7 +65,7 @@
     "newChat": {
       "suggested_key": {
         "default": "Ctrl+B",
-        "mac": "MacCtrl+X"
+        "mac": "MacCtrl+B"
       },
       "description": "Create a new chat"
     },
