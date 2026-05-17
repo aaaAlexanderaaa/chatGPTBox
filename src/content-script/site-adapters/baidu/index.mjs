@@ -1,4 +1,5 @@
 import { config } from '../index'
+import { logAdapterError } from '../_helpers.mjs'
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
@@ -20,7 +21,7 @@ export default {
       })
       observer.observe(targetNode, { childList: true })
     } catch (e) {
-      /* empty */
+      logAdapterError('baidu.init', e)
     }
     return true
   },
