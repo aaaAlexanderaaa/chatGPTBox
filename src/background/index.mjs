@@ -905,6 +905,27 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       break
     }
     case 'FETCH': {
+      // FETCH is an open proxy for the sender. Extension pages (popup, options,
+      // IndependentPanel, ApiServer) are trusted. Content-script senders from
+      // this extension are allowed only when the target's origin matches a
+      // built-in entry or one of the user's own configured API endpoints — the
+      // allowlist is derived from existing user config so adding an endpoint
+      // in settings never requires a separate approval prompt.
+      if (!isExtensionPageSender(sender)) {
+        const sameExtension = !sender?.id || sender.id === Browser.runtime.id
+        const targetOrigin = getFetchTargetOrigin(message?.data?.input)
+        const allowed =
+          sameExtension &&
+          targetOrigin &&
+          (await getFetchAllowedOrigins()).has(targetOrigin)
+        if (!allowed) {
+          return [
+            null,
+            { message: 'FETCH target not permitted for this sender', name: 'SecurityError' },
+          ]
+        }
+      }
+
       if (message.data.input.includes('bing.com')) {
         const accessToken = await getBingAccessToken()
         await setUserConfig({ bingAccessToken: accessToken })
@@ -1136,6 +1157,76 @@ function isExtensionInitiatedRequest(details) {
     return new URL(requestInitiator).origin === extensionOrigin
   } catch {
     return false
+  }
+}
+
+function isExtensionPageSender(sender) {
+  if (!sender) return false
+  if (sender.id && sender.id !== Browser.runtime.id) return false
+  // Content scripts have sender.tab set to the host tab; extension pages do not have
+  // a tab origin matching the extension. Also accept sender.url that lives on the
+  // extension origin (popup/options/IndependentPanel/ApiServer pages).
+  const url = sender.url
+  if (!url) return false
+  try {
+    return new URL(url).origin === extensionOrigin
+  } catch {
+    return false
+  }
+}
+
+// Built-in origins the extension may proxy for content-script senders. Limited
+// to hosts whose client code lives inside the extension and is invoked from
+// content-script-rendered UI (bing is the only one today).
+const STATIC_FETCH_ORIGIN_ALLOWLIST = ['https://www.bing.com', 'https://bing.com']
+
+// User-config fields that hold a single URL string. Anything the user has set
+// here is considered "default allow" for FETCH — adding an endpoint in settings
+// should never require a separate approval step.
+const FETCH_ALLOWLIST_CONFIG_URL_KEYS = [
+  'customModelApiUrl',
+  'customChatGptWebApiUrl',
+  'customOpenAiApiUrl',
+  'customClaudeApiUrl',
+  'githubThirdPartyUrl',
+  'ollamaEndpoint',
+  'chatgptArkoseReqUrl',
+]
+
+function addOriginFromUrlString(target, value) {
+  if (typeof value !== 'string' || !value) return
+  try {
+    target.add(new URL(value).origin)
+  } catch {
+    /* skip malformed user input */
+  }
+}
+
+async function getFetchAllowedOrigins() {
+  const origins = new Set(STATIC_FETCH_ORIGIN_ALLOWLIST)
+  let config
+  try {
+    config = await getUserConfig()
+  } catch {
+    return origins
+  }
+  for (const key of FETCH_ALLOWLIST_CONFIG_URL_KEYS) addOriginFromUrlString(origins, config[key])
+  if (Array.isArray(config.customApiModes)) {
+    for (const mode of config.customApiModes) addOriginFromUrlString(origins, mode?.customUrl)
+  }
+  if (Array.isArray(config.mcpServers)) {
+    for (const server of config.mcpServers) addOriginFromUrlString(origins, server?.httpUrl)
+  }
+  return origins
+}
+
+function getFetchTargetOrigin(input) {
+  const raw = typeof input === 'string' ? input : input?.url
+  if (typeof raw !== 'string') return null
+  try {
+    return new URL(raw).origin
+  } catch {
+    return null
   }
 }
 
