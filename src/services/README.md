@@ -34,18 +34,20 @@ directory per provider:
 
 | Client       | Used by                          |
 |--------------|----------------------------------|
-| `clients/bing/`   | `apis/bing-web.mjs`         |
-| `clients/claude/` | `apis/claude-web.mjs`       |
-| `clients/poe/`    | `apis/poe-web.mjs`          |
-| `clients/bard/`   | `apis/bard-web.mjs`         |
+| `clients/bing/`           | `apis/bing-web.mjs`         |
+| `clients/claude/`         | `apis/claude-web.mjs`       |
+| `clients/poe/`            | `apis/poe-web.mjs`          |
+| `clients/bard/`           | `apis/bard-web.mjs`         |
+| `clients/chatgpt-web/`    | `apis/chatgpt-web.mjs`      |
 
 The rule of thumb: if it can be expressed as plain HTTP/SSE, put it in `apis/`.
 If it needs websockets, complex state, or a hand-rolled protocol, extract a
-client and have the apis/ file consume it.
-
-> **Note:** `apis/chatgpt-web.mjs` currently breaks this convention by
-> embedding its own websocket-singleton client. It should eventually be split
-> into `clients/chatgpt-web/` + a thin apis/ adapter to match the others.
+client and have the apis/ file consume it. `apis/chatgpt-web.mjs` follows this
+pattern: it is a thin re-export adapter, while the websocket transport,
+conversation state, caching, and history-transfer logic lives in
+`clients/chatgpt-web/` (`client.mjs`, `conversation-api.mjs`,
+`conversation-cache.mjs`, `conversation-state.mjs`, `websocket-state.mjs`,
+`thread-state.mjs`, `history-transfer.mjs`, `thinking.mjs`).
 
 ## `wrappers.mjs`
 
@@ -65,9 +67,7 @@ the production bundle. See `build.mjs:22-29` for the replacement plugin and the
 ## Session helpers
 
 The standalone `*.mjs` files at the root of `services/` (`init-session.mjs`,
-`local-session.mjs`, `chatgpt-web-conversation-cache.mjs`,
-`chatgpt-web-history-transfer.mjs`, `chatgpt-web-thread-state.mjs`,
-`model-lists.mjs`) hold cross-cutting state and are imported from both the
-background service worker and content scripts. Keep these stateless or
-storage-backed — module-scope state does **not** survive an MV3 service-worker
-restart.
+`local-session.mjs`, `model-lists.mjs`) hold cross-cutting state and are
+imported from both the background service worker and content scripts. Keep these
+stateless or storage-backed — module-scope state does **not** survive an MV3
+service-worker restart.
