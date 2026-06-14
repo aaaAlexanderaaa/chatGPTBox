@@ -60,9 +60,29 @@ rather than under `apis/` or `clients/`.
 
 `agent/`, `mcp/`, and `skills/` are feature-flagged. When the build is produced
 without `CHATGPTBOX_ENABLE_AGENTS=true` (or `--agents`), `build.mjs` swaps the
-active modules for `*.disabled.mjs` stubs so the agent runtime never lands in
-the production bundle. See `build.mjs:22-29` for the replacement plugin and the
-`.disabled.mjs` stubs colocated next to each gated module.
+active modules for no-op stubs so the agent runtime never lands in the
+production bundle.
+
+The stubs live together in `src/stubs/` (not colocated with the real modules)
+so that a real module and its stub no longer share a base filename — grepping
+for `agent-context` hits the real module only, not both. The mapping is
+configured in `build.mjs` (`replaceModuleWhenAgentsDisabled`):
+
+| Real module                         | Stub (production build)               |
+|-------------------------------------|---------------------------------------|
+| `services/agent-context.mjs`        | `src/stubs/agent-context.stub.mjs`    |
+| `services/agent/session-state.mjs`  | `src/stubs/session-state.stub.mjs`    |
+| `services/mcp/tool-loop.mjs`        | `src/stubs/mcp-tool-loop.stub.mjs`    |
+| `services/skills/importer.mjs`      | `src/stubs/skills-importer.stub.mjs`  |
+| `popup/components/AgentsTab.jsx`    | `src/stubs/agents-tab.stub.jsx`       |
+
+Each stub must export the same set of symbol names as its real module. This
+contract is enforced by `tests/feature-flag-contract.test.mjs`, which statically
+parses both files and fails if the export name sets diverge — so adding an
+export to a real module without mirroring it in the stub is caught at `npm test`
+time, rather than producing a silent undefined import in the production bundle.
+Note that arity/behavior may differ by design: `session-state`'s mutation
+helpers are 1-arg no-ops in the stub, and `skills/importer` throws `'disabled'`.
 
 ## Session helpers
 
