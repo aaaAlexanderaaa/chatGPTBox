@@ -1,43 +1,11 @@
 import Browser from 'webextension-polyfill'
 import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
-import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
-import {
-  generateAnswersWithChatgptApi,
-  generateAnswersWithGptCompletionApi,
-} from '../services/apis/openai-api'
-import { generateAnswersWithCustomApi } from '../services/apis/custom-api.mjs'
-import { generateAnswersWithOllamaApi } from '../services/apis/ollama-api.mjs'
-import { generateAnswersWithAzureOpenaiApi } from '../services/apis/azure-openai-api.mjs'
-import { generateAnswersWithClaudeApi } from '../services/apis/claude-api.mjs'
-import { generateAnswersWithChatGLMApi } from '../services/apis/chatglm-api.mjs'
-import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidwanderer-api.mjs'
-import { generateAnswersWithOpenRouterApi } from '../services/apis/openrouter-api.mjs'
-import { generateAnswersWithAimlApi } from '../services/apis/aiml-api.mjs'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
   CHATGPT_WEB_DEBUG_LOG_KEY,
   DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
 } from '../config/limits.mjs'
 import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
-import {
-  isUsingChatgptWebModel,
-  isUsingBingWebModel,
-  isUsingGptCompletionApiModel,
-  isUsingChatgptApiModel,
-  isUsingCustomModel,
-  isUsingOllamaApiModel,
-  isUsingAzureOpenAiApiModel,
-  isUsingClaudeApiModel,
-  isUsingChatGLMApiModel,
-  isUsingGithubThirdPartyApiModel,
-  isUsingGeminiWebModel,
-  isUsingClaudeWebModel,
-  isUsingMoonshotApiModel,
-  isUsingMoonshotWebModel,
-  isUsingOpenRouterApiModel,
-  isUsingAimlApiModel,
-  isUsingDeepSeekApiModel,
-} from '../config/predicates.mjs'
 import '../_locales/i18n'
 import { t } from 'i18next'
 import { openUrl } from '../utils/open-url'
@@ -52,12 +20,7 @@ import {
 } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
-import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
-import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
-import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moonshot-api.mjs'
-import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
-import { getModelValue, isUsingModelName } from '../utils/model-name-convert.mjs'
-import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
+import { getModelValue } from '../utils/model-name-convert.mjs'
 import {
   CHATGPT_PROXY_QUERY_PARAM,
   CHATGPT_PROXY_QUERY_VALUE,
@@ -72,6 +35,7 @@ import {
   refreshChatgptWebConversation,
   syncChatgptWebConversationCache,
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
+import { executeApi as executeApiFromRegistry } from './providers/registry.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'
@@ -358,27 +322,6 @@ function summarizeApiMode(apiMode) {
   }
 }
 
-function detectExecutionRoute(session) {
-  if (isUsingCustomModel(session)) return 'custom-api'
-  if (isUsingChatgptWebModel(session)) return 'chatgpt-web'
-  if (isUsingClaudeWebModel(session)) return 'claude-web'
-  if (isUsingMoonshotWebModel(session)) return 'moonshot-web'
-  if (isUsingBingWebModel(session)) return 'bing-web'
-  if (isUsingGeminiWebModel(session)) return 'gemini-web'
-  if (isUsingChatgptApiModel(session)) return 'chatgpt-api'
-  if (isUsingClaudeApiModel(session)) return 'claude-api'
-  if (isUsingMoonshotApiModel(session)) return 'moonshot-api'
-  if (isUsingChatGLMApiModel(session)) return 'chatglm-api'
-  if (isUsingDeepSeekApiModel(session)) return 'deepseek-api'
-  if (isUsingOllamaApiModel(session)) return 'ollama-api'
-  if (isUsingOpenRouterApiModel(session)) return 'openrouter-api'
-  if (isUsingAimlApiModel(session)) return 'aiml-api'
-  if (isUsingAzureOpenAiApiModel(session)) return 'azure-openai-api'
-  if (isUsingGptCompletionApiModel(session)) return 'gpt-completion-api'
-  if (isUsingGithubThirdPartyApiModel(session)) return 'waylaidwanderer-api'
-  return 'unknown'
-}
-
 async function appendChatgptWebDebugLog(config, stage, payload = {}) {
   if (config?.debugChatgptWebRequests !== true) return
   const entry = {
@@ -638,131 +581,23 @@ function acquireChatgptWebSessionLock(session, port, config) {
   }
 }
 
+// Shared context injected into provider.run() calls. Keeps background-scoped
+// helpers (proxy tab lifecycle, session lock, debug log) out of the provider
+// modules themselves.
+const providerCtx = {
+  acquireChatgptWebSessionLock,
+  sendChatgptProxyRequest,
+  ensureChatgptProxyTab,
+  appendChatgptWebDebugLog,
+  summarizeApiMode,
+  setUserConfig,
+  getBingAccessToken,
+  getBardCookies,
+  getClaudeSessionKey,
+}
+
 async function executeApi(session, port, config) {
-  console.debug('modelName', session.modelName)
-  console.debug('apiMode', session.apiMode)
-  const executionRoute = detectExecutionRoute(session)
-  void appendChatgptWebDebugLog(config, 'router', {
-    route: executionRoute,
-    modelName: typeof session.modelName === 'string' ? session.modelName : null,
-    apiMode: summarizeApiMode(session.apiMode),
-  })
-  if (isUsingCustomModel(session)) {
-    if (!session.apiMode)
-      await generateAnswersWithCustomApi(
-        port,
-        session.question,
-        session,
-        config.customModelApiUrl.trim() || 'http://localhost:8000/v1/chat/completions',
-        config.customApiKey,
-        config.customModelName,
-      )
-    else
-      await generateAnswersWithCustomApi(
-        port,
-        session.question,
-        session,
-        session.apiMode.customUrl?.trim() ||
-          config.customModelApiUrl.trim() ||
-          'http://localhost:8000/v1/chat/completions',
-        session.apiMode.apiKey?.trim() || config.customApiKey,
-        session.apiMode.customName,
-      )
-  } else if (isUsingChatgptWebModel(session)) {
-    const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
-    if (releaseChatgptWebSessionLock === null) return
-    try {
-      // Agent context is disabled for ChatGPT Web requests; keep user selections intact
-      // and only drop page snapshot payload for this request path.
-      session.pageContext = null
-      void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
-        reason: 'chatgpt_web_model',
-      })
-
-      let tabId
-      let proxyTab
-      if (config.chatgptTabId) {
-        const tab = await Browser.tabs.get(config.chatgptTabId).catch(() => {})
-        if (tab && isDedicatedChatgptProxyTabUrl(tab.url)) {
-          tabId = tab.id
-          proxyTab = tab
-        } else {
-          await setUserConfig({ chatgptTabId: 0 })
-        }
-      }
-
-      if (!tabId) {
-        const ensured = await ensureChatgptProxyTab()
-        if (ensured?.id) {
-          tabId = ensured.id
-          proxyTab = ensured
-        }
-      }
-
-      if (tabId) {
-        void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-forced', {
-          tabId,
-          tabUrl: proxyTab?.url || null,
-          route: executionRoute,
-          model: session.chatgptWebModelSlugOverride || getModelValue(session) || null,
-          selectedModel: getModelValue(session) || null,
-          endpointUrl: config.customChatGptWebApiUrl || defaultConfig.customChatGptWebApiUrl,
-        })
-        await sendChatgptProxyRequest(tabId, session, port)
-        return
-      }
-
-      throw new Error(
-        t('Please login at https://chatgpt.com first') +
-          '\n\n' +
-          t(
-            'ChatGPT Web requests in this extension are sent through a dedicated background chatgpt.com proxy tab so they work reliably in Brave and similar browsers.',
-          ),
-      )
-    } finally {
-      releaseChatgptWebSessionLock()
-    }
-  } else if (isUsingClaudeWebModel(session)) {
-    const sessionKey = await getClaudeSessionKey()
-    await generateAnswersWithClaudeWebApi(port, session.question, session, sessionKey)
-  } else if (isUsingMoonshotWebModel(session)) {
-    await generateAnswersWithMoonshotWebApi(port, session.question, session, config)
-  } else if (isUsingBingWebModel(session)) {
-    const accessToken = await getBingAccessToken()
-    if (isUsingModelName('bingFreeSydney', session))
-      await generateAnswersWithBingWebApi(port, session.question, session, accessToken, true)
-    else await generateAnswersWithBingWebApi(port, session.question, session, accessToken)
-  } else if (isUsingGeminiWebModel(session)) {
-    const cookies = await getBardCookies()
-    await generateAnswersWithBardWebApi(port, session.question, session, cookies)
-  } else if (isUsingChatgptApiModel(session)) {
-    await generateAnswersWithChatgptApi(port, session.question, session, config.apiKey)
-  } else if (isUsingClaudeApiModel(session)) {
-    await generateAnswersWithClaudeApi(port, session.question, session)
-  } else if (isUsingMoonshotApiModel(session)) {
-    await generateAnswersWithMoonshotCompletionApi(
-      port,
-      session.question,
-      session,
-      config.moonshotApiKey,
-    )
-  } else if (isUsingChatGLMApiModel(session)) {
-    await generateAnswersWithChatGLMApi(port, session.question, session)
-  } else if (isUsingDeepSeekApiModel(session)) {
-    await generateAnswersWithDeepSeekApi(port, session.question, session, config.deepSeekApiKey)
-  } else if (isUsingOllamaApiModel(session)) {
-    await generateAnswersWithOllamaApi(port, session.question, session)
-  } else if (isUsingOpenRouterApiModel(session)) {
-    await generateAnswersWithOpenRouterApi(port, session.question, session, config.openRouterApiKey)
-  } else if (isUsingAimlApiModel(session)) {
-    await generateAnswersWithAimlApi(port, session.question, session, config.aimlApiKey)
-  } else if (isUsingAzureOpenAiApiModel(session)) {
-    await generateAnswersWithAzureOpenaiApi(port, session.question, session)
-  } else if (isUsingGptCompletionApiModel(session)) {
-    await generateAnswersWithGptCompletionApi(port, session.question, session, config.apiKey)
-  } else if (isUsingGithubThirdPartyApiModel(session)) {
-    await generateAnswersWithWaylaidwandererApi(port, session.question, session)
-  }
+  await executeApiFromRegistry(session, port, config, providerCtx)
 }
 
 Browser.runtime.onInstalled.addListener(() => {
