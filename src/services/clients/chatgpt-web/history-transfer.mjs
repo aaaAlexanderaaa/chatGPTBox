@@ -2,14 +2,14 @@ import {
   CHATGPT_WEB_CONVERSATION_INDEX_KEY,
   CHATGPT_WEB_CONVERSATION_META_KEY,
   CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX,
-} from './chatgpt-web-conversation-cache.mjs'
+} from './conversation-cache.mjs'
 import {
   CHATGPT_WEB_API_THREADS_KEY,
   CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
   MAX_CHATGPT_WEB_API_THREADS,
   MAX_CHATGPT_WEB_SESSION_SNAPSHOTS,
   normalizeChatgptWebBridgeMessages,
-} from './chatgpt-web-thread-state.mjs'
+} from './thread-state.mjs'
 
 export const CHATGPT_WEB_HISTORY_EXPORT_SCOPE = 'chatgpt-web-history'
 export const CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION = 1

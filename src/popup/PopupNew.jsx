@@ -11,7 +11,7 @@ import {
 import {
   exportChatgptHistoryData,
   importChatgptHistoryData,
-} from '../services/chatgpt-web-history-transfer.mjs'
+} from '../services/clients/chatgpt-web/history-transfer.mjs'
 import { useWindowTheme } from '../hooks/use-window-theme.mjs'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../utils/cn.mjs'

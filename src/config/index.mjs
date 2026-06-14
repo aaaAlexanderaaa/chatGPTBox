@@ -8,7 +8,7 @@ import {
   isUsingModelName,
   modelNameToDesc,
 } from '../utils/model-name-convert.mjs'
-import { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../utils/chatgpt-web-thinking.mjs'
+import { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../services/clients/chatgpt-web/thinking.mjs'
 import { t } from 'i18next'
 import { AgentProtocol, normalizeAgentProtocol } from '../services/agent/protocols.mjs'
 import { defaultExtractor } from './extractors.mjs'

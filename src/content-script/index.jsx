@@ -44,7 +44,7 @@ import {
   listChatgptWebConversations,
   refreshChatgptWebConversation,
   syncChatgptWebConversationCache,
-} from '../services/apis/chatgpt-web-conversation-api.mjs'
+} from '../services/clients/chatgpt-web/conversation-api.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 

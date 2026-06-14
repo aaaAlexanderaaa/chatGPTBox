@@ -4,11 +4,11 @@ import {
   DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-} from '../../config/index.mjs'
-import { fetchSSE } from '../../utils/fetch-sse.mjs'
-import { getUserConfig } from '../../config/index.mjs'
-import { initSession } from '../init-session.mjs'
-import { saveChatgptWebSessionSnapshot } from '../chatgpt-web-thread-state.mjs'
+} from '../../../config/index.mjs'
+import { fetchSSE } from '../../../utils/fetch-sse.mjs'
+import { getUserConfig } from '../../../config/index.mjs'
+import { initSession } from '../../init-session.mjs'
+import { saveChatgptWebSessionSnapshot } from './thread-state.mjs'
 import {
   buildChatgptWebConversationListResponse,
   getCachedChatgptWebConversationRecord,
@@ -21,9 +21,9 @@ import {
   setChatgptWebConversationIndex,
   setChatgptWebConversationMeta,
   clearInvalidation,
-} from '../chatgpt-web-conversation-cache.mjs'
-import { getChatGptAccessToken } from '../wrappers.mjs'
-import { generateAnswersWithChatgptWebApi } from './chatgpt-web.mjs'
+} from './conversation-cache.mjs'
+import { getChatGptAccessToken } from '../../wrappers.mjs'
+import { generateAnswersWithChatgptWebApi } from './client.mjs'
 import {
   extractChatgptWebConversationListItems,
   extractChatgptWebMessageText,
@@ -32,7 +32,7 @@ import {
   isPendingChatgptWebConversation,
   isPendingChatgptWebMessageStatus,
   selectChatgptWebRefreshResult,
-} from './chatgpt-web-conversation-state.mjs'
+} from './conversation-state.mjs'
 
 const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
 const DEFAULT_RESUME_TIMEOUT_MS = 10_000

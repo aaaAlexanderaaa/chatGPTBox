@@ -42,7 +42,7 @@ import '../_locales/i18n'
 import { t } from 'i18next'
 import { openUrl } from '../utils/open-url'
 import { initSession } from '../services/init-session.mjs'
-import { saveChatgptWebSessionSnapshot } from '../services/chatgpt-web-thread-state.mjs'
+import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
 import {
   getBardCookies,
   getBingAccessToken,
@@ -65,13 +65,13 @@ import {
 } from '../utils/chatgpt-proxy-tab.mjs'
 import {
   invalidateConversation,
-} from '../services/chatgpt-web-conversation-cache.mjs'
+} from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
   getChatgptWebConversation,
   listChatgptWebConversations,
   refreshChatgptWebConversation,
   syncChatgptWebConversationCache,
-} from '../services/apis/chatgpt-web-conversation-api.mjs'
+} from '../services/clients/chatgpt-web/conversation-api.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'

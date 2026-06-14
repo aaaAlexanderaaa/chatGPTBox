@@ -45,7 +45,7 @@ import {
   deleteChatgptWebSessionSnapshot,
   restoreChatgptWebSessionSnapshot,
   saveChatgptWebSessionSnapshot,
-} from '../../services/chatgpt-web-thread-state.mjs'
+} from '../../services/clients/chatgpt-web/thread-state.mjs'
 import { handlePortError } from '../../services/wrappers.mjs'
 import {
   getAssistants,

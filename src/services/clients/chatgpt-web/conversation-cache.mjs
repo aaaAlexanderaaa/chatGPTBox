@@ -1,7 +1,7 @@
 import {
   formatChatgptWebConversationListItem,
   isPendingChatgptWebConversation,
-} from './apis/chatgpt-web-conversation-state.mjs'
+} from './conversation-state.mjs'
 
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
 export const CHATGPT_WEB_CONVERSATION_META_KEY = 'chatgptWebConversationMeta'
@@ -222,7 +222,7 @@ export function invalidateConversation(conversationId) {
     void (async () => {
       try {
         const { syncChatgptWebConversationCache } = await import(
-          './apis/chatgpt-web-conversation-api.mjs'
+          './conversation-api.mjs'
         )
         void syncChatgptWebConversationCache({ force: true }).catch(() => {})
       } catch (err) {
@@ -237,7 +237,7 @@ export function invalidateAll() {
   void (async () => {
     try {
       const { syncChatgptWebConversationCache } = await import(
-        './apis/chatgpt-web-conversation-api.mjs'
+        './conversation-api.mjs'
       )
       void syncChatgptWebConversationCache({ force: true }).catch(() => {})
     } catch (err) {

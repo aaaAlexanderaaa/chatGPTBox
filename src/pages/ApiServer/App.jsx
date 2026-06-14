@@ -6,18 +6,18 @@ import {
   findStoredChatgptWebApiThreadContinuation,
   saveChatgptWebApiThread,
   saveChatgptWebSessionSnapshot,
-} from '../../services/chatgpt-web-thread-state.mjs'
+} from '../../services/clients/chatgpt-web/thread-state.mjs'
 import {
   extractChatgptWebConversationListItems,
   formatChatgptWebConversationListItem,
-} from '../../services/apis/chatgpt-web-conversation-state.mjs'
+} from '../../services/clients/chatgpt-web/conversation-state.mjs'
 import {
   exportConversationCache,
   importConversationCache,
-} from '../../services/chatgpt-web-conversation-cache.mjs'
+} from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY, Models, chatgptWebModelKeys } from '../../config/index.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
-import { needsChatgptWebThinkingEffort } from '../../utils/chatgpt-web-thinking.mjs'
+import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000

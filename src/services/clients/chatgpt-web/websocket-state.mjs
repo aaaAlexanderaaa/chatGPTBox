@@ -1,4 +1,4 @@
-import { createParser } from '../../utils/eventsource-parser.mjs'
+import { createParser } from '../../../utils/eventsource-parser.mjs'
 
 function defaultSocketCloseError() {
   return new Error('ChatGPT websocket closed before response completed')
