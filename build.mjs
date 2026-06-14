@@ -114,23 +114,23 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       }),
       ...replaceModuleWhenAgentsDisabled(
         /agent-context\.mjs$/,
-        'src/services/agent-context.disabled.mjs',
+        'src/stubs/agent-context.stub.mjs',
       ),
       ...replaceModuleWhenAgentsDisabled(
         /mcp\/tool-loop\.mjs$/,
-        'src/services/mcp/tool-loop.disabled.mjs',
+        'src/stubs/mcp-tool-loop.stub.mjs',
       ),
       ...replaceModuleWhenAgentsDisabled(
         /agent\/session-state\.mjs$/,
-        'src/services/agent/session-state.disabled.mjs',
+        'src/stubs/session-state.stub.mjs',
       ),
       ...replaceModuleWhenAgentsDisabled(
         /skills\/importer\.mjs$/,
-        'src/services/skills/importer.disabled.mjs',
+        'src/stubs/skills-importer.stub.mjs',
       ),
       ...replaceModuleWhenAgentsDisabled(
         /components\/AgentsTab\.jsx$/,
-        'src/popup/components/AgentsTab.disabled.jsx',
+        'src/stubs/agents-tab.stub.jsx',
       ),
       ...(isWithoutKatex
         ? [

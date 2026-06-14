@@ -1,4 +1,4 @@
-import { shouldShortCircuitWithToolLoop, toToolAlias } from '../agent/runtime-utils.mjs'
+import { shouldShortCircuitWithToolLoop, toToolAlias } from '../services/agent/runtime-utils.mjs'
 
 export async function runMcpToolLoop() {
   return null
