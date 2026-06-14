@@ -3,7 +3,7 @@ import '../../_locales/i18n-react'
 import App from './App'
 import Browser from 'webextension-polyfill'
 import { changeLanguage } from 'i18next'
-import { getPreferredLanguageKey } from '../../config/index.mjs'
+import { getPreferredLanguageKey } from '../../config/storage.mjs'
 
 document.body.style.margin = 0
 document.body.style.overflow = 'hidden'

@@ -5,7 +5,7 @@
 // and it has not yet had a negative impact on maintenance.
 // If necessary, I will refactor.
 
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'

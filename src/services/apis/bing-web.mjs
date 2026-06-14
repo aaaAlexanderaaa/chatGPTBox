@@ -1,5 +1,5 @@
 import BingAIClient from '../clients/bing/index.mjs'
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 

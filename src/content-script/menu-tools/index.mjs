@@ -1,6 +1,6 @@
 import { getExtractedContentWithMetadata } from '../../utils/get-core-content-text'
 import Browser from 'webextension-polyfill'
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { openUrl } from '../../utils/open-url'
 
 export const config = {

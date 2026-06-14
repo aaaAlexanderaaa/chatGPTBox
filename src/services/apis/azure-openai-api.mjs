@@ -1,4 +1,4 @@
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'

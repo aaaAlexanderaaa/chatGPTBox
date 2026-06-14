@@ -17,9 +17,9 @@ import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
   CHATGPT_WEB_DEBUG_LOG_KEY,
   DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-  defaultConfig,
-  getUserConfig,
-  setUserConfig,
+} from '../config/limits.mjs'
+import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
+import {
   isUsingChatgptWebModel,
   isUsingBingWebModel,
   isUsingGptCompletionApiModel,
@@ -37,7 +37,7 @@ import {
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
-} from '../config/index.mjs'
+} from '../config/predicates.mjs'
 import '../_locales/i18n'
 import { t } from 'i18next'
 import { openUrl } from '../utils/open-url'

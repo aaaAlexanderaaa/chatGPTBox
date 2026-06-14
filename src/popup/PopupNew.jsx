@@ -7,7 +7,7 @@ import {
   getPreferredLanguageKey,
   getUserConfig,
   setUserConfig,
-} from '../config/index.mjs'
+} from '../config/storage.mjs'
 import {
   exportChatgptHistoryData,
   importChatgptHistoryData,

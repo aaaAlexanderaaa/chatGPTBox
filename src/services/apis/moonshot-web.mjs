@@ -1,5 +1,5 @@
 import { pushRecord, setAbortController } from './shared.mjs'
-import { setUserConfig } from '../../config/index.mjs'
+import { setUserConfig } from '../../config/storage.mjs'
 import { fetchSSE } from '../../utils/fetch-sse'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'

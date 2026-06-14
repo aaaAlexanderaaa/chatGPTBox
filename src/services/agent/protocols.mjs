@@ -1,20 +1,14 @@
-export const AgentProtocol = {
-  auto: 'auto',
-  openAiChatCompletionsV1: 'openai_chat_completions_v1',
-  openAiResponsesV1: 'openai_responses_v1',
-  anthropicMessagesV1: 'anthropic_messages_v1',
-}
+// Authoritative definitions of AgentProtocol + normalizeAgentProtocol live in
+// config/constants.mjs (so config does not depend on services). This module
+// imports them for services/ callers and adds its own resolveOpenAiCompatibleProtocol.
+import { AgentProtocol, normalizeAgentProtocol } from '../../config/constants.mjs'
+
+export { AgentProtocol, normalizeAgentProtocol }
 
 const OPENAI_COMPATIBLE_PROTOCOLS = new Set([
   AgentProtocol.openAiChatCompletionsV1,
   AgentProtocol.openAiResponsesV1,
 ])
-
-export function normalizeAgentProtocol(value, fallback = AgentProtocol.auto) {
-  const normalized = typeof value === 'string' ? value.trim() : ''
-  if (!normalized) return fallback
-  return Object.values(AgentProtocol).includes(normalized) ? normalized : fallback
-}
 
 export function resolveOpenAiCompatibleProtocol(apiUrl = '', preference = AgentProtocol.auto) {
   const normalizedPreference = normalizeAgentProtocol(preference, AgentProtocol.auto)

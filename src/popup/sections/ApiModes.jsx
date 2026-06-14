@@ -15,7 +15,7 @@ import {
   CustomUrlGroups,
   ModelGroups,
   isModelDeprecated,
-} from '../../config/index.mjs'
+} from '../../config/models.mjs'
 
 ApiModes.propTypes = {
   config: PropTypes.object.isRequired,

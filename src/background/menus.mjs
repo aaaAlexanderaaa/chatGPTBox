@@ -1,5 +1,5 @@
 import Browser from 'webextension-polyfill'
-import { defaultConfig, getPreferredLanguageKey, getUserConfig } from '../config/index.mjs'
+import { defaultConfig, getPreferredLanguageKey, getUserConfig } from '../config/storage.mjs'
 import { changeLanguage, t } from 'i18next'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 

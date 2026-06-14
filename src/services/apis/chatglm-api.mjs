@@ -1,4 +1,4 @@
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 // import { getToken } from '../../utils/jwt-token-generator.mjs'
 import { generateAnswersWithChatgptApiCompat } from './openai-api.mjs'
 

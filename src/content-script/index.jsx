@@ -8,10 +8,10 @@ import { config as menuConfig } from './menu-tools'
 import {
   getPreferredLanguageKey,
   getUserConfig,
-  isUsingChatgptWebModel,
   setAccessToken,
   setUserConfig,
-} from '../config/index.mjs'
+} from '../config/storage.mjs'
+import { isUsingChatgptWebModel } from '../config/predicates.mjs'
 import {
   createElementAtPosition,
   cropText,

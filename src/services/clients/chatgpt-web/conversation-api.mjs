@@ -4,9 +4,9 @@ import {
   DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-} from '../../../config/index.mjs'
+} from '../../../config/limits.mjs'
 import { fetchSSE } from '../../../utils/fetch-sse.mjs'
-import { getUserConfig } from '../../../config/index.mjs'
+import { getUserConfig } from '../../../config/storage.mjs'
 import { initSession } from '../../init-session.mjs'
 import { saveChatgptWebSessionSnapshot } from './thread-state.mjs'
 import {

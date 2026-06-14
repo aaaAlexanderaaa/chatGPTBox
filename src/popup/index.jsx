@@ -1,7 +1,7 @@
 import { render } from 'preact'
 import Popup from './PopupNew'
 import '../_locales/i18n-react'
-import { getUserConfig } from '../config/index.mjs'
+import { getUserConfig } from '../config/storage.mjs'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 import Browser from 'webextension-polyfill'
 

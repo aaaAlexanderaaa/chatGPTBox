@@ -1,4 +1,6 @@
-import { RuntimeMode, isUsingChatgptWebModel, getUserConfig } from '../config/index.mjs'
+import { RuntimeMode } from '../config/constants.mjs'
+import { isUsingChatgptWebModel } from '../config/predicates.mjs'
+import { getUserConfig } from '../config/storage.mjs'
 import { resolvePromptTemplate } from '../utils/prompt-template-context.mjs'
 
 /* global __CHATGPTBOX_ENABLE_AGENTS__ */

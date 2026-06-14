@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { defaultConfig, getUserConfig } from '../config/index.mjs'
+import { defaultConfig, getUserConfig } from '../config/storage.mjs'
 import Browser from 'webextension-polyfill'
 
 export function useConfig(initFn, ignoreSession = true) {

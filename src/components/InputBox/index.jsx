@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import { Send, Square } from 'lucide-react'
 import { isFirefox, isMobile, isSafari, updateRefHeight } from '../../utils'
 import { useTranslation } from 'react-i18next'
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { cn } from '../../utils/cn.mjs'
 
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {

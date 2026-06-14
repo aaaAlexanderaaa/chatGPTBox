@@ -11,11 +11,9 @@ import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { cn } from '../../utils/cn.mjs'
 import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
+import { ModelMode, RuntimeMode, ThemeMode, TriggerMode } from '../../config/constants.mjs'
+import { isModelDeprecated } from '../../config/models.mjs'
 import {
-  ModelMode,
-  RuntimeMode,
-  ThemeMode,
-  TriggerMode,
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
   isUsingChatGLMApiModel,
@@ -29,8 +27,7 @@ import {
   isUsingOpenAiApiModel,
   isUsingOpenRouterApiModel,
   isUsingChatgptWebModel,
-  isModelDeprecated,
-} from '../../config/index.mjs'
+} from '../../config/predicates.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { AgentProtocol } from '../../services/agent/protocols.mjs'
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
-import { getUserConfig, setUserConfig } from '../../config/index.mjs'
+import { getUserConfig, setUserConfig } from '../../config/storage.mjs'
 import { initSession } from '../../services/init-session.mjs'
 import {
   findStoredChatgptWebApiThreadContinuation,
@@ -15,7 +15,8 @@ import {
   exportConversationCache,
   importConversationCache,
 } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY, Models, chatgptWebModelKeys } from '../../config/index.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
+import { Models, chatgptWebModelKeys } from '../../config/models.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
 import './styles.css'

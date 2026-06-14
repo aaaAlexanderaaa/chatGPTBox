@@ -5,7 +5,7 @@ import { toast, ToastContainer } from 'react-toastify'
 import { useEffect } from 'react'
 import 'react-toastify/dist/ReactToastify.css'
 import { useTheme } from '../../hooks/use-theme.mjs'
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 
 const WebJumpBackNotification = (props) => {
   const { t } = useTranslation()

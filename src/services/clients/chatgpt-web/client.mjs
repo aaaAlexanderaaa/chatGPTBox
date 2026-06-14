@@ -8,8 +8,8 @@ import {
   CHATGPT_WEB_DEBUG_LOG_KEY,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  getUserConfig,
-} from '../../../config/index.mjs'
+} from '../../../config/limits.mjs'
+import { getUserConfig } from '../../../config/storage.mjs'
 import { pushRecord, setAbortController } from '../../apis/shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'

@@ -1,4 +1,4 @@
-import { getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/storage.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'

@@ -26,8 +26,8 @@ import {
   MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  ModelGroups,
-} from '../../config/index.mjs'
+} from '../../config/limits.mjs'
+import { ModelGroups } from '../../config/models.mjs'
 
 /**
  * AdvancedTab - Advanced settings and data management
