@@ -38,10 +38,10 @@ import { isUsingBingWebModel } from '../../config/predicates.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { useConversationRuntime } from '../../hooks/useConversationRuntime.mjs'
 import { createSession } from '../../services/local-session.mjs'
 import { v4 as uuidv4 } from 'uuid'
 import { initSession } from '../../services/init-session.mjs'
-import { findLastIndex } from 'lodash-es'
 import { generateAnswersWithBingWebApi } from '../../services/apis/bing-web.mjs'
 import {
   deleteChatgptWebSessionSnapshot,
@@ -66,26 +66,32 @@ const ENABLE_AGENT_FEATURES =
 
 const logo = Browser.runtime.getURL('logo.png')
 
-class ConversationItemData extends Object {
-  /**
-   * @param {'question'|'answer'|'error'} type
-   * @param {string} content
-   * @param {bool} done
-   */
-  constructor(type, content, done = false) {
-    super()
-    this.type = type
-    this.content = content
-    this.done = done
-  }
-}
+// ConversationItemData now lives in ./conversation-item.mjs and is shared with
+// the useConversationRuntime hook.
+import { ConversationItemData } from './conversation-item.mjs'
 
 function ConversationCard(props) {
   const { t } = useTranslation()
-  const [isReady, setIsReady] = useState(!props.question)
   const [port, setPort] = useState(() => Browser.runtime.connect())
   const [triggered, setTriggered] = useState(!props.waitForTrigger)
-  const [session, setSession] = useState(props.session)
+  // Conversation state machine lives in the runtime hook so it can be unit-
+  // tested without a browser. We alias its pieces to the local names the rest
+  // of this component already uses, to keep the diff mechanical.
+  const { state: runtimeState, actions: runtimeActions } = useConversationRuntime({
+    initialSession: props.session,
+    t,
+    hasInitialQuestion: !!props.question,
+  })
+  const session = runtimeState.session
+  const isReady = runtimeState.isReady
+  const setSession = runtimeActions.setSession
+  const setIsReady = runtimeActions.setIsReady
+  // conversationItemData <-> runtime items (aliased to minimize churn below).
+  const conversationItemData = runtimeState.items
+  const setConversationItemData = runtimeActions.setItems
+  const updateAnswer = runtimeActions.updateAnswer
+  const dispatchInbound = runtimeActions.dispatchInbound
+  const buildRetry = runtimeActions.buildRetry
   const windowSize = useClampWindowSize([750, 1500], [250, 1100])
   const bodyRef = useRef(null)
   const [completeDraggable, setCompleteDraggable] = useState(false)
@@ -98,11 +104,6 @@ function ConversationCard(props) {
   const [agentPickerOpen, setAgentPickerOpen] = useState(false)
   const agentPickerRef = useRef(null)
 
-  /**
-   * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
-   */
-  const [conversationItemData, setConversationItemData] = useState([])
-  const conversationItemDataRef = useRef(conversationItemData)
   const config = useConfig()
 
   useLayoutEffect(() => {
@@ -179,10 +180,6 @@ function ConversationCard(props) {
     session?.modelName,
     session?.question,
   ])
-
-  useEffect(() => {
-    conversationItemDataRef.current = conversationItemData
-  }, [conversationItemData])
 
   useEffect(() => {
     if (props.onUpdate) props.onUpdate(port, session, conversationItemData)
@@ -310,88 +307,9 @@ function ConversationCard(props) {
    * @param {'question'|'answer'|'error'} newType
    * @param {boolean} done
    */
-  const updateAnswer = useCallback((value, appended, newType, done = false) => {
-    setConversationItemData((old) => {
-      const copy = [...old]
-      const index = findLastIndex(copy, (v) => v.type === 'answer' || v.type === 'error')
-      if (index === -1) return copy
-      copy[index] = new ConversationItemData(
-        newType,
-        appended ? copy[index].content + value : value,
-      )
-      copy[index].done = done
-      return copy
-    })
-  }, [])
-
-  const portMessageListener = useCallback(
-    (msg) => {
-      if (msg.answer) {
-        updateAnswer(msg.answer, false, 'answer')
-      }
-      if (msg.session) {
-        if (msg.done) msg.session = { ...msg.session, isRetry: false }
-        setSession(msg.session)
-      }
-      if (msg.done) {
-        updateAnswer('', true, 'answer', true)
-        setIsReady(true)
-      }
-      if (msg.error) {
-        switch (msg.error) {
-          case 'UNAUTHORIZED':
-            updateAnswer(
-              `${t('UNAUTHORIZED')}<br>${t('Please login at https://chatgpt.com first')}${
-                isSafari() ? `<br>${t('Then open https://chatgpt.com/api/auth/session')}` : ''
-              }<br>${t('And refresh this page or type you question again')}` +
-                `<br><br>${t(
-                  'Consider creating an api key at https://platform.openai.com/account/api-keys',
-                )}`,
-              false,
-              'error',
-            )
-            break
-          case 'CLOUDFLARE':
-            updateAnswer(
-              `${t('OpenAI Security Check Required')}<br>${
-                isSafari()
-                  ? t('Please open https://chatgpt.com/api/auth/session')
-                  : t('Please open https://chatgpt.com')
-              }<br>${t('And refresh this page or type you question again')}` +
-                `<br><br>${t(
-                  'Consider creating an api key at https://platform.openai.com/account/api-keys',
-                )}`,
-              false,
-              'error',
-            )
-            break
-          default: {
-            let formattedError = msg.error
-            if (typeof msg.error === 'string' && msg.error.trimStart().startsWith('{'))
-              try {
-                formattedError = JSON.stringify(JSON.parse(msg.error), null, 2)
-              } catch (e) {
-                /* empty */
-              }
-
-            let lastItem
-            const currentItems = conversationItemDataRef.current
-            if (currentItems.length > 0) lastItem = currentItems[currentItems.length - 1]
-            if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error'))
-              updateAnswer(t(formattedError), false, 'error')
-            else
-              setConversationItemData((items) => [
-                ...items,
-                new ConversationItemData('error', t(formattedError)),
-              ])
-            break
-          }
-        }
-        setIsReady(true)
-      }
-    },
-    [t, updateAnswer],
-  )
+  // updateAnswer + portMessageListener (now dispatchInbound) moved into
+  // useConversationRuntime. The inbound-message reducer is transport-agnostic;
+  // the port subscription effect below wires it to port.onMessage.
 
   const foregroundMessageListeners = useRef([])
 
@@ -405,7 +323,7 @@ function ConversationCard(props) {
       if (session) {
         const fakePort = {
           postMessage: (msg) => {
-            portMessageListener(msg)
+            dispatchInbound(msg)
           },
           onMessage: {
             addListener: (listener) => {
@@ -478,35 +396,16 @@ function ConversationCard(props) {
   }, [port])
   useEffect(() => {
     if (useForegroundFetch) return () => {}
-    port.onMessage.addListener(portMessageListener)
+    port.onMessage.addListener(dispatchInbound)
     return () => {
-      port.onMessage.removeListener(portMessageListener)
+      port.onMessage.removeListener(dispatchInbound)
     }
-  }, [port, useForegroundFetch, portMessageListener])
+  }, [port, useForegroundFetch, dispatchInbound])
 
-  const getRetryFn = (session) => async () => {
-    updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
-    setIsReady(false)
-
-    if (session.conversationRecords.length > 0) {
-      const lastRecord = session.conversationRecords[session.conversationRecords.length - 1]
-      if (
-        conversationItemData[conversationItemData.length - 1].done &&
-        conversationItemData.length > 1 &&
-        lastRecord.question === conversationItemData[conversationItemData.length - 2].content
-      ) {
-        session.conversationRecords.pop()
-      }
-    }
-    const newSession = { ...session, isRetry: true }
-    setSession(newSession)
-    try {
-      await postMessage({ stop: true })
-      await postMessage({ session: newSession })
-    } catch (e) {
-      updateAnswer(e, false, 'error')
-    }
-  }
+  // Retry state machine lives in useConversationRuntime.buildRetry; it needs the
+  // transport `postMessage` to (re)send, which we inject here so the runtime
+  // stays transport-agnostic and unit-testable.
+  const getRetryFn = (session) => buildRetry(session, postMessage)
 
   const retryFn = useMemo(() => getRetryFn(session), [session])
 
