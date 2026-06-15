@@ -24,9 +24,9 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 - Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
 - Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
-- Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP/SSE JSON-RPC MCP servers.
 - Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
+- _Experimental:_ Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP/SSE JSON-RPC MCP servers. Not included in default builds — see [Build profiles](#build-profiles).
 
 ## Screenshots
 
@@ -82,8 +82,8 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
   <tr>
     <td align="center" width="50%">
       <img src="./screenshots/preview_agents_tab.webp" alt="Agents Tab" /><br />
-      <b>Agents &amp; Assistants</b><br />
-      <sub>Manage assistants, imported skill packs, and MCP servers</sub>
+      <b>Agents &amp; Assistants</b> <sub>(experimental build)</sub><br />
+      <sub>Manage assistants, imported skill packs, and MCP servers — only in the `agents` build profile</sub>
     </td>
     <td align="center" width="50%">
       <img src="./screenshots/preview_modules_tab.webp" alt="Modules Tab" /><br />
@@ -105,10 +105,23 @@ npm run dev        # development build → build/chromium/, build/firefox/
 npm run build      # production build → build/*.zip
 ```
 
+> The default `dev`/`build` commands produce the **core** profile, which does **not** include the experimental Agent runtime. See [Build profiles](#build-profiles) for the `agents` profile.
+
 Load the extension:
 
 - **Chromium-based browsers**: enable Developer mode on the extensions page and load `build/chromium/` as an unpacked extension.
 - **Firefox**: load `build/firefox/` as a temporary add-on.
+
+### Build profiles
+
+The build produces different bundles depending on which features are compiled in:
+
+| Profile | Build command | Includes Agent runtime (assistants, skills, MCP)? |
+|---|---|---|
+| **core** (default) | `npm run dev` / `npm run build` | No — agent modules are replaced with no-op stubs. |
+| **agents** (experimental) | `npm run dev:agents` / `npm run build:agents` | Yes — full agent runtime is compiled in. |
+
+Release packages published to GitHub Releases are **core** builds unless the release notes say otherwise. To use agents, skills, or MCP toolkits, build from source with the `agents` profile and enable `enableSkills` in the extension settings.
 
 ## Usage
 
@@ -165,6 +178,7 @@ npm run test:agent
 npm run verify
 npm run pretty
 npm run build
+npm run build:agents   # experimental: include agent runtime
 npm run build:safari
 npm run api-server
 ```
@@ -257,6 +271,7 @@ Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 - Imported skills are ZIP packages that must contain `SKILL.md`.
 - Built-in assistants, built-in skills, and built-in MCP toolkits are defined in [`src/config/index.mjs`](./src/config/index.mjs).
 - The current runtime overview lives in [`docs/agents-runtime-v2.md`](./docs/agents-runtime-v2.md).
+- Build profiles (core vs. agents) are documented in [`docs/build-profiles.md`](./docs/build-profiles.md).
 
 ## Privacy
 

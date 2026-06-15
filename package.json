@@ -12,6 +12,8 @@
   "homepage": "https://github.com/aaaAlexanderaaa/chatGPTBox#readme",
   "scripts": {
     "build": "node build.mjs --production",
+    "build:agents": "node build.mjs --production --enable-agents",
+    "dev:agents": "node build.mjs --development --enable-agents",
     "build:safari": "bash ./safari/build.sh",
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
