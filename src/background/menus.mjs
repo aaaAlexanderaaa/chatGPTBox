@@ -2,6 +2,7 @@ import Browser from 'webextension-polyfill'
 import { defaultConfig, getPreferredLanguageKey, getUserConfig } from '../config/storage.mjs'
 import { changeLanguage, t } from 'i18next'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 
 const menuId = 'ChatGPTBox-Menu'
 const onClickMenu = (info, tab) => {
@@ -16,13 +17,13 @@ const onClickMenu = (info, tab) => {
 
     if (defaultConfig.selectionTools.includes(message.itemId)) {
       Browser.tabs.sendMessage(currentTab.id, {
-        type: 'CREATE_CHAT',
+        type: RuntimeMessage.CreateChat,
         data: message,
       })
     } else if (message.itemId.startsWith('custom_')) {
       // Handle custom selection tools
       Browser.tabs.sendMessage(currentTab.id, {
-        type: 'CREATE_CHAT',
+        type: RuntimeMessage.CreateChat,
         data: message,
       })
     } else if (message.itemId in menuConfig) {
@@ -32,7 +33,7 @@ const onClickMenu = (info, tab) => {
 
       if (menuConfig[message.itemId].genPrompt) {
         Browser.tabs.sendMessage(currentTab.id, {
-          type: 'CREATE_CHAT',
+          type: RuntimeMessage.CreateChat,
           data: message,
         })
       }

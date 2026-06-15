@@ -19,19 +19,14 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/models.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
+import { CHATGPT_PROXY_CONTROL_ACTIONS, RuntimeMessage } from '../../protocol/messages.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
 const HEALTH_CHECK_INTERVAL = 15000
 const PORT_KEEPALIVE_MS = 20_000
-const RETRYABLE_CONTROL_ACTIONS = new Set([
-  'chatgpt_web_list_conversations',
-  'chatgpt_web_get_conversation',
-  'chatgpt_web_refresh_conversation',
-  'chatgpt_web_sync_conversations',
-  'chatgpt_web_list_models',
-])
+const RETRYABLE_CONTROL_ACTIONS = CHATGPT_PROXY_CONTROL_ACTIONS
 
 function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
@@ -300,14 +295,18 @@ function App() {
     async (data) => {
       const { id, action, payload } = data
 
+      // Maps a local API-bridge action name (the wire value shared with the
+      // Node gateway) to the runtime message type dispatched in the background.
+      // Both sides reference the protocol constants so this table can't drift
+      // out of sync with the background receiver.
       const actionToMessageType = {
-        chatgpt_web_create_conversation: 'CHATGPT_WEB_CREATE_CONVERSATION',
-        chatgpt_web_list_conversations: 'CHATGPT_WEB_LIST_CONVERSATIONS',
-        chatgpt_web_get_conversation: 'CHATGPT_WEB_GET_CONVERSATION',
-        chatgpt_web_refresh_conversation: 'CHATGPT_WEB_REFRESH_CONVERSATION',
-        chatgpt_web_send_conversation_message: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
-        chatgpt_web_sync_conversations: 'CHATGPT_WEB_SYNC_CONVERSATIONS',
-        chatgpt_web_list_models: 'CHATGPT_WEB_LIST_MODELS',
+        chatgpt_web_create_conversation: RuntimeMessage.ChatgptWebCreateConversation,
+        chatgpt_web_list_conversations: RuntimeMessage.ChatgptWebListConversations,
+        chatgpt_web_get_conversation: RuntimeMessage.ChatgptWebGetConversation,
+        chatgpt_web_refresh_conversation: RuntimeMessage.ChatgptWebRefreshConversation,
+        chatgpt_web_send_conversation_message: RuntimeMessage.ChatgptWebSendConversationMessage,
+        chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
+        chatgpt_web_list_models: RuntimeMessage.ChatgptWebListModels,
       }
 
       try {
@@ -561,7 +560,7 @@ function App() {
 
     function runDiag() {
       Browser.runtime
-        .sendMessage({ type: 'API_BRIDGE_DIAGNOSE' })
+        .sendMessage({ type: RuntimeMessage.ApiBridgeDiagnose })
         .then((result) => {
           setDiag(result)
           if (result && !result.chatgptTabOk && !result.canFetchChatgpt) {

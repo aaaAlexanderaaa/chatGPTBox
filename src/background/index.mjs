@@ -36,6 +36,10 @@ import {
   syncChatgptWebConversationCache,
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
 import { executeApi as executeApiFromRegistry } from './providers/registry.mjs'
+import {
+  ChatgptProxyControlAction,
+  RuntimeMessage,
+} from '../protocol/messages.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'
@@ -87,7 +91,10 @@ async function getChatgptWebConversationWithFallback(payload = {}) {
     return await getChatgptWebConversation(payload)
   } catch (error) {
     if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy('chatgpt_web_get_conversation', payload)
+    return await executeChatgptWebControlRequestViaProxy(
+      ChatgptProxyControlAction.GetConversation,
+      payload,
+    )
   }
 }
 
@@ -96,7 +103,10 @@ async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
     return await syncChatgptWebConversationCache(payload)
   } catch (error) {
     if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy('chatgpt_web_sync_conversations', payload)
+    return await executeChatgptWebControlRequestViaProxy(
+      ChatgptProxyControlAction.SyncConversations,
+      payload,
+    )
   }
 }
 
@@ -443,7 +453,7 @@ async function sendChatgptProxyRequest(tabId, session, uiPort) {
 
     const doSend = () =>
       Browser.tabs.sendMessage(tabId, {
-        type: 'CHATGPT_PROXY_REQUEST',
+        type: RuntimeMessage.ChatgptProxyRequest,
         data: { session, requestId },
       })
 
@@ -477,7 +487,7 @@ async function sendChatgptProxyRequest(tabId, session, uiPort) {
 async function sendChatgptProxyControlRequest(tabId, action, payload) {
   const doSend = async () => {
     const response = await Browser.tabs.sendMessage(tabId, {
-      type: 'CHATGPT_PROXY_CONTROL_REQUEST',
+      type: RuntimeMessage.ChatgptProxyControlRequest,
       data: { action, payload },
     })
     if (!response?.ok) {
@@ -623,17 +633,17 @@ void ensureChatgptWebConversationSyncAlarm()
 
 Browser.runtime.onMessage.addListener(async (message, sender) => {
   switch (message.type) {
-    case 'FEEDBACK': {
+    case RuntimeMessage.Feedback: {
       const token = await getChatGptAccessToken()
       await sendMessageFeedback(token, message.data)
       break
     }
-    case 'DELETE_CONVERSATION': {
+    case RuntimeMessage.DeleteConversation: {
       const token = await getChatGptAccessToken()
       await deleteConversation(token, message.data.conversationId)
       break
     }
-    case 'NEW_URL': {
+    case RuntimeMessage.NewUrl: {
       await Browser.tabs.create({
         url: message.data.url,
         pinned: message.data.pinned,
@@ -645,20 +655,20 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
-    case 'SET_CHATGPT_TAB': {
+    case RuntimeMessage.SetChatgptTab: {
       if (!isDedicatedChatgptProxyTabUrl(sender?.tab?.url)) break
       await setUserConfig({
         chatgptTabId: sender.tab.id,
       })
       break
     }
-    case 'ACTIVATE_URL':
+    case RuntimeMessage.ActivateUrl:
       await Browser.tabs.update(message.data.tabId, { active: true })
       break
-    case 'OPEN_URL':
+    case RuntimeMessage.OpenUrl:
       openUrl(message.data.url)
       break
-    case 'OPEN_CHAT_WINDOW': {
+    case RuntimeMessage.OpenChatWindow: {
       const config = await getUserConfig()
       const url = Browser.runtime.getURL('IndependentPanel.html')
       const tabs = await Browser.tabs.query({ url: url, windowType: 'popup' })
@@ -673,7 +683,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         })
       break
     }
-    case 'OPEN_API_SERVER': {
+    case RuntimeMessage.OpenApiServer: {
       const apiUrl = Browser.runtime.getURL('ApiServer.html')
       const existing = await Browser.tabs.query({ url: apiUrl })
       if (existing.length > 0) {
@@ -683,7 +693,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
-    case 'API_BRIDGE_DIAGNOSE': {
+    case RuntimeMessage.ApiBridgeDiagnose: {
       const diagConfig = await getUserConfig()
       let chatgptTabOk = false
       if (diagConfig.chatgptTabId) {
@@ -703,7 +713,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         hasAccessToken: !!diagConfig.accessToken,
       }
     }
-    case 'OPEN_SIDE_PANEL': {
+    case RuntimeMessage.OpenSidePanel: {
       // eslint-disable-next-line no-undef
       if (typeof chrome !== 'undefined' && chrome.sidePanel) {
         const tabId = message?.data?.tabId || sender?.tab?.id
@@ -725,10 +735,10 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
-    case 'REFRESH_MENU':
+    case RuntimeMessage.RefreshMenu:
       refreshMenu()
       break
-    case 'PIN_TAB': {
+    case RuntimeMessage.PinTab: {
       let tabId
       if (message.data.tabId) tabId = message.data.tabId
       else tabId = sender.tab.id
@@ -739,7 +749,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       break
     }
-    case 'FETCH': {
+    case RuntimeMessage.Fetch: {
       // FETCH is an open proxy for the sender. Extension pages (popup, options,
       // IndependentPanel, ApiServer) are trusted. Content-script senders from
       // this extension are allowed only when the target's origin matches a
@@ -789,7 +799,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         ]
       }
     }
-    case 'GET_COOKIE': {
+    case RuntimeMessage.GetCookie: {
       try {
         if (sender?.id && sender.id !== Browser.runtime.id) return null
 
@@ -817,52 +827,52 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         return null
       }
     }
-    case 'CHATGPT_WEB_LIST_CONVERSATIONS':
+    case RuntimeMessage.ChatgptWebListConversations:
       try {
         return await listChatgptWebConversations(message.data || {})
       } catch (error) {
         if (!shouldFallbackToChatgptProxy(error)) throw error
         return await executeChatgptWebControlRequestViaProxy(
-          'chatgpt_web_list_conversations',
+          ChatgptProxyControlAction.ListConversations,
           message.data || {},
         )
       }
-    case 'CHATGPT_WEB_GET_CONVERSATION':
+    case RuntimeMessage.ChatgptWebGetConversation:
       try {
         return await getChatgptWebConversation(message.data || {})
       } catch (error) {
         if (!shouldFallbackToChatgptProxy(error)) throw error
         return await executeChatgptWebControlRequestViaProxy(
-          'chatgpt_web_get_conversation',
+          ChatgptProxyControlAction.GetConversation,
           message.data || {},
         )
       }
-    case 'CHATGPT_WEB_REFRESH_CONVERSATION':
+    case RuntimeMessage.ChatgptWebRefreshConversation:
       try {
         return await refreshChatgptWebConversation(message.data || {})
       } catch (error) {
         if (!shouldFallbackToChatgptProxy(error)) throw error
         return await executeChatgptWebControlRequestViaProxy(
-          'chatgpt_web_refresh_conversation',
+          ChatgptProxyControlAction.RefreshConversation,
           message.data || {},
         )
       }
-    case 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE':
+    case RuntimeMessage.ChatgptWebSendConversationMessage:
       return await sendChatgptWebConversationMessageThroughProxy(message.data || {})
-    case 'CHATGPT_WEB_CREATE_CONVERSATION':
+    case RuntimeMessage.ChatgptWebCreateConversation:
       return await createChatgptWebConversation(message.data || {})
-    case 'CHATGPT_WEB_SYNC_CONVERSATIONS':
+    case RuntimeMessage.ChatgptWebSyncConversations:
       return await syncChatgptWebConversationCacheWithFallback({
         force: message?.data?.force === true,
         includeArchived: message?.data?.includeArchived === true,
       })
-    case 'CHATGPT_WEB_LIST_MODELS':
+    case RuntimeMessage.ChatgptWebListModels:
       try {
         return await listChatgptWebModels()
       } catch (error) {
         if (!shouldFallbackToChatgptProxy(error)) throw error
         return await executeChatgptWebControlRequestViaProxy(
-          'chatgpt_web_list_models',
+          ChatgptProxyControlAction.ListModels,
           message.data || {},
         )
       }

@@ -47,6 +47,7 @@ import {
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
+import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 
 /**
  * @param {string} siteName
@@ -332,7 +333,7 @@ async function prepareForRightClickMenu() {
   })
 
   Browser.runtime.onMessage.addListener((message) => {
-    if (message.type !== 'CREATE_CHAT') return undefined
+    if (message.type !== RuntimeMessage.CreateChat) return undefined
 
     return (async () => {
       const data = message.data
@@ -485,13 +486,13 @@ async function handleChatgptProxyControlRequest(action, payload = {}) {
   await ensureChatgptAccessToken()
 
   switch (action) {
-    case 'chatgpt_web_list_conversations':
+    case ChatgptProxyControlAction.ListConversations:
       return await listChatgptWebConversations(payload || {})
-    case 'chatgpt_web_get_conversation':
+    case ChatgptProxyControlAction.GetConversation:
       return await getChatgptWebConversation(payload || {})
-    case 'chatgpt_web_refresh_conversation':
+    case ChatgptProxyControlAction.RefreshConversation:
       return await refreshChatgptWebConversation(payload || {})
-    case 'chatgpt_web_sync_conversations':
+    case ChatgptProxyControlAction.SyncConversations:
       return await syncChatgptWebConversationCache(payload || {})
     default:
       throw new Error(`Unsupported proxy control action: ${action}`)
@@ -530,7 +531,7 @@ async function prepareForForegroundRequests() {
 
   if (isDedicatedChatgptProxyTabUrl(window.location.href)) {
     await Browser.runtime.sendMessage({
-      type: 'SET_CHATGPT_TAB',
+      type: RuntimeMessage.SetChatgptTab,
       data: {},
     })
   }
@@ -545,7 +546,7 @@ async function prepareForForegroundRequests() {
 
 async function getClaudeSessionKey() {
   return Browser.runtime.sendMessage({
-    type: 'GET_COOKIE',
+    type: RuntimeMessage.GetCookie,
     data: { url: 'https://claude.ai/', name: 'sessionKey' },
   })
 }
@@ -616,18 +617,18 @@ async function run() {
     changeLanguage(lang)
   })
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'CHANGE_LANG') {
+    if (message.type === RuntimeMessage.ChangeLang) {
       const data = message.data
       changeLanguage(data.lang)
-    } else if (message.type === 'CHATGPT_PROXY_REQUEST') {
+    } else if (message.type === RuntimeMessage.ChatgptProxyRequest) {
       handleChatgptProxyRequest(message.data.session, message.data.requestId)
       return false
-    } else if (message.type === 'CHATGPT_PROXY_CONTROL_REQUEST') {
+    } else if (message.type === RuntimeMessage.ChatgptProxyControlRequest) {
       void handleChatgptProxyControlRequest(message.data?.action, message.data?.payload)
         .then((data) => sendResponse({ ok: true, data }))
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }))
       return true
-    } else if (message.type === 'GET_EXTRACTED_CONTENT') {
+    } else if (message.type === RuntimeMessage.GetExtractedContent) {
       try {
         const customExtractors = message.data?.customExtractors || []
         const result = getExtractedContentWithMetadata(customExtractors)

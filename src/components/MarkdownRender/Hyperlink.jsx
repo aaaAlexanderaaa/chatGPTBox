@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 const INTERNAL_DOMAINS = ['chatgpt.com', 'claude.ai', 'kimi.moonshot.cn', 'kimi.com']
 const SAFE_PROTOCOLS = ['http:', 'https:']
@@ -29,7 +30,7 @@ export function Hyperlink({ href, children }) {
         const url = new URL(href)
         url.searchParams.set('chatgptbox_notification', 'true')
         Browser.runtime.sendMessage({
-          type: 'NEW_URL',
+          type: RuntimeMessage.NewUrl,
           data: {
             url: url.toString(),
             pinned: false,

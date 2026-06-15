@@ -4,6 +4,7 @@ import '../_locales/i18n-react'
 import { getUserConfig } from '../config/storage.mjs'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 import Browser from 'webextension-polyfill'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 
 getUserConfig().then(async (config) => {
   if (config.clickIconAction === 'popup' || (window.innerWidth > 100 && window.innerHeight > 100)) {
@@ -25,7 +26,7 @@ getUserConfig().then(async (config) => {
 
       if (menuConfig[config.clickIconAction].genPrompt) {
         Browser.tabs.sendMessage(currentTab.id, {
-          type: 'CREATE_CHAT',
+          type: RuntimeMessage.CreateChat,
           data: message,
         })
       }

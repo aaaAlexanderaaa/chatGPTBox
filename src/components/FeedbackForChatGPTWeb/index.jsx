@@ -3,6 +3,7 @@ import { memo, useCallback, useState } from 'react'
 import { ThumbsupIcon, ThumbsdownIcon } from '@primer/octicons-react'
 import Browser from 'webextension-polyfill'
 import { useTranslation } from 'react-i18next'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 const FeedbackForChatGPTWeb = (props) => {
   const { t } = useTranslation()
@@ -14,7 +15,7 @@ const FeedbackForChatGPTWeb = (props) => {
     }
     setAction('thumbsUp')
     await Browser.runtime.sendMessage({
-      type: 'FEEDBACK',
+      type: RuntimeMessage.Feedback,
       data: {
         conversation_id: props.conversationId,
         message_id: props.messageId,
@@ -29,7 +30,7 @@ const FeedbackForChatGPTWeb = (props) => {
     }
     setAction('thumbsDown')
     await Browser.runtime.sendMessage({
-      type: 'FEEDBACK',
+      type: RuntimeMessage.Feedback,
       data: {
         conversation_id: props.conversationId,
         message_id: props.messageId,

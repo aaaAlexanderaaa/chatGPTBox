@@ -28,6 +28,7 @@ import {
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
 } from '../../config/limits.mjs'
 import { ModelGroups } from '../../config/models.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 /**
  * AdvancedTab - Advanced settings and data management
@@ -555,7 +556,7 @@ export function AdvancedTab({
           <button
             type="button"
             onClick={() => {
-              Browser.runtime.sendMessage({ type: 'OPEN_API_SERVER' }).catch(() => {})
+              Browser.runtime.sendMessage({ type: RuntimeMessage.OpenApiServer }).catch(() => {})
             }}
             className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
           >

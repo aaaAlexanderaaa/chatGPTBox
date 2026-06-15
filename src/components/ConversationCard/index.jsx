@@ -58,6 +58,7 @@ import {
   resolveSelectedMcpServerIds,
   resolveSelectedSkillIds,
 } from '../../services/agent-context.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 /* global __CHATGPTBOX_ENABLE_AGENTS__ */
 const ENABLE_AGENT_FEATURES =
@@ -449,7 +450,7 @@ function ConversationCard(props) {
     }
 
     const closeChatsMessageListener = (message) => {
-      if (message.type === 'CLOSE_CHATS') {
+      if (message.type === RuntimeMessage.CloseChats) {
         port.disconnect()
         Browser.runtime.onMessage.removeListener(closeChatsMessageListener)
         window.removeEventListener('keydown', closeChatsEscListener)
@@ -458,7 +459,7 @@ function ConversationCard(props) {
     }
     const closeChatsEscListener = async (e) => {
       if (e.key === 'Escape' && (await getUserConfig()).allowEscToCloseAll) {
-        closeChatsMessageListener({ type: 'CLOSE_CHATS' })
+        closeChatsMessageListener({ type: RuntimeMessage.CloseChats })
       }
     }
 
@@ -1144,7 +1145,7 @@ function ConversationCard(props) {
             onConfirm={async () => {
               await postMessage({ stop: true })
               Browser.runtime.sendMessage({
-                type: 'DELETE_CONVERSATION',
+                type: RuntimeMessage.DeleteConversation,
                 data: {
                   conversationId: session.conversationId,
                 },
@@ -1174,7 +1175,7 @@ function ConversationCard(props) {
                 setSession(newSession)
                 createSession(newSession).then(() =>
                   Browser.runtime.sendMessage({
-                    type: 'OPEN_URL',
+                    type: RuntimeMessage.OpenUrl,
                     data: {
                       url: Browser.runtime.getURL('IndependentPanel.html') + '?from=store',
                     },

@@ -6,6 +6,7 @@ import { changeLanguage } from 'i18next'
 import { getPreferredLanguageKey } from '../config/storage.mjs'
 import IndependentPanelApp from '../pages/IndependentPanel/App.jsx'
 import Popup from '../popup/PopupNew.jsx'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 import './styles.css'
 
 const STORAGE_KEY_SETTINGS_WIDTH = 'chatgptbox:options:settingsWidth'
@@ -51,7 +52,7 @@ function OptionsApp() {
     document.documentElement.classList.add('chatgptbox-extension-page')
 
     const listener = async (message) => {
-      if (message.type === 'CHANGE_LANG') {
+      if (message.type === RuntimeMessage.ChangeLang) {
         changeLanguage(message.data.lang)
       }
     }

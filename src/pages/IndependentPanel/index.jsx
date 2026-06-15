@@ -4,6 +4,7 @@ import App from './App'
 import Browser from 'webextension-polyfill'
 import { changeLanguage } from 'i18next'
 import { getPreferredLanguageKey } from '../../config/storage.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 document.body.style.margin = 0
 document.body.style.overflow = 'hidden'
@@ -12,7 +13,7 @@ getPreferredLanguageKey().then((lang) => {
   changeLanguage(lang)
 })
 Browser.runtime.onMessage.addListener(async (message) => {
-  if (message.type === 'CHANGE_LANG') {
+  if (message.type === RuntimeMessage.ChangeLang) {
     const data = message.data
     changeLanguage(data.lang)
   }

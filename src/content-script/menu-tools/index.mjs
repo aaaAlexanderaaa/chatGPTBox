@@ -2,6 +2,7 @@ import { getExtractedContentWithMetadata } from '../../utils/get-core-content-te
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/storage.mjs'
 import { openUrl } from '../../utils/open-url'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 export const config = {
   newChat: {
@@ -26,7 +27,7 @@ export const config = {
         openUrl(Browser.runtime.getURL('IndependentPanel.html'))
       } else {
         Browser.runtime.sendMessage({
-          type: 'OPEN_URL',
+          type: RuntimeMessage.OpenUrl,
           data: {
             url: Browser.runtime.getURL('IndependentPanel.html'),
           },
@@ -53,7 +54,7 @@ export const config = {
           })
       } else {
         Browser.runtime.sendMessage({
-          type: 'OPEN_CHAT_WINDOW',
+          type: RuntimeMessage.OpenChatWindow,
           data: {},
         })
       }
@@ -69,7 +70,7 @@ export const config = {
         chrome.sidePanel.open({ windowId: tab.windowId, tabId: tab.id })
       } else {
         Browser.runtime.sendMessage({
-          type: 'OPEN_SIDE_PANEL',
+          type: RuntimeMessage.OpenSidePanel,
           data: {
             tabId: tab?.id,
             windowId: tab?.windowId,
@@ -84,7 +85,7 @@ export const config = {
       console.debug('action is from background', fromBackground)
       Browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
         Browser.tabs.sendMessage(tabs[0].id, {
-          type: 'CLOSE_CHATS',
+          type: RuntimeMessage.CloseChats,
           data: {},
         })
       })

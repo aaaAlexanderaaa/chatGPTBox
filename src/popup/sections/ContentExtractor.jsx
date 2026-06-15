@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { PencilIcon, TrashIcon, EyeIcon, SyncIcon, CopyIcon } from '@primer/octicons-react'
 import Browser from 'webextension-polyfill'
 import { defaultExtractor } from '../../config/extractors.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 ContentExtractor.propTypes = {
   config: PropTypes.object.isRequired,
@@ -63,7 +64,7 @@ export function ContentExtractor({ config, updateConfig }) {
       }
 
       const response = await Browser.tabs.sendMessage(tabs[0].id, {
-        type: 'GET_EXTRACTED_CONTENT',
+        type: RuntimeMessage.GetExtractedContent,
         data: { customExtractors },
       })
 

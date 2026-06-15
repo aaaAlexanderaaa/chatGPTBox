@@ -23,6 +23,7 @@ import {
   Clipboard,
 } from 'lucide-react'
 import { IconSelect } from '../components/IconSelect.jsx'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 SelectionTools.propTypes = {
   config: PropTypes.object.isRequired,
@@ -40,7 +41,7 @@ const defaultTool = {
 // Helper function to refresh context menu
 const refreshContextMenu = () => {
   Browser.runtime.sendMessage({
-    type: 'REFRESH_MENU',
+    type: RuntimeMessage.RefreshMenu,
   })
 }
 

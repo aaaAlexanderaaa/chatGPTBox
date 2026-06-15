@@ -1,4 +1,5 @@
 import Browser from 'webextension-polyfill'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 
 /**
  * @param {RequestInfo|URL} input
@@ -9,7 +10,7 @@ export function fetchBg(input, init) {
   return new Promise((resolve, reject) => {
     Browser.runtime
       .sendMessage({
-        type: 'FETCH',
+        type: RuntimeMessage.Fetch,
         data: { input, init },
       })
       .then((messageResponse) => {

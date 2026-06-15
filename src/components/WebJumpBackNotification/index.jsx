@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import 'react-toastify/dist/ReactToastify.css'
 import { useTheme } from '../../hooks/use-theme.mjs'
 import { getUserConfig } from '../../config/storage.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 const WebJumpBackNotification = (props) => {
   const { t } = useTranslation()
@@ -43,7 +44,7 @@ const WebJumpBackNotification = (props) => {
               style={buttonStyle}
               onClick={() => {
                 Browser.runtime.sendMessage({
-                  type: 'PIN_TAB',
+                  type: RuntimeMessage.PinTab,
                   data: {
                     saveAsChatgptConfig: true,
                   },
@@ -57,7 +58,7 @@ const WebJumpBackNotification = (props) => {
             style={buttonStyle}
             onClick={async () => {
               Browser.runtime.sendMessage({
-                type: 'ACTIVATE_URL',
+                type: RuntimeMessage.ActivateUrl,
                 data: {
                   tabId: (await getUserConfig()).notificationJumpBackTabId,
                 },

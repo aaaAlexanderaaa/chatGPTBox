@@ -30,6 +30,7 @@ import {
 } from '../../config/predicates.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { AgentProtocol } from '../../services/agent/protocols.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 /* global __CHATGPTBOX_ENABLE_AGENTS__ */
 const ENABLE_AGENT_FEATURES =
@@ -183,7 +184,7 @@ export function GeneralTab({
     tabs.forEach((tab) => {
       Browser.tabs
         .sendMessage(tab.id, {
-          type: 'CHANGE_LANG',
+          type: RuntimeMessage.ChangeLang,
           data: { lang },
         })
         .catch(() => {})
