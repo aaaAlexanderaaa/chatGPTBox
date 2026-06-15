@@ -301,4 +301,4 @@ If you meant the manual ChatGPT conversation APIs, these are the current endpoin
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
-The HTTP routing for them is in [`scripts/api-server.mjs`](../scripts/api-server.mjs), and the ChatGPT Web data-fetching logic is in [`src/services/apis/chatgpt-web-conversation-api.mjs`](../src/services/apis/chatgpt-web-conversation-api.mjs).
+The HTTP routing for them is in [`scripts/api-server.mjs`](../scripts/api-server.mjs), and the ChatGPT Web data-fetching logic is in [`src/services/clients/chatgpt-web/conversation-api.mjs`](../src/services/clients/chatgpt-web/conversation-api.mjs).

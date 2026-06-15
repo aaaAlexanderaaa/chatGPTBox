@@ -1,7 +1,7 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
-import { needsChatgptWebThinkingEffort } from '../src/utils/chatgpt-web-thinking.mjs'
+import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults

@@ -7,8 +7,13 @@ on:
       - "reopened"
       - "synchronize"
     paths:
+      - ".github/workflows/pr-tests.yml"
       - "src/**"
+      - "tests/**"
+      - "scripts/**"
       - "build.mjs"
+      - "package.json"
+      - "package-lock.json"
 
 jobs:
   tests:

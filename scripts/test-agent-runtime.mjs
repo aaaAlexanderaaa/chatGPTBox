@@ -19,7 +19,7 @@ import {
 import {
   createChatgptWebWebsocketBodyParser,
   createChatgptWebWebsocketRequestController,
-} from '../src/services/apis/chatgpt-web-websocket-state.mjs'
+} from '../src/services/clients/chatgpt-web/websocket-state.mjs'
 import {
   extractChatgptWebConversationMessages,
   extractChatgptWebConversationQuery,
@@ -32,11 +32,11 @@ import {
   isPendingChatgptWebConversation,
   isPendingChatgptWebMessageStatus,
   selectChatgptWebRefreshResult,
-} from '../src/services/apis/chatgpt-web-conversation-state.mjs'
+} from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 import {
   findChatgptWebApiThreadContinuation,
   normalizeChatgptWebBridgeMessages,
-} from '../src/services/chatgpt-web-thread-state.mjs'
+} from '../src/services/clients/chatgpt-web/thread-state.mjs'
 import {
   buildChatgptWebConversationListResponse,
   CHATGPT_WEB_CONVERSATION_INDEX_KEY,
@@ -44,20 +44,20 @@ import {
   createChatgptWebConversationSnapshotRecord,
   isChatgptWebConversationSnapshotStale,
   mergeChatgptWebConversationIndexEntries,
-} from '../src/services/chatgpt-web-conversation-cache.mjs'
+} from '../src/services/clients/chatgpt-web/conversation-cache.mjs'
 import {
   filterChatgptHistoryStorageData,
   mergeChatgptHistoryStorageData,
   summarizeChatgptHistoryStorageData,
-} from '../src/services/chatgpt-web-history-transfer.mjs'
+} from '../src/services/clients/chatgpt-web/history-transfer.mjs'
 import {
   CHATGPT_WEB_API_THREADS_KEY,
   CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
-} from '../src/services/chatgpt-web-thread-state.mjs'
+} from '../src/services/clients/chatgpt-web/thread-state.mjs'
 import {
   needsChatgptWebThinkingEffort,
   requiresChatgptWebExtendedThinkingEffort,
-} from '../src/utils/chatgpt-web-thinking.mjs'
+} from '../src/services/clients/chatgpt-web/thinking.mjs'
 import {
   buildCustomApiHeaders,
   createCustomApiHttpError,
@@ -67,7 +67,7 @@ import {
   formatCustomApiErrorPayload,
   normalizeCustomChatCompletionsUrl,
 } from '../src/services/apis/custom-api-utils.mjs'
-import { normalizeAgentMemory as normalizeDisabledAgentMemory } from '../src/services/agent/session-state.disabled.mjs'
+import { normalizeAgentMemory as normalizeDisabledAgentMemory } from '../src/stubs/session-state.stub.mjs'
 import { ENABLE_AGENT_FEATURES } from '../src/utils/build-flags.mjs'
 
 function bufferToArrayBuffer(buffer) {
