@@ -1,26 +1,36 @@
 import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
 import { isUsingChatgptWebModel } from '../../config/predicates.mjs'
-import { defaultConfig } from '../../config/storage.mjs'
+import { defaultConfig, setUserConfig } from '../../config/storage.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../../utils/chatgpt-proxy-tab.mjs'
+import {
+  acquireChatgptWebSessionLock,
+  appendChatgptWebDebugLog,
+  ensureChatgptProxyTab,
+  sendChatgptProxyRequest,
+} from '../chatgpt-proxy-service.mjs'
 
 // The most involved provider: ChatGPT-Web requests are routed through a
 // dedicated background chatgpt.com proxy tab, and concurrent requests for the
-// same session are serialized via a session lock. The proxy-tab discovery,
-// lock acquisition, and debug logging helpers are background-scoped and
-// injected via `ctx` to avoid importing background internals directly.
+// same session are serialized via a session lock.
+//
+// The proxy-tab discovery, lock acquisition, and debug logging helpers used to
+// be injected via a reverse `ctx` callback into the background entry point,
+// which prevented the background from being split. They are now imported
+// directly from chatgpt-proxy-service (a forward dependency), so this provider
+// no longer reaches back into background internals.
 export default {
   route: 'chatgpt-web',
   match: (session) => isUsingChatgptWebModel(session),
-  async run({ session, port, config, ctx }) {
-    const releaseChatgptWebSessionLock = ctx.acquireChatgptWebSessionLock(session, port, config)
+  async run({ session, port, config }) {
+    const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
     if (releaseChatgptWebSessionLock === null) return
     try {
       // Agent context is disabled for ChatGPT Web requests; keep user selections intact
       // and only drop page snapshot payload for this request path.
       session.pageContext = null
-      void ctx.appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
+      void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
         reason: 'chatgpt_web_model',
       })
 
@@ -32,12 +42,12 @@ export default {
           tabId = tab.id
           proxyTab = tab
         } else {
-          await ctx.setUserConfig({ chatgptTabId: 0 })
+          await setUserConfig({ chatgptTabId: 0 })
         }
       }
 
       if (!tabId) {
-        const ensured = await ctx.ensureChatgptProxyTab()
+        const ensured = await ensureChatgptProxyTab()
         if (ensured?.id) {
           tabId = ensured.id
           proxyTab = ensured
@@ -45,7 +55,7 @@ export default {
       }
 
       if (tabId) {
-        void ctx.appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-forced', {
+        void appendChatgptWebDebugLog(config, 'chatgpt-web-proxy-forced', {
           tabId,
           tabUrl: proxyTab?.url || null,
           route: 'chatgpt-web',
@@ -53,7 +63,7 @@ export default {
           selectedModel: getModelValue(session) || null,
           endpointUrl: config.customChatGptWebApiUrl || defaultConfig.customChatGptWebApiUrl,
         })
-        await ctx.sendChatgptProxyRequest(tabId, session, port)
+        await sendChatgptProxyRequest(tabId, session, port)
         return
       }
 
@@ -69,3 +79,4 @@ export default {
     }
   },
 }
+
