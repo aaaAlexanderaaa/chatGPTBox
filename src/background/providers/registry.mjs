@@ -1,6 +1,7 @@
 // Provider registry: replaces the 17-branch if/else-if chain that used to live
 // inline in background/index.mjs's executeApi(). Each provider module exports
-// { route, match, run }. The registry preserves the original branch ordering
+// { route, match, run } (and optionally id / supportsTools — see
+// ./adapter-contract.mjs). The registry preserves the original branch ordering
 // (the isUsing* predicates can overlap on edge-case models, so order matters).
 //
 // detectExecutionRoute() and executeApi() are now both derived from this single
@@ -23,10 +24,11 @@ import aimlApiProvider from './aiml-api.mjs'
 import azureOpenaiApiProvider from './azure-openai-api.mjs'
 import gptCompletionApiProvider from './gpt-completion-api.mjs'
 import waylaidwandererApiProvider from './waylaidwanderer-api.mjs'
+import { assertProviderAdapter } from './adapter-contract.mjs'
 
 // Order mirrors the original executeApi if/else-if chain exactly.
 // Do NOT reorder without comparing against the pre-refactor chain.
-export const PROVIDERS = [
+const RAW_PROVIDERS = [
   customApiProvider,
   chatgptWebHostProvider,
   claudeWebHostProvider,
@@ -45,6 +47,13 @@ export const PROVIDERS = [
   gptCompletionApiProvider,
   waylaidwandererApiProvider,
 ]
+
+// Validate every provider against the adapter contract at module load, so a
+// malformed provider fails loudly at startup (and in tests) rather than
+// silently routing wrong. See ./adapter-contract.mjs for the contract.
+export const PROVIDERS = RAW_PROVIDERS.map((provider) =>
+  assertProviderAdapter(provider, `provider ${provider?.route || '(unknown)'}`),
+)
 
 export function detectExecutionRoute(session) {
   for (const provider of PROVIDERS) {
