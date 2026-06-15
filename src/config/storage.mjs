@@ -1,9 +1,8 @@
 import { defaults } from 'lodash-es'
 import Browser from 'webextension-polyfill'
 import { isMobile } from '../utils/is-mobile.mjs'
-import { parseFloatWithClamp } from '../utils/parse-float-with-clamp.mjs'
-import { parseIntWithClamp } from '../utils/parse-int-with-clamp.mjs'
 import { defaultExtractor } from './extractors.mjs'
+import { clampNumericConfig } from './numeric-config.mjs'
 import {
   AgentProtocol,
   BuiltInIds,
@@ -20,18 +19,6 @@ import {
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
-  MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
-  MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
-  MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
-  MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
-  MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-  MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
-  MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
-  MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
 } from './limits.mjs'
 import {
   DefaultActiveModelKeysByGroup,
@@ -373,113 +360,12 @@ export async function getUserConfig() {
   const config = defaults(options, defaultConfig)
 
   // Guard against invalid numeric values (e.g. NaN) persisted by user input/imports.
-  const numericFix = {
-    maxResponseTokenLength: parseIntWithClamp(
-      config.maxResponseTokenLength,
-      defaultConfig.maxResponseTokenLength,
-      100,
-      MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
-    ),
-    maxConversationContextLength: parseIntWithClamp(
-      config.maxConversationContextLength,
-      defaultConfig.maxConversationContextLength,
-      0,
-      MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
-    ),
-    temperature: parseFloatWithClamp(config.temperature, defaultConfig.temperature, 0, 2),
-    agentPreloadContextTokenCap: parseIntWithClamp(
-      config.agentPreloadContextTokenCap,
-      defaultConfig.agentPreloadContextTokenCap,
-      1000,
-      256000,
-    ),
-    agentContextTokenCap: parseIntWithClamp(
-      config.agentContextTokenCap,
-      defaultConfig.agentContextTokenCap,
-      1000,
-      256000,
-    ),
-    agentMaxSteps: parseIntWithClamp(config.agentMaxSteps, defaultConfig.agentMaxSteps, 1, 32),
-    agentNoProgressLimit: parseIntWithClamp(
-      config.agentNoProgressLimit,
-      defaultConfig.agentNoProgressLimit,
-      1,
-      10,
-    ),
-    agentToolEventLimit: parseIntWithClamp(
-      config.agentToolEventLimit,
-      defaultConfig.agentToolEventLimit,
-      10,
-      300,
-    ),
-    apiServerRequestTimeoutSeconds: parseIntWithClamp(
-      config.apiServerRequestTimeoutSeconds,
-      defaultConfig.apiServerRequestTimeoutSeconds,
-      MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
-      MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
-    ),
-    apiServerThinkingTimeoutSeconds: parseIntWithClamp(
-      config.apiServerThinkingTimeoutSeconds,
-      defaultConfig.apiServerThinkingTimeoutSeconds,
-      MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
-      MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
-    ),
-    chatgptWebConversationPollTimeoutSeconds: parseIntWithClamp(
-      config.chatgptWebConversationPollTimeoutSeconds,
-      defaultConfig.chatgptWebConversationPollTimeoutSeconds,
-      MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-      MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-    ),
-    chatgptWebConversationPollIntervalSeconds: parseIntWithClamp(
-      config.chatgptWebConversationPollIntervalSeconds,
-      defaultConfig.chatgptWebConversationPollIntervalSeconds,
-      MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-      MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-    ),
-    chatgptWebConversationSyncIntervalMinutes: parseIntWithClamp(
-      config.chatgptWebConversationSyncIntervalMinutes,
-      defaultConfig.chatgptWebConversationSyncIntervalMinutes,
-      MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-      MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-    ),
-    apiServerPort: parseIntWithClamp(config.apiServerPort, defaultConfig.apiServerPort, 1, 65535),
-  }
-  const needsFix =
-    numericFix.maxResponseTokenLength !== config.maxResponseTokenLength ||
-    numericFix.maxConversationContextLength !== config.maxConversationContextLength ||
-    numericFix.temperature !== config.temperature ||
-    numericFix.agentPreloadContextTokenCap !== config.agentPreloadContextTokenCap ||
-    numericFix.agentContextTokenCap !== config.agentContextTokenCap ||
-    numericFix.agentMaxSteps !== config.agentMaxSteps ||
-    numericFix.agentNoProgressLimit !== config.agentNoProgressLimit ||
-    numericFix.agentToolEventLimit !== config.agentToolEventLimit ||
-    numericFix.apiServerRequestTimeoutSeconds !== config.apiServerRequestTimeoutSeconds ||
-    numericFix.apiServerThinkingTimeoutSeconds !== config.apiServerThinkingTimeoutSeconds ||
-    numericFix.chatgptWebConversationPollTimeoutSeconds !==
-      config.chatgptWebConversationPollTimeoutSeconds ||
-    numericFix.chatgptWebConversationPollIntervalSeconds !==
-      config.chatgptWebConversationPollIntervalSeconds ||
-    numericFix.chatgptWebConversationSyncIntervalMinutes !==
-      config.chatgptWebConversationSyncIntervalMinutes ||
-    numericFix.apiServerPort !== config.apiServerPort
+  // Table-driven: each numeric field is declared once in numeric-config.mjs;
+  // the clamp, change-detection, and write-back are all derived from that one
+  // table. Adding a numeric field means adding one row — no 3-place edit.
+  const { clampedValues: numericFix, needsFix } = clampNumericConfig(config, defaultConfig)
   if (needsFix) {
-    config.maxResponseTokenLength = numericFix.maxResponseTokenLength
-    config.maxConversationContextLength = numericFix.maxConversationContextLength
-    config.temperature = numericFix.temperature
-    config.agentPreloadContextTokenCap = numericFix.agentPreloadContextTokenCap
-    config.agentContextTokenCap = numericFix.agentContextTokenCap
-    config.agentMaxSteps = numericFix.agentMaxSteps
-    config.agentNoProgressLimit = numericFix.agentNoProgressLimit
-    config.agentToolEventLimit = numericFix.agentToolEventLimit
-    config.apiServerRequestTimeoutSeconds = numericFix.apiServerRequestTimeoutSeconds
-    config.apiServerThinkingTimeoutSeconds = numericFix.apiServerThinkingTimeoutSeconds
-    config.chatgptWebConversationPollTimeoutSeconds =
-      numericFix.chatgptWebConversationPollTimeoutSeconds
-    config.chatgptWebConversationPollIntervalSeconds =
-      numericFix.chatgptWebConversationPollIntervalSeconds
-    config.chatgptWebConversationSyncIntervalMinutes =
-      numericFix.chatgptWebConversationSyncIntervalMinutes
-    config.apiServerPort = numericFix.apiServerPort
+    Object.assign(config, numericFix)
     await Browser.storage.local.set(numericFix)
   }
   if (config.agentPreloadContextTokenCap > config.agentContextTokenCap) {
