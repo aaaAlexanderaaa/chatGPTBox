@@ -4,6 +4,24 @@ import { AgentProtocol } from '../agent/protocols.mjs'
 import { addAgentMemoryStep, updateAgentMemory } from '../agent/session-state.mjs'
 import { shouldShortCircuitWithToolLoop, toToolAlias } from '../agent/runtime-utils.mjs'
 import { resolvePromptTemplate } from '../../utils/prompt-template-context.mjs'
+import { normalizeToolSchema } from './protocol-adapters/_shared.mjs'
+import {
+  buildChatToolCatalog,
+  extractChatAnswer,
+  extractChatMessage,
+  extractChatToolCalls,
+} from './protocol-adapters/openai-chat.mjs'
+import {
+  convertMessagesToResponsesInput,
+  buildResponsesToolCatalog,
+  extractResponsesAnswer,
+  extractResponsesToolCalls,
+} from './protocol-adapters/openai-responses.mjs'
+import {
+  toAnthropicTools,
+  extractAnthropicAnswer,
+  extractAnthropicToolCalls,
+} from './protocol-adapters/anthropic.mjs'
 
 const DEFAULT_MAX_TURNS = 6
 const DEFAULT_NO_PROGRESS_LIMIT = 2
@@ -22,13 +40,9 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function normalizeToolSchema(schema) {
-  if (!schema || typeof schema !== 'object') {
-    return { type: 'object', properties: {} }
-  }
-  if (schema.type) return schema
-  return { ...schema, type: 'object' }
-}
+// normalizeToolSchema + extractAssistantContent moved to
+// ./protocol-adapters/_shared.mjs (imported above) — shared with the per-
+// protocol adapters.
 
 function buildToolMessageContent(result) {
   if (typeof result === 'string') return result
@@ -37,23 +51,6 @@ function buildToolMessageContent(result) {
   } catch {
     return String(result)
   }
-}
-
-function extractAssistantContent(message) {
-  if (!message) return ''
-  const content = message.content
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part
-        if (part && typeof part.text === 'string') return part.text
-        if (part && typeof part.output_text === 'string') return part.output_text
-        return ''
-      })
-      .join('')
-  }
-  return ''
 }
 
 function getCatalogCacheKey(server) {
@@ -467,122 +464,12 @@ async function postJson(url, { headers = {}, body = {}, signal }) {
   return response.json()
 }
 
-function toAnthropicTools(catalogTools) {
-  return (Array.isArray(catalogTools) ? catalogTools : []).map((tool) => ({
-    name: tool?.function?.name,
-    description: tool?.function?.description || '',
-    input_schema: normalizeToolSchema(tool?.function?.parameters),
-  }))
-}
-
-function convertMessagesToResponsesInput(messages) {
-  const input = []
-  let instructions = ''
-
-  for (const message of Array.isArray(messages) ? messages : []) {
-    const role = String(message?.role || '')
-    const content = extractAssistantContent(message)
-    if (!content) continue
-
-    if (role === 'system') {
-      instructions = instructions ? `${instructions}\n\n${content}` : content
-      continue
-    }
-
-    if (role === 'user' || role === 'assistant') {
-      input.push({
-        role,
-        content: [{ type: 'input_text', text: content }],
-      })
-    }
-  }
-
-  return { input, instructions }
-}
-
-function extractResponsesAnswer(payload) {
-  const outputText = typeof payload?.output_text === 'string' ? payload.output_text.trim() : ''
-  if (outputText) return outputText
-
-  const output = Array.isArray(payload?.output) ? payload.output : []
-  const lines = []
-
-  for (const item of output) {
-    if (item?.type !== 'message') continue
-    const content = Array.isArray(item.content) ? item.content : []
-    for (const part of content) {
-      if (typeof part?.text === 'string' && part.text.trim()) lines.push(part.text)
-      if (typeof part?.output_text === 'string' && part.output_text.trim())
-        lines.push(part.output_text)
-    }
-  }
-
-  return lines.join('\n').trim()
-}
-
-function extractResponsesToolCalls(payload) {
-  const toolCalls = []
-  const output = Array.isArray(payload?.output) ? payload.output : []
-
-  for (const item of output) {
-    if (item?.type !== 'function_call') continue
-    const name = String(item.name || item.function?.name || '').trim()
-    if (!name) continue
-    const id = String(item.call_id || item.id || `${name}_${toolCalls.length + 1}`)
-
-    let argumentsText = '{}'
-    if (typeof item.arguments === 'string') argumentsText = item.arguments
-    else if (item.arguments && typeof item.arguments === 'object') {
-      try {
-        argumentsText = JSON.stringify(item.arguments)
-      } catch {
-        argumentsText = '{}'
-      }
-    }
-
-    toolCalls.push({
-      id,
-      function: {
-        name,
-        arguments: argumentsText,
-      },
-    })
-  }
-
-  return toolCalls
-}
-
-function extractAnthropicAnswer(payload) {
-  const blocks = Array.isArray(payload?.content) ? payload.content : []
-  return blocks
-    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text)
-    .join('')
-    .trim()
-}
-
-function extractAnthropicToolCalls(payload) {
-  const blocks = Array.isArray(payload?.content) ? payload.content : []
-  return blocks
-    .filter((block) => block?.type === 'tool_use' && block?.name)
-    .map((block) => ({
-      id: String(block.id || `${block.name}_${Math.random().toString(16).slice(2, 6)}`),
-      function: {
-        name: String(block.name || ''),
-        arguments:
-          typeof block.input === 'string'
-            ? block.input
-            : (() => {
-                try {
-                  return JSON.stringify(block.input || {})
-                } catch {
-                  return '{}'
-                }
-              })(),
-      },
-      raw: block,
-    }))
-}
+// Protocol-specific pure helpers (toAnthropicTools, convertMessagesToResponsesInput,
+// extractResponsesAnswer/ToolCalls, extractAnthropicAnswer/ToolCalls, and the
+// chat/responses/anthropic body builders below) live in ./protocol-adapters/*.mjs
+// and are imported at the top of this file. The loop keeps only the
+// protocol-agnostic scaffolding (catalog collection, tool execution, memory,
+// the turn loop itself).
 
 function cloneMessages(messages) {
   return Array.isArray(messages) ? messages.map((message) => ({ ...message })) : []
@@ -794,7 +681,7 @@ async function runOpenAiChatTurn({
     ...extraBody,
     model,
     messages: loopMessages,
-    tools: catalog.tools,
+    tools: buildChatToolCatalog(catalog.tools),
     tool_choice: 'auto',
     max_tokens: maxResponseTokenLength,
     temperature,
@@ -807,8 +694,7 @@ async function runOpenAiChatTurn({
     signal,
   })
 
-  const choice = payload?.choices?.[0]
-  const message = choice?.message
+  const message = extractChatMessage(payload)
   if (!message) {
     return {
       answer: '',
@@ -820,8 +706,8 @@ async function runOpenAiChatTurn({
   }
 
   return {
-    answer: extractAssistantContent(message).trim(),
-    toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+    answer: extractChatAnswer(message).trim(),
+    toolCalls: extractChatToolCalls(message),
     modelMessage: message,
     status: 'ok',
   }
@@ -844,12 +730,7 @@ async function runOpenAiResponsesTurn({
     ...extraBody,
     model,
     input,
-    tools: catalog.tools.map((tool) => ({
-      type: 'function',
-      name: tool.function.name,
-      description: tool.function.description,
-      parameters: tool.function.parameters,
-    })),
+    tools: buildResponsesToolCatalog(catalog.tools),
     tool_choice: 'auto',
     max_output_tokens: maxResponseTokenLength,
     temperature,
