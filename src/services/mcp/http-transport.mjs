@@ -2,6 +2,10 @@ import { createParser } from '../../utils/eventsource-parser.mjs'
 
 export const DefaultMcpHttpOptions = {
   timeoutMs: 15000,
+  // Backstop for the idle deadline below: a server that drips a byte just often
+  // enough to keep rearming `timeoutMs` would otherwise hold a request open
+  // forever. Generous, because a legitimate tool call can stream for minutes.
+  maxTotalMs: 600000,
   maxRetries: 2,
   retryDelayMs: 350,
   retryBackoffMultiplier: 2,
@@ -34,8 +38,15 @@ function normalizeOptions(options = {}) {
   const maxRetryDelayMs = Number.isFinite(options.maxRetryDelayMs)
     ? Number(options.maxRetryDelayMs)
     : DefaultMcpHttpOptions.maxRetryDelayMs
+  const maxTotalMs = Number.isFinite(options.maxTotalMs) ? Number(options.maxTotalMs) : 0
+  const resolvedTimeoutMs = Math.max(1000, timeoutMs || DefaultMcpHttpOptions.timeoutMs)
   return {
-    timeoutMs: Math.max(1000, timeoutMs || DefaultMcpHttpOptions.timeoutMs),
+    timeoutMs: resolvedTimeoutMs,
+    // Never below the idle deadline, or the ceiling would pre-empt it.
+    maxTotalMs: Math.max(
+      resolvedTimeoutMs,
+      maxTotalMs || DefaultMcpHttpOptions.maxTotalMs,
+    ),
     maxRetries: Math.max(0, maxRetries),
     retryDelayMs: Math.max(50, retryDelayMs || DefaultMcpHttpOptions.retryDelayMs),
     retryBackoffMultiplier: Math.max(1, retryBackoffMultiplier),
@@ -58,11 +69,40 @@ function buildHeaders(server, options = {}) {
   return headers
 }
 
-function createTimeoutController(timeoutMs, externalSignal) {
+// Two deadlines. The primary one is idle-based: it stays armed while the response
+// body is consumed, but every chunk that arrives rearms it, so a slow tool call
+// that keeps producing output is not cut off the way a single overall deadline
+// would cut it off. `maxTotalMs` is the backstop, since an idle deadline alone
+// can be held open indefinitely by a trickle of bytes.
+//
+// A timeout that fires *after* the server started sending is not retryable: the
+// call may already have taken effect on the server, so re-POSTing it could
+// duplicate a side effect. A timeout with no bytes received behaves as before.
+function createTimeoutController(timeoutMs, maxTotalMs, externalSignal) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => {
-    controller.abort(new Error(`MCP HTTP timeout after ${timeoutMs}ms`))
-  }, timeoutMs)
+  let sawActivity = false
+  let idleTimer = null
+
+  const abortWithTimeout = (message) => {
+    const error = new Error(message)
+    error.name = 'McpTimeoutError'
+    error.mcpRetryable = !sawActivity
+    controller.abort(error)
+  }
+
+  const armIdle = () => {
+    idleTimer = setTimeout(
+      () => abortWithTimeout(`MCP HTTP timeout after ${timeoutMs}ms of inactivity`),
+      timeoutMs,
+    )
+  }
+  armIdle()
+
+  const totalTimer = setTimeout(
+    () => abortWithTimeout(`MCP HTTP timeout after ${maxTotalMs}ms total`),
+    maxTotalMs,
+  )
+
   const onAbort = () => {
     controller.abort(externalSignal?.reason || new Error('MCP HTTP request aborted'))
   }
@@ -70,10 +110,18 @@ function createTimeoutController(timeoutMs, externalSignal) {
     if (externalSignal.aborted) onAbort()
     else externalSignal.addEventListener('abort', onAbort, { once: true })
   }
+
   return {
     signal: controller.signal,
+    keepAlive: () => {
+      if (controller.signal.aborted) return
+      sawActivity = true
+      clearTimeout(idleTimer)
+      armIdle()
+    },
     cleanup: () => {
-      clearTimeout(timeout)
+      clearTimeout(idleTimer)
+      clearTimeout(totalTimer)
       if (externalSignal) externalSignal.removeEventListener('abort', onAbort)
     },
   }
@@ -85,6 +133,9 @@ function isRetryableStatus(statusCode) {
 
 function isRetryableError(error) {
   if (!error) return false
+  // Set by the timeout controller: false once the server has started responding,
+  // because the call may already have taken effect.
+  if (error.mcpRetryable === false) return false
   const name = String(error.name || '')
   const message = String(error.message || '')
   if (name === 'RetryableHttpError') return true
@@ -104,7 +155,7 @@ function parseJsonSafely(value) {
   }
 }
 
-async function parseEventStreamPayload(response, onEvent) {
+async function parseEventStreamPayload(response, onEvent, onActivity) {
   const reader = response.body?.getReader()
   if (!reader) {
     const raw = await response.text()
@@ -124,6 +175,9 @@ async function parseEventStreamPayload(response, onEvent) {
 
   let result
   while (!(result = await reader.read()).done) {
+    // Any byte counts as liveness, including SSE comment heartbeats that the
+    // parser never surfaces as events.
+    if (typeof onActivity === 'function') onActivity()
     parser.feed(result.value)
   }
 
@@ -142,16 +196,34 @@ async function parseEventStreamPayload(response, onEvent) {
   }
 }
 
-async function parseHttpResponse(response, onEvent) {
+// A non-streaming body is read chunk by chunk for the same reason a stream is:
+// the idle deadline covers the whole body now that it is awaited, so a large but
+// healthy download must be able to rearm it.
+async function readBodyText(response, onActivity) {
+  if (typeof onActivity !== 'function' || !response.body?.getReader) return response.text()
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let text = ''
+  let result
+  while (!(result = await reader.read()).done) {
+    onActivity()
+    text += decoder.decode(result.value, { stream: true })
+  }
+  return text + decoder.decode()
+}
+
+async function parseHttpResponse(response, onEvent, onActivity) {
   const contentType = (response.headers.get('content-type') || '').toLowerCase()
   if (contentType.includes('application/json')) {
-    return response.json()
+    // Matches response.json(): a malformed body throws rather than resolving.
+    return JSON.parse(await readBodyText(response, onActivity))
   }
   if (contentType.includes('text/event-stream')) {
-    const streamResult = await parseEventStreamPayload(response, onEvent)
+    const streamResult = await parseEventStreamPayload(response, onEvent, onActivity)
     return streamResult.payload || streamResult
   }
-  const text = await response.text()
+  const text = await readBodyText(response, onActivity)
   const parsed = parseJsonSafely(text)
   return parsed || { raw: text }
 }
@@ -199,7 +271,11 @@ export async function sendMcpJsonRpc(server, method, params = {}, options = {}) 
   const url = ensureUrl(server?.httpUrl, { requireHttps: options.requireHttps })
   const rpc = buildRpcRequest(method, params)
   return executeWithRetries(async (normalizedOptions) => {
-    const timeout = createTimeoutController(normalizedOptions.timeoutMs, options.signal)
+    const timeout = createTimeoutController(
+      normalizedOptions.timeoutMs,
+      normalizedOptions.maxTotalMs,
+      options.signal,
+    )
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -215,7 +291,11 @@ export async function sendMcpJsonRpc(server, method, params = {}, options = {}) 
         if (isRetryableStatus(response.status)) error.name = 'RetryableHttpError'
         throw error
       }
-      return parseHttpResponse(response, options.onEvent)
+      // Awaited so the timeout and abort listener stay armed while the body is
+      // consumed — an event stream that stalls mid-response must still time out.
+      // `keepAlive` rearms the idle deadline per chunk so a stream that is merely
+      // slow, rather than stuck, runs to completion.
+      return await parseHttpResponse(response, options.onEvent, timeout.keepAlive)
     } finally {
       timeout.cleanup()
     }

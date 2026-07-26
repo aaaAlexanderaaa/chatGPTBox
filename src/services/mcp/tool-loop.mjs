@@ -490,9 +490,10 @@ function convertMessagesToResponsesInput(messages) {
     }
 
     if (role === 'user' || role === 'assistant') {
+      // Assistant turns must use `output_text`; `input_text` is rejected with a 400.
       input.push({
         role,
-        content: [{ type: 'input_text', text: content }],
+        content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: content }],
       })
     }
   }

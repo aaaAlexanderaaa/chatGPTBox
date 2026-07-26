@@ -4,6 +4,18 @@ function defaultSocketCloseError() {
   return new Error('ChatGPT websocket closed before response completed')
 }
 
+// Websocket frames carry the response body base64-encoded. `atob` yields one
+// character per raw byte, so the bytes must be recovered as bytes — decoding
+// that Latin-1 string as text would mangle every UTF-8 multibyte sequence.
+export function base64ToUint8Array(base64) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
 export function createChatgptWebWebsocketBodyParser({
   handleMessage,
   handleDone,
@@ -29,6 +41,11 @@ export function createChatgptWebWebsocketBodyParser({
 
   return {
     feed(chunk) {
+      if (chunk instanceof Uint8Array) {
+        if (chunk.length === 0) return
+        parser.feed(chunk)
+        return
+      }
       if (typeof chunk !== 'string' || chunk.length === 0) return
       parser.feed(encoder.encode(chunk))
     },
