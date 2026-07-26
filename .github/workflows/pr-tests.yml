@@ -8,7 +8,13 @@ on:
       - "synchronize"
     paths:
       - "src/**"
+      - "tests/**"
+      - "scripts/**"
       - "build.mjs"
+      - "vitest.config.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/pr-tests.yml"
 
 jobs:
   tests:
@@ -21,6 +27,8 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm run lint
+      - run: npm run test
+      - run: npm run test:agent
       - run: npm run build
 
   audit:
