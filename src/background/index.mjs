@@ -72,6 +72,7 @@ import {
   refreshChatgptWebConversation,
   syncChatgptWebConversationCache,
 } from '../services/apis/chatgpt-web-conversation-api.mjs'
+import { isApiBridgeUrlAllowed } from '../utils/api-bridge-url.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'
@@ -1237,15 +1238,24 @@ try {
         details.url.includes('/public_key') &&
         !details.url.includes(defaultConfig.chatgptArkoseReqParams)
       ) {
+        // requestBody is absent for bodyless requests and for bodies the browser
+        // could not parse; both must not take down the listener.
+        const requestBody = details.requestBody
+        if (!requestBody) return
+
         let formData = new URLSearchParams()
-        for (const k in details.requestBody.formData) {
-          formData.append(k, details.requestBody.formData[k])
+        for (const k in requestBody.formData) {
+          formData.append(k, requestBody.formData[k])
         }
+        const rawBytes = requestBody.raw?.[0]?.bytes
+        const chatgptArkoseReqForm =
+          formData.toString() ||
+          (rawBytes ? new TextDecoder('utf-8').decode(new Uint8Array(rawBytes)) : '')
+        if (!chatgptArkoseReqForm) return
+
         setUserConfig({
           chatgptArkoseReqUrl: details.url,
-          chatgptArkoseReqForm:
-            formData.toString() ||
-            new TextDecoder('utf-8').decode(new Uint8Array(details.requestBody.raw[0].bytes)),
+          chatgptArkoseReqForm,
         }).then(() => {
           console.log('Arkose req url and form saved')
         })
@@ -1340,9 +1350,27 @@ Browser.runtime.onConnect.addListener((port) => {
   const { uiPort, resolve, reject } = entry
   let settled = false
 
+  // The abort controller for this request lives in the ChatGPT tab, on this
+  // port. Relay the UI's stop request to it, otherwise the Stop button has
+  // nothing to cancel on the proxy route.
+  const uiStopListener = (msg) => {
+    if (settled || !msg?.stop) return
+    try {
+      port.postMessage({ stop: true })
+    } catch (e) {
+      console.debug('[background] Failed to forward stop to proxy tab:', e?.message)
+    }
+  }
+  uiPort.onMessage.addListener(uiStopListener)
+
   const settle = (callback, value) => {
     if (settled) return
     settled = true
+    try {
+      uiPort.onMessage.removeListener(uiStopListener)
+    } catch {
+      /* ignore */
+    }
     callback(value)
   }
 
@@ -1390,10 +1418,22 @@ Browser.runtime.onConnect.addListener((port) => {
 // this we send an application-level ping on the WebSocket every 20 s
 // (Chrome 116+ treats active WebSocket sends as "activity") and accept
 // keepalive pings from the bridge page on the port.
+// This port opens a WebSocket with extension privileges, so — like the FETCH
+// proxy above — it is restricted to extension pages, and the only target it will
+// dial is the local gateway's bridge endpoint (see isApiBridgeUrlAllowed).
 const WS_KEEPALIVE_MS = 20_000
 
 Browser.runtime.onConnect.addListener((port) => {
   if (port.name !== 'api-bridge-proxy') return
+
+  if (!isExtensionPageSender(port.sender)) {
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+    return
+  }
 
   let ws = null
   let keepaliveTimer = null
@@ -1436,6 +1476,10 @@ Browser.runtime.onConnect.addListener((port) => {
           /* ignore */
         }
         ws = null
+      }
+      if (!isApiBridgeUrlAllowed(msg.url)) {
+        safePost({ type: 'error', message: 'Bridge target not permitted' })
+        return
       }
       try {
         ws = new WebSocket(msg.url)

@@ -20,8 +20,25 @@ Unless you changed the host or port, all examples below use the default local ga
 npm run api-server
 ```
 
-5. Keep the bridge page open.
-6. Make sure the browser is logged in at `https://chatgpt.com`.
+5. Copy the `Bridge token` the server prints on startup into the `Bridge token` field on the bridge page.
+6. Keep the bridge page open.
+7. Make sure the browser is logged in at `https://chatgpt.com`.
+
+## Bridge Authentication
+
+The bridge channel carries every prompt and every answer, so it is gated on a shared token: without it the gateway refuses the WebSocket upgrade and the HTTP polling endpoints with `401`, and any web page that tries to connect to `ws://127.0.0.1:18080/bridge` is rejected on its `Origin` as well.
+
+The token is generated on first run and stored in `~/.chatgptbox/gateway-bridge-token`, so it stays stable across restarts and only needs to be pasted into the bridge page once. To set it yourself:
+
+```bash
+npm run api-server -- --bridge-token <token>
+# or
+CHATGPT_GATEWAY_BRIDGE_TOKEN=<token> npm run api-server
+```
+
+The token is accepted as a `?token=` query parameter, an `X-Bridge-Token` header, or an `Authorization: Bearer` header.
+
+The token protects the bridge channel only. It does **not** protect the completion and conversation endpoints, which are unauthenticated and served with `Access-Control-Allow-Origin: *`. Binding to loopback keeps other machines out, but it does not keep out a web page running in your own browser: while the bridge is paired, any site you visit can `fetch()` `http://127.0.0.1:18080/v1/chat/completions` to spend your ChatGPT session, or `http://127.0.0.1:18080/chatgpt/conversations` to read your conversation list, and can read the responses cross-origin. Run the gateway only while you need it.
 
 If you need to open the bridge page manually, run this in the extension service worker console:
 
@@ -284,7 +301,7 @@ The response includes:
 
 ## Internal Bridge Endpoints
 
-These are transport endpoints used by the extension bridge page, not the main client API:
+These are the HTTP polling fallback for the bridge transport, not the main client API. The extension page uses the WebSocket bridge, so nothing ships against these today; they exist for a client that cannot hold a socket open. All require the bridge token (see [Bridge Authentication](#bridge-authentication)):
 
 - `GET /bridge/poll`
 - `POST /bridge/respond`

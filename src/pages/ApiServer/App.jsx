@@ -53,10 +53,16 @@ function formatMessages(messages) {
     .join('\n\n')
 }
 
+function buildBridgeWsUrl(targetPort, token) {
+  return `ws://127.0.0.1:${targetPort}/bridge${token ? `?token=${encodeURIComponent(token)}` : ''}`
+}
+
 function App() {
   const [enabled, setEnabled] = useState(null)
   const [port, setPort] = useState(18080)
   const [portInput, setPortInput] = useState('18080')
+  const [bridgeToken, setBridgeToken] = useState('')
+  const [bridgeTokenInput, setBridgeTokenInput] = useState('')
   const [status, setStatus] = useState('initializing')
   const [logs, setLogs] = useState([])
   const [requestCount, setRequestCount] = useState(0)
@@ -97,6 +103,9 @@ function App() {
       const p = Number(config.apiServerPort) || 18080
       setPort(p)
       setPortInput(String(p))
+      const token = config.apiServerBridgeToken || ''
+      setBridgeToken(token)
+      setBridgeTokenInput(token)
       setEnabled(config.apiServerEnabled === true)
     })
   }, [])
@@ -105,8 +114,17 @@ function App() {
   // Build WebSocket URL from port
   // -----------------------------------------------------------------------
 
-  const wsUrl = `ws://127.0.0.1:${port}/bridge`
+  const wsUrl = buildBridgeWsUrl(port, bridgeToken)
   const baseUrl = `http://127.0.0.1:${port}`
+
+  // Reconnect timers are scheduled by whichever render created them, so `connect`
+  // must not close over that render's port/token — a token saved afterwards would
+  // never reach the socket and the retry loop would keep replaying the stale URL.
+  // The live target lives in a ref that the save handlers update synchronously.
+  const connectTarget = useRef({ port, token: bridgeToken, url: wsUrl })
+  useEffect(() => {
+    connectTarget.current = { port, token: bridgeToken, url: wsUrl }
+  }, [port, bridgeToken, wsUrl])
 
   // -----------------------------------------------------------------------
   // Send data to API server via the background-proxied WebSocket
@@ -235,7 +253,9 @@ function App() {
           )
         }
 
-        if (msg.answer !== undefined) {
+        // Adapters signal completion with `{ answer: null, done: true }`, so a
+        // null answer must not overwrite the text accumulated so far.
+        if (typeof msg.answer === 'string') {
           lastAnswer = msg.answer
           if (!msg.done) {
             sendWs({ type: 'chunk', id, answer: msg.answer })
@@ -428,8 +448,17 @@ function App() {
       proxyPort.current = null
     }
 
+    const target = connectTarget.current
+
     setStatus('connecting')
-    addLog(`Connecting to ${wsUrl} (via service worker)...`)
+    // Never log the URL verbatim — it carries the bridge token.
+    addLog(`Connecting to ws://127.0.0.1:${target.port}/bridge (via service worker)...`)
+    if (!target.token) {
+      addLog(
+        'No bridge token set. The gateway will refuse the connection — copy the token printed by `npm run api-server` into the field above.',
+        'warn',
+      )
+    }
 
     let pp
     try {
@@ -472,8 +501,12 @@ function App() {
           reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY)
         }
       } else if (msg.type === 'error') {
+        // The WebSocket API never surfaces the HTTP status, so a rejected token
+        // and a dead server are indistinguishable here — name both.
         addLog(
-          `Connection error: ${msg.message || 'unknown'} — is the API server running?`,
+          `Connection error: ${
+            msg.message || 'unknown'
+          } — is the API server running, and does the bridge token match the one it printed?`,
           'error',
         )
       } else if (msg.type === 'message') {
@@ -505,8 +538,8 @@ function App() {
       }
     })
 
-    pp.postMessage({ action: 'connect', url: wsUrl })
-  }, [wsUrl, addLog, handleControlRequest, handleRequest, syncBridgeConfig])
+    pp.postMessage({ action: 'connect', url: target.url })
+  }, [addLog, handleControlRequest, handleRequest, syncBridgeConfig])
 
   // -----------------------------------------------------------------------
   // Disconnect
@@ -606,6 +639,23 @@ function App() {
   // Port save
   // -----------------------------------------------------------------------
 
+  // Parked in reconnectTimer so disconnect() can cancel it. An untracked timer
+  // here would survive a disable and resurrect the bridge 500ms later, leaving
+  // the page connected with no visible control to stop it.
+  const scheduleReconnect = useCallback(() => {
+    if (!enabled) {
+      setStatus('disabled')
+      addLog('Saved. The bridge is disabled, so it will connect when you enable it.', 'warn')
+      return
+    }
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+    reconnectTimer.current = setTimeout(() => {
+      reconnectTimer.current = null
+      autoReconnect.current = true
+      connect()
+    }, 500)
+  }, [enabled, addLog, connect])
+
   const savePort = useCallback(() => {
     const n = parseInt(portInput, 10)
     if (Number.isNaN(n) || n < 1 || n > 65535) {
@@ -613,14 +663,24 @@ function App() {
       return
     }
     setPort(n)
+    // Updated here as well as in the effect so the reconnect below cannot race
+    // the re-render.
+    connectTarget.current = { port: n, token: bridgeToken, url: buildBridgeWsUrl(n, bridgeToken) }
     setUserConfig({ apiServerPort: n })
     addLog(`Port updated to ${n}. Reconnecting...`)
     disconnect()
-    setTimeout(() => {
-      autoReconnect.current = true
-      connect()
-    }, 500)
-  }, [portInput, addLog, disconnect, connect])
+    scheduleReconnect()
+  }, [portInput, bridgeToken, addLog, disconnect, scheduleReconnect])
+
+  const saveBridgeToken = useCallback(() => {
+    const next = bridgeTokenInput.trim()
+    setBridgeToken(next)
+    connectTarget.current = { port, token: next, url: buildBridgeWsUrl(port, next) }
+    setUserConfig({ apiServerBridgeToken: next })
+    addLog(next ? 'Bridge token updated. Reconnecting...' : 'Bridge token cleared.')
+    disconnect()
+    if (next) scheduleReconnect()
+  }, [bridgeTokenInput, port, addLog, disconnect, scheduleReconnect])
 
   // -----------------------------------------------------------------------
   // Toggle enable
@@ -745,6 +805,22 @@ function App() {
             </button>
           ) : null}
         </div>
+
+        <div className="url-row">
+          <label className="port-label">Bridge token:</label>
+          <input
+            type="password"
+            value={bridgeTokenInput}
+            onChange={(e) => setBridgeTokenInput(e.target.value)}
+            placeholder="Printed by npm run api-server"
+            className="port-input"
+          />
+          {bridgeTokenInput.trim() !== bridgeToken && (
+            <button onClick={saveBridgeToken} className="btn-save">
+              Save
+            </button>
+          )}
+        </div>
       </section>
 
       {serverHealth && (
@@ -819,6 +895,7 @@ function App() {
           <li>
             Run <code>npm run api-server{showPort ? ` -- --port ${port}` : ''}</code> in a terminal
           </li>
+          <li>Copy the bridge token it prints into the field above</li>
           <li>Keep this page open (it bridges the API server to ChatGPT)</li>
           <li>
             Make sure you are logged in at{' '}
@@ -851,6 +928,15 @@ function App() {
             <p>
               <strong>Enable/Disable:</strong> Use the toggle above. When disabled, the bridge will
               not connect to the API server.
+            </p>
+            <p>
+              <strong>Bridge token:</strong> The gateway only accepts the bridge from a holder of
+              this token, so no other page can take over the channel. It is printed on startup and
+              stored in <code>~/.chatgptbox/gateway-bridge-token</code>; override it with{' '}
+              <code>--bridge-token &lt;token&gt;</code> or <code>CHATGPT_GATEWAY_BRIDGE_TOKEN</code>
+              . Note that it guards the bridge channel only — the gateway&apos;s completion and
+              conversation endpoints stay unauthenticated and CORS-open, so while the bridge is
+              paired any site you visit can call them. Run the gateway only while you need it.
             </p>
             <p>
               <strong>Status and health:</strong> Visit <code>http://127.0.0.1:{port}/status</code>{' '}
