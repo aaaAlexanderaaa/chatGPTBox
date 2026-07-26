@@ -3,7 +3,13 @@ import { Download, Upload, RotateCcw, AlertTriangle, ExternalLink, Sliders } fro
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
-import { SettingRow, SettingSection, ToggleRow, Divider } from './SettingComponents.jsx'
+import {
+  SettingRow,
+  SettingSection,
+  ToggleRow,
+  ToggleSwitch,
+  Divider,
+} from './SettingComponents.jsx'
 import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import {
@@ -28,6 +34,9 @@ import {
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   ModelGroups,
 } from '../../config/index.mjs'
+
+const TEXT_INPUT_CLASS =
+  'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
 
 /**
  * AdvancedTab - Advanced settings and data management
@@ -564,6 +573,106 @@ export function AdvancedTab({
           </button>
         </SettingRow>
       </SettingSection>
+
+      {!isPopupMode && (
+        <>
+          <Divider />
+
+          <SettingSection title={t('Site Matching & Menus')}>
+            <SettingRow
+              label={t('Hide context menu of this extension')}
+              hint={t('Removes the ChatGPTBox entries from the browser right-click menu')}
+            >
+              <ToggleSwitch
+                checked={config.hideContextMenu === true}
+                onChange={async (value) => {
+                  await updateConfig({ hideContextMenu: value })
+                  Browser.runtime.sendMessage({ type: 'REFRESH_MENU' }).catch(() => {})
+                }}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label={t('Custom Site Regex')}
+              hint={t('Match extra sites where the search-engine panel is injected')}
+            >
+              <input
+                type="text"
+                value={config.siteRegex || ''}
+                onChange={(e) => updateConfig({ siteRegex: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+
+            <ToggleRow
+              label={t(
+                'Exclusively use Custom Site Regex for website matching, ignoring built-in rules',
+              )}
+              checked={config.useSiteRegexOnly === true}
+              onChange={(value) => updateConfig({ useSiteRegexOnly: value })}
+            />
+          </SettingSection>
+
+          <Divider />
+
+          <SettingSection title={t('Search Engine Queries')}>
+            <SettingRow
+              label={t('Input Query')}
+              hint={t('Selector used to read the search box of a matched site')}
+            >
+              <input
+                type="text"
+                value={config.inputQuery || ''}
+                onChange={(e) => updateConfig({ inputQuery: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+
+            <SettingRow label={t('Prepend Query')}>
+              <input
+                type="text"
+                value={config.prependQuery || ''}
+                onChange={(e) => updateConfig({ prependQuery: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+
+            <SettingRow label={t('Append Query')}>
+              <input
+                type="text"
+                value={config.appendQuery || ''}
+                onChange={(e) => updateConfig({ appendQuery: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+          </SettingSection>
+
+          <Divider />
+
+          <SettingSection title={t('ChatGPT Web Endpoint')}>
+            <SettingRow
+              label={t('Custom ChatGPT Web API Url')}
+              hint={t('Leave empty to use the official endpoint')}
+            >
+              <input
+                type="text"
+                value={config.customChatGptWebApiUrl || ''}
+                onChange={(e) => updateConfig({ customChatGptWebApiUrl: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+
+            <SettingRow label={t('Custom ChatGPT Web API Path')}>
+              <input
+                type="text"
+                value={config.customChatGptWebApiPath || ''}
+                onChange={(e) => updateConfig({ customChatGptWebApiPath: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+          </SettingSection>
+        </>
+      )}
 
       {isPopupMode ? (
         <>
