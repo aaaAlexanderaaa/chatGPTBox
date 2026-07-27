@@ -190,7 +190,9 @@ export function MarkdownRender(props) {
               ignoreMissing: true,
             },
           ],
-          sanitizeMarkdownTree,
+          // Runs last, and is the only pipeline allowed to keep KaTeX's inline
+          // layout styles — this one actually renders math.
+          [sanitizeMarkdownTree, { allowKatexStyles: true }],
         ]}
         components={{
           a: Hyperlink,

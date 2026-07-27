@@ -912,6 +912,21 @@ export function GeneralTab({
           checked={config.selectionToolsNextToInputBox}
           onChange={(value) => updateConfig({ selectionToolsNextToInputBox: value })}
         />
+        <ToggleRow
+          label={t('Always Create New Conversation Window')}
+          checked={config.alwaysCreateNewConversationWindow}
+          onChange={(value) => updateConfig({ alwaysCreateNewConversationWindow: value })}
+        />
+        <ToggleRow
+          label={t('Regenerate the answer after switching model')}
+          checked={config.autoRegenAfterSwitchModel}
+          onChange={(value) => updateConfig({ autoRegenAfterSwitchModel: value })}
+        />
+        <ToggleRow
+          label={t("Crop Text to ensure the input tokens do not exceed the model's limit")}
+          checked={config.cropText}
+          onChange={(value) => updateConfig({ cropText: value })}
+        />
       </SettingSection>
     </div>
   )

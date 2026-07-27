@@ -22,6 +22,7 @@ import {
   requiresChatgptWebExtendedThinkingEffort,
 } from '../../utils/chatgpt-web-thinking.mjs'
 import {
+  base64ToUint8Array,
   createChatgptWebWebsocketBodyParser,
   createChatgptWebWebsocketRequestController,
 } from './chatgpt-web-websocket-state.mjs'
@@ -1148,23 +1149,24 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             return
           }
           if (wsData.type !== 'http.response.body') return
-          let body
           try {
-            body = atob(wsData.body)
-            const trimmedBody = body.trim()
-            if (
-              !responseMetaLogged &&
-              trimmedBody &&
-              trimmedBody !== '[DONE]' &&
-              trimmedBody !== 'data: [DONE]'
-            ) {
-              responseMetaLogged = true
-              void appendChatgptWebDebugLog(config, 'wire-response-meta', {
-                transport: 'websocket',
-                responseChunkRawJson: truncateString(body, 16000),
-              })
+            const bodyBytes = base64ToUint8Array(wsData.body)
+            // Decoding to text is only needed for the one-shot debug log, so it
+            // stays inside the guard rather than running on every stream frame.
+            if (!responseMetaLogged) {
+              const body = new TextDecoder('utf-8').decode(bodyBytes)
+              const trimmedBody = body.trim()
+              if (trimmedBody && trimmedBody !== '[DONE]' && trimmedBody !== 'data: [DONE]') {
+                responseMetaLogged = true
+                void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+                  transport: 'websocket',
+                  responseChunkRawJson: truncateString(body, 16000),
+                })
+              }
             }
-            getBodyParser(wsData.conversation_id).feed(body)
+            // Feed raw bytes so a multibyte character split across frames is
+            // reassembled by the parser rather than lost at the frame boundary.
+            getBodyParser(wsData.conversation_id).feed(bodyBytes)
           } catch (error) {
             console.debug('json error', error)
             requestController.handleSocketClose(error)

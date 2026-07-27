@@ -214,5 +214,12 @@
   "Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads": "Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads",
   "Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads": "Imported ChatGPT history: wrote {{keysWritten}} storage keys; now holding {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, and {{apiThreadCount}} continuation threads",
   "Edit": "Edit",
-  "Delete": "Delete"
+  "Delete": "Delete",
+  "Site Matching & Menus": "Site Matching & Menus",
+  "Removes the ChatGPTBox entries from the browser right-click menu": "Removes the ChatGPTBox entries from the browser right-click menu",
+  "Match extra sites where the search-engine panel is injected": "Match extra sites where the search-engine panel is injected",
+  "Search Engine Queries": "Search Engine Queries",
+  "Selector used to read the search box of a matched site": "Selector used to read the search box of a matched site",
+  "ChatGPT Web Endpoint": "ChatGPT Web Endpoint",
+  "Leave empty to use the official endpoint": "Leave empty to use the official endpoint"
 }
