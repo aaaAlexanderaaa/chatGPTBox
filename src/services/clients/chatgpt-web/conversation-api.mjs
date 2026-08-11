@@ -212,29 +212,42 @@ async function fetchChatgptWebJson(path, { method = 'GET', body, signal } = {}) 
   return response.json()
 }
 
+const FORBIDDEN_PATCH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
+
+// Resume patch paths come straight off the network, so a segment that would walk
+// into a prototype must never be followed or created.
+function isUnsafePatchSegment(segment) {
+  return FORBIDDEN_PATCH_SEGMENTS.has(segment)
+}
+
 function ensureContainer(target, pathSegments) {
   let cursor = target
   for (let index = 0; index < pathSegments.length - 1; index += 1) {
     const segment = pathSegments[index]
     const nextSegment = pathSegments[index + 1]
-    if (cursor[segment] == null) {
+    if (!cursor || typeof cursor !== 'object') return null
+    if (!Object.prototype.hasOwnProperty.call(cursor, segment) || cursor[segment] == null) {
       cursor[segment] = /^\d+$/.test(nextSegment) ? [] : {}
     }
     cursor = cursor[segment]
   }
+  if (!cursor || typeof cursor !== 'object') return null
   return {
     container: cursor,
     key: pathSegments[pathSegments.length - 1],
   }
 }
 
-function applyResumePatch(target, operation = {}) {
+export function applyResumePatch(target, operation = {}) {
   const rawPath = typeof operation.p === 'string' ? operation.p : ''
   const pathSegments = rawPath.split('/').slice(1).filter(Boolean)
 
   if (pathSegments.length === 0) return
+  if (pathSegments.some(isUnsafePatchSegment)) return
 
-  const { container, key } = ensureContainer(target, pathSegments)
+  const resolved = ensureContainer(target, pathSegments)
+  if (!resolved) return
+  const { container, key } = resolved
   const value = operation.v
 
   switch (operation.o) {

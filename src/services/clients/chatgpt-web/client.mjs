@@ -22,6 +22,7 @@ import {
   requiresChatgptWebExtendedThinkingEffort,
 } from './thinking.mjs'
 import {
+  base64ToUint8Array,
   createChatgptWebWebsocketBodyParser,
   createChatgptWebWebsocketRequestController,
 } from './websocket-state.mjs'
@@ -1148,23 +1149,23 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             return
           }
           if (wsData.type !== 'http.response.body') return
-          let body
           try {
-            body = atob(wsData.body)
-            const trimmedBody = body.trim()
-            if (
-              !responseMetaLogged &&
-              trimmedBody &&
-              trimmedBody !== '[DONE]' &&
-              trimmedBody !== 'data: [DONE]'
-            ) {
-              responseMetaLogged = true
-              void appendChatgptWebDebugLog(config, 'wire-response-meta', {
-                transport: 'websocket',
-                responseChunkRawJson: truncateString(body, 16000),
-              })
+            const bodyBytes = base64ToUint8Array(wsData.body)
+            // Text decoding is only needed for the one-shot debug log. The
+            // parser receives bytes so UTF-8 characters split across frames
+            // can be reassembled correctly.
+            if (!responseMetaLogged) {
+              const body = new TextDecoder('utf-8').decode(bodyBytes)
+              const trimmedBody = body.trim()
+              if (trimmedBody && trimmedBody !== '[DONE]' && trimmedBody !== 'data: [DONE]') {
+                responseMetaLogged = true
+                void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+                  transport: 'websocket',
+                  responseChunkRawJson: truncateString(body, 16000),
+                })
+              }
             }
-            getBodyParser(wsData.conversation_id).feed(body)
+            getBodyParser(wsData.conversation_id).feed(bodyBytes)
           } catch (error) {
             console.debug('json error', error)
             requestController.handleSocketClose(error)

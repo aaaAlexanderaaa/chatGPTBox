@@ -9,6 +9,9 @@
 // (Chrome 116+ treats active WebSocket sends as "activity") and accept
 // keepalive pings from the bridge page on the port.
 
+import { isApiBridgeUrlAllowed } from '../utils/api-bridge-url.mjs'
+import { isExtensionPageSender } from './fetch-proxy-service.mjs'
+
 const WS_KEEPALIVE_MS = 20_000
 const BRIDGE_PORT_NAME = 'api-bridge-proxy'
 
@@ -17,6 +20,17 @@ const BRIDGE_PORT_NAME = 'api-bridge-proxy'
 // false otherwise.
 export function handleApiBridgeProxyPort(port) {
   if (port.name !== BRIDGE_PORT_NAME) return false
+
+  // This port opens a WebSocket with extension privileges. Only extension
+  // pages may use it, and connect requests are limited to the local gateway.
+  if (!isExtensionPageSender(port.sender)) {
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
 
   let ws = null
   let keepaliveTimer = null
@@ -59,6 +73,10 @@ export function handleApiBridgeProxyPort(port) {
           /* ignore */
         }
         ws = null
+      }
+      if (!isApiBridgeUrlAllowed(msg.url)) {
+        safePost({ type: 'error', message: 'Bridge target not permitted' })
+        return
       }
       try {
         ws = new WebSocket(msg.url)

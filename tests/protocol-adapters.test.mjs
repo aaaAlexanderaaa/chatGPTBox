@@ -115,7 +115,7 @@ describe('openai-chat adapter', () => {
 })
 
 describe('openai-responses adapter', () => {
-  it('collapses system messages into instructions and wraps user/assistant into input_text', () => {
+  it('collapses system messages and uses role-appropriate text part types', () => {
     const { input, instructions } = convertMessagesToResponsesInput([
       { role: 'system', content: 'be brief' },
       { role: 'system', content: 'and kind' },
@@ -126,7 +126,7 @@ describe('openai-responses adapter', () => {
     expect(instructions).toBe('be brief\n\nand kind')
     expect(input).toEqual([
       { role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
-      { role: 'assistant', content: [{ type: 'input_text', text: 'hello' }] },
+      { role: 'assistant', content: [{ type: 'output_text', text: 'hello' }] },
     ])
   })
 

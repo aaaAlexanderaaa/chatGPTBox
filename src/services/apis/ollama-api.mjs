@@ -16,12 +16,15 @@ export async function generateAnswersWithOllamaApi(port, question, session) {
     question,
     session,
     config.ollamaApiKey,
+    {},
+    // A local Ollama server needs no credentials, so the key stays optional.
+    { requireApiKey: false },
   ).then(() =>
     fetch(config.ollamaEndpoint + '/api/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.ollamaApiKey}`,
+        ...(config.ollamaApiKey && { Authorization: `Bearer ${config.ollamaApiKey}` }),
       },
       body: JSON.stringify({
         model,

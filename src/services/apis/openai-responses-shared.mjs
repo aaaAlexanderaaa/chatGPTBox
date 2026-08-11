@@ -26,9 +26,11 @@ export function convertMessagesToResponsesInput(messages) {
     }
 
     if (role === 'user' || role === 'assistant') {
+      // The Responses API only accepts `output_text` parts on assistant turns;
+      // sending `input_text` there fails every follow-up request with a 400.
       input.push({
         role,
-        content: [{ type: 'input_text', text }],
+        content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }],
       })
     }
   }

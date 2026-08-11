@@ -1,7 +1,13 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { WebSocketServer } from 'ws'
 import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
+import {
+  isBridgeRequestAuthorized as checkBridgeAuth,
+  loadOrCreateBridgeToken,
+} from './lib/bridge-auth.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults
@@ -42,6 +48,21 @@ const DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
   7200,
 )
 
+const BRIDGE_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-bridge-token')
+
+function rejectUnauthorizedBridge(res) {
+  res.writeHead(401, { 'Content-Type': 'application/json' })
+  res.end(
+    JSON.stringify({
+      error: {
+        message:
+          'Bridge authentication required. Paste the gateway bridge token into the extension ApiServer page.',
+        type: 'invalid_request_error',
+      },
+    }),
+  )
+}
+
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(`ChatGPT Web API Gateway
 
@@ -58,6 +79,10 @@ Options:
   --thinking-timeout-seconds <number>
                     Timeout for thinking requests
                     (env: CHATGPT_GATEWAY_THINKING_TIMEOUT_SECONDS, default: 2700)
+  --bridge-token <token>
+                    Shared secret the extension bridge must present
+                    (env: CHATGPT_GATEWAY_BRIDGE_TOKEN; generated and stored in
+                    ~/.chatgptbox/gateway-bridge-token when unset)
   -h, --help        Show this help message
 
 Examples:
@@ -71,6 +96,21 @@ if (Number.isNaN(PORT) || PORT < 1 || PORT > 65535) {
   console.error(`Error: Invalid port "${cliArg('port', process.env.CHATGPT_GATEWAY_PORT)}".`)
   console.error('Port must be a number between 1 and 65535.')
   process.exit(1)
+}
+
+// Resolved after the early exits above: generating a token is a filesystem side
+// effect, and `--help` must not have side effects.
+const {
+  token: BRIDGE_TOKEN,
+  generated: BRIDGE_TOKEN_GENERATED,
+  fromFile: BRIDGE_TOKEN_FROM_FILE,
+} = loadOrCreateBridgeToken({
+  tokenFile: BRIDGE_TOKEN_FILE,
+  configuredToken: cliArg('bridge-token', process.env.CHATGPT_GATEWAY_BRIDGE_TOKEN),
+})
+
+function isBridgeRequestAuthorized(req, url) {
+  return checkBridgeAuth(req, url, BRIDGE_TOKEN)
 }
 
 // ---------------------------------------------------------------------------
@@ -903,7 +943,12 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
 // HTTP polling bridge endpoints
 // ---------------------------------------------------------------------------
 
-function handleBridgePoll(req, res) {
+function handleBridgePoll(req, res, url) {
+  if (!isBridgeRequestAuthorized(req, url)) {
+    rejectUnauthorizedBridge(res)
+    return
+  }
+
   if (bridgeWs && bridgeWs.readyState === 1) {
     res.writeHead(409, { 'Content-Type': 'application/json' })
     res.end(
@@ -945,7 +990,12 @@ function handleBridgePoll(req, res) {
   })
 }
 
-async function handleBridgeRespond(req, res) {
+async function handleBridgeRespond(req, res, url) {
+  if (!isBridgeRequestAuthorized(req, url)) {
+    rejectUnauthorizedBridge(res)
+    return
+  }
+
   let msg
   try {
     msg = JSON.parse(await readBody(req))
@@ -962,7 +1012,12 @@ async function handleBridgeRespond(req, res) {
   res.end(JSON.stringify({ ok: true }))
 }
 
-function handleBridgeDisconnect(res) {
+function handleBridgeDisconnect(req, res, url) {
+  if (!isBridgeRequestAuthorized(req, url)) {
+    rejectUnauthorizedBridge(res)
+    return
+  }
+
   if (httpBridgeActive) {
     httpBridgeActive = false
     log('HTTP polling bridge disconnected (explicit)')
@@ -989,7 +1044,9 @@ function handleBridgeDisconnect(res) {
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  // X-Bridge-Token is listed because the docs offer it as a carrier; without it a
+  // browser preflight blocks the header and only ?token= / Bearer work.
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Bridge-Token')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -1078,9 +1135,9 @@ const server = http.createServer((req, res) => {
       }
     })
   } else if (url.pathname === '/bridge/poll' && req.method === 'GET') {
-    handleBridgePoll(req, res)
+    handleBridgePoll(req, res, url)
   } else if (url.pathname === '/bridge/respond' && req.method === 'POST') {
-    handleBridgeRespond(req, res).catch((err) => {
+    handleBridgeRespond(req, res, url).catch((err) => {
       logError(`Bridge respond error: ${err.message}`)
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -1088,7 +1145,7 @@ const server = http.createServer((req, res) => {
       }
     })
   } else if (url.pathname === '/bridge/disconnect' && req.method === 'POST') {
-    handleBridgeDisconnect(res)
+    handleBridgeDisconnect(req, res, url)
   } else {
     res.writeHead(404, { 'Content-Type': 'application/json' })
     res.end(
@@ -1103,13 +1160,45 @@ const server = http.createServer((req, res) => {
 // WebSocket bridge
 // ---------------------------------------------------------------------------
 
-const wss = new WebSocketServer({ server, path: '/bridge' })
+const wss = new WebSocketServer({ noServer: true })
 
 wss.on('error', () => {
   // Handled by server 'error' listener
 })
 
+// Handled manually rather than with `{ server, path }` so an unauthenticated
+// upgrade is refused before the socket is ever accepted.
+server.on('upgrade', (req, socket, head) => {
+  let url
+  try {
+    url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`)
+  } catch {
+    socket.destroy()
+    return
+  }
+
+  if (url.pathname !== '/bridge') {
+    socket.destroy()
+    return
+  }
+
+  if (!isBridgeRequestAuthorized(req, url)) {
+    logError(
+      `Rejected unauthenticated bridge upgrade from origin "${req.headers.origin || 'none'}"`,
+    )
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req)
+  })
+})
+
 wss.on('connection', (ws) => {
+  // Reaching here means the token check passed, so a replacement can only come
+  // from another authenticated bridge — normally the same page reconnecting.
   if (bridgeWs && bridgeWs.readyState === 1) {
     log('Replacing existing WebSocket bridge connection')
     bridgeWs.close(1000, 'Replaced by new bridge')
@@ -1198,6 +1287,17 @@ server.listen(PORT, HOST, () => {
   log(`Bridge transports:`)
   log(`  WebSocket  ws://${HOST}:${PORT}/bridge`)
   log(`  HTTP poll  GET /bridge/poll + POST /bridge/respond`)
+  log(``)
+  log(`Bridge token${BRIDGE_TOKEN_GENERATED ? ' (generated)' : ''}: ${BRIDGE_TOKEN}`)
+  if (BRIDGE_TOKEN_FROM_FILE) log(`  Stored in ${BRIDGE_TOKEN_FILE}`)
+  log(`  Paste it into the extension's API Server page to pair the bridge.`)
+  if (HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
+    log(``)
+    logError(
+      `Warning: bound to ${HOST}, so this gateway is reachable from other machines. ` +
+        `Only the bridge is authenticated — the completion endpoints are not.`,
+    )
+  }
   log(``)
   log(`Next: Open the extension's API Server page to connect the bridge.`)
 })

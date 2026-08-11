@@ -12,6 +12,7 @@ on:
       - "tests/**"
       - "scripts/**"
       - "build.mjs"
+      - "vitest.config.mjs"
       - "package.json"
       - "package-lock.json"
 
@@ -26,7 +27,8 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - run: npm run test
+      - run: npm run test:agent
       - run: npm run build
 
   audit:

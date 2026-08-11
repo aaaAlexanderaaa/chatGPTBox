@@ -53,13 +53,9 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
           console.debug('json error', error)
           return
         }
-        if (
-          data.choices &&
-          data.choices.length > 0 &&
-          data.choices[0] &&
-          data.choices[0].delta &&
-          'content' in data.choices[0].delta
-        ) {
+        // A `content: null` delta means "no text in this chunk" — appending it
+        // would render the literal "null" in the answer.
+        if (typeof data.choices?.[0]?.delta?.content === 'string') {
           answer += data.choices[0].delta.content
           port.postMessage({ answer: answer, done: false, session: null })
         }

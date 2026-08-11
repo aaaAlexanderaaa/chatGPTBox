@@ -643,9 +643,26 @@ export function handleProxyResponsePort(port) {
   const { uiPort, resolve, reject } = entry
   let settled = false
 
+  // The abort controller for this request lives in the ChatGPT tab, on this
+  // port. Relay the UI's stop request so the proxy route is cancellable.
+  const uiStopListener = (msg) => {
+    if (settled || !msg?.stop) return
+    try {
+      port.postMessage({ stop: true })
+    } catch (e) {
+      console.debug('[background] Failed to forward stop to proxy tab:', e?.message)
+    }
+  }
+  uiPort.onMessage.addListener(uiStopListener)
+
   const settle = (callback, value) => {
     if (settled) return
     settled = true
+    try {
+      uiPort.onMessage.removeListener(uiStopListener)
+    } catch {
+      /* ignore */
+    }
     callback(value)
   }
 
@@ -689,4 +706,3 @@ export function handleProxyResponsePort(port) {
 // Re-exported for diagnostics: summarizeApiMode lives in the background entry
 // but appendChatgptWebDebugLog is the chatgpt-web-specific log sink used by
 // both the proxy service and the provider router.
-

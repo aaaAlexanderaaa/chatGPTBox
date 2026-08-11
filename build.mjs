@@ -312,8 +312,20 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       ],
     },
   })
-  if (isProduction) compiler.run(callback)
-  else compiler.watch({}, callback)
+  if (!isProduction) {
+    compiler.watch({}, callback)
+    return
+  }
+
+  // Awaited so a production build finishes (or fails) before the next pass starts.
+  try {
+    const [err, stats] = await new Promise((resolve) => {
+      compiler.run((runErr, runStats) => resolve([runErr, runStats]))
+    })
+    await callback(err, stats)
+  } finally {
+    await new Promise((resolve) => compiler.close(resolve))
+  }
 }
 
 async function zipFolder(dir) {
@@ -386,6 +398,9 @@ function generateWebpackCallback(finishOutputFunc) {
   return async function webpackCallback(err, stats) {
     if (err || stats.hasErrors()) {
       console.error(err || stats.toString())
+      // A one-shot build must fail the process so CI does not go green on a
+      // bundle that never compiled. Watch mode keeps running and retries.
+      if (isProduction) throw new Error('webpack compilation failed')
       return
     }
     // console.log(stats.toString())
@@ -409,7 +424,6 @@ async function build() {
       true,
       generateWebpackCallback(() => finishOutput('-without-katex-and-tiktoken')),
     )
-    await new Promise((r) => setTimeout(r, 10000))
   }
   await runWebpack(
     false,
@@ -419,4 +433,7 @@ async function build() {
   )
 }
 
-build()
+build().catch((error) => {
+  console.error(error?.message || error)
+  process.exitCode = 1
+})

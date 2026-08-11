@@ -145,15 +145,24 @@ export function registerWebRequestRules() {
           details.url.includes('/public_key') &&
           !details.url.includes(defaultConfig.chatgptArkoseReqParams)
         ) {
+          // requestBody is absent for bodyless requests and for bodies the
+          // browser could not parse; neither should take down the listener.
+          const requestBody = details.requestBody
+          if (!requestBody) return
+
           let formData = new URLSearchParams()
-          for (const k in details.requestBody.formData) {
-            formData.append(k, details.requestBody.formData[k])
+          for (const k in requestBody.formData) {
+            formData.append(k, requestBody.formData[k])
           }
+          const rawBytes = requestBody.raw?.[0]?.bytes
+          const chatgptArkoseReqForm =
+            formData.toString() ||
+            (rawBytes ? new TextDecoder('utf-8').decode(new Uint8Array(rawBytes)) : '')
+          if (!chatgptArkoseReqForm) return
+
           setUserConfig({
             chatgptArkoseReqUrl: details.url,
-            chatgptArkoseReqForm:
-              formData.toString() ||
-              new TextDecoder('utf-8').decode(new Uint8Array(details.requestBody.raw[0].bytes)),
+            chatgptArkoseReqForm,
           }).then(() => {
             console.log('Arkose req url and form saved')
           })

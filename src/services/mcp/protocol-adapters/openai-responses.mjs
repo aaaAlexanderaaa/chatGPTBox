@@ -9,7 +9,7 @@ import { extractAssistantContent } from './_shared.mjs'
 
 // Convert a chat-style messages log into the responses API's
 // { input, instructions } shape. System messages collapse into `instructions`;
-// user/assistant messages become `{role, content:[{type:'input_text', text}]}`.
+// User messages use `input_text`; assistant turns must use `output_text`.
 export function convertMessagesToResponsesInput(messages) {
   const input = []
   let instructions = ''
@@ -27,7 +27,7 @@ export function convertMessagesToResponsesInput(messages) {
     if (role === 'user' || role === 'assistant') {
       input.push({
         role,
-        content: [{ type: 'input_text', text: content }],
+        content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: content }],
       })
     }
   }

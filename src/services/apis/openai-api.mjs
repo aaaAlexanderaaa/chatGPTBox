@@ -188,6 +188,7 @@ export async function generateAnswersWithChatgptApiCompat(
   session,
   apiKey,
   extraBody = {},
+  { requireApiKey = true } = {},
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const cleanupPortListeners = () => {
@@ -264,8 +265,9 @@ export async function generateAnswersWithChatgptApiCompat(
     requestBody.temperature = config.temperature
   }
 
-  // Validate API key with detailed error message
-  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+  // Validate API key with detailed error message. Keyless backends (a local
+  // Ollama server) opt out — for them an empty key is the documented default.
+  if (requireApiKey && (!apiKey || typeof apiKey !== 'string' || !apiKey.trim())) {
     throw new Error(
       'Invalid or empty API key provided. Please check your OpenAI API key configuration.',
     )
@@ -338,7 +340,8 @@ export async function generateAnswersWithChatgptApiCompat(
     signal: controller.signal,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey.trim()}`,
+      ...(typeof apiKey === 'string' &&
+        apiKey.trim() && { Authorization: `Bearer ${apiKey.trim()}` }),
     },
     body: JSON.stringify(requestBody),
     onMessage(message) {
@@ -398,7 +401,10 @@ export async function generateAnswersWithChatgptApiCompat(
         const delta = choice.delta?.content
         const content = choice.message?.content
         const text = choice.text
-        if (delta !== undefined) {
+        // `content: null` is emitted by reasoning-capable backends on their
+        // reasoning-only and finish_reason chunks; concatenating it would put
+        // the literal "null" into the answer.
+        if (typeof delta === 'string') {
           answer += delta
         } else if (content) {
           answer = content

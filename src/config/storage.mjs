@@ -216,6 +216,9 @@ export const defaultConfig = {
   temperature: 1,
   apiServerEnabled: false,
   apiServerPort: 18080,
+  // Shared secret printed by scripts/api-server.mjs on startup; without it the
+  // gateway refuses the bridge connection.
+  apiServerBridgeToken: '',
   apiServerKeepHistory: false,
   apiServerRequestTimeoutSeconds: DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   apiServerThinkingTimeoutSeconds: DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
