@@ -90,6 +90,10 @@ describe('openai-chat adapter', () => {
     expect(extractChatAnswer({ content: [{ text: 'a ' }, { text: 'b' }] })).toBe('a b')
   })
 
+  it('flattens array content with output_text parts', () => {
+    expect(extractChatAnswer({ content: [{ text: 'a ' }, { output_text: 'b' }] })).toBe('a b')
+  })
+
   it('normalizes tool_calls to {id, function:{name, arguments}}', () => {
     const calls = extractChatToolCalls({
       tool_calls: [

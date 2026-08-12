@@ -11,21 +11,16 @@ import { defaultConfig, setUserConfig } from '../config/storage.mjs'
 const DYNAMIC_HEADER_REWRITE_RULE_IDS = [1001, 1002, 1003]
 const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
 
-function addWebRequestListenerWithFallback(
-  event,
-  listener,
-  filter,
-  primaryExtraInfoSpec,
-  fallbackExtraInfoSpec,
-) {
+function addLegacyBlockingWebRequestListener(event, listener, filter) {
+  // Chromium MV3 rejects blocking webRequest listeners for normally installed
+  // extensions. Header rewriting is handled by DNR there; this listener is only
+  // needed by the MV2 build, whose manifest declares webRequestBlocking.
+  if (Browser.runtime.getManifest?.().manifest_version !== 2) return
+
   try {
-    event.addListener(listener, filter, primaryExtraInfoSpec)
+    event.addListener(listener, filter, ['blocking', 'requestHeaders'])
   } catch (error) {
-    try {
-      event.addListener(listener, filter, fallbackExtraInfoSpec)
-    } catch (fallbackError) {
-      console.log(fallbackError)
-    }
+    console.log(error)
   }
 }
 
@@ -179,7 +174,7 @@ export function registerWebRequestRules() {
   }
 
   // Bing Origin/Referer rewrite (MV2 blocking fallback; DNR rule 1001 covers MV3).
-  addWebRequestListenerWithFallback(
+  addLegacyBlockingWebRequestListener(
     Browser.webRequest.onBeforeSendHeaders,
     (details) => {
       if (!isExtensionInitiatedRequest(details)) return
@@ -197,12 +192,10 @@ export function registerWebRequestRules() {
       urls: ['wss://sydney.bing.com/*', 'https://www.bing.com/*'],
       types: ['xmlhttprequest', 'websocket'],
     },
-    ['blocking', 'requestHeaders'],
-    ['requestHeaders'],
   )
 
   // Claude Origin/Referer rewrite (MV2 blocking fallback; DNR rule 1003 covers MV3).
-  addWebRequestListenerWithFallback(
+  addLegacyBlockingWebRequestListener(
     Browser.webRequest.onBeforeSendHeaders,
     (details) => {
       if (!isExtensionInitiatedRequest(details)) return
@@ -220,8 +213,6 @@ export function registerWebRequestRules() {
       urls: ['https://claude.ai/*'],
       types: ['xmlhttprequest'],
     },
-    ['blocking', 'requestHeaders'],
-    ['requestHeaders'],
   )
 
   syncScopedHeaderRewriteRules()

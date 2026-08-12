@@ -16,3 +16,5 @@ settings.local.json
 plan.md
 tasks.csv
 docs/realdata/
+
+.worktrees/

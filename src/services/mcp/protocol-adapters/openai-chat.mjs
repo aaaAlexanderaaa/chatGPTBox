@@ -4,6 +4,8 @@
 // tool-loop calls these instead of inlining chat-specific logic; the transport
 // (postJson), state machine, and memory updates stay in the loop.
 
+import { extractAssistantContent } from './_shared.mjs'
+
 // Chat sends the OpenAI-shaped tool catalog through verbatim — no transform.
 export function buildChatToolCatalog(catalogTools) {
   return Array.isArray(catalogTools) ? catalogTools : []
@@ -16,15 +18,7 @@ export function extractChatMessage(payload) {
 
 // Read the assistant's text answer. Chat carries it in message.content.
 export function extractChatAnswer(message) {
-  if (!message) return ''
-  if (typeof message.content === 'string') return message.content
-  // Some providers return content as an array of parts; flatten to text.
-  if (Array.isArray(message.content)) {
-    return message.content
-      .map((part) => (typeof part === 'string' ? part : part?.text || ''))
-      .join('')
-  }
-  return ''
+  return extractAssistantContent(message)
 }
 
 // Chat carries tool calls as message.tool_calls in OpenAI's canonical shape,

@@ -1,4 +1,3 @@
-import { isInApiModeGroup, modelNameToDesc } from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
 import { ModelMode, ModelStatus } from './constants.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from './limits.mjs'
@@ -654,16 +653,15 @@ export const Models = {
 }
 
 // Multi-mode models (e.g. Bing) get per-mode entries generated at load time.
-// Inlined `isInApiModeGroup(bingWebModelKeys, ...)` rather than calling the
-// `isUsingMultiModeModel` predicate to keep this module free of a predicates
-// import (which would create a config cycle).
+// Keep this initialization self-contained: importing model-name-convert here
+// creates a models -> converter -> models cycle that breaks production chunks.
 for (const modelName in Models) {
-  if (isInApiModeGroup(bingWebModelKeys, { modelName }))
+  if (bingWebModelKeys.includes(modelName))
     for (const mode in ModelMode) {
       const key = `${modelName}-${mode}`
       Models[key] = {
         value: mode,
-        desc: modelNameToDesc(key, t),
+        desc: `${t(Models[modelName].desc)} (${t(ModelMode[mode])})`,
       }
     }
 }

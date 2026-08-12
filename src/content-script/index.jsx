@@ -39,6 +39,7 @@ import {
   registerPortListener,
 } from '../services/wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from '../services/apis/chatgpt-web.mjs'
+import { refreshChatGptWebModelList } from '../services/model-lists.mjs'
 import {
   getChatgptWebConversation,
   listChatgptWebConversations,
@@ -483,7 +484,7 @@ async function handleChatgptProxyControlRequest(action, payload = {}) {
     throw new Error('ChatGPT proxy control requests require an open chatgpt.com tab')
   }
 
-  await ensureChatgptAccessToken()
+  const accessToken = await ensureChatgptAccessToken()
 
   switch (action) {
     case ChatgptProxyControlAction.ListConversations:
@@ -494,6 +495,8 @@ async function handleChatgptProxyControlRequest(action, payload = {}) {
       return await refreshChatgptWebConversation(payload || {})
     case ChatgptProxyControlAction.SyncConversations:
       return await syncChatgptWebConversationCache(payload || {})
+    case ChatgptProxyControlAction.ListModels:
+      return await refreshChatGptWebModelList({ accessToken })
     default:
       throw new Error(`Unsupported proxy control action: ${action}`)
   }

@@ -1,4 +1,5 @@
-import { AlwaysCustomGroups, ModelGroups, ModelMode, Models } from '../config/index.mjs'
+import { ModelMode } from '../config/constants.mjs'
+import { AlwaysCustomGroups, ModelGroups, Models } from '../config/models.mjs'
 
 export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
   if (!t) t = (x) => x

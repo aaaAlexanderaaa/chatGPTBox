@@ -77,14 +77,17 @@ function ConversationCard(props) {
   // Conversation state machine lives in the runtime hook so it can be unit-
   // tested without a browser. We alias its pieces to the local names the rest
   // of this component already uses, to keep the diff mechanical.
-  const { state: runtimeState, actions: runtimeActions } = useConversationRuntime({
+  const {
+    state: runtimeState,
+    setSession,
+    actions: runtimeActions,
+  } = useConversationRuntime({
     initialSession: props.session,
     t,
     hasInitialQuestion: !!props.question,
   })
   const session = runtimeState.session
   const isReady = runtimeState.isReady
-  const setSession = runtimeActions.setSession
   const setIsReady = runtimeActions.setIsReady
   // conversationItemData <-> runtime items (aliased to minimize churn below).
   const conversationItemData = runtimeState.items
