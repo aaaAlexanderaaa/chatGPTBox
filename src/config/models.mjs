@@ -7,6 +7,7 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from './limits.mjs'
 // exported here.
 
 export const chatgptWebModelKeys = [
+  'chatgptWeb56Thinking',
   'chatgptWeb55Thinking',
   'chatgptWeb55Pro',
   'chatgptWeb54Thinking',
@@ -356,6 +357,7 @@ export function getModelMeta(modelName) {
  * @type {Object.<string,Model>}
  */
 export const Models = {
+  chatgptWeb56Thinking: { value: 'gpt-5-6-thinking', desc: 'ChatGPT (Web, GPT-5.6 Thinking)' },
   chatgptWeb55Thinking: { value: 'gpt-5-5-thinking', desc: 'ChatGPT (Web, GPT-5.5 Thinking)' },
   chatgptWeb55Pro: { value: 'gpt-5-5-pro', desc: 'ChatGPT (Web, GPT-5.5 Pro)' },
   chatgptWeb54Thinking: { value: 'gpt-5-4-thinking', desc: 'ChatGPT (Web, GPT-5.4 Thinking)' },

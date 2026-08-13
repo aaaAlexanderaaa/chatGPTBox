@@ -14,7 +14,7 @@ import { PROVIDERS, detectExecutionRoute } from '../src/background/providers/reg
 // so the "first match wins" ordering is unambiguous.
 const SESSION_BY_ROUTE = {
   'custom-api': { modelName: 'customModel' },
-  'chatgpt-web': { modelName: 'chatgptWeb55Thinking' },
+  'chatgpt-web': { modelName: 'chatgptWeb56Thinking' },
   'claude-web': { modelName: 'claude2WebFree' },
   'moonshot-web': { modelName: 'moonshotWebFree' },
   'bing-web': { modelName: 'bingFree4' },

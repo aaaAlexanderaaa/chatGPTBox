@@ -61,7 +61,8 @@ OpenAI-compatible chat completions endpoint.
 
 - Supports `stream: true` and `stream: false`
 - Requires a non-empty `messages` array
-- Defaults to model `gpt-5-5-thinking` if `model` is omitted
+- Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted
+- Accepts `reasoning_effort` or `thinking_effort` per request with `standard`, `extended`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
 - Any model slug is passed through directly to ChatGPT's backend, including `auto` (which enables web search) and new model slugs not yet in the extension's local config
 
 Minimal request:
@@ -70,7 +71,8 @@ Minimal request:
 curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-5-thinking",
+    "model": "gpt-5-6-thinking",
+    "reasoning_effort": "max",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": false
   }'
@@ -82,7 +84,8 @@ Streaming request:
 curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-5-thinking",
+    "model": "gpt-5-6-thinking",
+    "reasoning_effort": "max",
     "messages": [{"role": "user", "content": "Summarize this page"}],
     "stream": true
   }'
@@ -93,6 +96,25 @@ Common errors:
 - `400` invalid JSON or missing `messages`
 - `503` extension bridge is not connected
 - `500` upstream bridge or ChatGPT Web request failed
+
+### Rate limits and resume retries
+
+Before its SSE response opens, the initial conversation request retries network failures and HTTP
+`408`, `409`, `425`, `429`, `502`, and `504` with the policy below. Once SSE has opened, it does not
+re-submit the prompt because its dispatch status is no longer certain; it continues through the
+resume stream or conversation polling instead. If the retry limit is exhausted, the non-streaming
+gateway reports an upstream `500`; after a gateway streaming response has started, it emits an SSE
+error followed by `[DONE]`.
+
+After ChatGPT has returned a real resume token and conversation ID, the resume request can be safely
+continued from its event offset. Both initial-open and resume retries allow up to 12 retries. The
+delay starts from a 300 ms base, multiplies by 1.5, caps at 5 seconds, and applies 50–100% jitter.
+Each resume retry carries the number of already-consumed events as `offset`; a refreshed resume token
+or conversation ID is also used.
+
+History synchronization has a separate safety policy: any HTTP `429` immediately stops that sync,
+clears automatic scheduling, preserves pages already stored, and requires manual unlocking in
+settings before history sync can run again.
 
 ### `GET /v1/models`
 

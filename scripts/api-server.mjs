@@ -118,6 +118,7 @@ function isBridgeRequestAuthorized(req, url) {
 // ---------------------------------------------------------------------------
 
 const AVAILABLE_MODELS = [
+  { id: 'gpt-5-6-thinking', name: 'GPT-5.6 Thinking' },
   { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking' },
   { id: 'gpt-5-5-pro', name: 'GPT-5.5 Pro' },
   { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
@@ -137,7 +138,9 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
 ]
 
-const DEFAULT_MODEL = 'gpt-5-5-thinking'
+const DEFAULT_MODEL = 'gpt-5-6-thinking'
+const DEFAULT_THINKING_EFFORT = 'max'
+const SUPPORTED_THINKING_EFFORTS = new Set(['standard', 'extended', 'max'])
 
 // ---------------------------------------------------------------------------
 // Bridge state (WebSocket + HTTP polling)
@@ -421,6 +424,9 @@ async function handleChatCompletions(req, res) {
   const model = body.model || DEFAULT_MODEL
   const messages = body.messages
   const stream = body.stream === true
+  const requestedThinkingEffort = body.thinking_effort || body.reasoning_effort
+  const thinkingEffort =
+    requestedThinkingEffort || (model === DEFAULT_MODEL ? DEFAULT_THINKING_EFFORT : '')
   const completionId = makeCompletionId()
   const requestTimeoutMs = getRequestTimeoutMs(model)
 
@@ -430,6 +436,19 @@ async function handleChatCompletions(req, res) {
       JSON.stringify({
         error: {
           message: 'messages must be a non-empty array',
+          type: 'invalid_request_error',
+        },
+      }),
+    )
+    return
+  }
+
+  if (thinkingEffort && !SUPPORTED_THINKING_EFFORTS.has(thinkingEffort)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message: 'reasoning_effort/thinking_effort must be one of: standard, extended, max',
           type: 'invalid_request_error',
         },
       }),
@@ -566,7 +585,14 @@ async function handleChatCompletions(req, res) {
       },
     })
 
-    sendToBridge({ type: 'request', id: requestId, model, messages, stream })
+    sendToBridge({
+      type: 'request',
+      id: requestId,
+      model,
+      messages,
+      stream,
+      thinkingEffort,
+    })
   } else {
     try {
       const requestId = crypto.randomUUID()
@@ -611,7 +637,14 @@ async function handleChatCompletions(req, res) {
           },
         })
 
-        sendToBridge({ type: 'request', id: requestId, model, messages, stream })
+        sendToBridge({
+          type: 'request',
+          id: requestId,
+          model,
+          messages,
+          stream,
+          thinkingEffort,
+        })
       })
 
       const response = {

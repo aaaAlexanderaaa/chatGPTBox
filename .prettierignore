@@ -1,4 +1,5 @@
 build/
+resources/
 src/manifest.json
 src/manifest.v2.json
 tmp/

@@ -412,10 +412,11 @@ export async function getUserConfig() {
   }
   config.enableSkills = ENABLE_AGENT_FEATURES && config.enableSkills === true
 
-  const normalizedChatgptWebThinkingEffort =
-    config.chatgptWebThinkingEffort === 'standard'
-      ? 'standard'
-      : CHATGPT_WEB_DEFAULT_THINKING_EFFORT
+  const normalizedChatgptWebThinkingEffort = ['standard', 'max'].includes(
+    config.chatgptWebThinkingEffort,
+  )
+    ? config.chatgptWebThinkingEffort
+    : CHATGPT_WEB_DEFAULT_THINKING_EFFORT
   if (normalizedChatgptWebThinkingEffort !== config.chatgptWebThinkingEffort) {
     config.chatgptWebThinkingEffort = normalizedChatgptWebThinkingEffort
     await Browser.storage.local.set({ chatgptWebThinkingEffort: config.chatgptWebThinkingEffort })

@@ -15,6 +15,7 @@
   "ignorePatterns": [
     "build/**",
     "build.mjs",
+    "resources/**",
     "src/utils/is-mobile.mjs",
     "scripts/api-server.mjs",
     "tmp/**",

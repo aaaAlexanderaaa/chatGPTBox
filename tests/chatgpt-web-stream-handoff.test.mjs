@@ -28,7 +28,7 @@ vi.mock('../src/config/storage.mjs', () => ({
   getUserConfig: vi.fn(async () => ({
     customChatGptWebApiUrl: 'https://chatgpt.com',
     customChatGptWebApiPath: '/backend-api/f/conversation',
-    chatgptWebThinkingEffort: 'extended',
+    chatgptWebThinkingEffort: 'max',
     chatgptWebConversationPollTimeoutSeconds: 30,
     chatgptWebConversationPollIntervalSeconds: 1,
     disableWebModeHistory: true,
@@ -238,7 +238,21 @@ describe('ChatGPT Web request wire', () => {
     expect(headers).not.toHaveProperty('Openai-Sentinel-Arkose-Token')
   })
 
-  it('builds the v1 request body without changing the selected model', () => {
+  it('builds the observed GPT-5.6 max request body', () => {
+    const body = buildChatgptWebConversationRequestBody({
+      question: 'hello',
+      messageId: 'message-1',
+      parentMessageId: 'parent-1',
+      model: 'gpt-5-6-thinking',
+      thinkingEffort: 'max',
+    })
+    expect(body.model).toBe('gpt-5-6-thinking')
+    expect(body.thinking_effort).toBe('max')
+    expect(body.supported_encodings).toEqual(['v1'])
+    expect(body.local_function_names).toEqual(['local.continue_in_work'])
+  })
+
+  it('keeps the legacy extended effort available on the wire', () => {
     const body = buildChatgptWebConversationRequestBody({
       question: 'hello',
       messageId: 'message-1',
@@ -246,9 +260,7 @@ describe('ChatGPT Web request wire', () => {
       model: 'gpt-5-5-thinking',
       thinkingEffort: 'extended',
     })
-    expect(body.model).toBe('gpt-5-5-thinking')
-    expect(body.supported_encodings).toEqual(['v1'])
-    expect(body.local_function_names).toEqual(['local.continue_in_work'])
+    expect(body.thinking_effort).toBe('extended')
   })
 
   it('extracts turnstile tokens from observed response shapes', () => {
@@ -344,17 +356,189 @@ describe('ChatGPT Web resume delta completion', () => {
     expect(result.bestMessage.text).toBe('complete answer')
     expect(snapshots.at(-1).conversation_id).toBe('conv-1')
   })
+
+  it('reconnects a broken resume stream from the consumed event offset', async () => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      const requestBody = JSON.parse(options.body)
+      if (fetchSSE.mock.calls.length === 1) {
+        expect(requestBody).toEqual({ conversation_id: 'conv-1', offset: 0 })
+        options.onEvent({
+          type: 'event',
+          event: 'delta',
+          data: JSON.stringify(finalDelta()),
+        })
+        throw new TypeError('Failed to fetch')
+      }
+
+      expect(requestBody).toEqual({ conversation_id: 'conv-1', offset: 1 })
+      options.onEvent({ type: 'event', event: '', data: '[DONE]' })
+      await options.onEnd()
+    })
+
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+      headers: { 'X-Conduit-Token': 'conduit' },
+      body: { conversation_id: 'conv-1', offset: 0 },
+      fetchSSE,
+      waitForRetry: async () => {},
+    })
+
+    expect(fetchSSE).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({
+      completed: true,
+      offset: 2,
+      retryCount: 1,
+      bestMessage: { text: 'complete answer' },
+    })
+  })
+
+  it('uses a refreshed resume token and conversation id after reconnecting', async () => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      if (fetchSSE.mock.calls.length === 1) {
+        options.onEvent({
+          type: 'event',
+          event: '',
+          data: JSON.stringify({
+            type: 'resume_conversation_token',
+            token: 'new-conduit',
+            conversation_id: 'conv-2',
+          }),
+        })
+        throw new TypeError('Network connection lost')
+      }
+
+      expect(options.headers['X-Conduit-Token']).toBe('new-conduit')
+      expect(JSON.parse(options.body)).toEqual({ conversation_id: 'conv-2', offset: 1 })
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify(finalDelta()),
+      })
+      options.onEvent({ type: 'event', event: '', data: '[DONE]' })
+      await options.onEnd()
+    })
+
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+      headers: { 'X-Conduit-Token': 'old-conduit' },
+      body: { conversation_id: 'conv-1', offset: 0 },
+      fetchSSE,
+      waitForRetry: async () => {},
+    })
+
+    expect(result.completed).toBe(true)
+    expect(fetchSSE).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([408, 409, 425, 429, 502, 504])('retries resume after HTTP %i', async (status) => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      if (fetchSSE.mock.calls.length === 1) {
+        throw new Response('', { status })
+      }
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify(finalDelta()),
+      })
+      options.onEvent({ type: 'event', event: '', data: '[DONE]' })
+      await options.onEnd()
+    })
+
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+      headers: { 'X-Conduit-Token': 'conduit' },
+      body: { conversation_id: 'conv-1', offset: 0 },
+      fetchSSE,
+      waitForRetry: async () => {},
+    })
+
+    expect(fetchSSE).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ completed: true, retryCount: 1 })
+  })
+
+  it('stops after the configured resume retry limit', async () => {
+    const rateLimited = new Response('', { status: 429 })
+    const fetchSSE = vi.fn(async () => {
+      throw rateLimited
+    })
+
+    await expect(
+      consumeChatgptWebResumeDeltaStream({
+        url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+        headers: { 'X-Conduit-Token': 'conduit' },
+        body: { conversation_id: 'conv-1', offset: 0 },
+        fetchSSE,
+        maxRetries: 2,
+        waitForRetry: async () => {},
+      }),
+    ).rejects.toBe(rateLimited)
+    expect(fetchSSE).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe('ChatGPT Web client handoff integration', () => {
-  it('follows token + handoff through resume and completes without polling', async () => {
+  it('retries an initial HTTP 429 before the conversation stream opens', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    Browser.cookies.getAll = vi.fn(async () => [])
+    Browser.cookies.get = vi.fn(async () => null)
+    const messages = []
+    let initialRequestCount = 0
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/backend-api/models')) {
+        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
+      }
+      if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
+        return new Response(JSON.stringify({ token: 'requirements-token' }))
+      }
+      if (url.endsWith('/backend-api/accounts/check/v4-2023-04-27')) {
+        return new Response(JSON.stringify({ accounts: {} }))
+      }
+      if (url.endsWith('/backend-api/f/conversation')) {
+        initialRequestCount += 1
+        if (initialRequestCount === 1) return new Response('', { status: 429 })
+        return sseResponse([
+          `data: ${JSON.stringify({
+            type: 'resume_conversation_token',
+            token: 'conduit-token',
+            conversation_id: 'conv-1',
+          })}\n\n`,
+          `data: ${JSON.stringify(handoff)}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      if (url.endsWith('/backend-api/f/conversation/resume')) {
+        return sseResponse([
+          `event: delta\ndata: ${JSON.stringify(finalDelta())}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(
+      createTestPort(messages),
+      'hello',
+      createSession('gpt-5-6-thinking'),
+      'access-token',
+    )
+
+    expect(initialRequestCount).toBe(2)
+    expect(messages.at(-1)).toMatchObject({ answer: 'complete answer', done: true })
+  })
+
+  it('follows a GPT-5.6 max token + handoff through resume without polling', async () => {
     Browser.cookies.getAll = vi.fn(async () => [])
     Browser.cookies.get = vi.fn(async () => null)
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
       if (url.endsWith('/backend-api/models')) {
-        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-5-thinking' }] }))
+        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
         return new Response(JSON.stringify({ token: 'requirements-token' }))
@@ -389,15 +573,27 @@ describe('ChatGPT Web client handoff integration', () => {
     await generateAnswersWithChatgptWebApi(
       createTestPort(messages),
       'hello',
-      createSession('gpt-5-5-thinking'),
+      createSession('gpt-5-6-thinking'),
       'access-token',
     )
 
+    const initialCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/backend-api/f/conversation'),
+    )
     const resumeCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith('/backend-api/f/conversation/resume'),
     )
+    expect(initialCall).toBeTruthy()
+    expect(JSON.parse(initialCall[1].body)).toMatchObject({
+      model: 'gpt-5-6-thinking',
+      thinking_effort: 'max',
+      supported_encodings: ['v1'],
+      local_function_names: ['local.continue_in_work'],
+    })
+    expect(initialCall[1].credentials).toBe('include')
     expect(resumeCall).toBeTruthy()
     expect(resumeCall[1].headers['X-Conduit-Token']).toBe('conduit-token')
+    expect(resumeCall[1].credentials).toBe('include')
     expect(
       fetchMock.mock.calls.some(([url]) =>
         String(url).endsWith('/backend-api/conversation/conv-1'),
@@ -500,6 +696,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const resumeCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith('/backend-api/f/conversation/resume'),
     )
+    const initialCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/backend-api/f/conversation'),
+    )
+    expect(JSON.parse(initialCall[1].body).thinking_effort).toBe('extended')
     expect(resumeCall).toBeTruthy()
     expect(resumeCall[1].headers['X-Conduit-Token']).toBe('header-conduit-token')
     expect(

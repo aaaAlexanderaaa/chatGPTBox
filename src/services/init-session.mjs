@@ -38,6 +38,7 @@ import { t } from 'i18next'
  * @property {object|null} agentMemory
  * @property {boolean|null} chatgptWebHistoryDisabledOverride
  * @property {boolean|null} chatgptWebIncrementalOutput
+ * @property {string|null} chatgptWebThinkingEffortOverride
  */
 /**
  * @param {string|null} question
@@ -55,6 +56,7 @@ import { t } from 'i18next'
  * @param {object|null} agentMemory
  * @param {boolean|null} chatgptWebHistoryDisabledOverride
  * @param {boolean|null} chatgptWebIncrementalOutput
+ * @param {string|null} chatgptWebThinkingEffortOverride
  * @returns {Session}
  */
 export function initSession({
@@ -73,6 +75,7 @@ export function initSession({
   agentMemory = null,
   chatgptWebHistoryDisabledOverride = null,
   chatgptWebIncrementalOutput = null,
+  chatgptWebThinkingEffortOverride = null,
 } = {}) {
   return {
     // common
@@ -109,6 +112,10 @@ export function initSession({
         : null,
     chatgptWebIncrementalOutput:
       typeof chatgptWebIncrementalOutput === 'boolean' ? chatgptWebIncrementalOutput : null,
+    chatgptWebThinkingEffortOverride:
+      typeof chatgptWebThinkingEffortOverride === 'string'
+        ? chatgptWebThinkingEffortOverride
+        : null,
 
     autoClean,
     isRetry: false,

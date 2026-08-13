@@ -169,7 +169,7 @@ function App() {
 
   const handleRequest = useCallback(
     async (data) => {
-      const { id, model, messages, stream } = data
+      const { id, model, messages, stream, thinkingEffort } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
       const isThinkingRequest = needsChatgptWebThinkingEffort(model)
@@ -199,6 +199,8 @@ function App() {
         apiMode: apiMode || null,
         conversationRecords: [],
         chatgptWebIncrementalOutput: stream === true,
+        chatgptWebThinkingEffortOverride:
+          typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
       })
       session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
       if (continuation) {
@@ -912,7 +914,8 @@ function App() {
           <pre>{`curl http://127.0.0.1:${port}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-5-5-thinking",
+    "model": "gpt-5-6-thinking",
+    "reasoning_effort": "max",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": false
   }'`}</pre>

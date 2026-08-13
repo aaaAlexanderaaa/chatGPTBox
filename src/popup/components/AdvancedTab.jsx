@@ -514,7 +514,7 @@ export function AdvancedTab({
         <SettingRow
           label={t('ChatGPT Web poll interval (s)')}
           hint={t(
-            'How often ChatGPTBox checks the official conversation state while waiting for thinking or extended-thinking results',
+            'How often ChatGPTBox checks the official conversation state while waiting for high-effort thinking results',
           )}
         >
           <input
@@ -804,7 +804,7 @@ export function AdvancedTab({
         <SettingRow
           label={t('Thinking request timeout (s)')}
           hint={t(
-            'How long the local API Server waits before failing thinking or extended-thinking requests',
+            'How long the local API Server waits before failing high-effort thinking requests',
           )}
         >
           <input

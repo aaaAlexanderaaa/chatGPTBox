@@ -24,12 +24,14 @@ import {
 
 describe('chatgpt-web thinking predicates', () => {
   it('flags slugs ending in -thinking', () => {
+    expect(isChatgptWebThinkingModelSlug('gpt-5-6-thinking')).toBe(true)
     expect(isChatgptWebThinkingModelSlug('gpt-5-5-thinking')).toBe(true)
     expect(isChatgptWebThinkingModelSlug('GPT-5-5-THINKING')).toBe(true) // case-insensitive
     expect(isChatgptWebThinkingModelSlug('gpt-5-5-pro')).toBe(false)
   })
 
   it('needsChatgptWebThinkingEffort includes -thinking AND the extra set', () => {
+    expect(needsChatgptWebThinkingEffort('gpt-5-6-thinking')).toBe(true)
     expect(needsChatgptWebThinkingEffort('gpt-5-4-thinking')).toBe(true)
     expect(needsChatgptWebThinkingEffort('gpt-5-5-pro')).toBe(true) // in EXTRA set
     expect(needsChatgptWebThinkingEffort('gpt-5-4')).toBe(false)

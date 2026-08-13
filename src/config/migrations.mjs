@@ -20,7 +20,7 @@ const LegacyChatgptWebModelKeyMap = {
   chatgptPlus4Browsing: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptFree35Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptPlus4Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
-  // Migrate 5.1 Thinking default to the current ChatGPT Web default.
+  // Migrate the legacy 5.1 Thinking default to the current ChatGPT Web default.
   chatgptWeb51Thinking: CHATGPT_WEB_DEFAULT_MODEL_KEY,
 }
 

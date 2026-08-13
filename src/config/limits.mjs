@@ -1,9 +1,9 @@
 // Numeric limits and defaults for chatGPTWeb/API server timeouts, token
 // lengths, and conversation polling. Pure constants — no imports.
 
-export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb55Thinking'
-export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-5-thinking'
-export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'extended'
+export const CHATGPT_WEB_DEFAULT_MODEL_KEY = 'chatgptWeb56Thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-6-thinking'
+export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'max'
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 256000
 export const MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT = 200
