@@ -18,6 +18,12 @@ export function canResumeChatgptWebStreamHandoffViaSse(handoff) {
   return pickChatgptWebResumeSseOption(handoff) != null
 }
 
+export function canFollowChatgptWebTurnViaHttpResume({ conversationId, conduitToken } = {}) {
+  const id = typeof conversationId === 'string' ? conversationId.trim() : ''
+  const token = typeof conduitToken === 'string' ? conduitToken.trim() : ''
+  return Boolean(id && token)
+}
+
 export function extractChatgptWebResumeConversationToken(payload) {
   if (!payload || typeof payload !== 'object' || payload.type !== 'resume_conversation_token') {
     return null
@@ -45,9 +51,7 @@ export function shouldUseChatgptWebLegacyWebsocketDispatch({
   apiPath,
 } = {}) {
   return Boolean(
-    useWebsocket &&
-      isExtendedThinkingRequest &&
-      !isChatgptWebStreamHandoffEndpoint(apiPath),
+    useWebsocket && isExtendedThinkingRequest && !isChatgptWebStreamHandoffEndpoint(apiPath),
   )
 }
 

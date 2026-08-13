@@ -15,6 +15,7 @@ import {
 } from '../src/services/clients/chatgpt-web/request-wire.mjs'
 import {
   applyResumePatch,
+  CHATGPT_WEB_STREAM_MAX_RETRIES,
   consumeChatgptWebResumeDeltaStream,
   createChatgptWebResumeDeltaAccumulator,
 } from '../src/services/clients/chatgpt-web/resume-delta.mjs'
@@ -44,6 +45,13 @@ const handoff = {
     { type: 'resume_sse_endpoint', topic_id: 'topic-1' },
     { type: 'subscribe_ws_topic', topic_id: 'topic-1' },
   ],
+}
+
+const wsOnlyHandoff = {
+  type: 'stream_handoff',
+  conversation_id: 'conv-1',
+  turn_exchange_id: 'turn-1',
+  options: [{ type: 'subscribe_ws_topic', topic_id: 'topic-1' }],
 }
 
 function finalDelta(text = 'complete answer') {
@@ -98,6 +106,57 @@ function createSession(model) {
   }
 }
 
+function assistantMessageDelta(text, extra = {}) {
+  return {
+    c: 0,
+    o: 'add',
+    p: '',
+    v: {
+      message: {
+        id: 'assistant-1',
+        author: { role: 'assistant' },
+        channel: 'final',
+        status: 'in_progress',
+        end_turn: false,
+        content: { content_type: 'text', parts: [text] },
+        ...extra,
+      },
+    },
+  }
+}
+
+function pendingConversationSnapshot(text) {
+  return {
+    conversation_id: 'conv-1',
+    current_node: 'assistant-1',
+    async_status: 'IS_STREAMING',
+    mapping: {
+      root: { id: 'root', parent: null, message: null },
+      'user-1': {
+        id: 'user-1',
+        parent: 'root',
+        message: {
+          id: 'user-1',
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['hello'] },
+        },
+      },
+      'assistant-1': {
+        id: 'assistant-1',
+        parent: 'user-1',
+        message: {
+          id: 'assistant-1',
+          author: { role: 'assistant' },
+          status: 'in_progress',
+          end_turn: false,
+          channel: 'final',
+          content: { content_type: 'text', parts: [text] },
+        },
+      },
+    },
+  }
+}
+
 function completedConversationSnapshot(text) {
   return {
     conversation_id: 'conv-1',
@@ -131,18 +190,14 @@ function completedConversationSnapshot(text) {
 }
 
 describe('ChatGPT Web stream handoff policy', () => {
-  it('only follows an advertised resume SSE option', () => {
+  it('parses an advertised resume SSE option when present', () => {
     expect(pickChatgptWebResumeSseOption(handoff)).toEqual({
       type: 'resume_sse_endpoint',
       topicId: 'topic-1',
     })
     expect(canResumeChatgptWebStreamHandoffViaSse(handoff)).toBe(true)
-    expect(
-      canResumeChatgptWebStreamHandoffViaSse({
-        type: 'stream_handoff',
-        options: [{ type: 'subscribe_ws_topic', topic_id: 'topic-2' }],
-      }),
-    ).toBe(false)
+    expect(canResumeChatgptWebStreamHandoffViaSse(wsOnlyHandoff)).toBe(false)
+    expect(pickChatgptWebResumeSseOption(wsOnlyHandoff)).toBeNull()
   })
 
   it('extracts token and conversation id without inventing either value', () => {
@@ -292,6 +347,30 @@ describe('ChatGPT Web resume delta completion', () => {
     expect({}.polluted).toBeUndefined()
   })
 
+  it('reconstructs compressed delta v1 appends into the full message text', () => {
+    const accumulator = createChatgptWebResumeDeltaAccumulator()
+    accumulator.feedEvent('delta_encoding', 'v1')
+    accumulator.feedEvent('delta', assistantMessageDelta('Hello'))
+    accumulator.feedEvent('delta', {
+      o: 'append',
+      p: '/message/content/parts/0',
+      v: ' world',
+    })
+    accumulator.feedEvent('delta', { v: '!' })
+    expect(accumulator.getResult().bestMessage.text).toBe('Hello world!')
+  })
+
+  it('applies truncate to reconstructed delta v1 text', () => {
+    const accumulator = createChatgptWebResumeDeltaAccumulator()
+    accumulator.feedEvent('delta', assistantMessageDelta('Hello world'))
+    accumulator.feedEvent('delta', {
+      o: 'truncate',
+      p: '/message/content/parts/0',
+      v: 5,
+    })
+    expect(accumulator.getResult().bestMessage.text).toBe('Hello')
+  })
+
   it('does not accept a final-looking message before authoritative completion', () => {
     const accumulator = createChatgptWebResumeDeltaAccumulator()
     accumulator.feedEvent('delta', finalDelta())
@@ -309,26 +388,123 @@ describe('ChatGPT Web resume delta completion', () => {
     expect(accumulator.getResult().completed).toBe(true)
   })
 
-  it('reports premature EOF as incomplete so the caller can poll', async () => {
-    const onMessageSnapshot = vi.fn()
-    const result = await consumeChatgptWebResumeDeltaStream({
-      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
-      headers: { Authorization: 'Bearer token' },
-      body: { conversation_id: 'conv-1', offset: 0 },
-      fetchSSE: async (_url, options) => {
+  it('reconnects resume streams up to 12 times by default', async () => {
+    expect(CHATGPT_WEB_STREAM_MAX_RETRIES).toBe(12)
+    const fetchSSE = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+
+    await expect(
+      consumeChatgptWebResumeDeltaStream({
+        url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+        headers: { 'X-Conduit-Token': 'conduit' },
+        body: { conversation_id: 'conv-1', offset: 0 },
+        fetchSSE,
+        waitForRetry: async () => {},
+      }),
+    ).rejects.toThrow(/Failed to fetch/)
+    expect(fetchSSE).toHaveBeenCalledTimes(13)
+  })
+
+  it('treats a missing [DONE] as a retryable resume error', async () => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify(finalDelta('partial answer')),
+      })
+      await options.onEnd()
+    })
+
+    await expect(
+      consumeChatgptWebResumeDeltaStream({
+        url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+        headers: { Authorization: 'Bearer token' },
+        body: { conversation_id: 'conv-1', offset: 0 },
+        fetchSSE,
+        maxRetries: 0,
+        waitForRetry: async () => {},
+      }),
+    ).rejects.toMatchObject({ code: 'CHATGPT_WEB_STREAM_NO_DONE' })
+    expect(fetchSSE).toHaveBeenCalledOnce()
+  })
+
+  it('reconnects after a missing [DONE] and completes from the consumed offset', async () => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      if (fetchSSE.mock.calls.length === 1) {
         options.onEvent({
           type: 'event',
           event: 'delta',
-          data: JSON.stringify(finalDelta('partial answer')),
+          data: JSON.stringify(finalDelta()),
         })
         await options.onEnd()
-      },
-      onMessageSnapshot,
+        return
+      }
+
+      expect(JSON.parse(options.body)).toEqual({ conversation_id: 'conv-1', offset: 1 })
+      options.onEvent({ type: 'event', event: '', data: '[DONE]' })
+      await options.onEnd()
     })
 
-    expect(result.completed).toBe(false)
-    expect(result.bestMessage.text).toBe('partial answer')
-    expect(onMessageSnapshot).toHaveBeenCalled()
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+      headers: { 'X-Conduit-Token': 'conduit' },
+      body: { conversation_id: 'conv-1', offset: 0 },
+      fetchSSE,
+      maxRetries: 1,
+      waitForRetry: async () => {},
+    })
+
+    expect(fetchSSE).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({
+      completed: true,
+      offset: 1,
+      retryCount: 1,
+    })
+  })
+
+  it('does not count ping, empty, or [DONE] events in the resume offset', async () => {
+    const fetchSSE = vi.fn(async (_url, options) => {
+      options.onEvent({ type: 'event', event: 'ping', data: 'ping' })
+      options.onEvent({ type: 'event', event: '', data: '' })
+      options.onEvent({
+        type: 'event',
+        event: 'delta_encoding',
+        data: 'v1',
+      })
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify(finalDelta('Hello')),
+      })
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify({
+          o: 'append',
+          p: '/message/content/parts/0',
+          v: ' world',
+        }),
+      })
+      options.onEvent({
+        type: 'event',
+        event: 'delta',
+        data: JSON.stringify({ v: '!' }),
+      })
+      options.onEvent({ type: 'event', event: '', data: '[DONE]' })
+      await options.onEnd()
+    })
+
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: 'https://chatgpt.com/backend-api/f/conversation/resume',
+      headers: { 'X-Conduit-Token': 'conduit' },
+      body: { conversation_id: 'conv-1', offset: 0 },
+      fetchSSE,
+    })
+
+    expect(result.completed).toBe(true)
+    expect(result.bestMessage.text).toBe('Hello world!')
+    expect(result.offset).toBe(4)
   })
 
   it('completes the full handoff resume chain after [DONE]', async () => {
@@ -387,7 +563,7 @@ describe('ChatGPT Web resume delta completion', () => {
     expect(fetchSSE).toHaveBeenCalledTimes(2)
     expect(result).toMatchObject({
       completed: true,
-      offset: 2,
+      offset: 1,
       retryCount: 1,
       bestMessage: { text: 'complete answer' },
     })
@@ -751,5 +927,182 @@ describe('ChatGPT Web client handoff integration', () => {
       ),
     ).toBe(false)
     expect(messages.at(-1)).toMatchObject({ answer: 'complete answer', done: true })
+  })
+
+  it('follows subscribe_ws_topic via HTTP resume when a conduit token exists', async () => {
+    Browser.cookies.getAll = vi.fn(async () => [])
+    Browser.cookies.get = vi.fn(async () => null)
+    const messages = []
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/backend-api/models')) {
+        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
+      }
+      if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
+        return new Response(JSON.stringify({ token: 'requirements-token' }))
+      }
+      if (url.endsWith('/backend-api/accounts/check/v4-2023-04-27')) {
+        return new Response(JSON.stringify({ accounts: {} }))
+      }
+      if (url.endsWith('/backend-api/f/conversation')) {
+        return sseResponse([
+          `data: ${JSON.stringify({
+            type: 'resume_conversation_token',
+            token: 'conduit-token',
+            conversation_id: 'conv-1',
+          })}\n\n`,
+          `data: ${JSON.stringify(wsOnlyHandoff)}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      if (url.endsWith('/backend-api/f/conversation/resume')) {
+        return sseResponse([
+          `event: delta\ndata: ${JSON.stringify(finalDelta())}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(
+      createTestPort(messages),
+      'hello',
+      createSession('gpt-5-6-thinking'),
+      'access-token',
+    )
+
+    const resumeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/backend-api/f/conversation/resume'),
+    )
+    expect(resumeCall).toBeTruthy()
+    expect(JSON.parse(resumeCall[1].body)).toEqual({
+      conversation_id: 'conv-1',
+      offset: 0,
+    })
+    expect(resumeCall[1].headers['X-Conduit-Token']).toBe('conduit-token')
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith('/backend-api/conversation/conv-1'),
+      ),
+    ).toBe(false)
+    expect(messages.at(-1)).toMatchObject({ answer: 'complete answer', done: true })
+  })
+
+  it('resumes an interrupted initial stream from the counted SSE offset', async () => {
+    Browser.cookies.getAll = vi.fn(async () => [])
+    Browser.cookies.get = vi.fn(async () => null)
+    const messages = []
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/backend-api/models')) {
+        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
+      }
+      if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
+        return new Response(JSON.stringify({ token: 'requirements-token' }))
+      }
+      if (url.endsWith('/backend-api/accounts/check/v4-2023-04-27')) {
+        return new Response(JSON.stringify({ accounts: {} }))
+      }
+      if (url.endsWith('/backend-api/f/conversation')) {
+        return sseResponse([
+          `data: ${JSON.stringify({
+            type: 'resume_conversation_token',
+            token: 'conduit-token',
+            conversation_id: 'conv-1',
+          })}\n\n`,
+          `data: ${JSON.stringify(handoff)}\n\n`,
+        ])
+      }
+      if (url.endsWith('/backend-api/f/conversation/resume')) {
+        return sseResponse([
+          `event: delta\ndata: ${JSON.stringify(finalDelta())}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(
+      createTestPort(messages),
+      'hello',
+      createSession('gpt-5-6-thinking'),
+      'access-token',
+    )
+
+    const resumeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/backend-api/f/conversation/resume'),
+    )
+    expect(resumeCall).toBeTruthy()
+    expect(JSON.parse(resumeCall[1].body).offset).toBe(2)
+    expect(messages.at(-1)).toMatchObject({ answer: 'complete answer', done: true })
+  })
+
+  it('keeps polling after a failed resume until the conversation snapshot is final', async () => {
+    Browser.cookies.getAll = vi.fn(async () => [])
+    Browser.cookies.get = vi.fn(async () => null)
+    const messages = []
+    let pollCount = 0
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/backend-api/models')) {
+        return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
+      }
+      if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
+        return new Response(JSON.stringify({ token: 'requirements-token' }))
+      }
+      if (url.endsWith('/backend-api/accounts/check/v4-2023-04-27')) {
+        return new Response(JSON.stringify({ accounts: {} }))
+      }
+      if (url.endsWith('/backend-api/f/conversation')) {
+        return sseResponse([
+          `data: ${JSON.stringify({
+            type: 'resume_conversation_token',
+            token: 'conduit-token',
+            conversation_id: 'conv-1',
+          })}\n\n`,
+          `data: ${JSON.stringify(wsOnlyHandoff)}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      if (url.endsWith('/backend-api/f/conversation/resume')) {
+        return new Response('', { status: 403 })
+      }
+      if (url.endsWith('/backend-api/conversation/conv-1')) {
+        pollCount += 1
+        if (pollCount < 3) {
+          return new Response(JSON.stringify(pendingConversationSnapshot('still thinking')), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        return new Response(JSON.stringify(completedConversationSnapshot('polled answer')), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(
+      createTestPort(messages),
+      'hello',
+      createSession('gpt-5-6-thinking'),
+      'access-token',
+    )
+
+    expect(pollCount).toBe(4)
+    expect(messages.at(-1)).toMatchObject({ answer: 'polled answer', done: true })
   })
 })

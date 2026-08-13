@@ -38,6 +38,12 @@ describe('applyResumePatch', () => {
     expect({}.polluted).toBeUndefined()
   })
 
+  it('truncates a string at the pointer', () => {
+    const target = { message: { text: 'Hello world' } }
+    expect(applyResumePatch(target, { p: '/message/text', o: 'truncate', v: 5 })).toBe(true)
+    expect(target.message.text).toBe('Hello')
+  })
+
   it('ignores an empty path', () => {
     const target = { keep: 1 }
     applyResumePatch(target, { p: '', o: 'add', v: 'x' })

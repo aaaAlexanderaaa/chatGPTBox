@@ -6,10 +6,17 @@ import {
 
 const FORBIDDEN_PATCH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
 const STREAM_RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 502, 504])
-// Resume is a recovery read carried over POST. Keep it at-most-once by default;
-// callers may explicitly opt into a bounded reconnect only when they can prove
-// the endpoint and offset contract are safe for their use case.
-export const CHATGPT_WEB_STREAM_MAX_RETRIES = 0
+const DELTA_SHORT_KEYS = [
+  ['channel', 'c'],
+  ['path', 'p'],
+  ['op', 'o'],
+  ['value', 'v'],
+]
+const NUMERIC_PATH_SEGMENT = /^(?:0|[1-9]\d*)$/
+
+// Nested HTTP resume (`kTt`): default MAX_RETRY_COUNT is 12.
+export const CHATGPT_WEB_STREAM_MAX_RETRIES = 12
+export const CHATGPT_WEB_STREAM_NO_DONE = 'CHATGPT_WEB_STREAM_NO_DONE'
 const STREAM_RETRY_MIN_DELAY_MS = 300
 const STREAM_RETRY_MAX_DELAY_MS = 5000
 const STREAM_RETRY_BACKOFF_FACTOR = 1.5
@@ -40,11 +47,26 @@ function waitWithAbort(ms, signal) {
   })
 }
 
+export function isChatgptWebResumeDoneEvent(event) {
+  return event?.type === 'event' && typeof event.data === 'string' && event.data.trim() === '[DONE]'
+}
+
+export function shouldCountChatgptWebResumeOffsetEvent(event) {
+  if (!event || event.type !== 'event') return false
+  if ((event.event || '') === 'ping') return false
+  if (event.data == null || event.data === '') return false
+  if (isChatgptWebResumeDoneEvent(event)) return false
+  return true
+}
+
 export function isRetryableChatgptWebStreamError(error) {
+  if (error?.code === CHATGPT_WEB_STREAM_NO_DONE) return true
   if (STREAM_RETRYABLE_HTTP_STATUSES.has(error?.status)) return true
   if (error?.name === 'AbortError') return false
   if (error instanceof TypeError || error?.name === 'NetworkError') return true
-  return /fetch|network|socket|stream.*(?:closed|disconnect)|terminated/i.test(error?.message || '')
+  return /fetch|network|socket|stream.*(?:closed|disconnect)|terminated|no done event received/i.test(
+    error?.message || '',
+  )
 }
 
 function getStreamRetryDelayMs(retryCount) {
@@ -123,6 +145,16 @@ export function applyResumePatch(target, operation = {}) {
       if (Array.isArray(container) && /^\d+$/.test(key)) container.splice(Number(key), 1)
       else delete container[key]
       return true
+    case 'truncate':
+      if (typeof container[key] === 'string') {
+        container[key] = container[key].substring(0, value)
+        return true
+      }
+      if (Array.isArray(container[key])) {
+        container[key].length = Number(value) || 0
+        return true
+      }
+      return false
     default:
       return false
   }
@@ -130,6 +162,124 @@ export function applyResumePatch(target, operation = {}) {
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function carryForwardDelta(raw, previousLong) {
+  const next = { ...raw }
+  for (const [longName, shortName] of DELTA_SHORT_KEYS) {
+    if (longName === 'value') continue
+    if (!(shortName in raw)) next[shortName] = previousLong[longName]
+  }
+  return next
+}
+
+function expandDeltaKeys(raw) {
+  const next = { ...raw }
+  for (const [longName, shortName] of DELTA_SHORT_KEYS) {
+    if (shortName in raw) {
+      next[longName] = raw[shortName]
+      delete next[shortName]
+    }
+  }
+  if (next.op === 'patch' && Array.isArray(next.value)) {
+    next.value = next.value.map(expandDeltaKeys)
+  }
+  return next
+}
+
+function parseDeltaPath(path) {
+  const segments = ['__root']
+  if (path == null || path === '') return segments
+  let rest = String(path)
+  if (rest.startsWith('/')) rest = rest.slice(1)
+  for (const part of rest.split('/')) {
+    if (FORBIDDEN_PATCH_SEGMENTS.has(part)) {
+      throw new Error('Forbidden delta path segment')
+    }
+    segments.push(
+      NUMERIC_PATH_SEGMENT.test(part) ? parseInt(part, 10) : decodeJsonPointerSegment(part),
+    )
+  }
+  return segments
+}
+
+function applyDeltaOperation(root, operation) {
+  const pathSegments = parseDeltaPath(operation.path ?? '')
+  const key = pathSegments.pop()
+  if (key === undefined) throw new Error('Unexpected empty delta path')
+
+  let cursor = root
+  for (let index = 0; index < pathSegments.length; index += 1) {
+    const segment = pathSegments[index]
+    const nextSegment = pathSegments[index + 1] ?? key
+    if (cursor[segment] === undefined) {
+      cursor[segment] = typeof nextSegment === 'number' ? [] : {}
+    }
+    cursor = cursor[segment]
+    if (!cursor || typeof cursor !== 'object') {
+      throw new Error('Unexpected delta path container')
+    }
+  }
+
+  switch (operation.op) {
+    case 'patch': {
+      if (!Array.isArray(operation.value)) throw new Error('Unknown json delta operation')
+      for (const nested of operation.value) {
+        const wrapper = { __root: cursor[key] }
+        applyDeltaOperation(wrapper, nested)
+        cursor[key] = wrapper.__root
+      }
+      return
+    }
+    case 'add':
+      if (Array.isArray(cursor)) cursor.splice(key, 0, operation.value)
+      else cursor[key] = operation.value
+      return
+    case 'remove':
+      if (Array.isArray(cursor)) cursor.splice(key, 1)
+      else delete cursor[key]
+      return
+    case 'replace':
+      cursor[key] = operation.value
+      return
+    case 'append': {
+      const current = cursor[key]
+      if (typeof current === 'string') cursor[key] = `${current}${operation.value ?? ''}`
+      else if (Array.isArray(current)) {
+        cursor[key].push(...(Array.isArray(operation.value) ? operation.value : [operation.value]))
+      } else if (isPlainObject(current) && isPlainObject(operation.value)) {
+        Object.assign(current, operation.value)
+      } else cursor[key] = operation.value
+      return
+    }
+    case 'truncate':
+      if (typeof cursor[key] === 'string') cursor[key] = cursor[key].substring(0, operation.value)
+      else if (Array.isArray(cursor[key])) cursor[key].length = Number(operation.value) || 0
+      return
+    default:
+      throw new Error('Unknown json delta operation')
+  }
+}
+
+function createChatgptWebDeltaV1Decoder() {
+  let previousDelta = { channel: 0, op: 'add', path: '', value: undefined }
+  const previousValueByChannel = []
+
+  return {
+    applyDelta(raw) {
+      if (!raw || typeof raw !== 'object') throw new Error('Unexpected delta non-object')
+      const decoded = expandDeltaKeys(carryForwardDelta(raw, previousDelta))
+      previousDelta = decoded
+      const root = { __root: cloneJson(previousValueByChannel[decoded.channel]) }
+      applyDeltaOperation(root, decoded)
+      previousValueByChannel[decoded.channel] = root.__root
+      return { channel: decoded.channel, value: root.__root }
+    },
+  }
 }
 
 function summarizeAssistantMessage(entry, order) {
@@ -183,7 +333,7 @@ function pickBestResumeMessage(messages) {
 
 export function createChatgptWebResumeDeltaAccumulator() {
   const entries = new Map()
-  let activeCursor = null
+  const decoder = createChatgptWebDeltaV1Decoder()
   let authoritativeDone = false
   let eventCount = 0
   let title = ''
@@ -195,6 +345,19 @@ export function createChatgptWebResumeDeltaAccumulator() {
   }
 
   function feedEvent(eventName, payload) {
+    if (eventName === 'delta_encoding') {
+      const encoding =
+        typeof payload === 'string'
+          ? payload
+          : payload && typeof payload === 'object'
+          ? payload.encoding || payload.v || payload.value
+          : ''
+      if (encoding && String(encoding).trim() && String(encoding).trim() !== 'v1') {
+        throw new Error(`[delta] unknown delta encoding: ${encoding}`)
+      }
+      return false
+    }
+
     if (!payload || typeof payload !== 'object') return false
     eventCount += 1
 
@@ -214,25 +377,11 @@ export function createChatgptWebResumeDeltaAccumulator() {
     }
 
     if (eventName !== 'delta') return false
-    if (payload.c != null) activeCursor = payload.c
-    const cursor = payload.c != null ? payload.c : activeCursor
-    if (cursor == null) return false
 
-    if (payload.o === 'add' && payload.v && typeof payload.v === 'object') {
-      entries.set(cursor, cloneJson(payload.v))
-      return true
-    }
-    if (!entries.has(cursor) && payload.v?.message) {
-      entries.set(cursor, cloneJson(payload.v))
-      return true
-    }
-    if (!entries.has(cursor) || !Array.isArray(payload.v)) return false
-
-    const entry = entries.get(cursor)
-    return payload.v.reduce(
-      (changed, operation) => applyResumePatch(entry, operation) || changed,
-      false,
-    )
+    const applied = decoder.applyDelta(payload)
+    if (!applied?.value || typeof applied.value !== 'object') return false
+    entries.set(applied.channel, applied.value)
+    return true
   }
 
   function getAssistantMessages() {
@@ -265,6 +414,12 @@ export function createChatgptWebResumeDeltaAccumulator() {
   return { feedEvent, getAssistantMessages, getResult, markAuthoritativeDone }
 }
 
+function createMissingDoneError() {
+  const error = new Error('No done event received')
+  error.code = CHATGPT_WEB_STREAM_NO_DONE
+  return error
+}
+
 export async function consumeChatgptWebResumeDeltaStream({
   url,
   headers,
@@ -284,6 +439,7 @@ export async function consumeChatgptWebResumeDeltaStream({
   let finished = false
 
   while (!finished) {
+    let streamAborted = false
     try {
       await fetchSSE(url, {
         method: 'POST',
@@ -293,7 +449,9 @@ export async function consumeChatgptWebResumeDeltaStream({
         body: JSON.stringify({ ...resumeBody, offset }),
         onMessage() {},
         onStart() {},
-        onEnd() {},
+        onEnd(info) {
+          if (info?.aborted) streamAborted = true
+        },
         onResponse() {},
         onError(error) {
           if (error?.name === 'AbortError') return
@@ -301,14 +459,17 @@ export async function consumeChatgptWebResumeDeltaStream({
         },
         onEvent(event) {
           if (event.type !== 'event') return
-          offset += 1
-          const eventName = event.event || ''
-          if (typeof event.data === 'string' && event.data.trim() === '[DONE]') {
+          if (isChatgptWebResumeDoneEvent(event)) {
             accumulator.markAuthoritativeDone()
             return
           }
-          if (eventName === 'message_stream_complete') {
-            accumulator.markAuthoritativeDone()
+          if (!shouldCountChatgptWebResumeOffsetEvent(event)) return
+          offset += 1
+
+          const eventName = event.event || ''
+          if (eventName === 'delta_encoding') {
+            accumulator.feedEvent('delta_encoding', event.data)
+            return
           }
 
           let payload = null
@@ -344,6 +505,8 @@ export async function consumeChatgptWebResumeDeltaStream({
           })
         },
       })
+      if (streamAborted || signal?.aborted) throw createAbortError()
+      if (!accumulator.getResult().authoritativeDone) throw createMissingDoneError()
       finished = true
     } catch (error) {
       if (retryCount >= maxRetries || !isRetryableChatgptWebStreamError(error)) throw error

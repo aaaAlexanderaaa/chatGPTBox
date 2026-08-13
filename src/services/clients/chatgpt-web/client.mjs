@@ -32,7 +32,7 @@ import {
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
 import {
-  canResumeChatgptWebStreamHandoffViaSse,
+  canFollowChatgptWebTurnViaHttpResume,
   extractChatgptWebResumeConversationToken,
   isChatgptWebStreamHandoffEndpoint,
   isChatgptWebStreamHandoff,
@@ -46,7 +46,11 @@ import {
   extractChatgptWebConduitTokenFromHeaders,
   extractChatgptWebTurnstileToken,
 } from './request-wire.mjs'
-import { consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
+import {
+  consumeChatgptWebResumeDeltaStream,
+  isChatgptWebResumeDoneEvent,
+  shouldCountChatgptWebResumeOffsetEvent,
+} from './resume-delta.mjs'
 
 async function request(token, method, path, data) {
   const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
@@ -761,6 +765,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let resumeConduitToken = ''
   let streamHandoff = null
   let attemptedStreamHandoffResume = false
+  let streamEventOffset = 0
+  let initialStreamAuthoritativeDone = false
 
   const options = {
     method: 'POST',
@@ -905,22 +911,37 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     })
   }
 
+  function noteInitialStreamEvent(event) {
+    if (isChatgptWebResumeDoneEvent(event)) {
+      initialStreamAuthoritativeDone = true
+      return
+    }
+    if (shouldCountChatgptWebResumeOffsetEvent(event)) streamEventOffset += 1
+  }
+
   async function followStreamHandoffViaResume(reason) {
     if (attemptedStreamHandoffResume) return null
-    if (!canResumeChatgptWebStreamHandoffViaSse(streamHandoff)) return null
 
     const conversationId = session.conversationId || streamHandoff?.conversation_id
-    if (!conversationId || !resumeConduitToken) return null
+    if (
+      !canFollowChatgptWebTurnViaHttpResume({
+        conversationId,
+        conduitToken: resumeConduitToken,
+      })
+    ) {
+      return null
+    }
 
     attemptedStreamHandoffResume = true
     const followOption = pickChatgptWebResumeSseOption(streamHandoff)
     void appendChatgptWebDebugLog(config, 'stream-handoff-follow', {
       reason,
       conversationId,
-      followType: followOption?.type || null,
+      followType: followOption?.type || streamHandoff?.options?.[0]?.type || 'http_resume',
       topicId: followOption?.topicId || null,
       hasConduitToken: true,
       transport: 'resume_sse',
+      offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
     })
 
     const resumeHeaders = buildChatgptWebConversationHeaders({
@@ -940,7 +961,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       headers: resumeHeaders,
       body: {
         conversation_id: conversationId,
-        offset: 0,
+        offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
       },
       signal: controller.signal,
       fetchSSE,
@@ -1127,7 +1148,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     finalizationPromise = (async () => {
       try {
         let resumeResult = null
-        if (canResumeChatgptWebStreamHandoffViaSse(streamHandoff)) {
+        const canHttpResume = canFollowChatgptWebTurnViaHttpResume({
+          conversationId: session.conversationId || streamHandoff?.conversation_id,
+          conduitToken: resumeConduitToken,
+        })
+        if (canHttpResume && (streamHandoff || !initialStreamAuthoritativeDone)) {
           try {
             resumeResult = await followStreamHandoffViaResume(reason)
           } catch (error) {
@@ -1155,12 +1180,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             resumeAuthoritativeDone: resumeResult?.authoritativeDone === true,
             resumeCompleted: resumeResult?.completed === true,
           })
-          await pollConversationResult(reason, {
-            // Resume/transport failure recovery is deliberately bounded to one
-            // read-only snapshot. Do not stack a long polling loop behind a
-            // failed resume POST or an ambiguous original dispatch.
-            maxAttempts: streamHandoff || terminalError ? 1 : Number.POSITIVE_INFINITY,
-          })
+          await pollConversationResult(reason)
         } else if (streamHandoff && !session.conversationId) {
           throw (
             terminalError || new Error('ChatGPT stream handoff did not include a conversation id')
@@ -1338,6 +1358,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           promptDispatchCommitted = true
           const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
           if (headerToken) resumeConduitToken = headerToken
+        },
+        onEvent(event) {
+          noteInitialStreamEvent(event)
         },
         onMessage(message) {
           console.debug('sse message', message)

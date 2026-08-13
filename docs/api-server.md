@@ -9,6 +9,9 @@ The gateway has two layers:
 
 Unless you changed the host or port, all examples below use the default local gateway at `http://127.0.0.1:18080`.
 
+ChatGPT Web streaming, resume, and reconnect are documented in
+[`docs/chatgpt-web-stream-resume.md`](./chatgpt-web-stream-resume.md).
+
 ## Startup
 
 1. Open the extension settings.
@@ -117,9 +120,11 @@ Network failures, timeouts, HTTP errors, bridge disconnects, and missing acknowl
 dispatch are reported as `ambiguous_dispatch` with `retryable: false`.
 
 Custom conversation write state is persisted under `~/.chatgptbox/gateway-operations.json`.
-Standard unkeyed requests are not written to that ledger. Resume POST requests are also at-most-once
-by default. After an abnormal resume or transport failure, recovery is limited to one read-only
-conversation snapshot rather than a long stacked polling loop.
+Standard unkeyed requests are not written to that ledger. The initial `/f/conversation` POST is the
+write and stays at-most-once after dispatch. `/f/conversation/resume` is a reconnectable read: the
+gateway may POST it again with an event `offset` (up to 12 times). After resume retries are
+exhausted or resume cannot start, recovery falls back to the existing conversation poll
+timeout/interval.
 
 Once streaming has begun, an error event closes the stream without a success `stop` or `[DONE]`.
 Non-monotonic final snapshots are reported as errors instead of silently returning truncated text.
@@ -320,9 +325,10 @@ Optional JSON body:
 
 - `userMessageId`
 - `assistantMessageId`
-- `offset`
-- `preferResume` (defaults to `false`; enabling it sends one resume POST)
-- `resumeTimeoutMs`
+- `offset` (start offset for the resume POST; the response `resume.offset` is the **consumed** offset)
+- `preferResume` (defaults to `false`; enabling it sends a resume POST when a conduit token is supplied or the conversation is still pending)
+- `conduitToken` (`X-Conduit-Token`; required for HTTP resume)
+- `resumeTimeoutMs` (clamped; thinking turns need much more than 10s)
 - `think`
 
 Example:

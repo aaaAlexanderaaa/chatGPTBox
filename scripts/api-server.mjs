@@ -1115,6 +1115,7 @@ async function handleChatgptConversationRefresh(req, res, conversationId) {
       offset: body.offset,
       preferResume: body.preferResume,
       resumeTimeoutMs: body.resumeTimeoutMs,
+      conduitToken: body.conduitToken,
       think: body.think,
     })
     res.writeHead(200, { 'Content-Type': 'application/json' })

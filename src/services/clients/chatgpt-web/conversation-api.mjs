@@ -39,7 +39,8 @@ import { buildChatgptWebConversationHeaders } from './request-wire.mjs'
 export { applyResumePatch }
 
 const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
-const DEFAULT_RESUME_TIMEOUT_MS = 10_000
+const DEFAULT_RESUME_TIMEOUT_MS = 180_000
+const MAX_RESUME_TIMEOUT_MS = 3_600_000
 const DEFAULT_CONVERSATION_LIST_PAGE_SIZE = 100
 const MAX_CONVERSATION_LIST_PAGES = 200
 let activeConversationCacheSync = null
@@ -775,7 +776,12 @@ export async function resumeChatgptWebConversation({
   }
 
   const normalizedOffset = parsePositiveInt(offset, 0, 0, 1_000_000)
-  const normalizedTimeoutMs = parsePositiveInt(timeoutMs, DEFAULT_RESUME_TIMEOUT_MS, 1000, 60_000)
+  const normalizedTimeoutMs = parsePositiveInt(
+    timeoutMs,
+    DEFAULT_RESUME_TIMEOUT_MS,
+    1000,
+    MAX_RESUME_TIMEOUT_MS,
+  )
   const context = await getChatgptWebRequestContext()
   const controller = new AbortController()
   let timedOut = false
@@ -815,7 +821,7 @@ export async function resumeChatgptWebConversation({
     conversationId: conversationId.trim(),
     fetchedAt: new Date().toISOString(),
     timedOut,
-    offset: normalizedOffset,
+    offset: result.offset,
     eventCount: result.eventCount,
     title: title || null,
     pending: Boolean(bestMessage?.isPending),
@@ -852,6 +858,7 @@ export async function refreshChatgptWebConversation({
   offset = 0,
   preferResume = false,
   resumeTimeoutMs = DEFAULT_RESUME_TIMEOUT_MS,
+  conduitToken = '',
   think = false,
 } = {}) {
   const normalizedConversationId = normalizeConversationId(conversationId)
@@ -866,12 +873,14 @@ export async function refreshChatgptWebConversation({
     think,
   })
 
+  const normalizedConduitToken = typeof conduitToken === 'string' ? conduitToken.trim() : ''
   let resume = null
-  if (preferResume && isPendingChatgptWebConversation(conversation)) {
+  if (preferResume && (normalizedConduitToken || isPendingChatgptWebConversation(conversation))) {
     resume = await resumeChatgptWebConversation({
       conversationId: normalizedConversationId,
       offset,
       timeoutMs: resumeTimeoutMs,
+      conduitToken: normalizedConduitToken,
     }).catch((error) => ({
       conversationId: normalizedConversationId,
       fetchedAt: new Date().toISOString(),
