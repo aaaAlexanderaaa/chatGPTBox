@@ -6,7 +6,10 @@ import {
 
 const FORBIDDEN_PATCH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
 const STREAM_RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 502, 504])
-export const CHATGPT_WEB_STREAM_MAX_RETRIES = 12
+// Resume is a recovery read carried over POST. Keep it at-most-once by default;
+// callers may explicitly opt into a bounded reconnect only when they can prove
+// the endpoint and offset contract are safe for their use case.
+export const CHATGPT_WEB_STREAM_MAX_RETRIES = 0
 const STREAM_RETRY_MIN_DELAY_MS = 300
 const STREAM_RETRY_MAX_DELAY_MS = 5000
 const STREAM_RETRY_BACKOFF_FACTOR = 1.5

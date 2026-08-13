@@ -19,14 +19,18 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
 import { Models, chatgptWebModelKeys } from '../../config/models.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
-import { CHATGPT_PROXY_CONTROL_ACTIONS, RuntimeMessage } from '../../protocol/messages.mjs'
+import { ChatgptProxyControlAction, RuntimeMessage } from '../../protocol/messages.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
 const HEALTH_CHECK_INTERVAL = 15000
 const PORT_KEEPALIVE_MS = 20_000
-const RETRYABLE_CONTROL_ACTIONS = CHATGPT_PROXY_CONTROL_ACTIONS
+const RETRYABLE_CONTROL_ACTIONS = new Set([
+  ChatgptProxyControlAction.ListConversations,
+  ChatgptProxyControlAction.GetConversation,
+  ChatgptProxyControlAction.ListModels,
+])
 
 function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
@@ -202,6 +206,7 @@ function App() {
         chatgptWebThinkingEffortOverride:
           typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
       })
+      session.messageId = typeof data.operationId === 'string' ? data.operationId : null
       session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
       if (continuation) {
         session.conversationId = continuation.conversationId
@@ -299,7 +304,9 @@ function App() {
 
       try {
         const runtimeConfig = await runtimeConfigPromise
-        session.autoClean = runtimeConfig.apiServerKeepHistory !== true
+        // A transport disconnect must never cause a second, hidden PATCH write to
+        // ChatGPT. History behavior is decided on the initial conversation POST.
+        session.autoClean = false
         session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
         bgPort.postMessage({ session })
       } catch (err) {
@@ -342,7 +349,7 @@ function App() {
         })
 
         // Service worker may have been terminated mid-request (MV3), retry once
-        if (response === undefined && canRetry) {
+        if (response == null && canRetry) {
           addLog(`Control ${action}: no response, retrying once...`, 'warn')
           response = await Browser.runtime.sendMessage({
             type: messageType,
@@ -350,7 +357,7 @@ function App() {
           })
         }
 
-        if (response === undefined) {
+        if (response == null) {
           addLog(
             `Control ${action}: background returned no response${canRetry ? ' after retry' : ''}`,
             'error',
@@ -409,8 +416,7 @@ function App() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            preferResume: true,
-            resumeTimeoutMs: 10_000,
+            preferResume: false,
           }),
         },
       )
@@ -942,6 +948,12 @@ function App() {
               paired any site you visit can call them. Run the gateway only while you need it.
             </p>
             <p>
+              <strong>Protocol contract:</strong> Standard OpenAI-compatible requests work without
+              custom headers. Custom conversation-create and follow-up endpoints require an{' '}
+              <code>Idempotency-Key</code>; the Drafts client manages it automatically. The gateway
+              itself never automatically re-submits an uncertain ChatGPT Web write.
+            </p>
+            <p>
               <strong>Status and health:</strong> Visit <code>http://127.0.0.1:{port}/status</code>{' '}
               for a quick bridge check, or <code>http://127.0.0.1:{port}/health</code> for detailed
               diagnostics.
@@ -1079,17 +1091,19 @@ curl "http://127.0.0.1:${port}/chatgpt/conversations?offset=0&limit=100&order=up
 
 curl -X POST http://127.0.0.1:${port}/chatgpt/conversations \\
   -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: $(uuidgen)" \\
   -d '{"query":"start a new thread from this note"}'
 
 curl "http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>?think=true"
 
 curl -X POST http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>/messages \\
   -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: $(uuidgen)" \\
   -d '{"query":"continue from the cached thread","think":true}'
 
 curl -X POST http://127.0.0.1:${port}/chatgpt/conversations/<conversation-id>/refresh \\
   -H "Content-Type: application/json" \\
-  -d '{"preferResume":true,"resumeTimeoutMs":10000,"think":true}'`}</pre>
+  -d '{"preferResume":false,"think":true}'`}</pre>
         </details>
       </section>
 

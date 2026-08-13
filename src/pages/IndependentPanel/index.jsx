@@ -12,7 +12,7 @@ document.documentElement.classList.add('chatgptbox-extension-page')
 getPreferredLanguageKey().then((lang) => {
   changeLanguage(lang)
 })
-Browser.runtime.onMessage.addListener(async (message) => {
+Browser.runtime.onMessage.addListener((message) => {
   if (message.type === RuntimeMessage.ChangeLang) {
     const data = message.data
     changeLanguage(data.lang)

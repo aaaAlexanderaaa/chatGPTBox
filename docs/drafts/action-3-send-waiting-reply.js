@@ -1,6 +1,6 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
-const BASE_URL = 'http://127.0.0.1:18080'
+const BASE_URL = 'http://127.0.0.1:18081'
 // Explicit default for new conversations created by this script.
 const DEFAULT_MODEL = 'gpt-5-4-thinking'
 // Set this to a model slug like 'gpt-5-4-pro' to force all sends to use that model.
@@ -10,13 +10,14 @@ const MODEL_OVERRIDE = null
 const INCLUDE_THINKING = false
 const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
 const WAITING_REPLY_END = '<!-- chatgptbox-waiting-reply:end -->'
+const NEW_OPERATION_RE = /\n?<!-- chatgptbox-new-operation:([^ ]+) -->\s*$/
 
 function fail(message) {
   app.displayErrorMessage(message)
   throw new Error(message)
 }
 
-function requestJson(url, method, body) {
+function requestJson(url, method, body, idempotencyKey) {
   const http = HTTP.create()
   const request = {
     url,
@@ -24,6 +25,7 @@ function requestJson(url, method, body) {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
   }
 
@@ -49,6 +51,41 @@ function requestJson(url, method, body) {
   }
 
   return payload
+}
+
+function makeOperationId() {
+  return (
+    'drafts-' +
+    Date.now().toString(36) +
+    '-' +
+    Math.random().toString(36).slice(2) +
+    Math.random().toString(36).slice(2)
+  )
+}
+
+function prepareNewConversationOperation(content) {
+  const match = content.match(NEW_OPERATION_RE)
+  if (match) {
+    return { query: content.replace(NEW_OPERATION_RE, '').trim(), operationId: match[1] }
+  }
+
+  const operationId = makeOperationId()
+  draft.content = content.trim() + '\n\n<!-- chatgptbox-new-operation:' + operationId + ' -->\n'
+  draft.update()
+  return { query: content.trim(), operationId }
+}
+
+function persistWaitingReplyOperation(content, waitingReply) {
+  if (waitingReply.metadata.operationId) return waitingReply.metadata.operationId
+  const operationId = makeOperationId()
+  const nextMetadata = { ...waitingReply.metadata, operationId }
+  draft.content = content.replace(
+    WAITING_REPLY_START_RE,
+    '<!-- chatgptbox-waiting-reply:start ' + JSON.stringify(nextMetadata) + ' -->',
+  )
+  draft.update()
+  waitingReply.metadata = nextMetadata
+  return operationId
 }
 
 function findWaitingReply(content) {
@@ -205,10 +242,16 @@ try {
       fail('Write the note content first')
     }
 
-    const payload = requestJson(BASE_URL + '/chatgpt/conversations', 'POST', {
-      query: noteContent,
-      model: resolveModel(),
-    })
+    const operation = prepareNewConversationOperation(noteContent)
+    const payload = requestJson(
+      BASE_URL + '/chatgpt/conversations',
+      'POST',
+      {
+        query: operation.query,
+        model: resolveModel(),
+      },
+      operation.operationId,
+    )
     draft.content = renderConversation(
       {
         title: 'Pending Conversation',
@@ -222,7 +265,7 @@ try {
         message: null,
         query: '',
       },
-      noteContent,
+      operation.query,
     )
     draft.update()
     app.displaySuccessMessage('Created conversation ' + payload.conversationId)
@@ -237,7 +280,7 @@ try {
         BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(conversationId) + '/refresh',
         'POST',
         {
-          preferResume: true,
+          preferResume: false,
           resumeTimeoutMs: 10_000,
           think: INCLUDE_THINKING,
         },
@@ -247,6 +290,7 @@ try {
       draft.update()
       app.displaySuccessMessage('Refreshed conversation ' + conversationId)
     } else {
+      const operationId = persistWaitingReplyOperation(draft.content || '', waitingReply)
       const payload = requestJson(
         BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(conversationId) + '/messages',
         'POST',
@@ -255,6 +299,7 @@ try {
           model: resolveModel(waitingReply.metadata.defaultModel),
           think: INCLUDE_THINKING,
         },
+        operationId,
       )
 
       const conversation = payload.conversation || payload

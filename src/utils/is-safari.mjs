@@ -1,3 +1,3 @@
 export function isSafari() {
-  return navigator.vendor === 'Apple Computer, Inc.'
+  return typeof navigator === 'object' && navigator.vendor === 'Apple Computer, Inc.'
 }

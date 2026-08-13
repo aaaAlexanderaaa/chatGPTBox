@@ -8,6 +8,11 @@ import {
   isBridgeRequestAuthorized as checkBridgeAuth,
   loadOrCreateBridgeToken,
 } from './lib/bridge-auth.mjs'
+import {
+  fingerprintOperation,
+  normalizeIdempotencyKey,
+  OperationLedger,
+} from './lib/operation-ledger.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults
@@ -49,6 +54,8 @@ const DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
 )
 
 const BRIDGE_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-bridge-token')
+const OPERATION_LEDGER_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-operations.json')
+const operationLedger = new OperationLedger({ file: OPERATION_LEDGER_FILE })
 
 function rejectUnauthorizedBridge(res) {
   res.writeHead(401, { 'Content-Type': 'application/json' })
@@ -232,6 +239,147 @@ function makeStreamChunk(id, model, delta, finishReason) {
       },
     ],
   }
+}
+
+function getIdempotencyKey(req, body = {}) {
+  return normalizeIdempotencyKey(
+    req.headers['idempotency-key'] ||
+      req.headers['x-idempotency-key'] ||
+      body.idempotency_key ||
+      body.idempotencyKey,
+  )
+}
+
+function beginWriteOperation(req, route, body, { requireIdempotencyKey = false } = {}) {
+  const key = getIdempotencyKey(req, body)
+  if (requireIdempotencyKey && !key) {
+    return {
+      kind: 'missing',
+      error: {
+        error: {
+          message: 'Idempotency-Key is required for ChatGPT conversation write operations.',
+          type: 'invalid_request_error',
+          code: 'idempotency_key_required',
+          retryable: false,
+        },
+      },
+    }
+  }
+  const fingerprintBody = { ...body }
+  delete fingerprintBody.idempotency_key
+  delete fingerprintBody.idempotencyKey
+  return operationLedger.begin({
+    key,
+    fingerprint: fingerprintOperation(route, fingerprintBody),
+  })
+}
+
+function makeAmbiguousDispatchError(record, message) {
+  return {
+    error: {
+      message:
+        message ||
+        'The write may have been accepted by ChatGPT Web. It will not be submitted again automatically.',
+      type: 'server_error',
+      code: 'ambiguous_dispatch',
+      retryable: false,
+      operation_id: record?.operationId || null,
+    },
+  }
+}
+
+function markOperationAmbiguous(record, error) {
+  if (record?.state === 'completed') return
+  try {
+    operationLedger.ambiguous(record, error)
+  } catch (ledgerError) {
+    logError(ledgerError.message)
+  }
+}
+
+function respondForExistingOperation(
+  res,
+  beginResult,
+  { stream = false, completionId, model } = {},
+) {
+  if (beginResult.kind === 'new') return false
+  const { record } = beginResult
+  res.setHeader('X-Operation-Id', record.operationId)
+  if (beginResult.kind === 'conflict') {
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message: 'The Idempotency-Key was already used with a different request.',
+          type: 'invalid_request_error',
+          code: 'idempotency_key_conflict',
+          retryable: false,
+          operation_id: record.operationId,
+        },
+      }),
+    )
+    return true
+  }
+  if (record.state !== 'completed') {
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(makeAmbiguousDispatchError(record, record.error)))
+    return true
+  }
+  if (stream) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Idempotent-Replay': 'true',
+    })
+    const initial = makeStreamChunk(completionId, model, { role: 'assistant', content: '' }, null)
+    const content = makeStreamChunk(
+      completionId,
+      model,
+      { content: typeof record.result === 'string' ? record.result : '' },
+      null,
+    )
+    res.write(`data: ${JSON.stringify(initial)}\n\n`)
+    if (content.choices[0].delta.content) res.write(`data: ${JSON.stringify(content)}\n\n`)
+    res.write(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'stop'))}\n\n`)
+    res.end('data: [DONE]\n\n')
+    return true
+  }
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'X-Idempotent-Replay': 'true',
+  })
+  if (typeof record.result === 'string') {
+    res.end(
+      JSON.stringify({
+        id: completionId,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: record.result },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }),
+    )
+  } else {
+    res.end(JSON.stringify(record.result))
+  }
+  return true
+}
+
+function respondForControlWriteOperation(res, beginResult) {
+  if (beginResult.kind === 'new') return false
+  if (beginResult.kind === 'missing') {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(beginResult.error))
+    return true
+  }
+  return respondForExistingOperation(res, beginResult)
 }
 
 function getRequestTimeoutMs(model) {
@@ -478,6 +626,12 @@ async function handleChatCompletions(req, res) {
   stats.totalRequests++
   log(`Request ${completionId}: model=${model} messages=${messages.length} stream=${stream}`)
 
+  // OpenAI-compatible requests must work without any gateway-specific headers.
+  const operationBegin = beginWriteOperation(req, '/v1/chat/completions', body)
+  if (respondForExistingOperation(res, operationBegin, { stream, completionId, model })) return
+  const operation = operationBegin.record
+  res.setHeader('X-Operation-Id', operation.operationId)
+
   if (stream) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -498,7 +652,7 @@ async function handleChatCompletions(req, res) {
     let previousAnswer = ''
 
     const requestId = crypto.randomUUID()
-    const state = { resolved: false }
+    const state = { resolved: false, clientDisconnected: false, nonMonotonic: false }
 
     function safeWrite(data) {
       if (res.destroyed || res.writableEnded) return false
@@ -533,8 +687,10 @@ async function handleChatCompletions(req, res) {
 
     res.on('close', () => {
       if (!state.resolved) {
-        cleanup()
-        log(`Request ${completionId}: client disconnected`)
+        state.clientDisconnected = true
+        clearInterval(heartbeat)
+        markOperationAmbiguous(operation, new Error('Client disconnected before completion'))
+        log(`Request ${completionId}: client disconnected; awaiting bridge completion`)
       }
     })
 
@@ -542,8 +698,12 @@ async function handleChatCompletions(req, res) {
       if (!state.resolved) {
         cleanup()
         stats.totalErrors++
-        safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'error'))}\n\n`)
-        safeWrite('data: [DONE]\n\n')
+        markOperationAmbiguous(operation, new Error('Gateway request timed out'))
+        safeWrite(
+          `data: ${JSON.stringify(
+            makeAmbiguousDispatchError(operation, 'Gateway request timed out after dispatch'),
+          )}\n\n`,
+        )
         safeEnd()
       }
     }, requestTimeoutMs)
@@ -554,8 +714,9 @@ async function handleChatCompletions(req, res) {
         const nextAnswer = typeof answer === 'string' ? answer : ''
         if (!nextAnswer) return
         if (previousAnswer && !nextAnswer.startsWith(previousAnswer)) {
+          state.nonMonotonic = true
           log(
-            `Request ${completionId}: skipped non-monotonic stream snapshot prev=${previousAnswer.length} next=${nextAnswer.length}`,
+            `Request ${completionId}: rejected non-monotonic stream snapshot prev=${previousAnswer.length} next=${nextAnswer.length}`,
           )
           return
         }
@@ -566,20 +727,32 @@ async function handleChatCompletions(req, res) {
           safeWrite(`data: ${JSON.stringify(chunk)}\n\n`)
         }
       },
-      resolve() {
+      resolve(answer) {
         if (state.resolved) return
+        if (state.nonMonotonic) {
+          this.reject(new Error('ChatGPT returned a non-monotonic final stream snapshot'))
+          return
+        }
+        try {
+          operationLedger.complete(operation, typeof answer === 'string' ? answer : previousAnswer)
+        } catch (error) {
+          this.reject(error)
+          return
+        }
         cleanup()
-        safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'stop'))}\n\n`)
-        safeWrite('data: [DONE]\n\n')
-        safeEnd()
+        if (!state.clientDisconnected) {
+          safeWrite(`data: ${JSON.stringify(makeStreamChunk(completionId, model, {}, 'stop'))}\n\n`)
+          safeWrite('data: [DONE]\n\n')
+          safeEnd()
+        }
         log(`Request ${completionId}: completed (streamed)`)
       },
       reject(err) {
         if (state.resolved) return
         cleanup()
         stats.totalErrors++
-        safeWrite(`data: ${JSON.stringify({ error: { message: err.message } })}\n\n`)
-        safeWrite('data: [DONE]\n\n')
+        markOperationAmbiguous(operation, err)
+        safeWrite(`data: ${JSON.stringify(makeAmbiguousDispatchError(operation, err.message))}\n\n`)
         safeEnd()
         log(`Request ${completionId}: error - ${err.message}`)
       },
@@ -592,12 +765,13 @@ async function handleChatCompletions(req, res) {
       messages,
       stream,
       thinkingEffort,
+      operationId: operation.operationId,
     })
   } else {
     try {
       const requestId = crypto.randomUUID()
       const result = await new Promise((resolve, reject) => {
-        const state = { answer: '', settled: false }
+        const state = { answer: '', settled: false, clientDisconnected: false }
 
         function settle() {
           state.settled = true
@@ -608,6 +782,7 @@ async function handleChatCompletions(req, res) {
         const timeout = setTimeout(() => {
           if (!state.settled) {
             settle()
+            markOperationAmbiguous(operation, new Error('Gateway request timed out'))
             reject(
               new Error(`Request timed out after ${Math.round(requestTimeoutMs / 1000)} seconds`),
             )
@@ -616,8 +791,9 @@ async function handleChatCompletions(req, res) {
 
         res.on('close', () => {
           if (!state.settled) {
-            settle()
-            reject(new Error('Client disconnected'))
+            state.clientDisconnected = true
+            markOperationAmbiguous(operation, new Error('Client disconnected'))
+            log(`Request ${completionId}: client disconnected; awaiting bridge completion`)
           }
         })
 
@@ -644,8 +820,11 @@ async function handleChatCompletions(req, res) {
           messages,
           stream,
           thinkingEffort,
+          operationId: operation.operationId,
         })
       })
+
+      operationLedger.complete(operation, result)
 
       const response = {
         id: completionId,
@@ -666,6 +845,7 @@ async function handleChatCompletions(req, res) {
       log(`Request ${completionId}: completed`)
     } catch (err) {
       stats.totalErrors++
+      markOperationAmbiguous(operation, err)
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
       }
@@ -844,6 +1024,12 @@ async function handleChatgptConversationCreate(req, res) {
   }
 
   const body = await readBodyObject(req)
+  const operationBegin = beginWriteOperation(req, '/chatgpt/conversations', body, {
+    requireIdempotencyKey: true,
+  })
+  if (respondForControlWriteOperation(res, operationBegin)) return
+  const operation = operationBegin.record
+  res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
     const query =
@@ -856,14 +1042,20 @@ async function handleChatgptConversationCreate(req, res) {
       {
         query,
         model: body.model,
+        operationId: operation.operationId,
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (result == null || typeof result?.conversationId !== 'string' || !result.conversationId) {
+      throw new Error('Conversation creation returned no conversation ID')
+    }
+    operationLedger.complete(operation, result)
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
-    res.writeHead(500, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+    markOperationAmbiguous(operation, error)
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
   }
 }
 
@@ -949,6 +1141,13 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
   }
 
   const body = await readBodyObject(req)
+  const route = `/chatgpt/conversations/${conversationId}/messages`
+  const operationBegin = beginWriteOperation(req, route, body, {
+    requireIdempotencyKey: true,
+  })
+  if (respondForControlWriteOperation(res, operationBegin)) return
+  const operation = operationBegin.record
+  res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
     const query =
@@ -963,14 +1162,18 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
         query,
         model: body.model,
         think: body.think === true,
+        operationId: operation.operationId,
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (result == null) throw new Error('Conversation message returned no acknowledgement')
+    operationLedger.complete(operation, result)
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
-    res.writeHead(500, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+    markOperationAmbiguous(operation, error)
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
   }
 }
 
@@ -1081,7 +1284,11 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
   // X-Bridge-Token is listed because the docs offer it as a carrier; without it a
   // browser preflight blocks the header and only ?token= / Bearer work.
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Bridge-Token')
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key',
+  )
+  res.setHeader('Access-Control-Expose-Headers', 'X-Operation-Id, X-Idempotent-Replay')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)

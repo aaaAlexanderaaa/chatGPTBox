@@ -60,6 +60,7 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 OpenAI-compatible chat completions endpoint.
 
 - Supports `stream: true` and `stream: false`
+- Works with standard OpenAI clients without custom headers
 - Requires a non-empty `messages` array
 - Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted
 - Accepts `reasoning_effort` or `thinking_effort` per request with `standard`, `extended`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
@@ -94,23 +95,34 @@ curl http://127.0.0.1:18080/v1/chat/completions \
 Common errors:
 
 - `400` invalid JSON or missing `messages`
+- `409` the write result is uncertain, or the same key was used with a different request
 - `503` extension bridge is not connected
 - `500` upstream bridge or ChatGPT Web request failed
 
-### Rate limits and resume retries
+### At-most-once writes and bounded recovery
 
-Before its SSE response opens, the initial conversation request retries network failures and HTTP
-`408`, `409`, `425`, `429`, `502`, and `504` with the policy below. Once SSE has opened, it does not
-re-submit the prompt because its dispatch status is no longer certain; it continues through the
-resume stream or conversation polling instead. If the retry limit is exhausted, the non-streaming
-gateway reports an upstream `500`; after a gateway streaming response has started, it emits an SSE
-error followed by `[DONE]`.
+The protocol contract is:
 
-After ChatGPT has returned a real resume token and conversation ID, the resume request can be safely
-continued from its event offset. Both initial-open and resume retries allow up to 12 retries. The
-delay starts from a 300 ms base, multiplies by 1.5, caps at 5 seconds, and applies 50–100% jitter.
-Each resume retry carries the number of already-consumed events as `offset`; a refreshed resume token
-or conversation ID is also used.
+- Standard OpenAI-compatible endpoints do not require private headers or fields.
+- The gateway dispatches each inbound write request to ChatGPT Web at most once. It never
+  automatically re-submits that write after a timeout, transport failure, bridge disconnect, or
+  missing acknowledgement.
+- `/chatgpt/conversations*` is a custom protocol. Its conversation-create and follow-up writes
+  require `Idempotency-Key`; the same key and payload return the recorded result or uncertain state
+  without contacting ChatGPT Web again.
+- A separate retry of a standard request is a new request and cannot be safely deduplicated by the
+  gateway. Standard clients should decide explicitly whether to retry an `ambiguous_dispatch` error.
+
+Network failures, timeouts, HTTP errors, bridge disconnects, and missing acknowledgements after
+dispatch are reported as `ambiguous_dispatch` with `retryable: false`.
+
+Custom conversation write state is persisted under `~/.chatgptbox/gateway-operations.json`.
+Standard unkeyed requests are not written to that ledger. Resume POST requests are also at-most-once
+by default. After an abnormal resume or transport failure, recovery is limited to one read-only
+conversation snapshot rather than a long stacked polling loop.
+
+Once streaming has begun, an error event closes the stream without a success `stop` or `[DONE]`.
+Non-monotonic final snapshots are reported as errors instead of silently returning truncated text.
 
 History synchronization has a separate safety policy: any HTTP `429` immediately stops that sync,
 clears automatic scheduling, preserves pages already stored, and requires manual unlocking in
@@ -249,11 +261,15 @@ JSON body:
 - `query` or `message`
 - `model` (optional)
 
+Required header: `Idempotency-Key`. The Drafts client generates and persists this value before it
+sends the request, so retrying the same Drafts action does not create another conversation.
+
 Example:
 
 ```bash
 curl -X POST http://100.104.70.122:18081/chatgpt/conversations \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"Start a new thread from this note"}'
 ```
 
@@ -275,11 +291,15 @@ JSON body:
 - `model` (optional, defaults to the conversation's default model when present)
 - `think` (optional; when true, the refreshed response includes `thinking`)
 
+Required header: `Idempotency-Key`. The Drafts client stores one key in the waiting-reply metadata
+and reuses it if the same send action is retried.
+
 Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/messages \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"continue from the cached thread","think":true}'
 ```
 
@@ -301,7 +321,7 @@ Optional JSON body:
 - `userMessageId`
 - `assistantMessageId`
 - `offset`
-- `preferResume`
+- `preferResume` (defaults to `false`; enabling it sends one resume POST)
 - `resumeTimeoutMs`
 - `think`
 
@@ -310,7 +330,7 @@ Example:
 ```bash
 curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/refresh \
   -H "Content-Type: application/json" \
-  -d '{"preferResume":true,"resumeTimeoutMs":10000,"think":true}'
+  -d '{"preferResume":false,"think":true}'
 ```
 
 The response includes:

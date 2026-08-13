@@ -1,6 +1,7 @@
 // https://stackoverflow.com/questions/11381673/detecting-a-mobile-browser
 
 export function isMobile() {
+  if (typeof navigator !== 'object') return false
   if (navigator.userAgentData) return navigator.userAgentData.mobile
   let check = false
   ;(function (a) {
@@ -13,6 +14,11 @@ export function isMobile() {
       )
     )
       check = true
-  })(navigator.userAgent || navigator.vendor || window.opera)
+  })(
+    navigator.userAgent ||
+      navigator.vendor ||
+      (typeof window === 'object' ? window.opera : '') ||
+      '',
+  )
   return check
 }

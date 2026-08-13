@@ -51,7 +51,7 @@ function OptionsApp() {
     document.body.style.overflow = 'hidden'
     document.documentElement.classList.add('chatgptbox-extension-page')
 
-    const listener = async (message) => {
+    const listener = (message) => {
       if (message.type === RuntimeMessage.ChangeLang) {
         changeLanguage(message.data.lang)
       }

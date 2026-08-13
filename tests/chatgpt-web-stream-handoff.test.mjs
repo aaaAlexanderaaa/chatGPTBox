@@ -380,6 +380,7 @@ describe('ChatGPT Web resume delta completion', () => {
       headers: { 'X-Conduit-Token': 'conduit' },
       body: { conversation_id: 'conv-1', offset: 0 },
       fetchSSE,
+      maxRetries: 1,
       waitForRetry: async () => {},
     })
 
@@ -423,6 +424,7 @@ describe('ChatGPT Web resume delta completion', () => {
       headers: { 'X-Conduit-Token': 'old-conduit' },
       body: { conversation_id: 'conv-1', offset: 0 },
       fetchSSE,
+      maxRetries: 1,
       waitForRetry: async () => {},
     })
 
@@ -449,6 +451,7 @@ describe('ChatGPT Web resume delta completion', () => {
       headers: { 'X-Conduit-Token': 'conduit' },
       body: { conversation_id: 'conv-1', offset: 0 },
       fetchSSE,
+      maxRetries: 1,
       waitForRetry: async () => {},
     })
 
@@ -477,8 +480,7 @@ describe('ChatGPT Web resume delta completion', () => {
 })
 
 describe('ChatGPT Web client handoff integration', () => {
-  it('retries an initial HTTP 429 before the conversation stream opens', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0)
+  it('does not replay the initial conversation POST after HTTP 429', async () => {
     Browser.cookies.getAll = vi.fn(async () => [])
     Browser.cookies.get = vi.fn(async () => null)
     const messages = []
@@ -496,7 +498,46 @@ describe('ChatGPT Web client handoff integration', () => {
       }
       if (url.endsWith('/backend-api/f/conversation')) {
         initialRequestCount += 1
-        if (initialRequestCount === 1) return new Response('', { status: 429 })
+        return new Response('', { status: 429 })
+      }
+      if (url.endsWith('/backend-api/f/conversation/resume')) {
+        return sseResponse([
+          `event: delta\ndata: ${JSON.stringify(finalDelta())}\n\n`,
+          'data: [DONE]\n\n',
+        ])
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await expect(
+      generateAnswersWithChatgptWebApi(
+        createTestPort(messages),
+        'hello',
+        createSession('gpt-5-6-thinking'),
+        'access-token',
+      ),
+    ).rejects.toMatchObject({ code: 'CHATGPT_WEB_AMBIGUOUS_DISPATCH', retryable: false })
+
+    expect(initialRequestCount).toBe(1)
+    expect(messages).not.toContainEqual(expect.objectContaining({ done: true }))
+  })
+
+  it('preserves a caller-provided message id on the initial POST', async () => {
+    Browser.cookies.getAll = vi.fn(async () => [])
+    Browser.cookies.get = vi.fn(async () => null)
+    const messages = []
+    const session = createSession('gpt-5-6-thinking')
+    session.messageId = 'operation-1'
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
+        return new Response(JSON.stringify({ token: 'requirements-token' }))
+      }
+      if (url.endsWith('/backend-api/f/conversation')) {
         return sseResponse([
           `data: ${JSON.stringify({
             type: 'resume_conversation_token',
@@ -523,12 +564,14 @@ describe('ChatGPT Web client handoff integration', () => {
     await generateAnswersWithChatgptWebApi(
       createTestPort(messages),
       'hello',
-      createSession('gpt-5-6-thinking'),
+      session,
       'access-token',
     )
 
-    expect(initialRequestCount).toBe(2)
-    expect(messages.at(-1)).toMatchObject({ answer: 'complete answer', done: true })
+    const initialCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/backend-api/f/conversation'),
+    )
+    expect(JSON.parse(initialCall[1].body).messages[0].id).toBe('operation-1')
   })
 
   it('follows a GPT-5.6 max token + handoff through resume without polling', async () => {

@@ -33,10 +33,7 @@ import {
   isPendingChatgptWebConversation,
   selectChatgptWebRefreshResult,
 } from './conversation-state.mjs'
-import {
-  applyResumePatch,
-  consumeChatgptWebResumeDeltaStream,
-} from './resume-delta.mjs'
+import { applyResumePatch, consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
 import { buildChatgptWebConversationHeaders } from './request-wire.mjs'
 
 export { applyResumePatch }
@@ -853,7 +850,7 @@ export async function refreshChatgptWebConversation({
   userMessageId,
   assistantMessageId,
   offset = 0,
-  preferResume = true,
+  preferResume = false,
   resumeTimeoutMs = DEFAULT_RESUME_TIMEOUT_MS,
   think = false,
 } = {}) {
@@ -907,15 +904,13 @@ export async function sendChatgptWebConversationMessage({
   if (!normalizedConversationId) throw new Error('conversationId is required')
   if (!normalizedQuery) throw new Error('query is required')
 
-  let conversationSnapshot
-  try {
+  const cachedRecord = await getCachedChatgptWebConversationRecord(normalizedConversationId)
+  let conversationSnapshot = cachedRecord?.snapshot || null
+  if (!conversationSnapshot) {
     conversationSnapshot = await cacheChatgptWebConversationSnapshotById(
       normalizedConversationId,
-      'send_preflight_refresh',
+      'send_preflight_cache_miss',
     )
-  } catch {
-    const cachedRecord = await getCachedChatgptWebConversationRecord(normalizedConversationId)
-    conversationSnapshot = cachedRecord?.snapshot || null
   }
 
   if (!conversationSnapshot || typeof conversationSnapshot !== 'object') {
@@ -973,7 +968,7 @@ export async function sendChatgptWebConversationMessage({
 
   const refreshed = await refreshChatgptWebConversation({
     conversationId: normalizedConversationId,
-    preferResume: true,
+    preferResume: false,
     think,
   }).catch(async () => {
     const conversation = await getChatgptWebConversation({

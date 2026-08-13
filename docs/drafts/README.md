@@ -1,6 +1,7 @@
 # Drafts Actions For ChatGPTBox
 
-These Drafts scripts use the default ChatGPTBox API gateway at `http://127.0.0.1:18080`.
+These Drafts scripts are currently configured for the ChatGPTBox API gateway at
+`http://127.0.0.1:18081`.
 
 Before running them:
 
@@ -18,6 +19,11 @@ If you want Drafts notes to include ChatGPT reasoning blocks, set `INCLUDE_THINK
 - `DEFAULT_MODEL = 'gpt-5-4-thinking'` is the script's built-in default for new conversations.
 - `MODEL_OVERRIDE = null` means follow-up replies keep using the conversation's stored default model when one exists.
 - Set `MODEL_OVERRIDE = 'gpt-5-4-pro'` when you want this Drafts action to force GPT-5.4 Pro for both new conversations and follow-up replies.
+
+The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
+writes a generated operation ID into the draft before sending a new-conversation or follow-up
+request, then reuses that ID if the action is retried after an uncertain result. No manual header or
+ID setup is required in Drafts.
 
 Files:
 

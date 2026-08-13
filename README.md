@@ -223,6 +223,8 @@ ChatGPTBox includes a local OpenAI-compatible gateway that proxies ChatGPT Web t
 - Keep the API Server page open while using the gateway.
 - Make sure you are logged in at [chatgpt.com](https://chatgpt.com).
 - Send requests to `http://127.0.0.1:18080/v1/chat/completions` by default.
+- Standard OpenAI clients work without custom headers. The gateway does not automatically replay a
+  ChatGPT Web write when its result is uncertain.
 
 If you need to open the page manually, you can also run this from the extension service worker console:
 
@@ -262,6 +264,7 @@ Conversation API notes:
 - Full list syncs save each page immediately and do not pre-download every conversation body. Automatic sync is off by default and, when enabled, fetches only the newest 100 conversations per run.
 - Automatic and bulk history requests use the configured RPM limit. An HTTP 429 stops automatic history activity and remains locked until the user reviews the settings and unlocks it.
 - `GET /chatgpt/conversations/:id` returns a normalized conversation snapshot. Add `think=true` to include reasoning-related nodes and `force_refresh=true` to fetch a fresh snapshot immediately.
+- `POST /chatgpt/conversations` and `POST /chatgpt/conversations/:id/messages` are custom APIs and require an `Idempotency-Key`; the provided Drafts write client generates, persists, and reuses it automatically.
 - `POST /chatgpt/conversations/:id/messages` sends a follow-up into an existing ChatGPT conversation, then refreshes the snapshot.
 - `POST /chatgpt/conversations/:id/refresh` refreshes a conversation and can optionally resume pending assistant output.
 

@@ -451,16 +451,13 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
   if (!conversationId) throw new Error('conversationId is required')
   if (!query) throw new Error('query is required')
 
-  const messageId = crypto.randomUUID()
+  const messageId =
+    typeof payload.operationId === 'string' && payload.operationId.trim()
+      ? payload.operationId.trim()
+      : crypto.randomUUID()
   const createdAt = new Date().toISOString()
 
-  let conversation = await getChatgptWebConversationWithFallback({
-    conversationId,
-    forceRefresh: true,
-  }).catch(() => null)
-  if (!conversation) {
-    conversation = await getChatgptWebConversationWithFallback({ conversationId })
-  }
+  const conversation = await getChatgptWebConversationWithFallback({ conversationId })
   if (!conversation?.currentNode) {
     throw new Error('Conversation current node is required before sending a follow-up')
   }
@@ -564,6 +561,10 @@ export async function createChatgptWebConversation(payload = {}) {
     chatgptWebHistoryDisabledOverride: false,
     chatgptWebIncrementalOutput: false,
   })
+  session.messageId =
+    typeof payload.operationId === 'string' && payload.operationId.trim()
+      ? payload.operationId.trim()
+      : crypto.randomUUID()
   session.chatgptWebModelSlugOverride = model || undefined
 
   return await new Promise((resolveOriginal, rejectOriginal) => {

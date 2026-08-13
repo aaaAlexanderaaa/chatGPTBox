@@ -46,12 +46,7 @@ import {
   extractChatgptWebConduitTokenFromHeaders,
   extractChatgptWebTurnstileToken,
 } from './request-wire.mjs'
-import {
-  CHATGPT_WEB_STREAM_MAX_RETRIES,
-  consumeChatgptWebResumeDeltaStream,
-  isRetryableChatgptWebStreamError,
-  waitForChatgptWebStreamRetry,
-} from './resume-delta.mjs'
+import { consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
 
 async function request(token, method, path, data) {
   const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
@@ -610,46 +605,46 @@ export async function registerWebsocket(accessToken) {
  * @param {string} accessToken
  */
 export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
-  const { controller, cleanController } = setAbortController(
-    port,
-    () => {
-      if (session.wsRequestId)
-        stopWebsocketConversation(accessToken, session.conversationId, session.wsRequestId)
-    },
-    () => {
-      if (session.autoClean) deleteConversation(accessToken, session.conversationId)
-    },
-  )
+  const { controller, cleanController } = setAbortController(port, () => {
+    if (session.wsRequestId)
+      stopWebsocketConversation(accessToken, session.conversationId, session.wsRequestId)
+  })
+  let promptDispatchStarted = false
   let promptDispatchCommitted = false
   let lastEmittedSessionSignature = ''
 
   function markReplayUnsafe(error) {
     if (
-      (promptDispatchCommitted || session.conversationId || lastAssistantMessageId) &&
+      (promptDispatchStarted ||
+        promptDispatchCommitted ||
+        session.conversationId ||
+        lastAssistantMessageId) &&
       error &&
       typeof error === 'object'
     ) {
       error.chatgptWebRequestReplayUnsafe = true
+      error.code = error.code || 'CHATGPT_WEB_AMBIGUOUS_DISPATCH'
+      error.retryable = false
     }
     return error
   }
 
   const config = await getUserConfig()
-  let arkoseError
-  const [models, requirements, arkoseToken, accountContext] = await Promise.all([
-    getModels(accessToken).catch(() => undefined),
+  const apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
+  const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
+  const [models, requirements, accountContext] = await Promise.all([
+    session.chatgptWebModelSlugOverride
+      ? Promise.resolve(undefined)
+      : getModels(accessToken).catch(() => undefined),
     getRequirements(accessToken).catch(() => undefined),
-    getArkoseToken(config).catch((e) => {
-      arkoseError = e
-    }),
-    getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
+    usesStreamHandoffEndpoint
+      ? Promise.resolve({ sharedWebsocket: false })
+      : getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
   ])
   let useWebsocket = accountContext?.sharedWebsocket === true
   // The accounts listing does not reliably identify the account selected in
   // the ChatGPT tab. Only reuse an account id observed from a real page request.
   const effectiveAccountId = config.chatgptAccountId || ''
-  const apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
-  const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
   console.debug('models', models)
   let usedModel
   let modelDecision
@@ -696,7 +691,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   })
   console.debug('usedModel', usedModel)
   const needArkoseToken = requirements && requirements.arkose?.required
-  if (arkoseError && needArkoseToken) throw arkoseError
+  let arkoseToken
+  if (needArkoseToken) arkoseToken = await getArkoseToken(config)
 
   let proofToken
   if (requirements?.proofofwork?.required) {
@@ -724,8 +720,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     oaiDeviceId = oaiCookie?.value
   }
 
-  session.messageId = uuidv4()
-  session.wsRequestId = uuidv4()
+  session.messageId ||= uuidv4()
+  session.wsRequestId ||= uuidv4()
   if (session.parentMessageId == null) {
     session.parentMessageId = 'client-created-root'
   }
@@ -1014,7 +1010,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     return response.json()
   }
 
-  async function pollConversationResult(reason) {
+  async function pollConversationResult(reason, { maxAttempts = Number.POSITIVE_INFINITY } = {}) {
     const startedAt = Date.now()
     let attempts = 0
     let lastObservedSignature = ''
@@ -1108,6 +1104,13 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         consecutiveFinalPolls = 0
       }
 
+      if (attempts >= maxAttempts) {
+        const error = new Error('ChatGPT conversation is still pending after one recovery check')
+        error.code = 'CHATGPT_WEB_RECOVERY_PENDING'
+        error.retryable = false
+        throw error
+      }
+
       await waitWithAbort(conversationPollIntervalMs, controller.signal)
     }
 
@@ -1152,7 +1155,12 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             resumeAuthoritativeDone: resumeResult?.authoritativeDone === true,
             resumeCompleted: resumeResult?.completed === true,
           })
-          await pollConversationResult(reason)
+          await pollConversationResult(reason, {
+            // Resume/transport failure recovery is deliberately bounded to one
+            // read-only snapshot. Do not stack a long polling loop behind a
+            // failed resume POST or an ambiguous original dispatch.
+            maxAttempts: streamHandoff || terminalError ? 1 : Number.POSITIVE_INFINITY,
+          })
         } else if (streamHandoff && !session.conversationId) {
           throw (
             terminalError || new Error('ChatGPT stream handoff did not include a conversation id')
@@ -1172,6 +1180,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   if (useDispatchOnlyConversationObserver) {
     try {
+      promptDispatchStarted = true
       const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
       promptDispatchCommitted = true
       session.conversationId = conversationId || session.conversationId
@@ -1321,107 +1330,75 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       })()
     })
   } else {
-    let initialStreamOpened = false
-    let initialStreamRetryCount = 0
-    let initialStreamFinished = false
-
-    while (!initialStreamFinished) {
-      initialStreamOpened = false
-      try {
-        await fetchSSE(url, {
-          ...options,
-          async onResponse(resp) {
-            initialStreamOpened = true
-            promptDispatchCommitted = true
-            const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
-            if (headerToken) resumeConduitToken = headerToken
-          },
-          onMessage(message) {
-            console.debug('sse message', message)
-            if (message.trim() === '[DONE]') {
-              return
-            }
-            if (!responseMetaLogged) {
-              responseMetaLogged = true
-              void appendChatgptWebDebugLog(config, 'wire-response-meta', {
-                transport: 'sse',
-                responseChunkRawJson: truncateString(message, 16000),
-              })
-            }
-            let data
-            try {
-              data = JSON.parse(message)
-            } catch (error) {
-              console.debug('json error', error)
-              return
-            }
-            try {
-              handleMessage(data)
-            } catch (error) {
-              void finalizeMessage('sse_message_error', markReplayUnsafe(error))
-            }
-          },
-          async onStart() {
-            initialStreamOpened = true
-            promptDispatchCommitted = true
-            // sendModerations(accessToken, question, session.conversationId, session.messageId)
-          },
-          async onEnd() {
-            await finalizeMessage('sse_end')
-          },
-          async onError(resp) {
-            if (
-              !initialStreamOpened &&
-              initialStreamRetryCount < CHATGPT_WEB_STREAM_MAX_RETRIES &&
-              isRetryableChatgptWebStreamError(resp)
-            ) {
-              throw resp
-            }
-            if (resp instanceof Error) {
-              await finalizeMessage('sse_error', markReplayUnsafe(resp))
-              return
-            }
-            const debugErrorText = await resp
-              .clone()
-              .text()
-              .catch(() => '')
-            void appendChatgptWebDebugLog(config, 'sse-error', {
-              status: resp.status,
-              statusText: resp.statusText,
-              body: truncateString(debugErrorText, 4000),
+    promptDispatchStarted = true
+    try {
+      await fetchSSE(url, {
+        ...options,
+        async onResponse(resp) {
+          promptDispatchCommitted = true
+          const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
+          if (headerToken) resumeConduitToken = headerToken
+        },
+        onMessage(message) {
+          console.debug('sse message', message)
+          if (message.trim() === '[DONE]') return
+          if (!responseMetaLogged) {
+            responseMetaLogged = true
+            void appendChatgptWebDebugLog(config, 'wire-response-meta', {
+              transport: 'sse',
+              responseChunkRawJson: truncateString(message, 16000),
             })
-            if (resp.status === 403) {
-              await finalizeMessage('sse_error', markReplayUnsafe(new Error('CLOUDFLARE')))
-              return
-            }
-            const error = await resp.json().catch(() => ({}))
-            await finalizeMessage(
-              'sse_error',
-              markReplayUnsafe(
-                new Error(
-                  !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
-                ),
+          }
+          let data
+          try {
+            data = JSON.parse(message)
+          } catch (error) {
+            console.debug('json error', error)
+            return
+          }
+          try {
+            handleMessage(data)
+          } catch (error) {
+            void finalizeMessage('sse_message_error', markReplayUnsafe(error))
+          }
+        },
+        async onStart() {
+          promptDispatchCommitted = true
+        },
+        async onEnd() {
+          await finalizeMessage('sse_end')
+        },
+        async onError(resp) {
+          if (resp instanceof Error) {
+            await finalizeMessage('sse_error', markReplayUnsafe(resp))
+            return
+          }
+          const debugErrorText = await resp
+            .clone()
+            .text()
+            .catch(() => '')
+          void appendChatgptWebDebugLog(config, 'sse-error', {
+            status: resp.status,
+            statusText: resp.statusText,
+            body: truncateString(debugErrorText, 4000),
+          })
+          if (resp.status === 403) {
+            await finalizeMessage('sse_error', markReplayUnsafe(new Error('CLOUDFLARE')))
+            return
+          }
+          const error = await resp.json().catch(() => ({}))
+          await finalizeMessage(
+            'sse_error',
+            markReplayUnsafe(
+              new Error(
+                !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
               ),
-            )
-          },
-        })
-        initialStreamFinished = true
-      } catch (error) {
-        if (
-          initialStreamOpened ||
-          initialStreamRetryCount >= CHATGPT_WEB_STREAM_MAX_RETRIES ||
-          !isRetryableChatgptWebStreamError(error)
-        ) {
-          throw error
-        }
-        initialStreamRetryCount += 1
-        void appendChatgptWebDebugLog(config, 'initial-stream-retry', {
-          retryCount: initialStreamRetryCount,
-          status: error?.status || null,
-          error: error?.message || String(error),
-        })
-        await waitForChatgptWebStreamRetry(initialStreamRetryCount, controller.signal)
-      }
+            ),
+          )
+        },
+      })
+    } catch (error) {
+      throw markReplayUnsafe(error)
     }
   }
 

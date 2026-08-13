@@ -114,7 +114,10 @@ const defaultBuiltInAssistants = ENABLE_AGENT_FEATURES
   : []
 
 export function getNavigatorLanguage() {
-  const l = navigator.language.toLowerCase()
+  const l =
+    typeof navigator === 'object' && typeof navigator.language === 'string'
+      ? navigator.language.toLowerCase()
+      : 'en'
   if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
   return l.substring(0, 2)
 }
