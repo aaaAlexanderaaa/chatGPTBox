@@ -8,6 +8,7 @@ Before running them:
 2. Turn on `Enable API Server Bridge`.
 3. Start the local gateway with `npm run api-server`.
 4. Keep the bridge page open and stay logged in at `https://chatgpt.com`.
+5. Enable ChatGPT history synchronization in Advanced settings and choose a conservative RPM before action 1 performs its full list sync.
 
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
 If you want Drafts notes to include ChatGPT reasoning blocks, set `INCLUDE_THINKING = true` in

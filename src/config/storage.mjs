@@ -17,14 +17,11 @@ import {
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
 } from './limits.mjs'
-import {
-  DefaultActiveModelKeysByGroup,
-  DefaultEnabledProviderGroups,
-  Models,
-} from './models.mjs'
+import { DefaultActiveModelKeysByGroup, DefaultEnabledProviderGroups, Models } from './models.mjs'
 import {
   AgentDefaultsMigrationVersion,
   migrateArrayField,
@@ -227,7 +224,12 @@ export const defaultConfig = {
   chatgptWebThinkingEffort: CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   chatgptWebConversationPollTimeoutSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   chatgptWebConversationPollIntervalSeconds: DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  chatgptWebConversationSyncIntervalMinutes: DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  chatgptWebHistorySyncEnabled: false,
+  chatgptWebHistoryAutoSyncMode: 'off',
+  chatgptWebHistorySyncRpm: DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
+  chatgptWebHistorySyncIntervalHours: DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  chatgptWebHistorySyncArchived: false,
+  chatgptWebHistorySyncOnlyWhenIdle: true,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
@@ -299,6 +301,8 @@ export const defaultConfig = {
   chatgptTabId: 0,
   chatgptArkoseReqUrl: '',
   chatgptArkoseReqForm: '',
+  // Observed from chatgpt.com requests for Team/Enterprise account scoping.
+  chatgptAccountId: '',
   kimiMoonShotRefreshToken: '',
   kimiMoonShotAccessToken: '',
 
@@ -399,6 +403,13 @@ export async function getUserConfig() {
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
   config.apiServerEnabled = config.apiServerEnabled === true
   config.apiServerKeepHistory = config.apiServerKeepHistory === true
+  config.chatgptWebHistorySyncEnabled = config.chatgptWebHistorySyncEnabled === true
+  config.chatgptWebHistorySyncArchived = config.chatgptWebHistorySyncArchived === true
+  config.chatgptWebHistorySyncOnlyWhenIdle = config.chatgptWebHistorySyncOnlyWhenIdle !== false
+  if (!['off', 'adaptive', 'fixed'].includes(config.chatgptWebHistoryAutoSyncMode)) {
+    config.chatgptWebHistoryAutoSyncMode = 'off'
+    await Browser.storage.local.set({ chatgptWebHistoryAutoSyncMode: 'off' })
+  }
   config.enableSkills = ENABLE_AGENT_FEATURES && config.enableSkills === true
 
   const normalizedChatgptWebThinkingEffort =

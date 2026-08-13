@@ -21,6 +21,8 @@ import {
   sendChatgptWebConversationMessageThroughProxy,
   createChatgptWebConversation,
   syncChatgptWebConversationCacheWithFallback,
+  stopChatgptWebConversationCacheSyncWithFallback,
+  unlockChatgptWebConversationSyncWithFallback,
   listChatgptWebConversationsWithFallback,
   listChatgptWebModelsWithFallback,
   getChatgptWebConversationWithFallback,
@@ -191,9 +193,16 @@ export function createMessageRouter() {
         return await createChatgptWebConversation(message.data || {})
       case RuntimeMessage.ChatgptWebSyncConversations:
         return await syncChatgptWebConversationCacheWithFallback({
-          force: message?.data?.force === true,
           includeArchived: message?.data?.includeArchived === true,
+          mode: message?.data?.mode === 'incremental' ? 'incremental' : 'full',
+          automatic: message?.data?.automatic === true,
+          reason: message?.data?.reason || 'manual',
+          resume: message?.data?.resume === true,
         })
+      case RuntimeMessage.ChatgptWebStopConversationSync:
+        return await stopChatgptWebConversationCacheSyncWithFallback()
+      case RuntimeMessage.ChatgptWebUnlockConversationSync:
+        return await unlockChatgptWebConversationSyncWithFallback()
       case RuntimeMessage.ChatgptWebListModels:
         return await listChatgptWebModelsWithFallback()
       default:

@@ -61,6 +61,8 @@ export const RuntimeMessage = {
   ChatgptWebSendConversationMessage: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
   ChatgptWebCreateConversation: 'CHATGPT_WEB_CREATE_CONVERSATION',
   ChatgptWebSyncConversations: 'CHATGPT_WEB_SYNC_CONVERSATIONS',
+  ChatgptWebStopConversationSync: 'CHATGPT_WEB_STOP_CONVERSATION_SYNC',
+  ChatgptWebUnlockConversationSync: 'CHATGPT_WEB_UNLOCK_CONVERSATION_SYNC',
   ChatgptWebListModels: 'CHATGPT_WEB_LIST_MODELS',
 
   // API bridge diagnose (ApiServer page -> background)

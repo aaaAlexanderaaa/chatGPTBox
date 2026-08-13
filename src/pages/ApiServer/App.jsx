@@ -944,8 +944,9 @@ function App() {
               diagnostics.
             </p>
             <p>
-              <strong>Conversation APIs:</strong> Use{' '}
-              <code>GET /chatgpt/conversations?force_sync=true</code> for a fresh cached list,{' '}
+              <strong>Conversation APIs:</strong> Use <code>GET /chatgpt/conversations</code> to
+              read the local cache, or add <code>?force_sync=true</code> for a rate-limited full
+              list sync after enabling history synchronization in extension settings,{' '}
               <code>POST /chatgpt/conversations</code> to start a new background thread without
               waiting for the answer, <code>GET /chatgpt/conversations/&lt;id&gt;?think=true</code>{' '}
               for a normalized snapshot with reasoning data,{' '}

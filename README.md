@@ -116,10 +116,10 @@ Load the extension:
 
 The build produces different bundles depending on which features are compiled in:
 
-| Profile | Build command | Includes Agent runtime (assistants, skills, MCP)? |
-|---|---|---|
-| **core** (default) | `npm run dev` / `npm run build` | No — agent modules are replaced with no-op stubs. |
-| **agents** (experimental) | `npm run dev:agents` / `npm run build:agents` | Yes — full agent runtime is compiled in. |
+| Profile                   | Build command                                 | Includes Agent runtime (assistants, skills, MCP)? |
+| ------------------------- | --------------------------------------------- | ------------------------------------------------- |
+| **core** (default)        | `npm run dev` / `npm run build`               | No — agent modules are replaced with no-op stubs. |
+| **agents** (experimental) | `npm run dev:agents` / `npm run build:agents` | Yes — full agent runtime is compiled in.          |
 
 Release packages published to GitHub Releases are **core** builds unless the release notes say otherwise. To use agents, skills, or MCP toolkits, build from source with the `agents` profile and enable `enableSkills` in the extension settings.
 
@@ -258,7 +258,9 @@ The default health endpoint is `http://127.0.0.1:18080/health`.
 
 Conversation API notes:
 
-- `GET /chatgpt/conversations` returns the locally cached ChatGPT Web list in the upstream-style shape. Add `force_sync=true` to trigger a fresh sync before reading it.
+- `GET /chatgpt/conversations` only reads the locally cached ChatGPT Web list. Add `force_sync=true` to request a rate-limited full list sync first; ChatGPT history synchronization must be enabled in the extension settings.
+- Full list syncs save each page immediately and do not pre-download every conversation body. Automatic sync is off by default and, when enabled, fetches only the newest 100 conversations per run.
+- Automatic and bulk history requests use the configured RPM limit. An HTTP 429 stops automatic history activity and remains locked until the user reviews the settings and unlocks it.
 - `GET /chatgpt/conversations/:id` returns a normalized conversation snapshot. Add `think=true` to include reasoning-related nodes and `force_refresh=true` to fetch a fresh snapshot immediately.
 - `POST /chatgpt/conversations/:id/messages` sends a follow-up into an existing ChatGPT conversation, then refreshes the snapshot.
 - `POST /chatgpt/conversations/:id/refresh` refreshes a conversation and can optionally resume pending assistant output.
@@ -302,9 +304,7 @@ itself forked from [wong2/chat-gpt-google-extension](https://github.com/wong2/ch
 
 [license-image]: https://img.shields.io/badge/license-MIT-blue.svg
 [license-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/blob/master/LICENSE
-
 [release-image]: https://img.shields.io/github/v/release/aaaAlexanderaaa/chatGPTBox?display_name=tag
 [release-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/releases/latest
-
 [verify-image]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml/badge.svg
 [verify-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml

@@ -735,8 +735,12 @@ export function selectChatgptWebRefreshResult(conversation, resume = null) {
   const conversationText =
     typeof conversation?.message?.text === 'string' ? conversation.message.text : ''
   const resumeText = typeof resume?.message?.text === 'string' ? resume.message.text : ''
+  // A final-looking delta is not trustworthy when the resume stream ended
+  // before its authoritative completion marker.
+  const resumeIsCompleteEnough = resume?.completed !== false
   const shouldPreferResumeText =
     Boolean(resumeText) &&
+    resumeIsCompleteEnough &&
     (conversation?.pending === true ||
       !conversationText ||
       resume?.message?.isFinal === true ||
@@ -745,7 +749,10 @@ export function selectChatgptWebRefreshResult(conversation, resume = null) {
         resume.message.id !== conversation.message.messageId))
 
   return {
-    text: shouldPreferResumeText ? resumeText : conversationText || resumeText || '',
+    text:
+      shouldPreferResumeText || (resumeIsCompleteEnough && !conversationText)
+        ? resumeText
+        : conversationText,
     pending:
       shouldPreferResumeText && typeof resume?.pending === 'boolean'
         ? resume.pending

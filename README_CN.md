@@ -116,10 +116,10 @@ npm run build      # 生产构建 → build/*.zip
 
 构建会根据启用的功能产出不同的包：
 
-| 配置 | 构建命令 | 是否包含 Agent 运行时（助手、技能、MCP）？ |
-|---|---|---|
-| **core**（默认） | `npm run dev` / `npm run build` | 否——agent 模块被替换为 no-op stub。 |
-| **agents**（实验性） | `npm run dev:agents` / `npm run build:agents` | 是——完整 agent 运行时被编译进来。 |
+| 配置                 | 构建命令                                      | 是否包含 Agent 运行时（助手、技能、MCP）？ |
+| -------------------- | --------------------------------------------- | ------------------------------------------ |
+| **core**（默认）     | `npm run dev` / `npm run build`               | 否——agent 模块被替换为 no-op stub。        |
+| **agents**（实验性） | `npm run dev:agents` / `npm run build:agents` | 是——完整 agent 运行时被编译进来。          |
 
 发布到 GitHub Releases 的包默认为 **core** 构建，除非发布说明另有说明。要使用 agent、技能或 MCP 工具集，请使用 `agents` 配置从源码构建，并在扩展设置中启用 `enableSkills`。
 
@@ -258,7 +258,9 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 
 对话 API 说明：
 
-- `GET /chatgpt/conversations` 返回本地缓存的 ChatGPT Web 对话列表。添加 `force_sync=true` 可在读取前触发同步。
+- `GET /chatgpt/conversations` 只读取本地缓存的 ChatGPT Web 对话列表。添加 `force_sync=true` 可先请求一次受 RPM 限制的完整列表同步；必须先在扩展设置中启用 ChatGPT 历史同步。
+- 完整列表同步会逐页立即保存，不会预下载每个会话的正文。自动同步默认关闭；启用后每次只获取最新 100 个会话。
+- 自动及批量历史请求受设置中的 RPM 限制。收到 HTTP 429 后会停止并锁定所有自动历史任务，直到用户检查设置并手动解除锁定。
 - `GET /chatgpt/conversations/:id` 返回标准化的对话快照。添加 `think=true` 可包含推理相关节点，`force_refresh=true` 可立即获取最新快照。
 - `POST /chatgpt/conversations/:id/messages` 向现有 ChatGPT 对话发送后续消息，然后刷新快照。
 - `POST /chatgpt/conversations/:id/refresh` 刷新对话，可选择恢复待处理的助手输出。
@@ -302,9 +304,7 @@ ChatGPTBox 在浏览器中本地运行。仅在您配置的提供商/端点上�
 
 [license-image]: https://img.shields.io/badge/license-MIT-blue.svg
 [license-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/blob/master/LICENSE
-
 [release-image]: https://img.shields.io/github/v/release/aaaAlexanderaaa/chatGPTBox?display_name=tag
 [release-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/releases/latest
-
 [verify-image]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml/badge.svg
 [verify-url]: https://github.com/aaaAlexanderaaa/chatGPTBox/actions/workflows/verify-configs.yml

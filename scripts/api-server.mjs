@@ -761,7 +761,9 @@ async function handleChatgptConversationList(url, res) {
   try {
     if (url.searchParams.get('force_sync') === 'true') {
       await sendControlRequestToBridge('chatgpt_web_sync_conversations', {
-        force: true,
+        mode: 'full',
+        automatic: false,
+        reason: 'gateway_force_sync',
         includeArchived: url.searchParams.get('is_archived') === 'true',
       })
     }

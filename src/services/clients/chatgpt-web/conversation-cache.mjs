@@ -217,33 +217,11 @@ export function isChatgptWebConversationSnapshotStale(indexEntry, snapshotRecord
 
 export function invalidateConversation(conversationId) {
   const id = normalizeConversationId(conversationId)
-  if (id) {
-    invalidatedConversationIds.add(id)
-    void (async () => {
-      try {
-        const { syncChatgptWebConversationCache } = await import(
-          './conversation-api.mjs'
-        )
-        void syncChatgptWebConversationCache({ force: true }).catch(() => {})
-      } catch (err) {
-        console.debug('Failed to trigger sync after invalidation', err)
-      }
-    })()
-  }
+  if (id) invalidatedConversationIds.add(id)
 }
 
 export function invalidateAll() {
   allInvalidated = true
-  void (async () => {
-    try {
-      const { syncChatgptWebConversationCache } = await import(
-        './conversation-api.mjs'
-      )
-      void syncChatgptWebConversationCache({ force: true }).catch(() => {})
-    } catch (err) {
-      console.debug('Failed to trigger full sync after invalidation', err)
-    }
-  })()
 }
 
 export function clearInvalidation(conversationId) {
@@ -302,7 +280,8 @@ export async function importConversationCache(data) {
     const nextMeta = {
       ...currentMeta,
       lastSyncAt:
-        timestampToSortableNumber(meta.lastSyncAt) > timestampToSortableNumber(currentMeta.lastSyncAt)
+        timestampToSortableNumber(meta.lastSyncAt) >
+        timestampToSortableNumber(currentMeta.lastSyncAt)
           ? meta.lastSyncAt
           : currentMeta.lastSyncAt,
       lastArchivedSyncAt:
@@ -371,9 +350,23 @@ export async function getChatgptWebConversationMeta() {
   const data = await storage.get({
     [CHATGPT_WEB_CONVERSATION_META_KEY]: {
       lastSyncAt: null,
+      lastIncrementalSyncAt: null,
       lastArchivedSyncAt: null,
       lastSyncError: null,
       lastSyncItemCount: 0,
+      adaptiveSyncIntervalHours: 6,
+      safetyLock: null,
+      syncState: { status: 'idle' },
+      requestStats: {
+        total: 0,
+        automatic: 0,
+        manual: 0,
+        list: 0,
+        detail: 0,
+        rateLimited: 0,
+        hourly: {},
+        recent: [],
+      },
     },
   })
   const meta = data[CHATGPT_WEB_CONVERSATION_META_KEY]

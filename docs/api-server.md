@@ -146,11 +146,13 @@ curl http://127.0.0.1:18080/health
 
 Returns the locally cached ChatGPT conversation list from the extension.
 
-To keep request volume down, the extension syncs the active conversation list on a configurable background interval (15 minutes by default) and only pulls the archived list when it is needed (for example, an archived view request or when an active thread disappears and needs to be reconciled).
+Reading this endpoint does not implicitly contact ChatGPT. History synchronization is disabled by default and must be enabled in the extension settings before `force_sync=true` can run. A manual full sync is RPM-limited, saves each completed page immediately, and does not pre-download every conversation body. Optional automatic synchronization fetches only the newest 100 active conversations per run.
+
+If a history request receives HTTP 429, the extension stops the task, clears automatic scheduling, and keeps the pages already saved. History automation remains locked until the user reviews the settings and unlocks it manually.
 
 The cache uses incremental upserts:
 
-- new active IDs are appended and hydrated into local conversation snapshots
+- new active IDs are appended to the list index; their full snapshots are fetched on demand
 - missing upstream IDs are kept locally instead of being deleted
 - changed `update_time` / `async_status` / `is_archived` values update the cached list entry
 

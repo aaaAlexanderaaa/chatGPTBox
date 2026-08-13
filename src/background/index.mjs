@@ -16,7 +16,6 @@
 // "ctx reverse dependency" note that used to live here.
 
 import Browser from 'webextension-polyfill'
-import { DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES } from '../config/limits.mjs'
 import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
 import '../_locales/i18n'
 import {
@@ -31,14 +30,21 @@ import { executeApi as executeApiFromRegistry } from './providers/registry.mjs'
 import { appendChatgptWebDebugLog } from './chatgpt-proxy-service.mjs'
 import {
   registerExecuteApi,
+  hasActiveChatgptWebSessionRequests,
   syncChatgptWebConversationCacheWithFallback,
+  stopChatgptWebConversationCacheSyncWithFallback,
   handleProxyResponsePort,
 } from './chatgpt-proxy-service.mjs'
+import { getChatgptWebConversationMeta } from '../services/clients/chatgpt-web/conversation-cache.mjs'
+import {
+  CHATGPT_WEB_HISTORY_SYNC_ALARM,
+  getChatgptWebHistoryAutoSyncIntervalHours,
+  isChatgptWebHistoryAutoSyncAllowed,
+  resolveChatgptWebHistorySyncAlarmAction,
+} from '../services/clients/chatgpt-web/conversation-sync-policy.mjs'
 import { handleApiBridgeProxyPort } from './api-bridge-proxy-service.mjs'
 import { registerWebRequestRules } from './webrequest-rules.mjs'
 import { createMessageRouter } from './message-router.mjs'
-
-const CHATGPT_WEB_CONVERSATION_SYNC_ALARM = 'chatgpt-web-conversation-sync'
 
 // Pure diagnostic helper surfaced to the provider router via ctx so the router
 // can log a normalized apiMode shape without importing config internals.
@@ -77,23 +83,35 @@ registerExecuteApi(executeApi)
 
 // --- conversation sync alarm lifecycle ------------------------------------
 
-async function ensureChatgptWebConversationSyncAlarm() {
-  if (!Browser.alarms?.create) return
-  const config = await getUserConfig().catch(() => defaultConfig)
-  const periodInMinutes = Math.max(
-    5,
-    Number(config?.chatgptWebConversationSyncIntervalMinutes) ||
-      DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-  )
-  await Browser.alarms.create(CHATGPT_WEB_CONVERSATION_SYNC_ALARM, {
-    periodInMinutes,
-    delayInMinutes: 1,
+async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false } = {}) {
+  if (!Browser.alarms?.create || !Browser.alarms?.clear) return
+  const [config, meta] = await Promise.all([
+    getUserConfig().catch(() => defaultConfig),
+    getChatgptWebConversationMeta().catch(() => ({})),
+  ])
+  const badgeApi = Browser.action || Browser.browserAction
+  if (meta?.safetyLock?.reason === 'rate_limited') {
+    await Promise.resolve(badgeApi?.setBadgeText?.({ text: '429' })).catch(() => {})
+    await Promise.resolve(badgeApi?.setBadgeBackgroundColor?.({ color: '#b91c1c' })).catch(() => {})
+  }
+  const existingAlarm =
+    (await Browser.alarms.get?.(CHATGPT_WEB_HISTORY_SYNC_ALARM).catch(() => null)) || null
+  const decision = resolveChatgptWebHistorySyncAlarmAction({
+    allowed: isChatgptWebHistoryAutoSyncAllowed(config, meta),
+    intervalHours: getChatgptWebHistoryAutoSyncIntervalHours(config, meta),
+    existingAlarm,
+    replaceExisting,
+  })
+  if (decision.action === 'keep') return
+  await Browser.alarms.clear(CHATGPT_WEB_HISTORY_SYNC_ALARM)
+  if (decision.action !== 'create') return
+  await Browser.alarms.create(CHATGPT_WEB_HISTORY_SYNC_ALARM, {
+    delayInMinutes: decision.delayInMinutes,
   })
 }
 
 Browser.runtime.onInstalled.addListener(() => {
   void ensureChatgptWebConversationSyncAlarm()
-  void syncChatgptWebConversationCacheWithFallback().catch(() => {})
 })
 
 Browser.runtime.onStartup?.addListener(() => {
@@ -101,13 +119,44 @@ Browser.runtime.onStartup?.addListener(() => {
 })
 
 Browser.alarms?.onAlarm.addListener((alarm) => {
-  if (alarm?.name !== CHATGPT_WEB_CONVERSATION_SYNC_ALARM) return
-  void syncChatgptWebConversationCacheWithFallback({ force: true }).catch(() => {})
+  if (alarm?.name !== CHATGPT_WEB_HISTORY_SYNC_ALARM) return
+  void (async () => {
+    const config = await getUserConfig().catch(() => defaultConfig)
+    if (
+      config.chatgptWebHistorySyncOnlyWhenIdle !== false &&
+      hasActiveChatgptWebSessionRequests()
+    ) {
+      await Browser.alarms.create(CHATGPT_WEB_HISTORY_SYNC_ALARM, { delayInMinutes: 30 })
+      return
+    }
+    await syncChatgptWebConversationCacheWithFallback({
+      mode: 'incremental',
+      automatic: true,
+      reason: 'scheduled',
+    }).catch(() => {})
+    await ensureChatgptWebConversationSyncAlarm({ replaceExisting: true })
+  })()
 })
 
-Browser.storage?.local?.onChanged?.addListener((changes) => {
-  if (!changes || !changes.chatgptWebConversationSyncIntervalMinutes) return
-  void ensureChatgptWebConversationSyncAlarm()
+const storageChanges = Browser.storage?.onChanged || Browser.storage?.local?.onChanged
+storageChanges?.addListener((changes) => {
+  if (!changes) return
+  const schedulingKeys = [
+    'chatgptWebHistorySyncEnabled',
+    'chatgptWebHistoryAutoSyncMode',
+    'chatgptWebHistorySyncIntervalHours',
+  ]
+  const safetyLockChanged =
+    'chatgptWebConversationMeta' in changes &&
+    changes.chatgptWebConversationMeta?.oldValue?.safetyLock?.reason !==
+      changes.chatgptWebConversationMeta?.newValue?.safetyLock?.reason
+  if (!schedulingKeys.some((key) => key in changes) && !safetyLockChanged) return
+  if (changes.chatgptWebHistorySyncEnabled?.newValue !== false) {
+    void ensureChatgptWebConversationSyncAlarm({ replaceExisting: true })
+    return
+  }
+  void stopChatgptWebConversationCacheSyncWithFallback()
+  void Browser.alarms?.clear?.(CHATGPT_WEB_HISTORY_SYNC_ALARM)
 })
 
 void ensureChatgptWebConversationSyncAlarm()

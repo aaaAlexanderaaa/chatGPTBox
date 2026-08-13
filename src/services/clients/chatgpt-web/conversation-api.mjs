@@ -1,9 +1,7 @@
 import Browser from 'webextension-polyfill'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
-  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
 } from '../../../config/limits.mjs'
 import { fetchSSE } from '../../../utils/fetch-sse.mjs'
 import { getUserConfig } from '../../../config/storage.mjs'
@@ -22,17 +20,26 @@ import {
   setChatgptWebConversationMeta,
   clearInvalidation,
 } from './conversation-cache.mjs'
+import {
+  CHATGPT_WEB_HISTORY_SYNC_ALARM,
+  getChatgptWebHistoryRequestIntervalMs,
+  getNextAdaptiveSyncIntervalHours,
+} from './conversation-sync-policy.mjs'
 import { getChatGptAccessToken } from '../../wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from './client.mjs'
 import {
   extractChatgptWebConversationListItems,
-  extractChatgptWebMessageText,
   formatChatgptWebConversationSnapshot,
-  isFinalChatgptWebMessageStatus,
   isPendingChatgptWebConversation,
-  isPendingChatgptWebMessageStatus,
   selectChatgptWebRefreshResult,
 } from './conversation-state.mjs'
+import {
+  applyResumePatch,
+  consumeChatgptWebResumeDeltaStream,
+} from './resume-delta.mjs'
+import { buildChatgptWebConversationHeaders } from './request-wire.mjs'
+
+export { applyResumePatch }
 
 const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
 const DEFAULT_RESUME_TIMEOUT_MS = 10_000
@@ -40,10 +47,7 @@ const DEFAULT_CONVERSATION_LIST_PAGE_SIZE = 100
 const MAX_CONVERSATION_LIST_PAGES = 200
 let activeConversationCacheSync = null
 let activeConversationCacheSyncIncludesArchived = false
-
-function cloneJson(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value))
-}
+let activeConversationCacheSyncMode = null
 
 function isTrustedChatgptDestination(url) {
   try {
@@ -82,29 +86,133 @@ function normalizeConversationId(conversationId) {
   return typeof conversationId === 'string' ? conversationId.trim() : ''
 }
 
-async function getChatgptWebConversationSyncIntervalMs() {
-  const config = await getUserConfig().catch(() => null)
-  const minutes = parsePositiveInt(
-    config?.chatgptWebConversationSyncIntervalMinutes,
-    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-    MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-    MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+function createDefaultRequestStats() {
+  return {
+    total: 0,
+    automatic: 0,
+    manual: 0,
+    list: 0,
+    detail: 0,
+    rateLimited: 0,
+    hourly: {},
+    recent: [],
+  }
+}
+
+function normalizeRequestStats(stats = {}) {
+  return { ...createDefaultRequestStats(), ...(stats || {}) }
+}
+
+async function updateConversationMeta(updater) {
+  const current = await getChatgptWebConversationMeta()
+  const next = updater(current && typeof current === 'object' ? current : {})
+  await setChatgptWebConversationMeta(next)
+  return next
+}
+
+async function recordHistoryRequest({ kind, automatic, reason, status = null }) {
+  const now = new Date().toISOString()
+  return await updateConversationMeta((meta) => {
+    const stats = normalizeRequestStats(meta.requestStats)
+    const recent = Array.isArray(stats.recent) ? stats.recent : []
+    const cutoff = Date.now() - 60 * 60 * 1000
+    const hourlyCutoff = Date.now() - 24 * 60 * 60 * 1000
+    const hourKey = now.slice(0, 13)
+    const hourly = Object.fromEntries(
+      Object.entries(stats.hourly || {}).filter(
+        ([key]) => Date.parse(`${key}:00:00.000Z`) >= hourlyCutoff,
+      ),
+    )
+    hourly[hourKey] = (Number(hourly[hourKey]) || 0) + 1
+    return {
+      ...meta,
+      requestStats: {
+        ...stats,
+        total: stats.total + 1,
+        automatic: stats.automatic + (automatic ? 1 : 0),
+        manual: stats.manual + (automatic ? 0 : 1),
+        list: stats.list + (kind === 'list' ? 1 : 0),
+        detail: stats.detail + (kind === 'detail' ? 1 : 0),
+        rateLimited: stats.rateLimited + (status === 429 ? 1 : 0),
+        lastRequestAt: now,
+        hourly,
+        recent: [...recent, { at: now, kind, automatic, reason, status }]
+          .filter((entry) => Date.parse(entry?.at || '') >= cutoff)
+          .slice(-100),
+      },
+    }
+  })
+}
+
+async function engageHistoryRateLimitSafetyLock({ path, reason }) {
+  const suspendedAt = new Date().toISOString()
+  const meta = await updateConversationMeta((current) => ({
+    ...current,
+    lastSyncError: 'HTTP 429: ChatGPT history synchronization was stopped',
+    safetyLock: {
+      reason: 'rate_limited',
+      status: 429,
+      suspendedAt,
+      endpointKind: path.includes('/conversations?') ? 'list' : 'detail',
+      syncReason: reason || 'unknown',
+    },
+    syncState: {
+      ...(current.syncState || {}),
+      status: 'rate_limited',
+      stoppedAt: suspendedAt,
+    },
+  }))
+  await Promise.resolve(Browser.alarms?.clear?.(CHATGPT_WEB_HISTORY_SYNC_ALARM)).catch(() => {})
+  const badgeApi = Browser.action || Browser.browserAction
+  await Promise.resolve(badgeApi?.setBadgeText?.({ text: '429' })).catch(() => {})
+  await Promise.resolve(badgeApi?.setBadgeBackgroundColor?.({ color: '#b91c1c' })).catch(() => {})
+  return meta
+}
+
+async function assertHistorySafetyLockClear() {
+  const meta = await getChatgptWebConversationMeta()
+  if (meta?.safetyLock?.reason === 'rate_limited') {
+    const error = new Error(
+      'ChatGPT history synchronization is paused after HTTP 429; review the settings and unlock it manually',
+    )
+    error.code = 'CHATGPT_HISTORY_RATE_LIMITED'
+    error.status = 429
+    throw error
+  }
+  if (meta?.syncState?.status === 'pause_requested') {
+    throw createAbortError()
+  }
+  return meta
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitForHistoryRequestSlot(rpm) {
+  await assertHistorySafetyLockClear()
+  const config = await getUserConfig().catch(() => ({}))
+  if (config.chatgptWebHistorySyncEnabled !== true) {
+    const error = new Error('ChatGPT history synchronization is disabled in settings')
+    error.code = 'CHATGPT_HISTORY_SYNC_DISABLED'
+    throw error
+  }
+  const intervalMs = getChatgptWebHistoryRequestIntervalMs(
+    config.chatgptWebHistorySyncRpm || rpm || DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
   )
-  return minutes * 60 * 1000
-}
-
-async function hasSyncTimestampExpired(syncAt, now = Date.now()) {
-  const parsed = Date.parse(syncAt || '')
-  if (!Number.isFinite(parsed)) return true
-  return now - parsed >= (await getChatgptWebConversationSyncIntervalMs())
-}
-
-async function hasConversationCacheExpired(meta, now = Date.now()) {
-  return await hasSyncTimestampExpired(meta?.lastSyncAt, now)
-}
-
-async function hasArchivedConversationCacheExpired(meta, now = Date.now()) {
-  return await hasSyncTimestampExpired(meta?.lastArchivedSyncAt, now)
+  const meta = await getChatgptWebConversationMeta()
+  const nextAt = Date.parse(meta?.nextHistoryRequestAt || '')
+  let remaining = Number.isFinite(nextAt) ? Math.max(0, nextAt - Date.now()) : 0
+  while (remaining > 0) {
+    await wait(Math.min(remaining, 30_000))
+    remaining = Math.max(0, nextAt - Date.now())
+    await assertHistorySafetyLockClear()
+  }
+  const reservedAt = Date.now()
+  await updateConversationMeta((current) => ({
+    ...current,
+    nextHistoryRequestAt: new Date(reservedAt + intervalMs).toISOString(),
+  }))
 }
 
 function createInMemoryPort(onPostMessage) {
@@ -168,27 +276,61 @@ async function getChatgptWebRequestContext() {
     accessToken,
     baseUrl,
     config,
+    cookie,
+    oaiDeviceId,
+    language: 'en-US',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       ...(cookie && { Cookie: cookie }),
       ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
+      ...(config.chatgptAccountId && { 'Chatgpt-Account-Id': config.chatgptAccountId }),
       'Oai-Language': 'en-US',
     },
   }
 }
 
-async function fetchChatgptWebJson(path, { method = 'GET', body, signal } = {}) {
+async function fetchChatgptWebJson(
+  path,
+  { method = 'GET', body, signal, historyRequest = null } = {},
+) {
+  if (historyRequest?.limited !== false) {
+    await waitForHistoryRequestSlot(historyRequest.rpm)
+  }
   const context = await getChatgptWebRequestContext()
-  const response = await fetch(`${context.baseUrl}${path}`, {
-    method,
-    signal,
-    credentials: 'include',
-    headers: {
-      ...context.headers,
-      ...(body !== undefined && { 'Content-Type': 'application/json' }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  })
+  let response
+  try {
+    response = await fetch(`${context.baseUrl}${path}`, {
+      method,
+      signal,
+      credentials: 'include',
+      headers: {
+        ...context.headers,
+        ...(body !== undefined && { 'Content-Type': 'application/json' }),
+      },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    })
+  } catch (error) {
+    if (historyRequest) {
+      await recordHistoryRequest({
+        kind: historyRequest.kind,
+        automatic: historyRequest.automatic === true,
+        reason: historyRequest.reason,
+      })
+    }
+    throw error
+  }
+
+  if (historyRequest) {
+    await recordHistoryRequest({
+      kind: historyRequest.kind,
+      automatic: historyRequest.automatic === true,
+      reason: historyRequest.reason,
+      status: response.status,
+    })
+    if (response.status === 429) {
+      await engageHistoryRateLimitSafetyLock({ path, reason: historyRequest.reason })
+    }
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
@@ -212,144 +354,13 @@ async function fetchChatgptWebJson(path, { method = 'GET', body, signal } = {}) 
   return response.json()
 }
 
-const FORBIDDEN_PATCH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
-
-// Resume patch paths come straight off the network, so a segment that would walk
-// into a prototype must never be followed or created.
-function isUnsafePatchSegment(segment) {
-  return FORBIDDEN_PATCH_SEGMENTS.has(segment)
-}
-
-function ensureContainer(target, pathSegments) {
-  let cursor = target
-  for (let index = 0; index < pathSegments.length - 1; index += 1) {
-    const segment = pathSegments[index]
-    const nextSegment = pathSegments[index + 1]
-    if (!cursor || typeof cursor !== 'object') return null
-    if (!Object.prototype.hasOwnProperty.call(cursor, segment) || cursor[segment] == null) {
-      cursor[segment] = /^\d+$/.test(nextSegment) ? [] : {}
-    }
-    cursor = cursor[segment]
-  }
-  if (!cursor || typeof cursor !== 'object') return null
-  return {
-    container: cursor,
-    key: pathSegments[pathSegments.length - 1],
-  }
-}
-
-export function applyResumePatch(target, operation = {}) {
-  const rawPath = typeof operation.p === 'string' ? operation.p : ''
-  const pathSegments = rawPath.split('/').slice(1).filter(Boolean)
-
-  if (pathSegments.length === 0) return
-  if (pathSegments.some(isUnsafePatchSegment)) return
-
-  const resolved = ensureContainer(target, pathSegments)
-  if (!resolved) return
-  const { container, key } = resolved
-  const value = operation.v
-
-  switch (operation.o) {
-    case 'append': {
-      const current = container[key]
-      if (typeof current === 'string') {
-        container[key] = `${current}${value ?? ''}`
-      } else if (Array.isArray(current)) {
-        current.push(value)
-      } else if (current && typeof current === 'object' && value && typeof value === 'object') {
-        Object.assign(current, value)
-      } else if (current == null) {
-        container[key] = Array.isArray(value) ? [...value] : value
-      }
-      break
-    }
-    case 'replace':
-    case 'add':
-      container[key] = value
-      break
-    case 'remove':
-      if (Array.isArray(container) && /^\d+$/.test(key)) {
-        container.splice(Number(key), 1)
-      } else {
-        delete container[key]
-      }
-      break
-    default:
-      break
-  }
-}
-
-function buildResumeMessageSummary(entry, order) {
-  const message = entry?.message
-  if (!message || message.author?.role !== 'assistant') return null
-
-  const text = extractChatgptWebMessageText(message)
-  const thoughts = Array.isArray(message.content?.thoughts)
-    ? message.content.thoughts
-        .map((thought) => {
-          if (!thought || typeof thought !== 'object') return null
-          return {
-            summary: typeof thought.summary === 'string' ? thought.summary : '',
-            content: typeof thought.content === 'string' ? thought.content : '',
-            finished: thought.finished === true,
-          }
-        })
-        .filter(Boolean)
-    : []
-  const status = typeof message.status === 'string' ? message.status : ''
-  const contentType = message.content?.content_type || ''
-  const isPending = isPendingChatgptWebMessageStatus(status)
-  const isFinal = isFinalChatgptWebMessageStatus(status) || Boolean(text && message.end_turn)
-
-  return {
-    id: message.id || null,
-    order,
-    status,
-    channel: message.channel || null,
-    contentType,
-    endTurn: message.end_turn === true,
-    isPending,
-    isFinal,
-    text,
-    textLength: text.length,
-    thoughts,
-    thoughtCount: thoughts.length,
-  }
-}
-
-function pickBestResumeMessage(messages = []) {
-  return (
-    [...messages].filter(Boolean).sort((left, right) => {
-      const leftScore =
-        (left.textLength > 0 ? 10_000 : 0) +
-        (left.channel === 'final' ? 2_000 : 0) +
-        (left.contentType === 'text' ? 1_000 : 0) +
-        (left.contentType === 'multimodal_text' ? 900 : 0) +
-        (left.contentType === 'code' ? 800 : 0) +
-        (left.isFinal ? 500 : 0) +
-        (left.isPending ? 200 : 0) +
-        left.order
-      const rightScore =
-        (right.textLength > 0 ? 10_000 : 0) +
-        (right.channel === 'final' ? 2_000 : 0) +
-        (right.contentType === 'text' ? 1_000 : 0) +
-        (right.contentType === 'multimodal_text' ? 900 : 0) +
-        (right.contentType === 'code' ? 800 : 0) +
-        (right.isFinal ? 500 : 0) +
-        (right.isPending ? 200 : 0) +
-        right.order
-      return rightScore - leftScore
-    })[0] || null
-  )
-}
-
 async function fetchChatgptWebConversationListPageFromNetwork({
   offset = 0,
   limit = 28,
   order = 'updated',
   isArchived = false,
   isStarred = false,
+  historyRequest = null,
 } = {}) {
   const normalizedOffset = parsePositiveInt(offset, 0, 0, 100_000)
   const normalizedLimit = parsePositiveInt(limit, 28, 1, 100)
@@ -360,56 +371,30 @@ async function fetchChatgptWebConversationListPageFromNetwork({
     is_archived: String(normalizeBooleanQuery(isArchived, false)),
     is_starred: String(normalizeBooleanQuery(isStarred, false)),
   })
-  return await fetchChatgptWebJson(`/backend-api/conversations?${params.toString()}`)
+  return await fetchChatgptWebJson(`/backend-api/conversations?${params.toString()}`, {
+    historyRequest,
+  })
 }
 
-async function fetchChatgptWebConversationSnapshotFromNetwork(conversationId) {
+async function fetchChatgptWebConversationSnapshotFromNetwork(
+  conversationId,
+  historyRequest = null,
+) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
   return await fetchChatgptWebJson(
     `/backend-api/conversation/${encodeURIComponent(normalizedConversationId)}`,
+    { historyRequest },
   )
-}
-
-function findMissingActiveConversationIds(index = {}, items = []) {
-  const activeIds = new Set(
-    (Array.isArray(items) ? items : [])
-      .map((item) => normalizeConversationId(item?.id || item?.conversation_id))
-      .filter(Boolean),
-  )
-
-  return Object.values(index && typeof index === 'object' ? index : {})
-    .filter((entry) => entry && typeof entry === 'object' && entry.isArchived !== true)
-    .map((entry) => normalizeConversationId(entry.id))
-    .filter((id) => id && !activeIds.has(id))
-}
-
-async function fetchAllChatgptWebConversationListItems({ isArchived = false } = {}) {
-  const items = []
-  const normalizedIsArchived = normalizeBooleanQuery(isArchived, false)
-
-  for (let pageIndex = 0; pageIndex < MAX_CONVERSATION_LIST_PAGES; pageIndex += 1) {
-    const offset = pageIndex * DEFAULT_CONVERSATION_LIST_PAGE_SIZE
-    const response = await fetchChatgptWebConversationListPageFromNetwork({
-      offset,
-      limit: DEFAULT_CONVERSATION_LIST_PAGE_SIZE,
-      order: 'updated',
-      isArchived: normalizedIsArchived,
-      isStarred: false,
-    })
-    const pageItems = extractChatgptWebConversationListItems(response)
-    items.push(...pageItems)
-
-    const total = parsePositiveInt(response?.total, 0, 0, 1_000_000)
-    if (pageItems.length < DEFAULT_CONVERSATION_LIST_PAGE_SIZE) break
-    if (total > 0 && items.length >= total) break
-  }
-
-  return items
 }
 
 async function cacheChatgptWebConversationSnapshotById(conversationId, source = 'unknown') {
-  const snapshot = await fetchChatgptWebConversationSnapshotFromNetwork(conversationId)
+  const snapshot = await fetchChatgptWebConversationSnapshotFromNetwork(conversationId, {
+    kind: 'detail',
+    automatic: false,
+    reason: source,
+    limited: false,
+  })
   await saveChatgptWebConversationSnapshot(snapshot, {
     cachedAt: new Date().toISOString(),
     source,
@@ -418,98 +403,192 @@ async function cacheChatgptWebConversationSnapshotById(conversationId, source = 
 }
 
 export async function syncChatgptWebConversationCache({
-  force = false,
   includeArchived = false,
+  mode = 'full',
+  automatic = false,
+  reason = 'manual',
+  resume = false,
 } = {}) {
+  const normalizedMode = mode === 'incremental' ? 'incremental' : 'full'
   const shouldIncludeArchived = normalizeBooleanQuery(includeArchived, false)
   if (activeConversationCacheSync) {
-    if (!shouldIncludeArchived || activeConversationCacheSyncIncludesArchived) {
+    const activeCoversRequest =
+      (normalizedMode === 'incremental' || activeConversationCacheSyncMode === 'full') &&
+      (!shouldIncludeArchived || activeConversationCacheSyncIncludesArchived)
+    if (activeCoversRequest) {
       return await activeConversationCacheSync
     }
     await activeConversationCacheSync
   }
 
   activeConversationCacheSyncIncludesArchived = shouldIncludeArchived
+  activeConversationCacheSyncMode = normalizedMode
 
   activeConversationCacheSync = (async () => {
     try {
-      const meta = await getChatgptWebConversationMeta()
-      const currentIndex = await getChatgptWebConversationIndex()
-      const shouldRefreshActive = force === true || (await hasConversationCacheExpired(meta))
-      const shouldRefreshArchived =
-        shouldIncludeArchived &&
-        (force === true || (await hasArchivedConversationCacheExpired(meta)))
-
-      if (!shouldRefreshActive && !shouldRefreshArchived) {
-        return {
-          index: currentIndex,
-          meta,
-          skipped: true,
-        }
+      if (resume === true) {
+        await updateConversationMeta((meta) => ({
+          ...meta,
+          syncState:
+            meta?.syncState?.status === 'pause_requested'
+              ? { ...(meta.syncState || {}), status: 'paused' }
+              : meta.syncState,
+        }))
       }
-
+      await assertHistorySafetyLockClear()
+      const config = await getUserConfig().catch(() => ({}))
+      if (config.chatgptWebHistorySyncEnabled !== true) {
+        const error = new Error('ChatGPT history synchronization is disabled in settings')
+        error.code = 'CHATGPT_HISTORY_SYNC_DISABLED'
+        throw error
+      }
+      const rpm = config.chatgptWebHistorySyncRpm || DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM
+      const previousMeta = await getChatgptWebConversationMeta()
+      let nextEntries = await getChatgptWebConversationIndex()
       const syncedAt = new Date().toISOString()
-      let nextEntries = currentIndex
-      let nextLastSyncAt = meta?.lastSyncAt || null
-      let nextLastSyncItemCount = meta?.lastSyncItemCount || 0
-      let nextLastArchivedSyncAt = meta?.lastArchivedSyncAt || null
       const newIds = new Set()
       const updatedIds = new Set()
-      const hydrateIds = new Set()
-      let activeItems = null
+      const phases = normalizedMode === 'full' && shouldIncludeArchived ? [false, true] : [false]
+      const resumable =
+        resume === true &&
+        previousMeta?.syncState?.mode === normalizedMode &&
+        Boolean(previousMeta?.syncState?.includeArchived) === shouldIncludeArchived &&
+        ['failed', 'paused'].includes(previousMeta?.syncState?.status)
+      let pagesCompleted = resumable ? Number(previousMeta.syncState.pagesCompleted) || 0 : 0
+      let itemsFetched = resumable ? Number(previousMeta.syncState.itemsFetched) || 0 : 0
+      let expectedTotal = resumable ? Number(previousMeta.syncState.expectedTotal) || 0 : 0
+      let phaseExpectedTotal = resumable
+        ? Number(previousMeta.syncState.phaseExpectedTotal) || 0
+        : 0
+      let resumePhase = resumable ? previousMeta.syncState.phase || 'active' : 'active'
+      let resumeOffset = resumable ? Number(previousMeta.syncState.nextOffset) || 0 : 0
 
-      if (shouldRefreshActive) {
-        activeItems = await fetchAllChatgptWebConversationListItems({ isArchived: false })
-        const activeMergeResult = mergeChatgptWebConversationIndexEntries(
-          nextEntries,
-          activeItems,
-          syncedAt,
-        )
-        nextEntries = activeMergeResult.entries
-        activeMergeResult.newIds.forEach((conversationId) => {
-          newIds.add(conversationId)
-          hydrateIds.add(conversationId)
-        })
-        activeMergeResult.updatedIds.forEach((conversationId) => updatedIds.add(conversationId))
-        nextLastSyncAt = syncedAt
-        nextLastSyncItemCount = activeItems.length
-      }
-
-      const missingActiveConversationIds = Array.isArray(activeItems)
-        ? findMissingActiveConversationIds(nextEntries, activeItems)
-        : []
-      const shouldFetchArchived = shouldRefreshArchived || missingActiveConversationIds.length > 0
-      if (shouldFetchArchived) {
-        const archivedItems = await fetchAllChatgptWebConversationListItems({ isArchived: true })
-        const archivedMergeResult = mergeChatgptWebConversationIndexEntries(
-          nextEntries,
-          archivedItems,
-          syncedAt,
-        )
-        nextEntries = archivedMergeResult.entries
-        archivedMergeResult.newIds.forEach((conversationId) => newIds.add(conversationId))
-        archivedMergeResult.updatedIds.forEach((conversationId) => updatedIds.add(conversationId))
-        nextLastArchivedSyncAt = syncedAt
-      }
-
-      await setChatgptWebConversationIndex(nextEntries)
-
-      for (const conversationId of hydrateIds) {
-        try {
-          await cacheChatgptWebConversationSnapshotById(conversationId, 'scheduled_sync_new')
-        } catch {
-          /* keep the list entry even when detail hydration fails */
-        }
-      }
-
-      const nextMeta = {
+      await updateConversationMeta((meta) => ({
         ...meta,
-        lastSyncAt: nextLastSyncAt,
-        lastArchivedSyncAt: nextLastArchivedSyncAt,
         lastSyncError: null,
-        lastSyncItemCount: nextLastSyncItemCount,
+        syncState: {
+          status: 'running',
+          mode: normalizedMode,
+          reason,
+          automatic: automatic === true,
+          includeArchived: shouldIncludeArchived,
+          phase: resumePhase,
+          nextOffset: resumeOffset,
+          pagesCompleted,
+          itemsFetched,
+          expectedTotal,
+          phaseExpectedTotal,
+          requestCountAtStart: Number(meta?.requestStats?.total) || 0,
+          startedAt: resumable ? previousMeta.syncState.startedAt || syncedAt : syncedAt,
+          updatedAt: syncedAt,
+        },
+      }))
+
+      for (const isArchived of phases) {
+        const phase = isArchived ? 'archived' : 'active'
+        if (resumable && resumePhase === 'archived' && phase === 'active') continue
+        let offset = resumable && resumePhase === phase ? resumeOffset : 0
+        const phaseBaseItemsFetched =
+          resumable && resumePhase === phase ? Math.max(0, itemsFetched - offset) : itemsFetched
+        if (!(resumable && resumePhase === phase)) phaseExpectedTotal = 0
+        const maxPages = normalizedMode === 'incremental' ? 1 : MAX_CONVERSATION_LIST_PAGES
+
+        await updateConversationMeta((meta) => ({
+          ...meta,
+          syncState: {
+            ...(meta.syncState || {}),
+            phase,
+            nextOffset: offset,
+            phaseExpectedTotal,
+            updatedAt: new Date().toISOString(),
+          },
+        }))
+
+        for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+          await assertHistorySafetyLockClear()
+          const response = await fetchChatgptWebConversationListPageFromNetwork({
+            offset,
+            limit: DEFAULT_CONVERSATION_LIST_PAGE_SIZE,
+            order: 'updated',
+            isArchived,
+            isStarred: false,
+            historyRequest: {
+              rpm,
+              automatic: automatic === true,
+              reason,
+              kind: 'list',
+            },
+          })
+          const pageItems = extractChatgptWebConversationListItems(response)
+          const mergeResult = mergeChatgptWebConversationIndexEntries(
+            nextEntries,
+            pageItems,
+            syncedAt,
+          )
+          nextEntries = mergeResult.entries
+          mergeResult.newIds.forEach((conversationId) => newIds.add(conversationId))
+          mergeResult.updatedIds.forEach((conversationId) => updatedIds.add(conversationId))
+          await setChatgptWebConversationIndex(nextEntries)
+
+          pagesCompleted += 1
+          itemsFetched += pageItems.length
+          phaseExpectedTotal = parsePositiveInt(response?.total, phaseExpectedTotal, 0, 1_000_000)
+          expectedTotal = phaseBaseItemsFetched + phaseExpectedTotal
+          offset += DEFAULT_CONVERSATION_LIST_PAGE_SIZE
+          await updateConversationMeta((meta) => ({
+            ...meta,
+            syncState: {
+              ...(meta.syncState || {}),
+              status: meta?.syncState?.status === 'pause_requested' ? 'pause_requested' : 'running',
+              phase,
+              nextOffset: offset,
+              pagesCompleted,
+              itemsFetched,
+              expectedTotal,
+              phaseExpectedTotal,
+              lastSuccessfulPageAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          }))
+
+          if (normalizedMode === 'incremental') break
+          if (pageItems.length < DEFAULT_CONVERSATION_LIST_PAGE_SIZE) break
+          if (phaseExpectedTotal > 0 && offset >= phaseExpectedTotal) break
+        }
+
+        resumePhase = phase
+        resumeOffset = 0
       }
-      await setChatgptWebConversationMeta(nextMeta)
+
+      const changed = newIds.size > 0 || updatedIds.size > 0
+      const completedAt = new Date().toISOString()
+      const nextMeta = await updateConversationMeta((meta) => ({
+        ...meta,
+        ...(normalizedMode === 'full'
+          ? {
+              lastSyncAt: completedAt,
+              lastSyncItemCount: Object.values(nextEntries).filter(
+                (entry) => entry?.isArchived !== true,
+              ).length,
+              ...(shouldIncludeArchived && { lastArchivedSyncAt: completedAt }),
+            }
+          : { lastIncrementalSyncAt: completedAt }),
+        ...(automatic === true && normalizedMode === 'incremental'
+          ? {
+              adaptiveSyncIntervalHours: getNextAdaptiveSyncIntervalHours(
+                meta.adaptiveSyncIntervalHours,
+                changed,
+              ),
+            }
+          : {}),
+        lastSyncError: null,
+        syncState: {
+          ...(meta.syncState || {}),
+          status: 'complete',
+          completedAt,
+          updatedAt: completedAt,
+        },
+      }))
       clearInvalidation()
       return {
         index: nextEntries,
@@ -517,22 +596,79 @@ export async function syncChatgptWebConversationCache({
         newIds: [...newIds],
         updatedIds: [...updatedIds],
         skipped: false,
+        pagesCompleted,
+        itemsFetched,
       }
     } catch (error) {
-      const meta = await getChatgptWebConversationMeta()
-      const nextMeta = {
+      await updateConversationMeta((meta) => ({
         ...meta,
         lastSyncError: error?.message || String(error),
-      }
-      await setChatgptWebConversationMeta(nextMeta)
+        syncState:
+          meta?.safetyLock?.reason === 'rate_limited'
+            ? meta.syncState
+            : error?.name === 'AbortError'
+            ? {
+                ...(meta.syncState || {}),
+                status: 'paused',
+                pausedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : {
+                ...(meta.syncState || {}),
+                status: 'failed',
+                failedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+      }))
       throw error
     } finally {
       activeConversationCacheSync = null
       activeConversationCacheSyncIncludesArchived = false
+      activeConversationCacheSyncMode = null
     }
   })()
 
   return await activeConversationCacheSync
+}
+
+export async function stopChatgptWebConversationCacheSync() {
+  const stoppedAt = new Date().toISOString()
+  return await updateConversationMeta((meta) => ({
+    ...meta,
+    syncState: {
+      ...(meta.syncState || {}),
+      status: ['running', 'pause_requested'].includes(meta?.syncState?.status)
+        ? 'pause_requested'
+        : 'paused',
+      pauseRequestedAt: stoppedAt,
+      updatedAt: stoppedAt,
+    },
+  }))
+}
+
+export async function unlockChatgptWebConversationSync() {
+  const config = await getUserConfig().catch(() => ({}))
+  if (config.chatgptWebHistorySyncEnabled !== true) {
+    const error = new Error('Enable ChatGPT history synchronization before unlocking it')
+    error.code = 'CHATGPT_HISTORY_SYNC_DISABLED'
+    throw error
+  }
+  const unlockedAt = new Date().toISOString()
+  const nextMeta = await updateConversationMeta((meta) => ({
+    ...meta,
+    safetyLock: null,
+    lastSyncError: null,
+    nextHistoryRequestAt: null,
+    syncState: {
+      ...(meta.syncState || {}),
+      status: 'paused',
+      unlockedAt,
+      updatedAt: unlockedAt,
+    },
+  }))
+  const badgeApi = Browser.action || Browser.browserAction
+  await Promise.resolve(badgeApi?.setBadgeText?.({ text: '' })).catch(() => {})
+  return nextMeta
 }
 
 export async function listChatgptWebConversations({
@@ -547,16 +683,13 @@ export async function listChatgptWebConversations({
   let index = await getChatgptWebConversationIndex()
   let meta = await getChatgptWebConversationMeta()
 
-  const shouldSync =
-    forceSync ||
-    Object.keys(index).length === 0 ||
-    (await hasConversationCacheExpired(meta)) ||
-    (shouldIncludeArchived && (await hasArchivedConversationCacheExpired(meta)))
-  if (shouldSync) {
+  if (forceSync) {
     try {
       const syncResult = await syncChatgptWebConversationCache({
-        force: forceSync,
         includeArchived: shouldIncludeArchived,
+        mode: 'full',
+        automatic: false,
+        reason: 'list_force_sync',
       })
       index = syncResult.index
       meta = syncResult.meta
@@ -638,6 +771,7 @@ export async function resumeChatgptWebConversation({
   conversationId,
   offset = 0,
   timeoutMs = DEFAULT_RESUME_TIMEOUT_MS,
+  conduitToken = '',
 } = {}) {
   if (typeof conversationId !== 'string' || !conversationId.trim()) {
     throw new Error('conversationId is required')
@@ -647,12 +781,6 @@ export async function resumeChatgptWebConversation({
   const normalizedTimeoutMs = parsePositiveInt(timeoutMs, DEFAULT_RESUME_TIMEOUT_MS, 1000, 60_000)
   const context = await getChatgptWebRequestContext()
   const controller = new AbortController()
-  const entries = new Map()
-  let activeCursor = null
-  let title = ''
-  let inputMessage = null
-  let handoff = null
-  let eventCount = 0
   let timedOut = false
 
   const timeout = setTimeout(() => {
@@ -660,87 +788,42 @@ export async function resumeChatgptWebConversation({
     controller.abort(createAbortError())
   }, normalizedTimeoutMs)
 
+  let result
   try {
-    await fetchSSE(`${context.baseUrl}/backend-api/f/conversation/resume`, {
-      method: 'POST',
-      signal: controller.signal,
-      credentials: 'include',
-      headers: {
-        ...context.headers,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    result = await consumeChatgptWebResumeDeltaStream({
+      url: `${context.baseUrl}/backend-api/f/conversation/resume`,
+      headers: buildChatgptWebConversationHeaders({
+        accessToken: context.accessToken,
+        cookie: context.cookie,
+        oaiDeviceId: context.oaiDeviceId,
+        language: context.language,
+        accountId: context.config.chatgptAccountId || '',
+        conduitToken: typeof conduitToken === 'string' ? conduitToken.trim() : '',
+        apiPath: '/backend-api/f/conversation/resume',
+      }),
+      body: {
         conversation_id: conversationId.trim(),
         offset: normalizedOffset,
-      }),
-      onMessage() {},
-      onStart() {},
-      onEnd() {},
-      onResponse() {},
-      onError(error) {
-        if (error?.name === 'AbortError') return
-        throw error
       },
-      onEvent(event) {
-        if (event.type !== 'event') return
-        eventCount += 1
-        const eventName = event.event || ''
-        let payload = null
-        try {
-          payload = event.data ? JSON.parse(event.data) : null
-        } catch {
-          payload = null
-        }
-        if (!payload || typeof payload !== 'object') return
-
-        if (!eventName) {
-          if (payload.type === 'title_generation') {
-            title = typeof payload.title === 'string' ? payload.title : title
-          } else if (payload.type === 'stream_handoff') {
-            handoff = payload
-          } else if (payload.type === 'input_message') {
-            inputMessage = payload.input_message || inputMessage
-          }
-          return
-        }
-
-        if (eventName !== 'delta') return
-        if (payload.c != null) activeCursor = payload.c
-        const cursor = payload.c != null ? payload.c : activeCursor
-        if (cursor == null) return
-
-        if (payload.o === 'add' && payload.v && typeof payload.v === 'object') {
-          entries.set(cursor, cloneJson(payload.v))
-          return
-        }
-
-        if (!entries.has(cursor) && payload.v && payload.v.message) {
-          entries.set(cursor, cloneJson(payload.v))
-          return
-        }
-
-        if (!entries.has(cursor) || !Array.isArray(payload.v)) return
-        const entry = entries.get(cursor)
-        payload.v.forEach((operation) => applyResumePatch(entry, operation))
-      },
+      signal: controller.signal,
+      fetchSSE,
     })
   } finally {
     clearTimeout(timeout)
   }
 
-  const assistantMessages = [...entries.values()]
-    .map((entry, index) => buildResumeMessageSummary(entry, index))
-    .filter(Boolean)
-  const bestMessage = pickBestResumeMessage(assistantMessages)
+  const { assistantMessages, bestMessage, handoff, inputMessage, title } = result
 
   return {
     conversationId: conversationId.trim(),
     fetchedAt: new Date().toISOString(),
     timedOut,
     offset: normalizedOffset,
-    eventCount,
+    eventCount: result.eventCount,
     title: title || null,
     pending: Boolean(bestMessage?.isPending),
+    authoritativeDone: result.authoritativeDone,
+    completed: result.completed,
     inputMessageId: inputMessage?.id || null,
     handoff:
       handoff && typeof handoff === 'object'

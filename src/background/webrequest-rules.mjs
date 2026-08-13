@@ -6,10 +6,43 @@
 // header rewrites as a fallback where DNR is unavailable.
 
 import Browser from 'webextension-polyfill'
-import { defaultConfig, setUserConfig } from '../config/storage.mjs'
+import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
 
 const DYNAMIC_HEADER_REWRITE_RULE_IDS = [1001, 1002, 1003]
 const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
+let observedChatgptAccountId = ''
+
+// Team/Enterprise workspace is selected by chatgpt.com on conversation
+// requests. Models, sentinel, and accounts/check often omit the header even
+// while the Team workspace is still active, so those must not clear it.
+const CHATGPT_WEB_ACCOUNT_SCOPED_PATH =
+  /\/backend-api\/(?:f\/)?conversations?(?:\/|$)/
+
+export function isChatgptWebAccountScopedRequest(url) {
+  if (typeof url !== 'string' || !url) return false
+  try {
+    return CHATGPT_WEB_ACCOUNT_SCOPED_PATH.test(new URL(url).pathname)
+  } catch {
+    return false
+  }
+}
+
+function readChatgptAccountIdHeader(headers) {
+  const accountHeader = (headers || []).find(
+    (header) => header?.name?.toLowerCase() === 'chatgpt-account-id',
+  )
+  return typeof accountHeader?.value === 'string' ? accountHeader.value.trim() : ''
+}
+
+function observeChatgptAccountIdHeader(details) {
+  if (isExtensionInitiatedRequest(details)) return
+  if (!isChatgptWebAccountScopedRequest(details?.url)) return
+
+  const accountId = readChatgptAccountIdHeader(details.requestHeaders)
+  if (accountId === observedChatgptAccountId) return
+  observedChatgptAccountId = accountId
+  void setUserConfig({ chatgptAccountId: accountId })
+}
 
 function addLegacyBlockingWebRequestListener(event, listener, filter) {
   // Chromium MV3 rejects blocking webRequest listeners for normally installed
@@ -214,6 +247,41 @@ export function registerWebRequestRules() {
       types: ['xmlhttprequest'],
     },
   )
+
+  // Team/Enterprise requests are scoped by this header. Observe the account
+  // chatgpt.com sends on conversation requests; do not guess from /accounts
+  // and do not treat header-less models/sentinel calls as a personal account.
+  void getUserConfig()
+    .then((config) => {
+      if (!observedChatgptAccountId && config?.chatgptAccountId) {
+        observedChatgptAccountId = config.chatgptAccountId
+      }
+    })
+    .catch(() => {})
+  try {
+    Browser.webRequest.onBeforeSendHeaders.addListener(
+      observeChatgptAccountIdHeader,
+      {
+        urls: ['https://*.chatgpt.com/backend-api/*'],
+        types: ['xmlhttprequest'],
+      },
+      ['requestHeaders', 'extraHeaders'],
+    )
+  } catch (error) {
+    // Firefox may reject extraHeaders; requestHeaders is sufficient there.
+    try {
+      Browser.webRequest.onBeforeSendHeaders.addListener(
+        observeChatgptAccountIdHeader,
+        {
+          urls: ['https://*.chatgpt.com/backend-api/*'],
+          types: ['xmlhttprequest'],
+        },
+        ['requestHeaders'],
+      )
+    } catch (fallbackError) {
+      console.log(fallbackError)
+    }
+  }
 
   syncScopedHeaderRewriteRules()
 }

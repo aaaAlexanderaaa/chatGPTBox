@@ -82,7 +82,12 @@ function chooseValueFromNewer(existingValue, incomingValue, existingTimestamp, i
   return incomingTimestamp >= existingTimestamp ? incomingValue : existingValue
 }
 
-function compareByTimestampAndRichness(leftTimestamp, rightTimestamp, leftRichness = 0, rightRichness = 0) {
+function compareByTimestampAndRichness(
+  leftTimestamp,
+  rightTimestamp,
+  leftRichness = 0,
+  rightRichness = 0,
+) {
   if (leftTimestamp !== rightTimestamp) return leftTimestamp - rightTimestamp
   if (leftRichness !== rightRichness) return leftRichness - rightRichness
   return 0
@@ -135,10 +140,8 @@ function mergeConversationIndexEntry(existingEntry = {}, incomingEntry = {}) {
 
   const existingFreshness = getConversationIndexEntryFreshness(normalizedExisting)
   const incomingFreshness = getConversationIndexEntryFreshness(normalizedIncoming)
-  const preferred =
-    incomingFreshness >= existingFreshness ? normalizedIncoming : normalizedExisting
-  const fallback =
-    preferred === normalizedIncoming ? normalizedExisting : normalizedIncoming
+  const preferred = incomingFreshness >= existingFreshness ? normalizedIncoming : normalizedExisting
+  const fallback = preferred === normalizedIncoming ? normalizedExisting : normalizedIncoming
   const snapshotFreshnessExisting = Math.max(
     toSortableTimestamp(normalizedExisting.snapshotUpdateTime),
     toSortableTimestamp(normalizedExisting.snapshotCachedAt),
@@ -256,7 +259,9 @@ function mergeConversationIndexMaps(existingIndex = {}, incomingIndex = {}) {
 function getSnapshotRichness(record) {
   if (!isPlainObject(record)) return 0
   const snapshot = isPlainObject(record.snapshot) ? record.snapshot : null
-  return countObjectKeys(snapshot) * 100 + (snapshot?.mapping ? countObjectKeys(snapshot.mapping) : 0)
+  return (
+    countObjectKeys(snapshot) * 100 + (snapshot?.mapping ? countObjectKeys(snapshot.mapping) : 0)
+  )
 }
 
 function normalizeConversationSnapshotRecord(record = {}, fallbackConversationId = '') {
@@ -343,6 +348,20 @@ function mergeConversationMeta(existingMeta = {}) {
     lastSyncItemCount: Number.isFinite(existing.lastSyncItemCount)
       ? Number(existing.lastSyncItemCount)
       : 0,
+    lastIncrementalSyncAt: existing.lastIncrementalSyncAt ?? null,
+    adaptiveSyncIntervalHours: Number(existing.adaptiveSyncIntervalHours) || 6,
+    safetyLock: existing.safetyLock ?? null,
+    syncState: existing.syncState ?? { status: 'idle' },
+    requestStats: existing.requestStats ?? {
+      total: 0,
+      automatic: 0,
+      manual: 0,
+      list: 0,
+      detail: 0,
+      rateLimited: 0,
+      hourly: {},
+      recent: [],
+    },
   }
 }
 
@@ -487,8 +506,10 @@ function getApiThreadDedupKey(record = {}) {
 }
 
 function getApiThreadRichness(record) {
-  return (Array.isArray(record?.transcript) ? record.transcript.length : 0) * 10 +
+  return (
+    (Array.isArray(record?.transcript) ? record.transcript.length : 0) * 10 +
     countNonEmptyValues([record?.conversationId, record?.parentMessageId, record?.sessionId])
+  )
 }
 
 function trimApiThreads(threads = [], limit = MAX_CHATGPT_WEB_API_THREADS) {
@@ -540,16 +561,17 @@ function mergeApiThreadRecord(existingRecord = {}, incomingRecord = {}) {
 
 function mergeApiThreads(existingThreads = [], incomingThreads = []) {
   const mergedByKey = new Map()
-  for (const thread of [...(Array.isArray(existingThreads) ? existingThreads : []), ...(Array.isArray(incomingThreads) ? incomingThreads : [])]) {
+  for (const thread of [
+    ...(Array.isArray(existingThreads) ? existingThreads : []),
+    ...(Array.isArray(incomingThreads) ? incomingThreads : []),
+  ]) {
     const normalizedThread = normalizeApiThreadRecord(thread)
     if (!normalizedThread) continue
     const dedupeKey = getApiThreadDedupKey(normalizedThread)
     const currentThread = mergedByKey.get(dedupeKey)
     mergedByKey.set(
       dedupeKey,
-      currentThread
-        ? mergeApiThreadRecord(currentThread, normalizedThread)
-        : normalizedThread,
+      currentThread ? mergeApiThreadRecord(currentThread, normalizedThread) : normalizedThread,
     )
   }
 
@@ -568,7 +590,9 @@ export function isChatgptHistoryStorageKey(key = '') {
 
 export function filterChatgptHistoryStorageData(data = {}) {
   return Object.fromEntries(
-    Object.entries(isPlainObject(data) ? data : {}).filter(([key]) => isChatgptHistoryStorageKey(key)),
+    Object.entries(isPlainObject(data) ? data : {}).filter(([key]) =>
+      isChatgptHistoryStorageKey(key),
+    ),
   )
 }
 
@@ -620,14 +644,14 @@ export function mergeChatgptHistoryStorageData(existingData = {}, incomingData =
     filteredIncoming[CHATGPT_WEB_API_THREADS_KEY],
   )
 
-  const snapshotKeys = new Set([
-    ...Object.keys(filteredExisting),
-    ...Object.keys(filteredIncoming),
-  ])
+  const snapshotKeys = new Set([...Object.keys(filteredExisting), ...Object.keys(filteredIncoming)])
 
   snapshotKeys.forEach((key) => {
     if (!key.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX)) return
-    const mergedSnapshot = mergeConversationSnapshotRecord(filteredExisting[key], filteredIncoming[key])
+    const mergedSnapshot = mergeConversationSnapshotRecord(
+      filteredExisting[key],
+      filteredIncoming[key],
+    )
     if (mergedSnapshot?.conversationId) merged[key] = mergedSnapshot
   })
 

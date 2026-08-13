@@ -26,11 +26,12 @@ const defaultConfig = {
   apiServerPort: 18080,
   chatgptWebConversationPollTimeoutSeconds: 600,
   chatgptWebConversationPollIntervalSeconds: 5,
-  chatgptWebConversationSyncIntervalMinutes: 60,
+  chatgptWebHistorySyncRpm: 6,
+  chatgptWebHistorySyncIntervalHours: 12,
 }
 
 describe('NUMERIC_FIELDS table', () => {
-  it('covers exactly the 14 fields the legacy code clamped', () => {
+  it('covers every numeric config field', () => {
     // If this set changes, the change is intentional and this test forces a
     // conscious edit — preventing a silent drop or addition.
     expect(NUMERIC_FIELDS.map((f) => f.key)).toEqual([
@@ -47,7 +48,8 @@ describe('NUMERIC_FIELDS table', () => {
       'apiServerPort',
       'chatgptWebConversationPollTimeoutSeconds',
       'chatgptWebConversationPollIntervalSeconds',
-      'chatgptWebConversationSyncIntervalMinutes',
+      'chatgptWebHistorySyncRpm',
+      'chatgptWebHistorySyncIntervalHours',
     ])
   })
 
@@ -118,12 +120,12 @@ describe('clampNumericConfig', () => {
       ...defaultConfig,
       temperature: 99, // > 2
       apiServerPort: 0, // < 1
-      chatgptWebConversationSyncIntervalMinutes: -5, // < 5
+      chatgptWebHistorySyncRpm: 999,
     }
     const { clampedValues, needsFix } = clampNumericConfig(config, defaultConfig)
     expect(needsFix).toBe(true)
     expect(clampedValues.temperature).toBe(2)
     expect(clampedValues.apiServerPort).toBe(1)
-    expect(clampedValues.chatgptWebConversationSyncIntervalMinutes).toBe(5)
+    expect(clampedValues.chatgptWebHistorySyncRpm).toBe(30)
   })
 })

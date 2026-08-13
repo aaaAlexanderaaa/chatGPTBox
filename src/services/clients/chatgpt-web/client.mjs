@@ -31,6 +31,22 @@ import {
   extractChatgptWebMessageText,
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
+import {
+  canResumeChatgptWebStreamHandoffViaSse,
+  extractChatgptWebResumeConversationToken,
+  isChatgptWebStreamHandoffEndpoint,
+  isChatgptWebStreamHandoff,
+  pickChatgptWebResumeSseOption,
+  shouldPollChatgptWebConversationAfterStream,
+  shouldUseChatgptWebLegacyWebsocketDispatch,
+} from './stream-handoff.mjs'
+import {
+  buildChatgptWebConversationHeaders,
+  buildChatgptWebConversationRequestBody,
+  extractChatgptWebConduitTokenFromHeaders,
+  extractChatgptWebTurnstileToken,
+} from './request-wire.mjs'
+import { consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
 
 async function request(token, method, path, data) {
   const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
@@ -63,7 +79,12 @@ const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
   'openai-sentinel-arkose-token',
   'openai-sentinel-chat-requirements-token',
   'openai-sentinel-proof-token',
+  'openai-sentinel-turnstile-token',
+  'chatgpt-account-id',
   'oai-device-id',
+  'oai-session-id',
+  'x-conduit-token',
+  'x-oai-turn-trace-id',
 ])
 function createAbortError() {
   const error = new Error('aborted')
@@ -206,31 +227,13 @@ function getChatgptWebClientContextualInfo() {
       typeof location === 'object' && typeof location.hostname === 'string' && location.hostname
         ? location.hostname
         : 'chatgpt.com',
-  }
-}
-
-function buildChatgptWebUserMessage(question, messageId) {
-  return {
-    id: messageId,
-    author: {
-      role: 'user',
-    },
-    create_time: Date.now() / 1000,
-    content: {
-      content_type: 'text',
-      parts: [question],
-    },
-    metadata: {
-      developer_mode_connector_ids: [],
-      selected_connector_ids: [],
-      selected_sync_knowledge_store_ids: [],
-      selected_sources: [],
-      selected_github_repos: [],
-      selected_all_github_repos: false,
-      serialization_metadata: {
-        custom_symbol_offsets: [],
-      },
-    },
+    has_web_push_capabilities:
+      typeof window === 'object' &&
+      Boolean(window?.PushManager) &&
+      typeof navigator === 'object' &&
+      Boolean(navigator?.serviceWorker),
+    web_push_notification_permission:
+      typeof Notification === 'function' ? Notification.permission || 'default' : 'default',
   }
 }
 
@@ -509,10 +512,16 @@ function generateProofToken(seed, diff, userAgent) {
   return 'gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallbackBase
 }
 
+async function getChatgptWebAccountContext(accessToken) {
+  const responseText = (await request(accessToken, 'GET', '/accounts/check/v4-2023-04-27'))
+    .responseText
+  return {
+    sharedWebsocket: responseText.includes('shared_websocket'),
+  }
+}
+
 export async function isNeedWebsocket(accessToken) {
-  return (await request(accessToken, 'GET', '/accounts/check/v4-2023-04-27')).responseText.includes(
-    'shared_websocket',
-  )
+  return (await getChatgptWebAccountContext(accessToken)).sharedWebsocket
 }
 
 export async function sendWebsocketConversation(accessToken, options) {
@@ -621,15 +630,20 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   const config = await getUserConfig()
   let arkoseError
-  const [models, requirements, arkoseToken, websocketFlag] = await Promise.all([
+  const [models, requirements, arkoseToken, accountContext] = await Promise.all([
     getModels(accessToken).catch(() => undefined),
     getRequirements(accessToken).catch(() => undefined),
     getArkoseToken(config).catch((e) => {
       arkoseError = e
     }),
-    isNeedWebsocket(accessToken).catch(() => undefined),
+    getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
   ])
-  let useWebsocket = Boolean(websocketFlag)
+  let useWebsocket = accountContext?.sharedWebsocket === true
+  // The accounts listing does not reliably identify the account selected in
+  // the ChatGPT tab. Only reuse an account id observed from a real page request.
+  const effectiveAccountId = config.chatgptAccountId || ''
+  const apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
+  const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
   console.debug('models', models)
   let usedModel
   let modelDecision
@@ -650,7 +664,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   const isExtendedThinkingRequest =
     requiresChatgptWebExtendedThinkingEffort(usedModel) ||
     thinkingEffort === CHATGPT_WEB_DEFAULT_THINKING_EFFORT
-  const useDispatchOnlyConversationObserver = Boolean(useWebsocket && isExtendedThinkingRequest)
+  const useDispatchOnlyConversationObserver = shouldUseChatgptWebLegacyWebsocketDispatch({
+    useWebsocket,
+    isExtendedThinkingRequest,
+    apiPath,
+  })
   if (!useDispatchOnlyConversationObserver) {
     useWebsocket = false
   }
@@ -661,6 +679,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     catalogHit: modelDecision.catalogHit,
     thinkingEffort: thinkingEffort || null,
     useDispatchOnlyConversationObserver,
+    usesStreamHandoffEndpoint,
     availableModelCount: Array.isArray(models) ? models.length : 0,
     availableModels: Array.isArray(models) ? models : [],
   })
@@ -677,7 +696,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     )
   }
 
-  const url = `${config.customChatGptWebApiUrl}${config.customChatGptWebApiPath}`
+  const url = `${config.customChatGptWebApiUrl}${apiPath}`
   const shouldAttachChatgptCookies = isTrustedChatgptDestination(url)
   let cookie
   let oaiDeviceId
@@ -700,39 +719,23 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     session.parentMessageId = 'client-created-root'
   }
   const timezone = getChatgptWebTimezone()
-  const requestBody = {
-    action: 'next',
-    conversation_id: session.conversationId || undefined,
-    messages: [buildChatgptWebUserMessage(question, session.messageId)],
-    client_prepare_state: 'success',
-    conversation_mode: {
-      kind: 'primary_assistant',
-    },
-    enable_message_followups: true,
-    system_hints: [],
-    supports_buffering: true,
-    supported_encodings: ['v1'],
-    client_contextual_info: getChatgptWebClientContextualInfo(),
-    paragen_cot_summary_display_override: 'allow',
-    force_parallel_switch: 'auto',
-    model: usedModel,
-    parent_message_id: session.parentMessageId,
-    timezone_offset_min: new Date().getTimezoneOffset(),
-    ...(timezone ? { timezone } : {}),
-  }
   const historyAndTrainingDisabled =
     typeof session.chatgptWebHistoryDisabledOverride === 'boolean'
       ? session.chatgptWebHistoryDisabledOverride
       : config.disableWebModeHistory
-  if (historyAndTrainingDisabled === true) {
-    requestBody.history_and_training_disabled = true
-  }
-  if (useWebsocket && session.wsRequestId) {
-    requestBody.websocket_request_id = session.wsRequestId
-  }
-  if (thinkingEffort) {
-    requestBody.thinking_effort = thinkingEffort
-  }
+  const requestBody = buildChatgptWebConversationRequestBody({
+    question,
+    messageId: session.messageId,
+    parentMessageId: session.parentMessageId,
+    model: usedModel,
+    thinkingEffort,
+    conversationId: session.conversationId || undefined,
+    timezone,
+    timezoneOffsetMin: new Date().getTimezoneOffset(),
+    clientContextualInfo: getChatgptWebClientContextualInfo(),
+    historyAndTrainingDisabled: historyAndTrainingDisabled === true,
+    websocketRequestId: useWebsocket && session.wsRequestId ? session.wsRequestId : null,
+  })
   void appendChatgptWebDebugLog(config, 'thinking-effort', {
     model: usedModel,
     selectedModel,
@@ -741,21 +744,34 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     includedInRequestBody: Object.prototype.hasOwnProperty.call(requestBody, 'thinking_effort'),
   })
 
+  const language =
+    (typeof navigator === 'object' && typeof navigator.language === 'string' && navigator.language) ||
+    'en-US'
+  const turnTraceId = uuidv4()
+  const turnstileToken = extractChatgptWebTurnstileToken(requirements)
+  let resumeConduitToken = ''
+  let streamHandoff = null
+  let attemptedStreamHandoffResume = false
+
   const options = {
     method: 'POST',
     signal: controller.signal,
     credentials: 'include',
-    headers: {
-      Accept: 'text/event-stream',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      ...(cookie && { Cookie: cookie }),
-      ...(needArkoseToken && { 'Openai-Sentinel-Arkose-Token': arkoseToken }),
-      ...(requirements && { 'Openai-Sentinel-Chat-Requirements-Token': requirements.token }),
-      ...(proofToken && { 'Openai-Sentinel-Proof-Token': proofToken }),
-      ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
-      'Oai-Language': 'en-US',
-    },
+    headers: buildChatgptWebConversationHeaders({
+      accessToken,
+      cookie,
+      oaiDeviceId,
+      language,
+      accountId: effectiveAccountId,
+      turnTraceId,
+      apiPath,
+      requirementsToken: requirements?.token || '',
+      proofToken: proofToken || '',
+      turnstileToken,
+      arkoseToken,
+      needArkoseToken,
+      sessionId: session.wsRequestId,
+    }),
     body: JSON.stringify(requestBody),
   }
   void appendChatgptWebDebugLog(config, 'wire-request', {
@@ -871,11 +887,73 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     })
   }
 
-  function shouldPollConversationResult(terminalError) {
-    if (!session.conversationId) return false
-    if (!needsChatgptWebThinkingEffort(usedModel)) return false
-    if (terminalError instanceof Error) return true
-    return true
+  function shouldPollConversationResult(resumeCompleted = false) {
+    return shouldPollChatgptWebConversationAfterStream({
+      hasConversationId: Boolean(session.conversationId),
+      handoff: streamHandoff,
+      resumeCompleted,
+      modelNeedsPolling: needsChatgptWebThinkingEffort(usedModel),
+    })
+  }
+
+  async function followStreamHandoffViaResume(reason) {
+    if (attemptedStreamHandoffResume) return null
+    if (!canResumeChatgptWebStreamHandoffViaSse(streamHandoff)) return null
+
+    const conversationId = session.conversationId || streamHandoff?.conversation_id
+    if (!conversationId || !resumeConduitToken) return null
+
+    attemptedStreamHandoffResume = true
+    const followOption = pickChatgptWebResumeSseOption(streamHandoff)
+    void appendChatgptWebDebugLog(config, 'stream-handoff-follow', {
+      reason,
+      conversationId,
+      followType: followOption?.type || null,
+      topicId: followOption?.topicId || null,
+      hasConduitToken: true,
+      transport: 'resume_sse',
+    })
+
+    const resumeHeaders = buildChatgptWebConversationHeaders({
+      accessToken,
+      cookie,
+      oaiDeviceId,
+      language,
+      accountId: effectiveAccountId,
+      conduitToken: resumeConduitToken,
+      turnTraceId,
+      apiPath: '/backend-api/f/conversation/resume',
+      sessionId: session.wsRequestId,
+    })
+
+    const result = await consumeChatgptWebResumeDeltaStream({
+      url: `${config.customChatGptWebApiUrl}/backend-api/f/conversation/resume`,
+      headers: resumeHeaders,
+      body: {
+        conversation_id: conversationId,
+        offset: 0,
+      },
+      signal: controller.signal,
+      fetchSSE,
+      onMessageSnapshot(snapshot) {
+        handleMessage(snapshot)
+      },
+      onHandoff(nextHandoff) {
+        streamHandoff = nextHandoff
+      },
+    })
+
+    void appendChatgptWebDebugLog(config, 'stream-handoff-resume-complete', {
+      reason,
+      conversationId,
+      authoritativeDone: result.authoritativeDone,
+      completed: result.completed,
+      eventCount: result.eventCount,
+      messageId: result.bestMessage?.id || null,
+      status: result.bestMessage?.status || null,
+      answerLength: result.bestMessage?.textLength || 0,
+    })
+    return result
   }
 
   async function fetchConversationResultSnapshot() {
@@ -891,7 +969,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           Authorization: `Bearer ${accessToken}`,
           ...(cookie && { Cookie: cookie }),
           ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
-          'Oai-Language': 'en-US',
+          ...(effectiveAccountId && { 'Chatgpt-Account-Id': effectiveAccountId }),
+          'Oai-Language': language,
         },
       },
     )
@@ -1031,7 +1110,20 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
     finalizationPromise = (async () => {
       try {
-        if (shouldPollConversationResult(terminalError)) {
+        let resumeResult = null
+        if (canResumeChatgptWebStreamHandoffViaSse(streamHandoff)) {
+          try {
+            resumeResult = await followStreamHandoffViaResume(reason)
+          } catch (error) {
+            if (error?.name === 'AbortError') throw error
+            void appendChatgptWebDebugLog(config, 'stream-handoff-follow-failed', {
+              reason,
+              error: error?.message || String(error),
+            })
+          }
+        }
+
+        if (shouldPollConversationResult(resumeResult?.completed === true)) {
           void appendChatgptWebDebugLog(config, 'conversation-poll-start', {
             reason,
             conversationId: session.conversationId || null,
@@ -1043,9 +1135,17 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             currentAnswerLength: answer.length,
             hadTerminalError: terminalError instanceof Error,
             terminalError: terminalError?.message || null,
+            attemptedStreamHandoffResume,
+            resumeAuthoritativeDone: resumeResult?.authoritativeDone === true,
+            resumeCompleted: resumeResult?.completed === true,
           })
           await pollConversationResult(reason)
-        } else if (terminalError) {
+        } else if (streamHandoff && !session.conversationId) {
+          throw (
+            terminalError ||
+            new Error('ChatGPT stream handoff did not include a conversation id')
+          )
+        } else if (terminalError && resumeResult?.completed !== true) {
           throw terminalError
         }
 
@@ -1211,8 +1311,10 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   } else {
     await fetchSSE(url, {
       ...options,
-      async onResponse() {
+      async onResponse(resp) {
         promptDispatchCommitted = true
+        const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
+        if (headerToken) resumeConduitToken = headerToken
       },
       onMessage(message) {
         console.debug('sse message', message)
@@ -1278,12 +1380,39 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
 
   function handleMessage(data) {
+    if (!data || typeof data !== 'object') return
+
     if (data.error) {
       void appendChatgptWebDebugLog(config, 'message-error', {
         model: usedModel,
         error: data.error,
       })
       throw new Error(JSON.stringify(data.error))
+    }
+
+    const resumeTokenEvent = extractChatgptWebResumeConversationToken(data)
+    if (resumeTokenEvent) {
+      resumeConduitToken = resumeTokenEvent.token || resumeConduitToken
+      session.conversationId = resumeTokenEvent.conversationId || session.conversationId
+      promptDispatchCommitted = true
+      emitSessionUpdate()
+      return
+    }
+
+    if (isChatgptWebStreamHandoff(data)) {
+      streamHandoff = data
+      if (data.conversation_id) {
+        session.conversationId = data.conversation_id
+        promptDispatchCommitted = true
+      }
+      void appendChatgptWebDebugLog(config, 'stream-handoff-received', {
+        conversationId: session.conversationId || null,
+        turnExchangeId: data.turn_exchange_id || null,
+        resumeSseOption: pickChatgptWebResumeSseOption(data),
+        hasConduitToken: Boolean(resumeConduitToken),
+      })
+      emitSessionUpdate()
+      return
     }
 
     if (data.conversation_id) {

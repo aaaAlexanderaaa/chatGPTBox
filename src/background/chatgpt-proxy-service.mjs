@@ -14,10 +14,7 @@
 
 import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
-import {
-  CHATGPT_WEB_DEFAULT_MODEL_KEY,
-  CHATGPT_WEB_DEBUG_LOG_KEY,
-} from '../config/limits.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_KEY, CHATGPT_WEB_DEBUG_LOG_KEY } from '../config/limits.mjs'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { initSession } from '../services/init-session.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
@@ -32,7 +29,8 @@ import {
   getChatgptWebConversation,
   listChatgptWebConversations,
   refreshChatgptWebConversation,
-  syncChatgptWebConversationCache,
+  stopChatgptWebConversationCacheSync,
+  unlockChatgptWebConversationSync,
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
 import { invalidateConversation } from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
@@ -159,6 +157,10 @@ export function acquireChatgptWebSessionLock(session, port, config) {
       activeChatgptWebSessionRequests.delete(sessionId)
     }
   }
+}
+
+export function hasActiveChatgptWebSessionRequests() {
+  return activeChatgptWebSessionRequests.size > 0
 }
 
 // --- proxy tab discovery / lifecycle --------------------------------------
@@ -379,20 +381,32 @@ export async function getChatgptWebConversationWithFallback(payload = {}) {
 }
 
 export async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
-  try {
-    return await syncChatgptWebConversationCache(payload)
-  } catch (error) {
-    if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy(
-      ChatgptProxyControlAction.SyncConversations,
-      payload,
-    )
-  }
+  return await executeChatgptWebControlRequestViaProxy(
+    ChatgptProxyControlAction.SyncConversations,
+    payload,
+  )
+}
+
+export async function stopChatgptWebConversationCacheSyncWithFallback() {
+  return await stopChatgptWebConversationCacheSync()
+}
+
+export async function unlockChatgptWebConversationSyncWithFallback() {
+  return await unlockChatgptWebConversationSync()
 }
 
 // --- list/get/refresh with proxy fallback (used by message router) --------
 
 export async function listChatgptWebConversationsWithFallback(payload = {}) {
+  if (payload?.forceSync === true) {
+    await syncChatgptWebConversationCacheWithFallback({
+      includeArchived: payload?.isArchived === true || payload?.isArchived === 'true',
+      mode: 'full',
+      automatic: false,
+      reason: 'list_force_sync',
+    })
+    return await listChatgptWebConversations({ ...payload, forceSync: false })
+  }
   try {
     return await listChatgptWebConversations(payload)
   } catch (error) {

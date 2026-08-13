@@ -18,3 +18,6 @@ tasks.csv
 docs/realdata/
 
 .worktrees/
+.pnpm-store/
+.zcode/
+tmp/

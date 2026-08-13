@@ -17,24 +17,28 @@ import {
   DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
   MAX_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  MAX_CHATGPT_WEB_HISTORY_SYNC_RPM,
   MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
   MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
   MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
 } from '../../config/limits.mjs'
 import { ModelGroups } from '../../config/models.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
+import { CHATGPT_WEB_CONVERSATION_META_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
@@ -62,6 +66,84 @@ export function AdvancedTab({
   const [historyTransferBusy, setHistoryTransferBusy] = useState(false)
   const [historyTransferMessage, setHistoryTransferMessage] = useState('')
   const [historyTransferError, setHistoryTransferError] = useState('')
+  const [historySyncMeta, setHistorySyncMeta] = useState({})
+  const [historySyncBusy, setHistorySyncBusy] = useState(false)
+  const [historySyncError, setHistorySyncError] = useState('')
+
+  const loadHistorySyncMeta = useCallback(async () => {
+    const data = await Browser.storage.local.get({ [CHATGPT_WEB_CONVERSATION_META_KEY]: {} })
+    setHistorySyncMeta(data[CHATGPT_WEB_CONVERSATION_META_KEY] || {})
+  }, [])
+
+  useEffect(() => {
+    void loadHistorySyncMeta()
+    const listener = (changes) => {
+      if (changes?.[CHATGPT_WEB_CONVERSATION_META_KEY]) {
+        setHistorySyncMeta(changes[CHATGPT_WEB_CONVERSATION_META_KEY].newValue || {})
+      }
+    }
+    const storageChanges = Browser.storage.onChanged || Browser.storage.local.onChanged
+    storageChanges.addListener(listener)
+    return () => storageChanges.removeListener(listener)
+  }, [loadHistorySyncMeta])
+
+  const runHistorySync = useCallback(
+    async (resume = false) => {
+      const rpm = Number(config.chatgptWebHistorySyncRpm) || DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM
+      const includeArchived = config.chatgptWebHistorySyncArchived === true
+      const knownConversationCount =
+        Number(historySyncMeta?.lastSyncItemCount) ||
+        Number(historySyncMeta?.syncState?.expectedTotal) ||
+        0
+      const estimatedRequestCount = knownConversationCount
+        ? Math.ceil(knownConversationCount / 100) + (includeArchived ? 1 : 0)
+        : null
+      const prompt = t(
+        'This will synchronize the complete ChatGPT conversation list at up to {{rpm}} requests per minute, with 100 conversations per request. Estimated list requests: {{requests}}. Conversation contents will not be downloaded. Continue?',
+        { rpm, requests: estimatedRequestCount || t('unknown') },
+      )
+      if (!window.confirm(prompt)) return
+      setHistorySyncBusy(true)
+      setHistorySyncError('')
+      try {
+        await Browser.runtime.sendMessage({
+          type: RuntimeMessage.ChatgptWebSyncConversations,
+          data: {
+            mode: 'full',
+            automatic: false,
+            reason: resume ? 'manual_resume' : 'manual_full_sync',
+            includeArchived,
+            resume,
+          },
+        })
+      } catch (error) {
+        setHistorySyncError(error?.message || String(error))
+      } finally {
+        setHistorySyncBusy(false)
+        void loadHistorySyncMeta()
+      }
+    },
+    [config, historySyncMeta, loadHistorySyncMeta, t],
+  )
+
+  const stopHistorySync = useCallback(async () => {
+    setHistorySyncError('')
+    try {
+      await Browser.runtime.sendMessage({ type: RuntimeMessage.ChatgptWebStopConversationSync })
+    } catch (error) {
+      setHistorySyncError(error?.message || String(error))
+    }
+  }, [])
+
+  const unlockHistorySync = useCallback(async () => {
+    setHistorySyncError('')
+    try {
+      await Browser.runtime.sendMessage({ type: RuntimeMessage.ChatgptWebUnlockConversationSync })
+      void loadHistorySyncMeta()
+    } catch (error) {
+      setHistorySyncError(error?.message || String(error))
+    }
+  }, [loadHistorySyncMeta])
 
   const loadWebDebugLogs = useCallback(async () => {
     setWebDebugLoading(true)
@@ -177,11 +259,34 @@ export function AdvancedTab({
     MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
     MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   )
-  const chatgptWebConversationSyncIntervalValue = parseIntWithClamp(
-    config.chatgptWebConversationSyncIntervalMinutes,
-    DEFAULT_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-    MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-    MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
+  const chatgptWebHistorySyncRpmValue = parseIntWithClamp(
+    config.chatgptWebHistorySyncRpm,
+    DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
+    MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
+    MAX_CHATGPT_WEB_HISTORY_SYNC_RPM,
+  )
+  const chatgptWebHistorySyncIntervalHoursValue = parseIntWithClamp(
+    config.chatgptWebHistorySyncIntervalHours,
+    DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+    MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+    MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+  )
+  const historyRequestStats = historySyncMeta?.requestStats || {}
+  const historyRecentRequests = Array.isArray(historyRequestStats.recent)
+    ? historyRequestStats.recent
+    : []
+  const historyRequestCutoffMinute = Date.now() - 60_000
+  const historyRequestsLastMinute = historyRecentRequests.filter(
+    (entry) => Date.parse(entry?.at || '') >= historyRequestCutoffMinute,
+  ).length
+  const historyRequestsLastDay = Object.values(historyRequestStats.hourly || {}).reduce(
+    (total, count) => total + (Number(count) || 0),
+    0,
+  )
+  const currentHistorySyncRequestCount = Math.max(
+    0,
+    (Number(historyRequestStats.total) || 0) -
+      (Number(historySyncMeta?.syncState?.requestCountAtStart) || 0),
   )
   const apiServerRequestTimeoutValue = parseIntWithClamp(
     config.apiServerRequestTimeoutSeconds,
@@ -456,30 +561,193 @@ export function AdvancedTab({
           />
         </SettingRow>
 
+        <Divider />
+
         <SettingRow
-          label={t('Conversation cache sync interval (min)')}
-          hint={t(
-            'How often the extension refreshes the cached ChatGPT conversation list in the background',
-          )}
+          label={t('Enable ChatGPT history synchronization')}
+          hint={t('Disabled by default. Enabling it does not start a full synchronization.')}
         >
-          <input
-            type="number"
-            min={MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES}
-            max={MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES}
-            step={1}
-            value={chatgptWebConversationSyncIntervalValue}
-            onChange={(e) => {
-              const value = parseIntWithClamp(
-                e.target.value,
-                chatgptWebConversationSyncIntervalValue,
-                MIN_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-                MAX_CHATGPT_WEB_CONVERSATION_SYNC_INTERVAL_MINUTES,
-              )
-              updateConfig({ chatgptWebConversationSyncIntervalMinutes: value })
-            }}
-            className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+          <ToggleSwitch
+            checked={config.chatgptWebHistorySyncEnabled === true}
+            onChange={(value) => updateConfig({ chatgptWebHistorySyncEnabled: value })}
           />
         </SettingRow>
+
+        {config.chatgptWebHistorySyncEnabled === true && (
+          <>
+            <SettingRow
+              label={t('Automatic history synchronization')}
+              hint={t('Automatic synchronization fetches only the newest 100 conversations.')}
+            >
+              <select
+                value={config.chatgptWebHistoryAutoSyncMode || 'off'}
+                onChange={(event) =>
+                  updateConfig({ chatgptWebHistoryAutoSyncMode: event.target.value })
+                }
+                className={TEXT_INPUT_CLASS}
+              >
+                <option value="off">{t('Off')}</option>
+                <option value="adaptive">{t('Adaptive (6–24 hours)')}</option>
+                <option value="fixed">{t('Fixed interval')}</option>
+              </select>
+            </SettingRow>
+
+            {config.chatgptWebHistoryAutoSyncMode === 'fixed' && (
+              <SettingRow
+                label={t('Automatic sync interval (hours)')}
+                hint={t('Each automatic synchronization requests one page only.')}
+              >
+                <input
+                  type="number"
+                  min={MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS}
+                  max={MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS}
+                  step={1}
+                  value={chatgptWebHistorySyncIntervalHoursValue}
+                  onChange={(event) => {
+                    const value = parseIntWithClamp(
+                      event.target.value,
+                      chatgptWebHistorySyncIntervalHoursValue,
+                      MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+                      MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
+                    )
+                    updateConfig({ chatgptWebHistorySyncIntervalHours: value })
+                  }}
+                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                />
+              </SettingRow>
+            )}
+
+            <SettingRow
+              label={t('Automatic and bulk history RPM')}
+              hint={t('Limits background and bulk history requests, not normal chats.')}
+            >
+              <input
+                type="number"
+                min={MIN_CHATGPT_WEB_HISTORY_SYNC_RPM}
+                max={MAX_CHATGPT_WEB_HISTORY_SYNC_RPM}
+                step={1}
+                value={chatgptWebHistorySyncRpmValue}
+                onChange={(event) => {
+                  const value = parseIntWithClamp(
+                    event.target.value,
+                    chatgptWebHistorySyncRpmValue,
+                    MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
+                    MAX_CHATGPT_WEB_HISTORY_SYNC_RPM,
+                  )
+                  updateConfig({ chatgptWebHistorySyncRpm: value })
+                }}
+                className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+              />
+            </SettingRow>
+            {chatgptWebHistorySyncRpmValue > 20 && (
+              <div className="text-xs text-amber-700 dark:text-amber-300">
+                {t('RPM values above 20 may increase the risk of account rate limiting.')}
+              </div>
+            )}
+
+            <SettingRow
+              label={t('Include archived conversations in full sync')}
+              hint={t('Archived conversations are never fetched by automatic synchronization.')}
+            >
+              <ToggleSwitch
+                checked={config.chatgptWebHistorySyncArchived === true}
+                onChange={(value) => updateConfig({ chatgptWebHistorySyncArchived: value })}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label={t('Synchronize only while idle')}
+              hint={t('Defers automatic history requests while a ChatGPTBox chat is active.')}
+            >
+              <ToggleSwitch
+                checked={config.chatgptWebHistorySyncOnlyWhenIdle !== false}
+                onChange={(value) => updateConfig({ chatgptWebHistorySyncOnlyWhenIdle: value })}
+              />
+            </SettingRow>
+
+            <div
+              className={`rounded-lg border p-3 text-xs space-y-2 ${
+                historySyncMeta?.safetyLock?.reason === 'rate_limited'
+                  ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300'
+                  : 'border-border bg-secondary/30 text-muted-foreground'
+              }`}
+            >
+              {historySyncMeta?.safetyLock?.reason === 'rate_limited' && (
+                <div className="font-medium">
+                  {t(
+                    'Automatic history requests were stopped after HTTP 429. They will remain disabled until you unlock them manually.',
+                  )}
+                </div>
+              )}
+              <div>
+                {t('Status')}: {t(historySyncMeta?.syncState?.status || 'idle')}
+              </div>
+              <div>
+                {t('Progress')}: {historySyncMeta?.syncState?.itemsFetched || 0}{' '}
+                {historySyncMeta?.syncState?.expectedTotal
+                  ? `/ ${historySyncMeta.syncState.expectedTotal} `
+                  : ''}
+                {t('conversations')}, {historySyncMeta?.syncState?.pagesCompleted || 0} {t('pages')}
+              </div>
+              <div>
+                {t('Requests')}: {historySyncMeta?.requestStats?.total || 0} {t('total')},{' '}
+                {historySyncMeta?.requestStats?.list || 0} {t('list')},{' '}
+                {historySyncMeta?.requestStats?.detail || 0} {t('detail')},{' '}
+                {historySyncMeta?.requestStats?.rateLimited || 0} HTTP 429
+              </div>
+              <div>
+                {t('Current sync')}: {currentHistorySyncRequestCount}; {t('last minute')}:{' '}
+                {historyRequestsLastMinute} / {chatgptWebHistorySyncRpmValue}; {t('last 24 hours')}:{' '}
+                {historyRequestsLastDay}
+              </div>
+              {historySyncMeta?.lastSyncError && <div>{historySyncMeta.lastSyncError}</div>}
+              {historySyncError && <div>{historySyncError}</div>}
+              <div className="flex flex-wrap gap-2 pt-1">
+                {historySyncMeta?.safetyLock?.reason === 'rate_limited' ? (
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
+                    onClick={unlockHistorySync}
+                  >
+                    {t('Unlock after reviewing settings')}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={historySyncBusy || historySyncMeta?.syncState?.status === 'running'}
+                      className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                      onClick={() => runHistorySync(false)}
+                    >
+                      {t('Start full list sync')}
+                    </button>
+                    {['paused', 'failed', 'pause_requested'].includes(
+                      historySyncMeta?.syncState?.status,
+                    ) && (
+                      <button
+                        type="button"
+                        disabled={historySyncBusy}
+                        className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
+                        onClick={() => runHistorySync(true)}
+                      >
+                        {t('Resume')}
+                      </button>
+                    )}
+                    {historySyncMeta?.syncState?.status === 'running' && (
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-md border border-border"
+                        onClick={stopHistorySync}
+                      >
+                        {t('Stop')}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </SettingSection>
 
       <Divider />

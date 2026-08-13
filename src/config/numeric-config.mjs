@@ -47,7 +47,8 @@ export const NUMERIC_FIELDS = /** @type {NumericFieldSpec[]} */ ([
   { key: 'apiServerPort', kind: 'int', min: 1, max: 65535 },
   { key: 'chatgptWebConversationPollTimeoutSeconds', kind: 'int', min: 30, max: 7200 },
   { key: 'chatgptWebConversationPollIntervalSeconds', kind: 'int', min: 1, max: 300 },
-  { key: 'chatgptWebConversationSyncIntervalMinutes', kind: 'int', min: 5, max: 1440 },
+  { key: 'chatgptWebHistorySyncRpm', kind: 'int', min: 1, max: 30 },
+  { key: 'chatgptWebHistorySyncIntervalHours', kind: 'int', min: 1, max: 168 },
 ])
 
 /**

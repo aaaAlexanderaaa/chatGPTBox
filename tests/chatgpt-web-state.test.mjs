@@ -167,6 +167,28 @@ describe('selectChatgptWebRefreshResult', () => {
     const result = selectChatgptWebRefreshResult(conversation, resume)
     expect(result.text).toBe('fallback')
   })
+
+  it('does not replace conversation text with an incomplete resume stream', () => {
+    const conversation = { message: { text: 'safe snapshot' }, pending: false }
+    const resume = {
+      completed: false,
+      message: { text: 'truncated delta', isFinal: true },
+      pending: false,
+    }
+    expect(selectChatgptWebRefreshResult(conversation, resume).text).toBe('safe snapshot')
+  })
+
+  it('does not expose truncated resume text when no conversation snapshot exists', () => {
+    const conversation = { message: { text: '' }, pending: true }
+    const resume = {
+      completed: false,
+      message: { text: 'truncated delta', isFinal: true },
+      pending: false,
+    }
+    const result = selectChatgptWebRefreshResult(conversation, resume)
+    expect(result.text).toBe('')
+    expect(result.pending).toBe(true)
+  })
 })
 
 describe('normalizeChatgptWebConversationIndexEntry', () => {
