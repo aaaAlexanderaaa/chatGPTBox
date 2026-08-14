@@ -4,13 +4,6 @@ import { isMobile } from '../utils/is-mobile.mjs'
 import { defaultExtractor } from './extractors.mjs'
 import { clampNumericConfig } from './numeric-config.mjs'
 import {
-  AgentProtocol,
-  BuiltInIds,
-  ENABLE_AGENT_FEATURES,
-  RuntimeMode,
-  normalizeAgentProtocol,
-} from './constants.mjs'
-import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
@@ -22,96 +15,7 @@ import {
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
 } from './limits.mjs'
 import { DefaultActiveModelKeysByGroup, DefaultEnabledProviderGroups, Models } from './models.mjs'
-import {
-  AgentDefaultsMigrationVersion,
-  migrateArrayField,
-  normalizeLegacyChatgptWebModelName,
-} from './migrations.mjs'
-
-const BuiltInSkillIds = BuiltInIds.skill
-const BuiltInAssistantIds = BuiltInIds.assistant
-const BuiltInMcpServerIds = BuiltInIds.mcpServer
-
-const defaultBuiltInSkills = ENABLE_AGENT_FEATURES
-  ? [
-      {
-        id: BuiltInSkillIds.analyzeWebDesignPatterns,
-        name: 'Analyze Current Web Design Patterns',
-        description:
-          'Review the current page UI for hierarchy, typography, spacing, color, interaction clarity, and accessibility.',
-        version: 'builtin-v1',
-        sourceName: 'Built-in',
-        sourceHash: 'builtin:analyze-web-design-patterns:v1',
-        entryPath: 'builtin://skills/analyze-current-web-design-patterns',
-        instructions: `Goal:
-Audit the current webpage design and produce a practical UX/UI review.
-
-Checklist:
-- Visual hierarchy and scanability
-- Typography consistency (sizes/weights/line-height)
-- Layout rhythm and spacing balance
-- Color contrast and state clarity
-- Interaction affordances and form usability
-- Mobile responsiveness indicators
-
-Output format:
-1) Strengths
-2) Top issues (ordered by impact)
-3) Concrete fixes with implementation hints`,
-        resources: [
-          {
-            path: 'references/design-review-checklist.md',
-            content: `Design review checklist:
-- Identify information scent and primary call-to-action clarity.
-- Validate spacing system consistency (vertical rhythm).
-- Check color contrast for body text and interactive controls.
-- Verify heading hierarchy and semantic grouping.`,
-          },
-        ],
-        active: true,
-        importedAt: 0,
-        builtIn: true,
-      },
-    ]
-  : []
-
-const defaultBuiltInMcpServers = ENABLE_AGENT_FEATURES
-  ? [
-      {
-        id: BuiltInMcpServerIds.skillLibrary,
-        name: 'Skill Library (Built-in)',
-        transport: 'builtin',
-        httpUrl: '',
-        apiKey: '',
-        active: true,
-        builtIn: true,
-      },
-      {
-        id: BuiltInMcpServerIds.browserContextToolkit,
-        name: 'Browser Context Toolkit (Built-in)',
-        transport: 'builtin',
-        httpUrl: '',
-        apiKey: '',
-        active: false,
-        builtIn: true,
-      },
-    ]
-  : []
-
-const defaultBuiltInAssistants = ENABLE_AGENT_FEATURES
-  ? [
-      {
-        id: BuiltInAssistantIds.designAssistant,
-        name: 'Design Pattern Analyst',
-        systemPrompt:
-          'You are a practical web UI/UX analyst. Focus on concrete, high-impact recommendations and cite specific page evidence whenever possible.',
-        defaultSkillIds: [BuiltInSkillIds.analyzeWebDesignPatterns],
-        defaultMcpServerIds: [BuiltInMcpServerIds.skillLibrary],
-        active: true,
-        builtIn: true,
-      },
-    ]
-  : []
+import { migrateArrayField, normalizeStoredModelSelection } from './migrations.mjs'
 
 export function getNavigatorLanguage() {
   const l =
@@ -127,23 +31,6 @@ export function getNavigatorLanguage() {
  */
 export const defaultConfig = {
   // general
-
-  // additive agent runtime controls (legacy behavior remains default when unused)
-  /** @type {keyof RuntimeMode} */
-  runtimeMode: 'safe',
-  agentProtocol: AgentProtocol.auto,
-  agentPreloadContextTokenCap: 64000,
-  agentContextTokenCap: 128000,
-  agentMaxSteps: 8,
-  agentNoProgressLimit: 2,
-  agentToolEventLimit: 50,
-  assistants: defaultBuiltInAssistants,
-  defaultAssistantId: '',
-  installedSkills: defaultBuiltInSkills,
-  defaultSkillIds: [],
-  enableSkills: ENABLE_AGENT_FEATURES,
-  mcpServers: defaultBuiltInMcpServers,
-  defaultMcpServerIds: [],
 
   /** @type {keyof TriggerMode}*/
   triggerMode: 'manually',
@@ -185,8 +72,6 @@ export const defaultConfig = {
   azureEndpoint: '',
   azureDeploymentName: '',
 
-  poeCustomBotName: '',
-
   claudeApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
@@ -194,12 +79,8 @@ export const defaultConfig = {
 
   customApiKey: '',
 
-  /** @type {keyof ModelMode}*/
-  modelMode: 'balanced',
-
   customModelApiUrl: 'http://localhost:8000/v1/chat/completions',
   customModelName: 'gpt-4.1',
-  githubThirdPartyUrl: 'http://127.0.0.1:3000/conversation',
 
   ollamaEndpoint: 'http://127.0.0.1:11434',
   ollamaModelName: 'llama4',
@@ -299,7 +180,6 @@ export const defaultConfig = {
   ],
   accessToken: '',
   tokenSavedOn: 0,
-  bingAccessToken: '',
   notificationJumpBackTabId: 0,
   chatgptTabId: 0,
   chatgptArkoseReqUrl: '',
@@ -361,10 +241,8 @@ export const defaultConfig = {
 export async function getUserConfig() {
   const options = await Browser.storage.local.get(Object.keys(defaultConfig))
   const migrationMeta = await Browser.storage.local.get({
-    agentDefaultsMigrationVersion: 0,
     customScriptMigrationDone: false,
   })
-  const agentDefaultsMigrationVersion = Number(migrationMeta.agentDefaultsMigrationVersion) || 0
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
   const config = defaults(options, defaultConfig)
@@ -377,12 +255,6 @@ export async function getUserConfig() {
   if (needsFix) {
     Object.assign(config, numericFix)
     await Browser.storage.local.set(numericFix)
-  }
-  if (config.agentPreloadContextTokenCap > config.agentContextTokenCap) {
-    config.agentPreloadContextTokenCap = config.agentContextTokenCap
-    await Browser.storage.local.set({
-      agentPreloadContextTokenCap: config.agentPreloadContextTokenCap,
-    })
   }
 
   // Keep provider gating config forward-compatible with newly added provider groups.
@@ -413,7 +285,6 @@ export async function getUserConfig() {
     config.chatgptWebHistoryAutoSyncMode = 'off'
     await Browser.storage.local.set({ chatgptWebHistoryAutoSyncMode: 'off' })
   }
-  config.enableSkills = ENABLE_AGENT_FEATURES && config.enableSkills === true
 
   const normalizedChatgptWebThinkingEffort = ['standard', 'max'].includes(
     config.chatgptWebThinkingEffort,
@@ -465,7 +336,7 @@ export async function getUserConfig() {
   let webModelMigrationNeedsFix = false
   const webModelMigrationPatch = {}
 
-  const normalizedModelName = normalizeLegacyChatgptWebModelName(config.modelName)
+  const normalizedModelName = normalizeStoredModelSelection(config.modelName)
   if (normalizedModelName !== config.modelName) {
     config.modelName = normalizedModelName
     webModelMigrationNeedsFix = true
@@ -473,7 +344,7 @@ export async function getUserConfig() {
   }
 
   if (config.apiMode && typeof config.apiMode === 'object') {
-    const nextItemName = normalizeLegacyChatgptWebModelName(config.apiMode.itemName)
+    const nextItemName = normalizeStoredModelSelection(config.apiMode.itemName)
     if (nextItemName !== config.apiMode.itemName) {
       config.apiMode = {
         ...config.apiMode,
@@ -486,7 +357,7 @@ export async function getUserConfig() {
   }
 
   if (Array.isArray(config.activeApiModes)) {
-    const migratedActiveApiModes = config.activeApiModes.map(normalizeLegacyChatgptWebModelName)
+    const migratedActiveApiModes = config.activeApiModes.map(normalizeStoredModelSelection)
     if (JSON.stringify(migratedActiveApiModes) !== JSON.stringify(config.activeApiModes)) {
       config.activeApiModes = migratedActiveApiModes
       webModelMigrationNeedsFix = true
@@ -499,7 +370,7 @@ export async function getUserConfig() {
     const migratedCustomApiModes = config.customApiModes.map((apiMode) => {
       if (!apiMode || typeof apiMode !== 'object') return apiMode
       if (apiMode.groupName !== 'chatgptWebModelKeys') return apiMode
-      const nextItemName = normalizeLegacyChatgptWebModelName(apiMode.itemName)
+      const nextItemName = normalizeStoredModelSelection(apiMode.itemName)
       if (nextItemName === apiMode.itemName) return apiMode
       migratedCustomModesChanged = true
       return {
@@ -519,226 +390,6 @@ export async function getUserConfig() {
     await Browser.storage.local.set(webModelMigrationPatch)
   }
 
-  // Validate runtime mode (safe by default for backwards-compatible security posture).
-  if (!Object.prototype.hasOwnProperty.call(RuntimeMode, config.runtimeMode)) {
-    config.runtimeMode = defaultConfig.runtimeMode
-    await Browser.storage.local.set({ runtimeMode: config.runtimeMode })
-  }
-  const normalizedAgentProtocol = normalizeAgentProtocol(config.agentProtocol, AgentProtocol.auto)
-  if (normalizedAgentProtocol !== config.agentProtocol) {
-    config.agentProtocol = normalizedAgentProtocol
-    await Browser.storage.local.set({ agentProtocol: config.agentProtocol })
-  }
-
-  const normalizeString = (value, fallback = '') => (typeof value === 'string' ? value : fallback)
-  const normalizeStringArray = (value) =>
-    Array.isArray(value) ? value.filter((v) => typeof v === 'string' && v.trim()) : []
-  const ensureObjectId = (obj, prefix) => {
-    if (obj.id && typeof obj.id === 'string' && obj.id.trim()) return obj.id
-    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
-  }
-
-  let assistantsNeedsFix = false
-  const normalizedAssistants = Array.isArray(config.assistants)
-    ? config.assistants
-        .map((assistant) => {
-          if (!assistant || typeof assistant !== 'object') {
-            assistantsNeedsFix = true
-            return null
-          }
-          const normalized = {
-            id: ensureObjectId(assistant, 'assistant'),
-            name: normalizeString(assistant.name),
-            systemPrompt: normalizeString(assistant.systemPrompt),
-            defaultSkillIds: normalizeStringArray(assistant.defaultSkillIds),
-            defaultMcpServerIds: normalizeStringArray(assistant.defaultMcpServerIds),
-            active: assistant.active !== false,
-          }
-          if (JSON.stringify(normalized) !== JSON.stringify(assistant)) assistantsNeedsFix = true
-          return normalized.name ? normalized : null
-        })
-        .filter(Boolean)
-    : []
-  if (!Array.isArray(config.assistants)) assistantsNeedsFix = true
-  if (assistantsNeedsFix) {
-    config.assistants = normalizedAssistants
-    await Browser.storage.local.set({ assistants: config.assistants })
-  }
-
-  let skillsNeedsFix = false
-  const normalizeSkillResource = (resource) => {
-    if (!resource || typeof resource !== 'object') return null
-    const path = normalizeString(resource.path).trim()
-    const content = normalizeString(resource.content)
-    if (!path || !content) return null
-    return { path, content }
-  }
-  const normalizedInstalledSkills = Array.isArray(config.installedSkills)
-    ? config.installedSkills
-        .map((skill) => {
-          if (!skill || typeof skill !== 'object') {
-            skillsNeedsFix = true
-            return null
-          }
-          const normalized = {
-            id: ensureObjectId(skill, 'skill'),
-            name: normalizeString(skill.name),
-            description: normalizeString(skill.description),
-            version: normalizeString(skill.version),
-            sourceName: normalizeString(skill.sourceName),
-            sourceHash: normalizeString(skill.sourceHash),
-            entryPath: normalizeString(skill.entryPath || skill.mainPath),
-            instructions: normalizeString(skill.instructions),
-            resources: Array.isArray(skill.resources)
-              ? skill.resources.map(normalizeSkillResource).filter(Boolean)
-              : [],
-            active: skill.active !== false,
-            importedAt:
-              Number.isFinite(skill.importedAt) && Number(skill.importedAt) > 0
-                ? Number(skill.importedAt)
-                : Date.now(),
-          }
-          if (JSON.stringify(normalized) !== JSON.stringify(skill)) skillsNeedsFix = true
-          return normalized.name && normalized.instructions ? normalized : null
-        })
-        .filter(Boolean)
-    : []
-  if (!Array.isArray(config.installedSkills)) skillsNeedsFix = true
-  if (skillsNeedsFix) {
-    config.installedSkills = normalizedInstalledSkills
-    await Browser.storage.local.set({ installedSkills: config.installedSkills })
-  }
-
-  let mcpServersNeedsFix = false
-  const normalizedMcpServers = Array.isArray(config.mcpServers)
-    ? config.mcpServers
-        .map((server) => {
-          if (!server || typeof server !== 'object') {
-            mcpServersNeedsFix = true
-            return null
-          }
-          const transport =
-            normalizeString(server.transport).trim().toLowerCase() === 'builtin'
-              ? 'builtin'
-              : 'http'
-          const normalized = {
-            id: ensureObjectId(server, 'mcp'),
-            name: normalizeString(server.name),
-            transport,
-            httpUrl: transport === 'http' ? normalizeString(server.httpUrl) : '',
-            apiKey: transport === 'http' ? normalizeString(server.apiKey) : '',
-            active: server.active !== false,
-          }
-          if (JSON.stringify(normalized) !== JSON.stringify(server)) mcpServersNeedsFix = true
-          return normalized.name ? normalized : null
-        })
-        .filter(Boolean)
-    : []
-  if (!Array.isArray(config.mcpServers)) mcpServersNeedsFix = true
-  if (mcpServersNeedsFix) {
-    config.mcpServers = normalizedMcpServers
-    await Browser.storage.local.set({ mcpServers: config.mcpServers })
-  }
-
-  const validAssistantIds = new Set((config.assistants || []).map((a) => a.id))
-  const validSkillIds = new Set((config.installedSkills || []).map((s) => s.id))
-  const validMcpServerIds = new Set((config.mcpServers || []).map((s) => s.id))
-
-  let assistantRefsNeedFix = false
-  const fixedAssistants = (config.assistants || []).map((assistant) => {
-    if (!assistant || typeof assistant !== 'object') return assistant
-    const fixedDefaultSkillIds = normalizeStringArray(assistant.defaultSkillIds).filter((id) =>
-      validSkillIds.has(id),
-    )
-    const fixedDefaultMcpServerIds = normalizeStringArray(assistant.defaultMcpServerIds).filter(
-      (id) => validMcpServerIds.has(id),
-    )
-    if (
-      !Array.isArray(assistant.defaultSkillIds) ||
-      !Array.isArray(assistant.defaultMcpServerIds) ||
-      fixedDefaultSkillIds.length !== assistant.defaultSkillIds.length ||
-      fixedDefaultMcpServerIds.length !== assistant.defaultMcpServerIds.length
-    ) {
-      assistantRefsNeedFix = true
-      return {
-        ...assistant,
-        defaultSkillIds: fixedDefaultSkillIds,
-        defaultMcpServerIds: fixedDefaultMcpServerIds,
-      }
-    }
-    return assistant
-  })
-  if (assistantRefsNeedFix) {
-    config.assistants = fixedAssistants
-    await Browser.storage.local.set({ assistants: config.assistants })
-  }
-
-  let defaultSelectionNeedsFix = false
-  const defaultMigrationNeedsPersist =
-    agentDefaultsMigrationVersion < AgentDefaultsMigrationVersion.clearLegacyDesignDefaults
-  const normalizedDefaultAssistantId = normalizeString(config.defaultAssistantId)
-  if (normalizedDefaultAssistantId !== config.defaultAssistantId) {
-    config.defaultAssistantId = normalizedDefaultAssistantId
-    defaultSelectionNeedsFix = true
-  }
-  if (config.defaultAssistantId && !validAssistantIds.has(config.defaultAssistantId)) {
-    config.defaultAssistantId = ''
-    defaultSelectionNeedsFix = true
-  }
-
-  const fixedDefaultSkillIds = normalizeStringArray(config.defaultSkillIds).filter((id) =>
-    validSkillIds.has(id),
-  )
-  if (
-    !Array.isArray(config.defaultSkillIds) ||
-    fixedDefaultSkillIds.length !== config.defaultSkillIds.length
-  ) {
-    config.defaultSkillIds = fixedDefaultSkillIds
-    defaultSelectionNeedsFix = true
-  }
-
-  const fixedDefaultMcpServerIds = normalizeStringArray(config.defaultMcpServerIds).filter((id) =>
-    validMcpServerIds.has(id),
-  )
-  if (
-    !Array.isArray(config.defaultMcpServerIds) ||
-    fixedDefaultMcpServerIds.length !== config.defaultMcpServerIds.length
-  ) {
-    config.defaultMcpServerIds = fixedDefaultMcpServerIds
-    defaultSelectionNeedsFix = true
-  }
-
-  if (defaultMigrationNeedsPersist) {
-    const isLegacyDesignDefaultProfile =
-      config.defaultAssistantId === BuiltInAssistantIds.designAssistant &&
-      config.defaultSkillIds.length === 1 &&
-      config.defaultSkillIds[0] === BuiltInSkillIds.analyzeWebDesignPatterns &&
-      config.defaultMcpServerIds.length === 1 &&
-      config.defaultMcpServerIds[0] === BuiltInMcpServerIds.skillLibrary
-    if (isLegacyDesignDefaultProfile) {
-      config.defaultAssistantId = ''
-      config.defaultSkillIds = []
-      config.defaultMcpServerIds = []
-      defaultSelectionNeedsFix = true
-    }
-  }
-
-  if (defaultSelectionNeedsFix || defaultMigrationNeedsPersist) {
-    const storagePatch = {}
-    if (defaultSelectionNeedsFix) {
-      Object.assign(storagePatch, {
-        defaultAssistantId: config.defaultAssistantId,
-        defaultSkillIds: config.defaultSkillIds,
-        defaultMcpServerIds: config.defaultMcpServerIds,
-      })
-    }
-    if (defaultMigrationNeedsPersist) {
-      storagePatch.agentDefaultsMigrationVersion =
-        AgentDefaultsMigrationVersion.clearLegacyDesignDefaults
-    }
-    await Browser.storage.local.set(storagePatch)
-  }
-
   const storedSiteAdapters = Array.isArray(options.siteAdapters)
     ? options.siteAdapters
     : config.siteAdapters
@@ -754,16 +405,6 @@ export async function getUserConfig() {
       newSiteAdapters.includes(key),
     )
     config.activeSiteAdapters = Array.from(new Set([...storedActive, ...newActive]))
-  }
-
-  if (!ENABLE_AGENT_FEATURES) {
-    config.assistants = []
-    config.defaultAssistantId = ''
-    config.installedSkills = []
-    config.defaultSkillIds = []
-    config.mcpServers = []
-    config.defaultMcpServerIds = []
-    config.enableSkills = false
   }
 
   return config

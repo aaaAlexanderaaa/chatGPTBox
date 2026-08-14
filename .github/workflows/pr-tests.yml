@@ -28,7 +28,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test
-      - run: npm run test:agent
       - run: npm run build
 
   audit:

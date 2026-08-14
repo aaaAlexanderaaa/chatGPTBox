@@ -1,9 +1,16 @@
 # chatGPTBox 架构治理计划（Architecture Improvement Plan）
 
-> 状态：待实施（handoff 文档）
+> 状态：**部分内容已过时**（见下方说明）
 > 来源：两份独立 architecture review 合并、去重、校准后形成
 > 日期：2026-06-15
 > 实施方式：瀑布式，按依赖与 ROI 排序，每步独立可交付
+
+> **过时说明（2026-08-15 清理后）**：本文写作后，仓库进行了一次大规模瘦身——
+> Agent/MCP/Skills 运行时已整体删除（连同 `--enable-agents` 构建配置与 stubs 机制）、
+> Poe/Bing/Bard/Claude web 四个死端点提供商及 waylaidwanderer 桥已移除（注册表 17 → 13）、
+> Safari 打包已退役。文中与这些子系统相关的步骤（如 agent 目录治理、
+> `build:agents` script、17-provider 相关重构）已无对象，阅读时请对照当前源码；
+> 未涉及上述子系统的步骤（config 收敛、消息契约、background 拆分等）仍然有效。
 
 本文档是自包含的。接手的会话应先读「第 1 节 总体判断」和「第 4 节 执行顺序与依赖」，再从第 1 步开始逐项实施。所有文件引用均已对照源码核实（行号基于本计划编写时的 master 分支 `ed15d1b`）。
 

@@ -1,5 +1,5 @@
 // Barrel re-export of the config module surface. Individual submodules:
-//   constants.mjs  — enumerations, feature-flag, AgentProtocol
+//   constants.mjs  — enumerations
 //   limits.mjs     — numeric DEFAULT_/MIN_/MAX_ bounds
 //   models.mjs     — *ModelKeys, ModelGroups, Models table, accessors
 //   predicates.mjs — isUsing*Model predicate functions
@@ -15,15 +15,9 @@ export { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../services/clien
 
 // constants.mjs
 export {
-  AgentProtocol,
-  BUILTIN_DESIGN_ASSISTANT_ID,
-  ENABLE_AGENT_FEATURES,
-  ModelMode,
   ModelStatus,
-  RuntimeMode,
   ThemeMode,
   TriggerMode,
-  normalizeAgentProtocol,
 } from './constants.mjs'
 
 // limits.mjs
@@ -54,13 +48,10 @@ export {
   aimlApiModelKeys,
   AlwaysCustomGroups,
   azureOpenAiApiModelKeys,
-  bardWebModelKeys,
-  bingWebModelKeys,
   chatglmApiModelKeys,
   chatgptApiModelKeys,
   chatgptWebModelKeys,
   claudeApiModelKeys,
-  claudeWebModelKeys,
   CustomApiKeyGroups,
   customApiModelKeys,
   CustomUrlGroups,
@@ -71,7 +62,6 @@ export {
   getModelMeta,
   getModelProviderGroup,
   getModelStatus,
-  githubThirdPartyApiModelKeys,
   gptApiModelKeys,
   isModelDeprecated,
   ModelGroups,
@@ -80,28 +70,21 @@ export {
   moonshotWebModelKeys,
   ollamaApiModelKeys,
   openRouterApiModelKeys,
-  poeWebModelKeys,
 } from './models.mjs'
 
 // predicates.mjs
 export {
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
-  isUsingBingWebModel,
   isUsingChatGLMApiModel,
   isUsingChatgptApiModel,
   isUsingChatgptWebModel,
   isUsingClaudeApiModel,
-  isUsingClaudeWebModel,
   isUsingCustomModel,
-  isUsingCustomNameOnlyModel,
   isUsingDeepSeekApiModel,
-  isUsingGeminiWebModel,
-  isUsingGithubThirdPartyApiModel,
   isUsingGptCompletionApiModel,
   isUsingMoonshotApiModel,
   isUsingMoonshotWebModel,
-  isUsingMultiModeModel,
   isUsingOllamaApiModel,
   isUsingOpenAiApiModel,
   isUsingOpenRouterApiModel,

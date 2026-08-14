@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Sun, Moon, Monitor, Pencil, ExternalLink, Bot, KeyRound } from 'lucide-react'
+import { Sun, Moon, Monitor, Pencil, ExternalLink, KeyRound } from 'lucide-react'
 import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
@@ -11,7 +11,7 @@ import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { cn } from '../../utils/cn.mjs'
 import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
-import { ModelMode, RuntimeMode, ThemeMode, TriggerMode } from '../../config/constants.mjs'
+import { ThemeMode, TriggerMode } from '../../config/constants.mjs'
 import { isModelDeprecated } from '../../config/models.mjs'
 import {
   isUsingAimlApiModel,
@@ -20,21 +20,14 @@ import {
   isUsingClaudeApiModel,
   isUsingCustomModel,
   isUsingDeepSeekApiModel,
-  isUsingGithubThirdPartyApiModel,
   isUsingMoonshotApiModel,
-  isUsingMultiModeModel,
   isUsingOllamaApiModel,
   isUsingOpenAiApiModel,
   isUsingOpenRouterApiModel,
   isUsingChatgptWebModel,
 } from '../../config/predicates.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
-import { AgentProtocol } from '../../services/agent/protocols.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
-
-/* global __CHATGPTBOX_ENABLE_AGENTS__ */
-const ENABLE_AGENT_FEATURES =
-  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
 
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
@@ -86,7 +79,6 @@ export function GeneralTab({
   isPopupMode,
   openFullSettings,
   onNavigateToModules,
-  onNavigateToAgents,
 }) {
   const { t, i18n } = useTranslation()
   const [manualModelId, setManualModelId] = useState('')
@@ -191,7 +183,6 @@ export function GeneralTab({
     })
   }
 
-  const usingMultiMode = isUsingMultiModeModel(config)
   const usingOpenAiApi = isUsingOpenAiApiModel(config)
   const usingAzureOpenAi = isUsingAzureOpenAiApiModel(config)
   const usingOpenRouter = isUsingOpenRouterApiModel(config)
@@ -201,7 +192,6 @@ export function GeneralTab({
   const usingDeepSeekApi = isUsingDeepSeekApiModel(config)
   const usingChatGLMApi = isUsingChatGLMApiModel(config)
   const usingOllamaApi = isUsingOllamaApiModel(config)
-  const usingGithubThirdParty = isUsingGithubThirdPartyApiModel(config)
   const usingCustomApi = isUsingCustomModel(config)
   const usingChatGptWeb = isUsingChatgptWebModel(config)
   const hasProviderSettings =
@@ -214,14 +204,7 @@ export function GeneralTab({
     usingDeepSeekApi ||
     usingChatGLMApi ||
     usingOllamaApi ||
-    usingGithubThirdParty ||
     usingCustomApi
-  const assistantCount = Array.isArray(config.assistants) ? config.assistants.length : 0
-  const skillCount = Array.isArray(config.installedSkills) ? config.installedSkills.length : 0
-  const mcpCount = Array.isArray(config.mcpServers) ? config.mcpServers.length : 0
-  const customToolCount = Array.isArray(config.customSelectionTools)
-    ? config.customSelectionTools.length
-    : 0
 
   return (
     <div className="space-y-4">
@@ -370,19 +353,6 @@ export function GeneralTab({
             minWidth="260px"
           />
         </SettingRow>
-
-        {usingMultiMode && (
-          <SettingRow label={t('Model Mode')} hint={t('Speed vs quality')}>
-            <SelectField
-              value={config.modelMode}
-              onChange={(value) => updateConfig({ modelMode: value })}
-              options={Object.entries(ModelMode).map(([value, desc]) => ({
-                value,
-                label: t(desc),
-              }))}
-            />
-          </SettingRow>
-        )}
 
         {(usingChatGptWeb || usingOpenAiApi) && (
           <SettingRow label={t('Manual Model ID')} hint={t('Use when model list refresh fails')}>
@@ -665,210 +635,7 @@ export function GeneralTab({
                 </SettingRow>
               </>
             )}
-
-            {usingGithubThirdParty && (
-              <SettingRow label={t('API Url')} hint={t('GitHub third-party server')}>
-                <input
-                  type="text"
-                  value={config.githubThirdPartyUrl || ''}
-                  onChange={(e) => updateConfig({ githubThirdPartyUrl: e.target.value })}
-                  placeholder="http://127.0.0.1:3000/conversation"
-                  className={cn(inputClassName, 'w-[360px]')}
-                />
-              </SettingRow>
-            )}
           </SettingSection>
-        </>
-      )}
-
-      {ENABLE_AGENT_FEATURES && (
-        <>
-          <Divider />
-
-          <SettingSection title={t('Agent Runtime')}>
-            <SettingRow
-              label={t('Runtime Mode')}
-              hint={t('Safe mode is default; developer mode allows more permissive tool behavior')}
-              action={
-                onNavigateToAgents && (
-                  <button
-                    onClick={onNavigateToAgents}
-                    className="text-muted-foreground hover:text-primary transition-colors"
-                    title={t('Configure assistants / skills / MCP')}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                )
-              }
-            >
-              <SelectField
-                value={config.runtimeMode || RuntimeMode.safe}
-                onChange={(value) => updateConfig({ runtimeMode: value })}
-                options={[
-                  { value: RuntimeMode.safe, label: t('Safe') },
-                  { value: RuntimeMode.developer, label: t('Developer') },
-                ]}
-                minWidth="180px"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Default Assistant')}
-              hint={t('Used when no per-session assistant is selected')}
-            >
-              <SelectField
-                value={config.defaultAssistantId || ''}
-                onChange={(value) => updateConfig({ defaultAssistantId: value })}
-                options={[
-                  { value: '', label: t('None') },
-                  ...(config.assistants || [])
-                    .filter((assistant) => assistant?.id && assistant?.name)
-                    .map((assistant) => ({
-                      value: assistant.id,
-                      label: assistant.name,
-                    })),
-                ]}
-                minWidth="240px"
-              />
-            </SettingRow>
-
-            {!isPopupMode && (
-              <>
-                <SettingRow
-                  label={t('Agent Protocol')}
-                  hint={t('Protocol-first tool loop behavior for OpenAI-compatible runtimes')}
-                >
-                  <SelectField
-                    value={config.agentProtocol || AgentProtocol.auto}
-                    onChange={(value) => updateConfig({ agentProtocol: value })}
-                    options={[
-                      { value: AgentProtocol.auto, label: t('Auto (Recommended)') },
-                      {
-                        value: AgentProtocol.openAiChatCompletionsV1,
-                        label: t('OpenAI Chat Completions v1'),
-                      },
-                      { value: AgentProtocol.openAiResponsesV1, label: t('OpenAI Responses v1') },
-                    ]}
-                    minWidth="260px"
-                  />
-                </SettingRow>
-
-                <SettingRow
-                  label={t('Preload Context Cap')}
-                  hint={t('Max tokens for page-derived macro context (default 64000)')}
-                >
-                  <input
-                    type="number"
-                    min={1000}
-                    max={256000}
-                    step={1000}
-                    value={config.agentPreloadContextTokenCap || 64000}
-                    onChange={(e) =>
-                      updateConfig({
-                        agentPreloadContextTokenCap: Number(e.target.value) || 64000,
-                      })
-                    }
-                    className={cn(inputClassName, 'w-[180px]')}
-                  />
-                </SettingRow>
-
-                <SettingRow
-                  label={t('Default Context Cap')}
-                  hint={t('Total prompt token target before completion (default 128000)')}
-                >
-                  <input
-                    type="number"
-                    min={1000}
-                    max={256000}
-                    step={1000}
-                    value={config.agentContextTokenCap || 128000}
-                    onChange={(e) =>
-                      updateConfig({
-                        agentContextTokenCap: Number(e.target.value) || 128000,
-                      })
-                    }
-                    className={cn(inputClassName, 'w-[180px]')}
-                  />
-                </SettingRow>
-
-                <SettingRow label={t('Agent Max Steps')} hint={t('Multi-step runtime loop limit')}>
-                  <input
-                    type="number"
-                    min={1}
-                    max={32}
-                    step={1}
-                    value={config.agentMaxSteps || 8}
-                    onChange={(e) =>
-                      updateConfig({
-                        agentMaxSteps: Number(e.target.value) || 8,
-                      })
-                    }
-                    className={cn(inputClassName, 'w-[120px]')}
-                  />
-                </SettingRow>
-
-                <SettingRow
-                  label={t('No-Progress Limit')}
-                  hint={t('Stop loop when no progress repeats')}
-                >
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={config.agentNoProgressLimit || 2}
-                    onChange={(e) =>
-                      updateConfig({
-                        agentNoProgressLimit: Number(e.target.value) || 2,
-                      })
-                    }
-                    className={cn(inputClassName, 'w-[120px]')}
-                  />
-                </SettingRow>
-
-                <SettingRow
-                  label={t('Tool Trace Limit')}
-                  hint={t('Max number of tool events stored per session')}
-                >
-                  <input
-                    type="number"
-                    min={10}
-                    max={300}
-                    step={10}
-                    value={config.agentToolEventLimit || 50}
-                    onChange={(e) =>
-                      updateConfig({
-                        agentToolEventLimit: Number(e.target.value) || 50,
-                      })
-                    }
-                    className={cn(inputClassName, 'w-[120px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-          </SettingSection>
-
-          {isPopupMode && (
-            <>
-              <Divider />
-
-              <QuickLinkCard
-                icon={Bot}
-                title={t('Agents, skills, and MCP moved to full settings')}
-                description={t(
-                  'Use the popup to pick your default assistant and runtime mode. Build assistants, import ZIP skills, and manage MCP endpoints from the full settings workspace.',
-                )}
-                stats={[
-                  `${assistantCount} ${t('Assistants')}`,
-                  `${skillCount} ${t('Skills')}`,
-                  `${mcpCount} MCP`,
-                  `${customToolCount} ${t('Custom Tools')}`,
-                ]}
-                actionLabel={t('Manage in full settings')}
-                onAction={() => openFullSettings?.('agents')}
-              />
-            </>
-          )}
         </>
       )}
 
@@ -936,7 +703,6 @@ GeneralTab.propTypes = {
   isPopupMode: PropTypes.bool,
   openFullSettings: PropTypes.func,
   onNavigateToModules: PropTypes.func,
-  onNavigateToAgents: PropTypes.func,
 }
 
 /**

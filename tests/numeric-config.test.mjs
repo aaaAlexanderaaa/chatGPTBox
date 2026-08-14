@@ -16,11 +16,6 @@ const defaultConfig = {
   maxResponseTokenLength: 2000,
   maxConversationContextLength: 100,
   temperature: 1,
-  agentPreloadContextTokenCap: 8000,
-  agentContextTokenCap: 16000,
-  agentMaxSteps: 8,
-  agentNoProgressLimit: 3,
-  agentToolEventLimit: 50,
   apiServerRequestTimeoutSeconds: 120,
   apiServerThinkingTimeoutSeconds: 300,
   apiServerPort: 18080,
@@ -38,11 +33,6 @@ describe('NUMERIC_FIELDS table', () => {
       'maxResponseTokenLength',
       'maxConversationContextLength',
       'temperature',
-      'agentPreloadContextTokenCap',
-      'agentContextTokenCap',
-      'agentMaxSteps',
-      'agentNoProgressLimit',
-      'agentToolEventLimit',
       'apiServerRequestTimeoutSeconds',
       'apiServerThinkingTimeoutSeconds',
       'apiServerPort',
@@ -109,10 +99,10 @@ describe('clampNumericConfig', () => {
   })
 
   it('recovers a NaN-persisted value to the default and flags it for write-back', () => {
-    const config = { ...defaultConfig, agentMaxSteps: NaN }
+    const config = { ...defaultConfig, chatgptWebHistorySyncRpm: NaN }
     const { clampedValues, needsFix } = clampNumericConfig(config, defaultConfig)
     expect(needsFix).toBe(true)
-    expect(clampedValues.agentMaxSteps).toBe(defaultConfig.agentMaxSteps)
+    expect(clampedValues.chatgptWebHistorySyncRpm).toBe(defaultConfig.chatgptWebHistorySyncRpm)
   })
 
   it('flags multiple offending fields together (regression for the old 3-place edit hazard)', () => {

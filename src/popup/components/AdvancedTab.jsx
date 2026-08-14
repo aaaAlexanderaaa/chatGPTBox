@@ -310,7 +310,6 @@ export function AdvancedTab({
     'customApiModelKeys',
     'azureOpenAiApiModelKeys',
     'claudeApiModelKeys',
-    'claudeWebModelKeys',
     'moonshotApiModelKeys',
     'moonshotWebModelKeys',
     'openRouterApiModelKeys',
@@ -319,9 +318,6 @@ export function AdvancedTab({
     'ollamaApiModelKeys',
     'chatglmApiModelKeys',
     'gptApiModelKeys',
-    'githubThirdPartyApiModelKeys',
-    'bingWebModelKeys',
-    'bardWebModelKeys',
   ]
   providerEntries.sort(([a], [b]) => {
     const ia = providerOrder.indexOf(a)

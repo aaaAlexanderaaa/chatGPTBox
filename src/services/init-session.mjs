@@ -18,24 +18,7 @@ import { t } from 'i18next'
  * @property {string|null} messageId - chatGPT web mode
  * @property {string|null} parentMessageId - chatGPT web mode
  * @property {string|null} wsRequestId - chatGPT web mode
- * @property {string|null} bingWeb_encryptedConversationSignature
- * @property {string|null} bingWeb_conversationId
- * @property {string|null} bingWeb_clientId
- * @property {string|null} bingWeb_invocationId
- * @property {string|null} bingWeb_jailbreakConversationId
- * @property {string|null} bingWeb_parentMessageId
- * @property {Object|null} bingWeb_jailbreakConversationCache
- * @property {number|null} poe_chatId
- * @property {object|null} bard_conversationObj
- * @property {object|null} claude_conversation
  * @property {object|null} moonshot_conversation
- * @property {string|null} assistantId
- * @property {string|null} systemPromptOverride
- * @property {string[]|null} selectedSkillIds
- * @property {string[]|null} selectedMcpServerIds
- * @property {object|null} pageContext
- * @property {object[]} toolEvents
- * @property {object|null} agentMemory
  * @property {boolean|null} chatgptWebHistoryDisabledOverride
  * @property {boolean|null} chatgptWebIncrementalOutput
  * @property {string|null} chatgptWebThinkingEffortOverride
@@ -48,12 +31,6 @@ import { t } from 'i18next'
  * @param {boolean|null} autoClean
  * @param {Object|null} apiMode
  * @param {string} extraCustomModelName
- * @param {string|null} assistantId
- * @param {string|null} systemPromptOverride
- * @param {string[]|null} selectedSkillIds
- * @param {string[]|null} selectedMcpServerIds
- * @param {object|null} pageContext
- * @param {object|null} agentMemory
  * @param {boolean|null} chatgptWebHistoryDisabledOverride
  * @param {boolean|null} chatgptWebIncrementalOutput
  * @param {string|null} chatgptWebThinkingEffortOverride
@@ -67,12 +44,6 @@ export function initSession({
   autoClean = false,
   apiMode = null,
   extraCustomModelName = '',
-  assistantId = null,
-  systemPromptOverride = '',
-  selectedSkillIds = null,
-  selectedMcpServerIds = null,
-  pageContext = null,
-  agentMemory = null,
   chatgptWebHistoryDisabledOverride = null,
   chatgptWebIncrementalOutput = null,
   chatgptWebThinkingEffortOverride = null,
@@ -99,13 +70,6 @@ export function initSession({
         : null,
     modelName,
     apiMode,
-    assistantId,
-    systemPromptOverride,
-    selectedSkillIds: Array.isArray(selectedSkillIds) ? [...selectedSkillIds] : null,
-    selectedMcpServerIds: Array.isArray(selectedMcpServerIds) ? [...selectedMcpServerIds] : null,
-    pageContext: pageContext && typeof pageContext === 'object' ? pageContext : null,
-    toolEvents: [],
-    agentMemory: agentMemory && typeof agentMemory === 'object' ? agentMemory : null,
     chatgptWebHistoryDisabledOverride:
       typeof chatgptWebHistoryDisabledOverride === 'boolean'
         ? chatgptWebHistoryDisabledOverride
@@ -126,25 +90,6 @@ export function initSession({
     parentMessageId: null,
     wsRequestId: null,
 
-    // bing
-    bingWeb_encryptedConversationSignature: null,
-    bingWeb_conversationId: null,
-    bingWeb_clientId: null,
-    bingWeb_invocationId: null,
-
-    // bing sydney
-    bingWeb_jailbreakConversationId: null,
-    bingWeb_parentMessageId: null,
-    bingWeb_jailbreakConversationCache: null,
-
-    // poe
-    poe_chatId: null,
-
-    // bard
-    bard_conversationObj: null,
-
-    // claude.ai
-    claude_conversation: null,
     // kimi.com
     moonshot_conversation: null,
   }

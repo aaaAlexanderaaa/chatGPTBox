@@ -1,8 +1,6 @@
 import {
   clearOldAccessToken,
   getUserConfig,
-  isUsingBingWebModel,
-  isUsingClaudeWebModel,
   setAccessToken,
 } from '../config/index.mjs'
 import Browser from 'webextension-polyfill'
@@ -37,20 +35,6 @@ export async function getChatGptAccessToken() {
   }
 }
 
-export async function getBingAccessToken() {
-  return (await Browser.cookies.get({ url: 'https://bing.com/', name: '_U' }))?.value
-}
-
-export async function getBardCookies() {
-  const token = (await Browser.cookies.get({ url: 'https://google.com/', name: '__Secure-1PSID' }))
-    ?.value
-  return '__Secure-1PSID=' + token
-}
-
-export async function getClaudeSessionKey() {
-  return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
-}
-
 export function handlePortError(session, port, err) {
   console.error(err)
   if (err.message) {
@@ -69,27 +53,11 @@ export function handlePortError(session, port, err) {
         port.postMessage({ error: t('Rate limit') + '\n\n' + err.message })
       else if (['authentication token has expired'].some((m) => err.message.includes(m)))
         port.postMessage({ error: 'UNAUTHORIZED' })
-      else if (
-        isUsingClaudeWebModel(session) &&
-        ['Invalid authorization', 'Session key required'].some((m) => err.message.includes(m))
-      )
-        port.postMessage({
-          error: t('Please login at https://claude.ai first, and then click the retry button'),
-        })
-      else if (
-        isUsingBingWebModel(session) &&
-        ['/turing/conversation/create: failed to parse response body.'].some((m) =>
-          err.message.includes(m),
-        )
-      )
-        port.postMessage({ error: t('Please login at https://bing.com first') })
       else port.postMessage({ error: err.message })
     }
   } else {
     const errMsg = JSON.stringify(err)
-    if (isUsingBingWebModel(session) && errMsg.includes('isTrusted'))
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: errMsg ?? 'unknown error' })
+    port.postMessage({ error: errMsg ?? 'unknown error' })
   }
 }
 

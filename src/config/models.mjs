@@ -1,5 +1,4 @@
-import { t } from 'i18next'
-import { ModelMode, ModelStatus } from './constants.mjs'
+import { ModelStatus } from './constants.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from './limits.mjs'
 
 // Provider model-key arrays, group metadata, the Models table, and accessors.
@@ -35,9 +34,6 @@ export const chatgptWebModelKeys = [
   'chatgptPlus4Browsing',
   'chatgptPlus4Mobile',
 ]
-export const bingWebModelKeys = ['bingFree4', 'bingFreeSydney']
-export const bardWebModelKeys = ['bardWebFree']
-export const claudeWebModelKeys = ['claude2WebFree']
 export const moonshotWebModelKeys = [
   'moonshotWebFree',
   'moonshotWebFreeK15',
@@ -97,22 +93,6 @@ export const claudeApiModelKeys = [
   'claudeOpus46Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
-export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
-export const poeWebModelKeys = [
-  'poeAiWebSage', //poe.com/Assistant
-  'poeAiWebGPT4',
-  'poeAiWebGPT4_32k',
-  'poeAiWebClaudePlus',
-  'poeAiWebClaude',
-  'poeAiWebClaude100k',
-  'poeAiWebCustom',
-  'poeAiWebChatGpt',
-  'poeAiWebChatGpt_16k',
-  'poeAiWebGooglePaLM',
-  'poeAiWeb_Llama_2_7b',
-  'poeAiWeb_Llama_2_13b',
-  'poeAiWeb_Llama_2_70b',
-]
 export const moonshotApiModelKeys = [
   'moonshot_k2',
   'moonshot_kimi_latest',
@@ -163,21 +143,9 @@ export const ModelGroups = {
     value: chatgptWebModelKeys,
     desc: 'ChatGPT (Web)',
   },
-  claudeWebModelKeys: {
-    value: claudeWebModelKeys,
-    desc: 'Claude.ai (Web)',
-  },
   moonshotWebModelKeys: {
     value: moonshotWebModelKeys,
     desc: 'Kimi.Moonshot (Web)',
-  },
-  bingWebModelKeys: {
-    value: bingWebModelKeys,
-    desc: 'Bing (Web)',
-  },
-  bardWebModelKeys: {
-    value: bardWebModelKeys,
-    desc: 'Gemini (Web)',
   },
 
   chatgptApiModelKeys: {
@@ -208,10 +176,6 @@ export const ModelGroups = {
     value: gptApiModelKeys,
     desc: 'GPT Completion (API)',
   },
-  githubThirdPartyApiModelKeys: {
-    value: githubThirdPartyApiModelKeys,
-    desc: 'Github Third Party Waylaidwanderer (API)',
-  },
   deepSeekApiModelKeys: {
     value: deepSeekApiModelKeys,
     desc: 'DeepSeek (API)',
@@ -236,17 +200,13 @@ export const DefaultEnabledProviderGroups = {
   customApiModelKeys: true,
 
   // Everything else is Advanced-only by default.
-  claudeWebModelKeys: false,
   moonshotWebModelKeys: false,
-  bingWebModelKeys: false,
-  bardWebModelKeys: false,
   claudeApiModelKeys: false,
   moonshotApiModelKeys: false,
   chatglmApiModelKeys: false,
   ollamaApiModelKeys: false,
   azureOpenAiApiModelKeys: false,
   gptApiModelKeys: false,
-  githubThirdPartyApiModelKeys: false,
   deepSeekApiModelKeys: false,
   openRouterApiModelKeys: false,
   aimlModelKeys: false,
@@ -295,6 +255,28 @@ export const DeprecatedModelKeys = [
   // OpenAI legacy completion models
   'gptApiInstruct',
   'gptApiDavinci',
+
+  // Removed web-scraper providers (Poe / Bing / Bard / Claude web) and the
+  // legacy waylaidwanderer third-party bridge. The upstream endpoints are
+  // gone; stored selections are migrated away at load.
+  'poeAiWebSage',
+  'poeAiWebGPT4',
+  'poeAiWebGPT4_32k',
+  'poeAiWebClaudePlus',
+  'poeAiWebClaude',
+  'poeAiWebClaude100k',
+  'poeAiWebCustom',
+  'poeAiWebChatGpt',
+  'poeAiWebChatGpt_16k',
+  'poeAiWebGooglePaLM',
+  'poeAiWeb_Llama_2_7b',
+  'poeAiWeb_Llama_2_13b',
+  'poeAiWeb_Llama_2_70b',
+  'bingFree4',
+  'bingFreeSydney',
+  'bardWebFree',
+  'claude2WebFree',
+  'waylaidwandererApi',
 
   // Anthropic Claude legacy models (example: Claude Sonnet 3.5)
   'claude12Api',
@@ -423,7 +405,6 @@ export const Models = {
   chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'ChatGPT (ChatGPT-5.3 latest)' },
   chatgptApi5_4: { value: 'gpt-5.4', desc: 'ChatGPT (GPT-5.4)' },
 
-  claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
   claude12Api: { value: 'claude-instant-1.2', desc: 'Claude.ai (API, Claude Instant 1.2)' },
   claude2Api: { value: 'claude-2.0', desc: 'Claude.ai (API, Claude 2)' },
   claude21Api: { value: 'claude-2.1', desc: 'Claude.ai (API, Claude 2.1)' },
@@ -474,17 +455,12 @@ export const Models = {
     desc: 'Claude.ai (API, Claude Opus 4.6)',
   },
 
-  bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
-  bingFreeSydney: { value: '', desc: 'Bing (Web, GPT-4, Sydney)' },
-
   moonshotWebFree: { value: 'k2', desc: 'Kimi.Moonshot (Web k2, 128K)' },
   moonshotWebFreeK15: { value: 'k1.5', desc: 'Kimi.Moonshot (Web k1.5, 128k)' },
   moonshotWebFreeK15Think: {
     value: 'k1.5-thinking',
     desc: 'Kimi.Moonshot (Web k1.5 Thinking, 128k)',
   },
-
-  bardWebFree: { value: '', desc: 'Gemini (Web)' },
 
   chatglmTurbo: { value: 'GLM-4-Air', desc: 'ChatGLM (GLM-4-Air, 128k)' },
   chatglm4: { value: 'GLM-4-0520', desc: 'ChatGLM (GLM-4-0520, 128k)' },
@@ -505,21 +481,6 @@ export const Models = {
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
   azureOpenAi: { value: '', desc: 'ChatGPT (Azure)' },
-  waylaidwandererApi: { value: '', desc: 'Waylaidwanderer API (Github)' },
-
-  poeAiWebSage: { value: 'Assistant', desc: 'Poe AI (Web, Assistant)' },
-  poeAiWebGPT4: { value: 'gpt-4', desc: 'Poe AI (Web, GPT-4)' },
-  poeAiWebGPT4_32k: { value: 'gpt-4-32k', desc: 'Poe AI (Web, GPT-4-32k)' },
-  poeAiWebClaudePlus: { value: 'claude-2-100k', desc: 'Poe AI (Web, Claude 2 100k)' },
-  poeAiWebClaude: { value: 'claude-instant', desc: 'Poe AI (Web, Claude instant)' },
-  poeAiWebClaude100k: { value: 'claude-instant-100k', desc: 'Poe AI (Web, Claude instant 100k)' },
-  poeAiWebGooglePaLM: { value: 'Google-PaLM', desc: 'Poe AI (Web, Google-PaLM)' },
-  poeAiWeb_Llama_2_7b: { value: 'Llama-2-7b', desc: 'Poe AI (Web, Llama-2-7b)' },
-  poeAiWeb_Llama_2_13b: { value: 'Llama-2-13b', desc: 'Poe AI (Web, Llama-2-13b)' },
-  poeAiWeb_Llama_2_70b: { value: 'Llama-2-70b', desc: 'Poe AI (Web, Llama-2-70b)' },
-  poeAiWebChatGpt: { value: 'chatgpt', desc: 'Poe AI (Web, ChatGPT)' },
-  poeAiWebChatGpt_16k: { value: 'chatgpt-16k', desc: 'Poe AI (Web, ChatGPT-16k)' },
-  poeAiWebCustom: { value: '', desc: 'Poe AI (Web, Custom)' },
 
   moonshot_k2: {
     value: 'kimi-k2-0711-preview',
@@ -652,18 +613,4 @@ export const Models = {
     value: 'moonshot/kimi-k2-preview',
     desc: 'AIML (Kimi K2)',
   },
-}
-
-// Multi-mode models (e.g. Bing) get per-mode entries generated at load time.
-// Keep this initialization self-contained: importing model-name-convert here
-// creates a models -> converter -> models cycle that breaks production chunks.
-for (const modelName in Models) {
-  if (bingWebModelKeys.includes(modelName))
-    for (const mode in ModelMode) {
-      const key = `${modelName}-${mode}`
-      Models[key] = {
-        value: mode,
-        desc: `${t(Models[modelName].desc)} (${t(ModelMode[mode])})`,
-      }
-    }
 }

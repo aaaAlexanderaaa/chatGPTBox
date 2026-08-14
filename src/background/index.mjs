@@ -18,12 +18,7 @@
 import Browser from 'webextension-polyfill'
 import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
 import '../_locales/i18n'
-import {
-  getBardCookies,
-  getBingAccessToken,
-  getClaudeSessionKey,
-  registerPortListener,
-} from '../services/wrappers.mjs'
+import { registerPortListener } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
 import { executeApi as executeApiFromRegistry } from './providers/registry.mjs'
@@ -68,9 +63,6 @@ const providerCtx = {
   appendChatgptWebDebugLog,
   summarizeApiMode,
   setUserConfig,
-  getBingAccessToken,
-  getBardCookies,
-  getClaudeSessionKey,
 }
 
 async function executeApi(session, port, config) {

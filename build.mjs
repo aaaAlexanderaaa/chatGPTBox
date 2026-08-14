@@ -14,19 +14,6 @@ const __dirname = path.resolve()
 const args = process.argv.slice(2)
 const isProduction = !args.includes('--development') // --production and --analyze are both production
 const isAnalyzing = args.includes('--analyze')
-const enableAgents =
-  process.env.CHATGPTBOX_ENABLE_AGENTS === 'true' ||
-  args.includes('--enable-agents') ||
-  args.includes('--agents')
-
-function replaceModuleWhenAgentsDisabled(requestPattern, replacementPath) {
-  if (enableAgents) return []
-  return [
-    new webpack.NormalModuleReplacementPlugin(requestPattern, (resource) => {
-      resource.request = path.resolve(__dirname, replacementPath)
-    }),
-  ]
-}
 
 async function deleteOldDir() {
   await fs.rm(outdir, { recursive: true, force: true })
@@ -106,32 +93,9 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       new MiniCssExtractPlugin({
         filename: '[name].css',
       }),
-      new webpack.DefinePlugin({
-        __CHATGPTBOX_ENABLE_AGENTS__: JSON.stringify(enableAgents),
-      }),
       new BundleAnalyzerPlugin({
         analyzerMode: isAnalyzing ? 'static' : 'disable',
       }),
-      ...replaceModuleWhenAgentsDisabled(
-        /agent-context\.mjs$/,
-        'src/stubs/agent-context.stub.mjs',
-      ),
-      ...replaceModuleWhenAgentsDisabled(
-        /mcp\/tool-loop\.mjs$/,
-        'src/stubs/mcp-tool-loop.stub.mjs',
-      ),
-      ...replaceModuleWhenAgentsDisabled(
-        /agent\/session-state\.mjs$/,
-        'src/stubs/session-state.stub.mjs',
-      ),
-      ...replaceModuleWhenAgentsDisabled(
-        /skills\/importer\.mjs$/,
-        'src/stubs/skills-importer.stub.mjs',
-      ),
-      ...replaceModuleWhenAgentsDisabled(
-        /components\/AgentsTab\.jsx$/,
-        'src/stubs/agents-tab.stub.jsx',
-      ),
       ...(isWithoutKatex
         ? [
             new webpack.NormalModuleReplacementPlugin(/markdown\.jsx/, (result) => {
@@ -148,14 +112,11 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
     resolve: {
       extensions: ['.jsx', '.mjs', '.js'],
       alias: {
-        parse5: path.resolve(__dirname, 'node_modules/parse5'),
         ...(minimal
           ? { buffer: path.resolve(__dirname, 'node_modules/buffer') }
           : {
               util: path.resolve(__dirname, 'node_modules/util'),
               buffer: path.resolve(__dirname, 'node_modules/buffer'),
-              stream: 'stream-browserify',
-              crypto: 'crypto-browserify',
             }),
       },
     },
@@ -254,10 +215,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         {
           test: /\.(jpg|png|svg)$/,
           type: 'asset/inline',
-        },
-        {
-          test: /\.(graphql|gql)$/,
-          loader: 'graphql-tag/loader',
         },
         isWithoutTiktoken
           ? {

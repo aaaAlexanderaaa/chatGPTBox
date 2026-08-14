@@ -1,20 +1,15 @@
 import {
   isInApiModeGroup,
-  isUsingModelName,
 } from '../utils/model-name-convert.mjs'
 import {
   aimlApiModelKeys,
   azureOpenAiApiModelKeys,
-  bardWebModelKeys,
-  bingWebModelKeys,
   chatglmApiModelKeys,
   chatgptApiModelKeys,
   chatgptWebModelKeys,
   claudeApiModelKeys,
-  claudeWebModelKeys,
   customApiModelKeys,
   deepSeekApiModelKeys,
-  githubThirdPartyApiModelKeys,
   gptApiModelKeys,
   moonshotApiModelKeys,
   moonshotWebModelKeys,
@@ -26,24 +21,8 @@ export function isUsingChatgptWebModel(configOrSession) {
   return isInApiModeGroup(chatgptWebModelKeys, configOrSession)
 }
 
-export function isUsingClaudeWebModel(configOrSession) {
-  return isInApiModeGroup(claudeWebModelKeys, configOrSession)
-}
-
 export function isUsingMoonshotWebModel(configOrSession) {
   return isInApiModeGroup(moonshotWebModelKeys, configOrSession)
-}
-
-export function isUsingBingWebModel(configOrSession) {
-  return isInApiModeGroup(bingWebModelKeys, configOrSession)
-}
-
-export function isUsingMultiModeModel(configOrSession) {
-  return isInApiModeGroup(bingWebModelKeys, configOrSession)
-}
-
-export function isUsingGeminiWebModel(configOrSession) {
-  return isInApiModeGroup(bardWebModelKeys, configOrSession)
 }
 
 export function isUsingChatgptApiModel(configOrSession) {
@@ -90,17 +69,6 @@ export function isUsingAzureOpenAiApiModel(configOrSession) {
   return isInApiModeGroup(azureOpenAiApiModelKeys, configOrSession)
 }
 
-export function isUsingGithubThirdPartyApiModel(configOrSession) {
-  return isInApiModeGroup(githubThirdPartyApiModelKeys, configOrSession)
-}
-
 export function isUsingCustomModel(configOrSession) {
   return isInApiModeGroup(customApiModelKeys, configOrSession)
-}
-
-/**
- * @deprecated
- */
-export function isUsingCustomNameOnlyModel(configOrSession) {
-  return isUsingModelName('poeAiWebCustom', configOrSession)
 }

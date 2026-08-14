@@ -153,34 +153,6 @@ export function createMessageRouter() {
       case RuntimeMessage.Fetch: {
         return handleFetchMessage(message, sender)
       }
-      case RuntimeMessage.GetCookie: {
-        try {
-          if (sender?.id && sender.id !== Browser.runtime.id) return null
-
-          const url = message?.data?.url
-          const name = message?.data?.name
-          if (typeof url !== 'string' || typeof name !== 'string') return null
-
-          const requestedUrl = new URL(url)
-          if (requestedUrl.protocol !== 'https:') return null
-
-          const senderTabUrl = sender?.tab?.url
-          if (typeof senderTabUrl !== 'string') return null
-
-          const senderOrigin = new URL(senderTabUrl).origin
-          if (senderOrigin !== requestedUrl.origin) return null
-
-          const allowedCookieNamesByOrigin = {
-            'https://claude.ai': new Set(['sessionKey']),
-          }
-          const allowedCookieNames = allowedCookieNamesByOrigin[requestedUrl.origin]
-          if (!allowedCookieNames?.has(name)) return null
-
-          return (await Browser.cookies.get({ url: requestedUrl.origin + '/', name }))?.value
-        } catch {
-          return null
-        }
-      }
       case RuntimeMessage.ChatgptWebListConversations:
         return await listChatgptWebConversationsWithFallback(message.data || {})
       case RuntimeMessage.ChatgptWebGetConversation:

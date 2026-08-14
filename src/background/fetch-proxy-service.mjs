@@ -13,15 +13,9 @@
 // approval prompt.
 
 import Browser from 'webextension-polyfill'
-import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
-import { getBingAccessToken } from '../services/wrappers.mjs'
+import { getUserConfig } from '../config/storage.mjs'
 
 const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
-
-// Built-in origins the extension may proxy for content-script senders. Limited
-// to hosts whose client code lives inside the extension and is invoked from
-// content-script-rendered UI (bing is the only one today).
-const STATIC_FETCH_ORIGIN_ALLOWLIST = ['https://www.bing.com', 'https://bing.com']
 
 // User-config fields that hold a single URL string. Anything the user has set
 // here is considered "default allow" for FETCH — adding an endpoint in settings
@@ -31,7 +25,6 @@ const FETCH_ALLOWLIST_CONFIG_URL_KEYS = [
   'customChatGptWebApiUrl',
   'customOpenAiApiUrl',
   'customClaudeApiUrl',
-  'githubThirdPartyUrl',
   'ollamaEndpoint',
   'chatgptArkoseReqUrl',
 ]
@@ -61,7 +54,7 @@ function addOriginFromUrlString(target, value) {
 }
 
 export async function getFetchAllowedOrigins() {
-  const origins = new Set(STATIC_FETCH_ORIGIN_ALLOWLIST)
+  const origins = new Set()
   let config
   try {
     config = await getUserConfig()
@@ -71,9 +64,6 @@ export async function getFetchAllowedOrigins() {
   for (const key of FETCH_ALLOWLIST_CONFIG_URL_KEYS) addOriginFromUrlString(origins, config[key])
   if (Array.isArray(config.customApiModes)) {
     for (const mode of config.customApiModes) addOriginFromUrlString(origins, mode?.customUrl)
-  }
-  if (Array.isArray(config.mcpServers)) {
-    for (const server of config.mcpServers) addOriginFromUrlString(origins, server?.httpUrl)
   }
   return origins
 }
@@ -105,11 +95,6 @@ export async function handleFetchMessage(message, sender) {
     }
   }
 
-  if (message.data.input.includes('bing.com')) {
-    const accessToken = await getBingAccessToken()
-    await setUserConfig({ bingAccessToken: accessToken })
-  }
-
   try {
     const response = await fetch(message.data.input, message.data.init)
     const text = await response.text()
@@ -133,6 +118,3 @@ export async function handleFetchMessage(message, sender) {
     ]
   }
 }
-
-// Exposed for the arkose webRequest listener in webrequest-rules.mjs.
-export { defaultConfig, setUserConfig }

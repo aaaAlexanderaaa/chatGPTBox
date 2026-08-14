@@ -206,9 +206,6 @@ const createSelectionTools = async (toolbarContainer, selection) => {
         modelName: userConfig.modelName,
         apiMode: userConfig.apiMode,
         extraCustomModelName: userConfig.customModelName,
-        assistantId: '',
-        selectedSkillIds: [],
-        selectedMcpServerIds: [],
       })}
       selection={selection}
       container={toolbarContainer}
@@ -359,9 +356,7 @@ async function prepareForRightClickMenu() {
             prompt = resolvePromptTemplate(customTool.prompt, {
               selection: textToUse || '',
               customExtractors: userConfig.customContentExtractors,
-              preloadTokenCap: userConfig.agentPreloadContextTokenCap,
-              contextTokenCap: userConfig.agentContextTokenCap,
-              allowFullHtml: userConfig.runtimeMode === 'developer',
+              allowFullHtml: false,
             })
           }
         }
@@ -383,9 +378,6 @@ async function prepareForRightClickMenu() {
             modelName: userConfig.modelName,
             apiMode: userConfig.apiMode,
             extraCustomModelName: userConfig.customModelName,
-            assistantId: '',
-            selectedSkillIds: [],
-            selectedMcpServerIds: [],
           })}
           selection={data.selectionText}
           container={container}
@@ -547,13 +539,6 @@ async function prepareForForegroundRequests() {
   })
 }
 
-async function getClaudeSessionKey() {
-  return Browser.runtime.sendMessage({
-    type: RuntimeMessage.GetCookie,
-    data: { url: 'https://claude.ai/', name: 'sessionKey' },
-  })
-}
-
 async function prepareForJumpBackNotification() {
   if (
     location.hostname === 'chatgpt.com' &&
@@ -565,20 +550,6 @@ async function prepareForJumpBackNotification() {
 
   const url = new URL(window.location.href)
   if (url.searchParams.has('chatgptbox_notification')) {
-    if (location.hostname === 'claude.ai' && !(await getClaudeSessionKey())) {
-      console.log('claude not logged in')
-
-      await new Promise((resolve) => {
-        const timer = setManagedInterval(async () => {
-          const token = await getClaudeSessionKey()
-          if (token) {
-            clearManagedInterval(timer)
-            resolve()
-          }
-        }, 500)
-      })
-    }
-
     if (
       (location.hostname === 'kimi.moonshot.cn' || location.hostname.includes('kimi.com')) &&
       !window.localStorage.refresh_token

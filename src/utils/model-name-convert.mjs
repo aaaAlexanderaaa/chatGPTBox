@@ -1,4 +1,3 @@
-import { ModelMode } from '../config/constants.mjs'
 import { AlwaysCustomGroups, ModelGroups, Models } from '../config/models.mjs'
 
 export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
@@ -15,9 +14,7 @@ export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
     const presetPart = modelNameToPresetPart(modelName)
     const customPart = modelNameToCustomPart(modelName)
     if (presetPart in Models) {
-      if (customPart in ModelMode)
-        desc = `${t(Models[presetPart].desc)} (${t(ModelMode[customPart])})`
-      else desc = `${t(Models[presetPart].desc)} (${customPart})`
+      desc = `${t(Models[presetPart].desc)} (${customPart})`
     } else if (presetPart in ModelGroups) {
       desc = `${t(ModelGroups[presetPart].desc)} (${customPart})`
     }

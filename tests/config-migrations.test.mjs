@@ -3,8 +3,8 @@ import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../src/config/storage.mjs'
 
 // getUserConfig() runs the full migration pipeline: deep-merge with defaults,
-// clamp numerics, normalize agent/skill/mcp shapes, migrate legacy ChatGPT-web
-// model keys, etc. These tests exercise the migration branches that are
+// clamp numerics, migrate legacy ChatGPT-web model keys and removed-provider
+// model selections, etc. These tests exercise the migration branches that are
 // otherwise invisible (they only fire on persisted legacy data).
 
 // In-memory storage backed by the polyfill stub. Each test seeds `store` with
@@ -122,11 +122,19 @@ describe('getUserConfig migrations', () => {
     expect(config.customChatGptWebApiUrl).toBe('https://chatgpt.com')
   })
 
-  it('clamps agentPreloadContextTokenCap down to agentContextTokenCap when larger', async () => {
-    store.set('agentContextTokenCap', 50000)
-    store.set('agentPreloadContextTokenCap', 200000)
+  it('resets a removed-provider model selection to the default', async () => {
+    // Poe / Bing / Bard / Claude web providers were removed; a persisted
+    // selection must not survive as an unroutable model.
+    store.set('modelName', 'bingFreeSydney')
     const config = await getUserConfig()
-    expect(config.agentPreloadContextTokenCap).toBe(50000)
+    expect(config.modelName).toBe('chatgptWeb56Thinking')
+    expect(store.get('modelName')).toBe('chatgptWeb56Thinking')
+  })
+
+  it('resets a removed-provider apiMode item to the default', async () => {
+    store.set('apiMode', { groupName: 'bingWebModelKeys', itemName: 'bingFree4' })
+    const config = await getUserConfig()
+    expect(config.apiMode.itemName).toBe('chatgptWeb56Thinking')
   })
 
   it('normalizes the chatgptWebThinkingEffort away from unknown values', async () => {
@@ -141,34 +149,6 @@ describe('getUserConfig migrations', () => {
     const config = await getUserConfig()
     expect(config.chatgptWebThinkingEffort).toBe('max')
     expect(store.get('chatgptWebThinkingEffort')).toBe('max')
-  })
-
-  it('validates runtimeMode, falling back to safe', async () => {
-    store.set('runtimeMode', 'developer-bogus')
-    const config = await getUserConfig()
-    expect(config.runtimeMode).toBe('safe')
-  })
-
-  it('clears agent/skill/mcp arrays when agent features are disabled', async () => {
-    // In the test environment __CHATGPTBOX_ENABLE_AGENTS__ is not defined by
-    // webpack's DefinePlugin, so ENABLE_AGENT_FEATURES is false — mirroring the
-    // production build. getUserConfig must zero out the agent-shaped fields
-    // regardless of what was persisted, so no agent runtime state leaks.
-    store.set('assistants', [{ id: 'a1', name: 'A', systemPrompt: 'x' }])
-    store.set('installedSkills', [{ id: 's1', name: 'S', instructions: 'x' }])
-    store.set('mcpServers', [{ id: 'm1', name: 'M', transport: 'http', httpUrl: 'x' }])
-    store.set('defaultAssistantId', 'a1')
-    store.set('defaultSkillIds', ['s1'])
-    store.set('defaultMcpServerIds', ['m1'])
-    store.set('enableSkills', true)
-    const config = await getUserConfig()
-    expect(config.assistants).toEqual([])
-    expect(config.installedSkills).toEqual([])
-    expect(config.mcpServers).toEqual([])
-    expect(config.defaultAssistantId).toBe('')
-    expect(config.defaultSkillIds).toEqual([])
-    expect(config.defaultMcpServerIds).toEqual([])
-    expect(config.enableSkills).toBe(false)
   })
 
   it('runs the one-shot custom-script extractor migration', async () => {

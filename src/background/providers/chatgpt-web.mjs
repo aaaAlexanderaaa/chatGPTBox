@@ -27,13 +27,6 @@ export default {
     const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
     if (releaseChatgptWebSessionLock === null) return
     try {
-      // Agent context is disabled for ChatGPT Web requests; keep user selections intact
-      // and only drop page snapshot payload for this request path.
-      session.pageContext = null
-      void appendChatgptWebDebugLog(config, 'agent-context-disabled-web', {
-        reason: 'chatgpt_web_model',
-      })
-
       let tabId
       let proxyTab
       if (config.chatgptTabId) {

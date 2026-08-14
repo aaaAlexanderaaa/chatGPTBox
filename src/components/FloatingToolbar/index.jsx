@@ -348,9 +348,7 @@ function FloatingToolbar(props) {
             return resolvePromptTemplate(tool.prompt, {
               selection,
               customExtractors: config.customContentExtractors,
-              preloadTokenCap: config.agentPreloadContextTokenCap,
-              contextTokenCap: config.agentContextTokenCap,
-              allowFullHtml: config.runtimeMode === 'developer',
+              allowFullHtml: false,
             })
           },
         })

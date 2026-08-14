@@ -1,6 +1,6 @@
 import './styles.css'
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Settings, Layers, Puzzle, Sliders, ExternalLink, Bot, ArrowUpRight } from 'lucide-react'
+import { Settings, Layers, Puzzle, Sliders, ExternalLink, ArrowUpRight } from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -21,17 +21,11 @@ import { applyDocumentAppearance } from '../utils/appearance.mjs'
 import { GeneralTab } from './components/GeneralTab.jsx'
 import { FeaturesTab } from './components/FeaturesTab.jsx'
 import { ModulesTab } from './components/ModulesTab.jsx'
-import { AgentsTab } from './components/AgentsTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
-
-/* global __CHATGPTBOX_ENABLE_AGENTS__ */
-const ENABLE_AGENT_FEATURES =
-  typeof __CHATGPTBOX_ENABLE_AGENTS__ !== 'undefined' && __CHATGPTBOX_ENABLE_AGENTS__ === true
 
 const FULL_SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'features', label: 'Features', icon: Layers },
-  ...(ENABLE_AGENT_FEATURES ? [{ id: 'agents', label: 'Agents', icon: Bot }] : []),
   { id: 'modules', label: 'Modules', icon: Puzzle },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
@@ -270,9 +264,6 @@ function Popup() {
             onNavigateToModules={() =>
               isPopupMode ? void openFullSettings('modules') : setActiveTab('modules')
             }
-            onNavigateToAgents={() =>
-              isPopupMode ? void openFullSettings('agents') : setActiveTab('agents')
-            }
           />
         )}
         {activeTab === 'features' && (
@@ -282,9 +273,6 @@ function Popup() {
             isPopupMode={isPopupMode}
             openFullSettings={openFullSettings}
           />
-        )}
-        {ENABLE_AGENT_FEATURES && !isPopupMode && activeTab === 'agents' && (
-          <AgentsTab config={config} updateConfig={updateConfig} />
         )}
         {!isPopupMode && activeTab === 'modules' && (
           <ModulesTab config={config} updateConfig={updateConfig} />

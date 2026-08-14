@@ -9,10 +9,7 @@
 
 import customApiProvider from './custom-api.mjs'
 import chatgptWebHostProvider from './chatgpt-web.mjs'
-import claudeWebHostProvider from './claude-web.mjs'
 import moonshotWebHostProvider from './moonshot-web.mjs'
-import bingWebHostProvider from './bing-web.mjs'
-import geminiWebHostProvider from './gemini-web.mjs'
 import chatgptApiProvider from './chatgpt-api.mjs'
 import claudeApiProvider from './claude-api.mjs'
 import moonshotApiProvider from './moonshot-api.mjs'
@@ -23,7 +20,6 @@ import openrouterApiProvider from './openrouter-api.mjs'
 import aimlApiProvider from './aiml-api.mjs'
 import azureOpenaiApiProvider from './azure-openai-api.mjs'
 import gptCompletionApiProvider from './gpt-completion-api.mjs'
-import waylaidwandererApiProvider from './waylaidwanderer-api.mjs'
 import { assertProviderAdapter } from './adapter-contract.mjs'
 
 // Order mirrors the original executeApi if/else-if chain exactly.
@@ -31,10 +27,7 @@ import { assertProviderAdapter } from './adapter-contract.mjs'
 const RAW_PROVIDERS = [
   customApiProvider,
   chatgptWebHostProvider,
-  claudeWebHostProvider,
   moonshotWebHostProvider,
-  bingWebHostProvider,
-  geminiWebHostProvider,
   chatgptApiProvider,
   claudeApiProvider,
   moonshotApiProvider,
@@ -45,7 +38,6 @@ const RAW_PROVIDERS = [
   aimlApiProvider,
   azureOpenaiApiProvider,
   gptCompletionApiProvider,
-  waylaidwandererApiProvider,
 ]
 
 // Validate every provider against the adapter contract at module load, so a

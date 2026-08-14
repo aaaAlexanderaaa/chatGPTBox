@@ -26,7 +26,6 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 - Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
 - Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
-- _Experimental:_ Agent runtime with assistants, ZIP-imported skills, built-in MCP toolkits, and external HTTP/SSE JSON-RPC MCP servers. Not included in default builds — see [Build profiles](#build-profiles).
 
 ## Screenshots
 
@@ -81,11 +80,6 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_agents_tab.webp" alt="Agents Tab" /><br />
-      <b>Agents &amp; Assistants</b> <sub>(experimental build)</sub><br />
-      <sub>Manage assistants, imported skill packs, and MCP servers — only in the `agents` build profile</sub>
-    </td>
-    <td align="center" width="50%">
       <img src="./screenshots/preview_modules_tab.webp" alt="Modules Tab" /><br />
       <b>Modules &amp; API Modes</b><br />
       <sub>Configure API modes, selection tools, site adapters, and content extractors</sub>
@@ -105,23 +99,10 @@ npm run dev        # development build → build/chromium/, build/firefox/
 npm run build      # production build → build/*.zip
 ```
 
-> The default `dev`/`build` commands produce the **core** profile, which does **not** include the experimental Agent runtime. See [Build profiles](#build-profiles) for the `agents` profile.
-
 Load the extension:
 
 - **Chromium-based browsers**: enable Developer mode on the extensions page and load `build/chromium/` as an unpacked extension.
 - **Firefox**: load `build/firefox/` as a temporary add-on.
-
-### Build profiles
-
-The build produces different bundles depending on which features are compiled in:
-
-| Profile                   | Build command                                 | Includes Agent runtime (assistants, skills, MCP)? |
-| ------------------------- | --------------------------------------------- | ------------------------------------------------- |
-| **core** (default)        | `npm run dev` / `npm run build`               | No — agent modules are replaced with no-op stubs. |
-| **agents** (experimental) | `npm run dev:agents` / `npm run build:agents` | Yes — full agent runtime is compiled in.          |
-
-Release packages published to GitHub Releases are **core** builds unless the release notes say otherwise. To use agents, skills, or MCP toolkits, build from source with the `agents` profile and enable `enableSkills` in the extension settings.
 
 ## Usage
 
@@ -136,22 +117,14 @@ Release packages published to GitHub Releases are **core** builds unless the rel
 Open the Settings UI from the extension icon or the extension options page.
 
 - The toolbar popup is a quick workspace with `General`, `Sites`, and `Advanced`, plus a `Full settings` button.
-- The full settings workspace exposes all top-level tabs: `General`, `Features`, `Agents`, `Modules`, and `Advanced`.
+- The full settings workspace exposes all top-level tabs: `General`, `Features`, `Modules`, and `Advanced`.
 
 Main areas in the full settings workspace:
 
-- **General**: model/provider selection, language, trigger behavior, appearance, runtime mode, default assistant, and agent protocol.
+- **General**: model/provider selection, language, trigger behavior, and appearance.
 - **Features**: enable/disable supported site integrations.
-- **Agents**: assistants, imported ZIP skill packs, and MCP servers.
 - **Modules**: API modes, selection tools, site adapters, and content extractors.
 - **Advanced**: context length, max tokens, temperature, custom endpoints, debug/export/import/reset settings.
-
-Agent/runtime notes:
-
-- Imported skills are agent/runtime assets and live under **Agents -> Skills**.
-- Legacy custom selection tools remain separate under **Modules -> Selection Tools**.
-- In `safe` runtime mode, MCP HTTP endpoints are expected to use HTTPS; `developer` mode is more permissive.
-- Assistant / Skills / MCP are intended for API/custom runtime flows. ChatGPT Web models continue to work for normal chat, but they do not use the full agent-context path.
 
 Provider notes:
 
@@ -174,12 +147,10 @@ Common commands:
 ```bash
 npm run dev
 npm run lint
-npm run test:agent
+npm run test
 npm run verify
 npm run pretty
 npm run build
-npm run build:agents   # experimental: include agent runtime
-npm run build:safari
 npm run api-server
 ```
 
@@ -206,12 +177,6 @@ Artifacts include:
 - `build/firefox.zip`
 - `build/chromium-without-katex-and-tiktoken.zip`
 - `build/firefox-without-katex-and-tiktoken.zip`
-
-Safari packaging is separate and requires macOS/Xcode:
-
-```bash
-npm run build:safari
-```
 
 ## API Server Bridge
 
@@ -273,10 +238,7 @@ Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 ## Architecture Notes
 
 - The extension is fully client-side. There is no project backend or database.
-- Imported skills are ZIP packages that must contain `SKILL.md`.
-- Built-in assistants, built-in skills, and built-in MCP toolkits are defined in [`src/config/index.mjs`](./src/config/index.mjs).
-- The current runtime overview lives in [`docs/agents-runtime-v2.md`](./docs/agents-runtime-v2.md).
-- Build profiles (core vs. agents) are documented in [`docs/build-profiles.md`](./docs/build-profiles.md).
+- The services layer layout (`apis/` vs `clients/`) is documented in [`src/services/README.md`](./src/services/README.md).
 
 ## Privacy
 

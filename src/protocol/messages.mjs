@@ -70,7 +70,6 @@ export const RuntimeMessage = {
 
   // Cross-context helpers
   Fetch: 'FETCH',
-  GetCookie: 'GET_COOKIE',
   ChangeLang: 'CHANGE_LANG',
   RefreshMenu: 'REFRESH_MENU',
   GetExtractedContent: 'GET_EXTRACTED_CONTENT',

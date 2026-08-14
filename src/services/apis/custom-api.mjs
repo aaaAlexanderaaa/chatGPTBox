@@ -9,10 +9,7 @@ import { getUserConfig } from '../../config/storage.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
-import { buildSystemPromptFromContext } from '../agent-context.mjs'
-import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
-import { appendToolEvents } from '../agent/session-state.mjs'
-import { AgentProtocol, resolveOpenAiCompatibleProtocol } from '../agent/protocols.mjs'
+import { AgentProtocol, resolveOpenAiCompatibleProtocol } from './openai-protocol.mjs'
 import {
   convertMessagesToResponsesInput,
   extractResponsesOutputText,
@@ -69,12 +66,10 @@ export async function generateAnswersWithCustomApi(
   const model = typeof modelName === 'string' ? modelName.trim() : ''
   if (!model) throw new Error('Missing Custom Model Name')
 
-  const protocol = resolveOpenAiCompatibleProtocol(requestUrl, config?.agentProtocol)
-  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
+  const protocol = resolveOpenAiCompatibleProtocol(requestUrl)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
-    { systemPrompt },
   )
   prompt.push({ role: 'user', content: question })
 
@@ -95,46 +90,6 @@ export async function generateAnswersWithCustomApi(
   }
 
   const derivedBaseUrl = deriveOpenAiBaseUrl(requestUrl)
-  if (derivedBaseUrl) {
-    try {
-      const toolLoop = await runMcpToolLoopForOpenAiCompat({
-        protocol,
-        baseUrl: derivedBaseUrl,
-        apiKey,
-        model,
-        messages: prompt,
-        config,
-        session,
-        maxResponseTokenLength: config.maxResponseTokenLength,
-        temperature: config.temperature,
-        signal: controller.signal,
-      })
-      if (toolLoop) {
-        appendToolEvents(session, toolLoop.events, { limit: config?.agentToolEventLimit })
-        if (shouldShortCircuitWithToolLoop(toolLoop)) {
-          answer = toolLoop.answer || ''
-          if (answer) port.postMessage({ answer, done: false, session: null })
-          finish()
-          cleanupPortListeners()
-          return
-        }
-      }
-    } catch (error) {
-      appendToolEvents(
-        session,
-        [
-          {
-            type: 'mcp_tool_loop',
-            status: 'failed',
-            reason: error?.message || String(error),
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        { limit: config?.agentToolEventLimit },
-      )
-    }
-  }
-
   if (protocol === AgentProtocol.openAiResponsesV1 && derivedBaseUrl) {
     try {
       const converted = convertMessagesToResponsesInput(prompt)

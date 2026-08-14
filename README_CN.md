@@ -26,7 +26,6 @@
 - 支持 Web 和 API 提供商，包括 ChatGPT Web 以及 OpenAI、Anthropic、Azure OpenAI、OpenRouter、AIML、DeepSeek、Moonshot、Ollama、ChatGLM 和 OpenAI 兼容的自定义端点。
 - 本地 API 服务桥接，通过 OpenAI 兼容的 `/v1/chat/completions` 端点暴露 ChatGPT Web，并支持缓存对话查看和跟进 API。
 - Markdown 渲染支持代码块、语法高亮和 KaTeX。
-- _实验性：_ Agent 运行时支持助手、ZIP 导入技能包、内置 MCP 工具集和外部 HTTP/SSE JSON-RPC MCP 服务器。默认构建不含此功能——参见[构建配置](#构建配置)。
 
 ## 截图
 
@@ -81,11 +80,6 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_agents_tab.webp" alt="Agent 选项卡" /><br />
-      <b>Agent 与助手</b> <sub>（实验性构建）</sub><br />
-      <sub>管理助手、导入的技能包和 MCP 服务器——仅在 `agents` 构建配置中可用</sub>
-    </td>
-    <td align="center" width="50%">
       <img src="./screenshots/preview_modules_tab.webp" alt="模块选项卡" /><br />
       <b>模块与 API 模式</b><br />
       <sub>配置 API 模式、选择工具、网站适配器和内容提取器</sub>
@@ -105,23 +99,10 @@ npm run dev        # 开发构建 → build/chromium/、build/firefox/
 npm run build      # 生产构建 → build/*.zip
 ```
 
-> 默认的 `dev`/`build` 命令产出 **core** 配置，**不包含** 实验性的 Agent 运行时。`agents` 配置请参见[构建配置](#构建配置)。
-
 加载扩展：
 
 - **基于 Chromium 的浏览器**：在扩展页面启用开发者模式，将 `build/chromium/` 作为未打包的扩展加载。
 - **Firefox**：将 `build/firefox/` 作为临时附加组件加载。
-
-### 构建配置
-
-构建会根据启用的功能产出不同的包：
-
-| 配置                 | 构建命令                                      | 是否包含 Agent 运行时（助手、技能、MCP）？ |
-| -------------------- | --------------------------------------------- | ------------------------------------------ |
-| **core**（默认）     | `npm run dev` / `npm run build`               | 否——agent 模块被替换为 no-op stub。        |
-| **agents**（实验性） | `npm run dev:agents` / `npm run build:agents` | 是——完整 agent 运行时被编译进来。          |
-
-发布到 GitHub Releases 的包默认为 **core** 构建，除非发布说明另有说明。要使用 agent、技能或 MCP 工具集，请使用 `agents` 配置从源码构建，并在扩展设置中启用 `enableSkills`。
 
 ## 使用
 
@@ -136,22 +117,14 @@ npm run build      # 生产构建 → build/*.zip
 从扩展图标或扩展选项页面打开设置界面。
 
 - 工具栏弹出窗口是一个快速工作区，包含 `常规`、`站点` 和 `高级`，以及一个 `完整设置` 按钮。
-- 完整设置工作区包含所有顶级选项卡：`常规`、`功能`、`Agent`、`模块` 和 `高级`。
+- 完整设置工作区包含所有顶级选项卡：`常规`、`功能`、`模块` 和 `高级`。
 
 完整设置工作区的主要区域：
 
-- **常规**：模型/提供商选择、语言、触发行为、外观、运行时模式、默认助手和 Agent 协议。
+- **常规**：模型/提供商选择、语言、触发行为和外观。
 - **功能**：启用/禁用支持的网站集成。
-- **Agent**：助手、导入的 ZIP 技能包和 MCP 服务器。
 - **模块**：API 模式、选择工具、网站适配器和内容提取器。
 - **高级**：上下文长度、最大令牌数、温度、自定义端点、调试/导出/导入/重置设置。
-
-Agent/运行时说明：
-
-- 导入的技能是 Agent/运行时资产，位于 **Agent -> 技能** 下。
-- 传统自定义选择工具保留在 **模块 -> 选择工具** 中。
-- 在 `safe` 运行时模式下，MCP HTTP 端点需使用 HTTPS；`developer` 模式更为宽松。
-- 助手/技能/MCP 主要用于 API/自定义运行时流程。ChatGPT Web 模型在普通聊天中继续可用，但不使用完整的 Agent 上下文路径。
 
 提供商说明：
 
@@ -174,12 +147,10 @@ npm ci
 ```bash
 npm run dev
 npm run lint
-npm run test:agent
+npm run test
 npm run verify
 npm run pretty
 npm run build
-npm run build:agents   # 实验性：包含 agent 运行时
-npm run build:safari
 npm run api-server
 ```
 
@@ -206,12 +177,6 @@ npm run build
 - `build/firefox.zip`
 - `build/chromium-without-katex-and-tiktoken.zip`
 - `build/firefox-without-katex-and-tiktoken.zip`
-
-Safari 打包需要 macOS/Xcode：
-
-```bash
-npm run build:safari
-```
 
 ## API 服务桥接
 
@@ -270,10 +235,7 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 ## 架构说明
 
 - 扩展完全运行在客户端，没有项目后端或数据库。
-- 导入的技能是必须包含 `SKILL.md` 的 ZIP 包。
-- 内置助手、内置技能和内置 MCP 工具集定义在 [`src/config/index.mjs`](./src/config/index.mjs) 中。
-- 当前运行时概述见 [`docs/agents-runtime-v2.md`](./docs/agents-runtime-v2.md)。
-- 构建配置（core 与 agents）详见 [`docs/build-profiles.md`](./docs/build-profiles.md)。
+- 服务层的目录约定（`apis/` 与 `clients/`）见 [`src/services/README.md`](./src/services/README.md)。
 
 ## 隐私
 

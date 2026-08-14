@@ -4,17 +4,26 @@ import { getApiModesFromConfig, getModelNameGroup } from '../src/utils/model-nam
 
 describe('config model module boundaries', () => {
   it('initializes models and converters without a barrel-import cycle', () => {
-    expect(ModelGroups.bingWebModelKeys.value).toContain('bingFree4')
-    expect(Models['bingFree4-fast']).toMatchObject({ value: 'fast' })
-    expect(getModelNameGroup('bingFree4-fast')?.[0]).toBe('bingWebModelKeys')
+    expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb56Thinking')
+    expect(Models.chatgptWeb56Thinking).toMatchObject({ value: 'gpt-5-6-thinking' })
+    expect(getModelNameGroup('chatgptWeb56Thinking')).toContain('chatgptWebModelKeys')
     expect(
       getApiModesFromConfig(
         {
           customApiModes: [],
-          activeApiModes: ['bingFree4-fast'],
+          activeApiModes: ['chatgptWeb56Thinking'],
         },
         false,
       ),
-    ).toMatchObject([{ groupName: 'bingWebModelKeys', itemName: 'bingFree4', isCustom: true }])
+    ).toMatchObject([
+      { groupName: 'chatgptWebModelKeys', itemName: 'chatgptWeb56Thinking', isCustom: false },
+    ])
+  })
+
+  it('no longer exposes the removed web-scraper provider groups', () => {
+    expect(ModelGroups.bingWebModelKeys).toBeUndefined()
+    expect(ModelGroups.bardWebModelKeys).toBeUndefined()
+    expect(ModelGroups.claudeWebModelKeys).toBeUndefined()
+    expect(Object.keys(Models).some((key) => key.startsWith('poeAiWeb'))).toBe(false)
   })
 })

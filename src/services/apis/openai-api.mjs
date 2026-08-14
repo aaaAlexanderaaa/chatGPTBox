@@ -6,13 +6,7 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
-import {
-  buildFallbackQuestionWithContext,
-  buildSystemPromptFromContext,
-} from '../agent-context.mjs'
-import { runMcpToolLoopForOpenAiCompat, shouldShortCircuitWithToolLoop } from '../mcp/tool-loop.mjs'
-import { appendToolEvents } from '../agent/session-state.mjs'
-import { AgentProtocol, resolveOpenAiCompatibleProtocol } from '../agent/protocols.mjs'
+import { AgentProtocol, resolveOpenAiCompatibleProtocol } from './openai-protocol.mjs'
 import {
   convertMessagesToResponsesInput,
   extractResponsesOutputText,
@@ -85,13 +79,11 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
   const model = getModelValue(session)
 
   const config = await getUserConfig()
-  const systemPrompt = await buildSystemPromptFromContext(session, config, question)
   const prompt =
     (await getCompletionPromptBase()) +
     getConversationPairs(
       session.conversationRecords.slice(-config.maxConversationContextLength),
       true,
-      { systemPrompt },
     ) +
     `Human: ${question}\nAI: `
   const apiUrl = config.customOpenAiApiUrl
@@ -199,17 +191,10 @@ export async function generateAnswersWithChatgptApiCompat(
   const isReasoningModel = isUsingReasoningModel(session)
 
   const config = await getUserConfig()
-  const protocol = resolveOpenAiCompatibleProtocol(baseUrl, config?.agentProtocol)
-  const systemPrompt = isReasoningModel
-    ? ''
-    : await buildSystemPromptFromContext(session, config, question)
-  const composedQuestion = isReasoningModel
-    ? await buildFallbackQuestionWithContext(question, session, config)
-    : question
+  const protocol = resolveOpenAiCompatibleProtocol(baseUrl)
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
-    systemPrompt ? { systemPrompt } : undefined,
   )
 
   // Filter messages based on model type
@@ -221,7 +206,7 @@ export async function generateAnswersWithChatgptApiCompat(
       })
     : prompt
 
-  filteredPrompt.push({ role: 'user', content: composedQuestion })
+  filteredPrompt.push({ role: 'user', content: question })
 
   let answer = ''
   let finished = false
@@ -271,48 +256,6 @@ export async function generateAnswersWithChatgptApiCompat(
     throw new Error(
       'Invalid or empty API key provided. Please check your OpenAI API key configuration.',
     )
-  }
-
-  if (!isReasoningModel) {
-    try {
-      const toolLoop = await runMcpToolLoopForOpenAiCompat({
-        protocol,
-        baseUrl,
-        apiKey,
-        model,
-        messages: filteredPrompt,
-        config,
-        session,
-        maxResponseTokenLength: config.maxResponseTokenLength,
-        temperature: config.temperature,
-        extraBody,
-        signal: controller.signal,
-      })
-
-      if (toolLoop) {
-        appendToolEvents(session, toolLoop.events, { limit: config?.agentToolEventLimit })
-        if (shouldShortCircuitWithToolLoop(toolLoop)) {
-          answer = toolLoop.answer || ''
-          if (answer) port.postMessage({ answer, done: false, session: null })
-          finish()
-          cleanupPortListeners()
-          return
-        }
-      }
-    } catch (error) {
-      appendToolEvents(
-        session,
-        [
-          {
-            type: 'mcp_tool_loop',
-            status: 'failed',
-            reason: error?.message || String(error),
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        { limit: config?.agentToolEventLimit },
-      )
-    }
   }
 
   if (!isReasoningModel && protocol === AgentProtocol.openAiResponsesV1) {
