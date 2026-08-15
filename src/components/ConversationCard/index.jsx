@@ -31,6 +31,7 @@ import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { getUserConfig } from '../../config/storage.mjs'
 import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
+import { isChatgptWebKeyAvailableForAccount } from '../../config/account-models.mjs'
 import {
   isUsingChatgptWebModel,
   isUsingDshHarnessModel,
@@ -219,6 +220,13 @@ function ConversationCard(props) {
         if (!providerEnabled && !isSelected) return false
         if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName))
           return false
+        // D-15: never offer a ChatGPT Web tier the account cannot use
+        if (
+          !isSelected &&
+          apiMode.groupName === 'chatgptWebModelKeys' &&
+          !isChatgptWebKeyAvailableForAccount(modelName, config.chatgptWebAccountModels)
+        )
+          return false
         return true
       }),
     )
@@ -229,6 +237,7 @@ function ConversationCard(props) {
     config.ollamaModelName,
     config.enabledProviders,
     config.showDeprecatedModels,
+    config.chatgptWebAccountModels,
     session.apiMode,
     session.modelName,
   ])

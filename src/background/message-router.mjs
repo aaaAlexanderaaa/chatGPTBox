@@ -181,8 +181,15 @@ export function createMessageRouter() {
         return await stopChatgptWebConversationCacheSyncWithFallback()
       case RuntimeMessage.ChatgptWebUnlockConversationSync:
         return await unlockChatgptWebConversationSyncWithFallback()
-      case RuntimeMessage.ChatgptWebListModels:
-        return await listChatgptWebModelsWithFallback()
+      case RuntimeMessage.ChatgptWebListModels: {
+        const models = await listChatgptWebModelsWithFallback()
+        if (Array.isArray(models) && models.length > 0) {
+          // Keep the settings-side account filter (D-15) in sync with
+          // whatever the catalog just said.
+          await setUserConfig({ chatgptWebAccountModels: models }).catch(() => {})
+        }
+        return models
+      }
       default:
         return
     }

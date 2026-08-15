@@ -3,6 +3,7 @@
 // the per-site picker (roadmap C3) needed the identical list, including the
 // enabled-provider gating and deprecated-model filtering.
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
+import { isChatgptWebKeyAvailableForAccount } from '../../config/account-models.mjs'
 import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
 
 function modelNameToSelectLabel(modelName, config, t) {
@@ -32,6 +33,15 @@ export function buildEngineOptions(config, t, { selectedModelName } = {}) {
     const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
     if (!providerEnabled && !isSelected) return false
     if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName)) return false
+    // D-15: never offer a ChatGPT Web tier the account cannot use (unknown
+    // catalogs and the current selection are always kept).
+    if (
+      !isSelected &&
+      apiMode.groupName === 'chatgptWebModelKeys' &&
+      !isChatgptWebKeyAvailableForAccount(modelName, config.chatgptWebAccountModels)
+    ) {
+      return false
+    }
     return true
   })
 

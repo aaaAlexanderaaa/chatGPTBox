@@ -128,6 +128,10 @@ export const defaultConfig = {
   prependQuery: '',
   enabledProviders: { ...DefaultEnabledProviderGroups },
   showDeprecatedModels: false,
+  // Account-available ChatGPT Web slugs (D-15): written by the background
+  // whenever the model catalog refreshes; empty = unknown, pickers filter
+  // nothing.
+  chatgptWebAccountModels: [],
   // Per-site engine assignment (D-14): site key -> { modelName, apiMode }.
   // An absent/empty entry means "follow the global default engine".
   siteEngineOverrides: {},

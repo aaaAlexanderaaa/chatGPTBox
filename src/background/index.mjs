@@ -16,7 +16,11 @@
 // "ctx reverse dependency" note that used to live here.
 
 import Browser from 'webextension-polyfill'
-import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
+import { defaultConfig, getUserConfig, setAccessToken, setUserConfig } from '../config/storage.mjs'
+import { isUsingChatgptWebModel } from '../config/predicates.mjs'
+import { chatgptWebModelKeys } from '../config/models.mjs'
+import { pickDefaultChatgptWebKey } from '../config/account-models.mjs'
+import { refreshChatGptWebModelList } from '../services/model-lists.mjs'
 import '../_locales/i18n'
 import { registerPortListener } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
@@ -74,6 +78,51 @@ async function executeApi(session, port, config) {
 // flows; register the reference once at startup to break the import cycle.
 registerExecuteApi(executeApi)
 
+// --- chatgpt-web first-run detection (roadmap D / D-15) --------------------
+//
+// A fresh install with zero API keys must still reach a first answer inside
+// 60s. When the default engine is ChatGPT Web, the worker silently checks
+// whether the browser already holds a chatgpt.com session (host permissions
+// let the fetch carry cookies); if so the token is saved and the account's
+// real model list is fetched BEFORE any default is fixed, so a free account
+// never starts pinned to a tier it cannot use. Not logged in → nothing
+// happens here; the existing jump-back flow keeps handling login.
+
+async function ensureChatgptWebFirstRun() {
+  try {
+    const config = await getUserConfig()
+    if (!isUsingChatgptWebModel(config) && !config.accessToken) return
+
+    let accessToken = config.accessToken
+    if (!accessToken) {
+      const resp = await fetch('https://chatgpt.com/api/auth/session', { credentials: 'include' })
+      const data = await resp.json().catch(() => ({}))
+      if (!data?.accessToken) return
+      await setAccessToken(data.accessToken)
+      accessToken = data.accessToken
+    }
+
+    const models = await refreshChatGptWebModelList({ accessToken })
+    await setUserConfig({ chatgptWebAccountModels: models })
+
+    // Fix the default only while the selection is still an untouched web
+    // preset — a user's explicit choice is never second-guessed.
+    if (!config.apiMode && chatgptWebModelKeys.includes(config.modelName)) {
+      const preferred = pickDefaultChatgptWebKey({
+        currentKey: config.modelName,
+        availableSlugs: models,
+      })
+      if (preferred && preferred !== config.modelName) {
+        await setUserConfig({ modelName: preferred })
+      }
+    }
+  } catch (error) {
+    // Best-effort by design: offline, logged out, or upstream changes just
+    // leave the defaults (and the runtime client's own fallbacks) in charge.
+    console.debug('chatgpt-web first-run detection skipped:', error?.message || error)
+  }
+}
+
 // --- conversation sync alarm lifecycle ------------------------------------
 
 async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false } = {}) {
@@ -105,10 +154,12 @@ async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false }
 
 Browser.runtime.onInstalled.addListener(() => {
   void ensureChatgptWebConversationSyncAlarm()
+  void ensureChatgptWebFirstRun()
 })
 
 Browser.runtime.onStartup?.addListener(() => {
   void ensureChatgptWebConversationSyncAlarm()
+  void ensureChatgptWebFirstRun()
 })
 
 Browser.alarms?.onAlarm.addListener((alarm) => {
