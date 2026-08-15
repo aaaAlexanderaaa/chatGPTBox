@@ -18,7 +18,13 @@ export function DshSettingsCard({ config, updateConfig }) {
     setTesting(true)
     try {
       const result = await Browser.runtime.sendMessage({ type: ModuleMessage.DshDiagnose })
-      setDiagnosis(result || { ok: false, stage: 'background', message: 'no answer from the background worker' })
+      setDiagnosis(
+        result || {
+          ok: false,
+          stage: 'background',
+          message: 'no answer from the background worker',
+        },
+      )
     } catch (error) {
       setDiagnosis({ ok: false, stage: 'background', message: String(error?.message || error) })
     } finally {
@@ -30,7 +36,9 @@ export function DshSettingsCard({ config, updateConfig }) {
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-center gap-3">
         <span className="font-medium text-sm">◆ DeepSeek Harness</span>
-        <span className="text-[11px] text-muted-foreground">{t('local agent engine — off by default')}</span>
+        <span className="text-[11px] text-muted-foreground">
+          {t('local agent engine — off by default')}
+        </span>
         <label className="ml-auto flex items-center gap-2 text-xs cursor-pointer">
           <input
             type="checkbox"

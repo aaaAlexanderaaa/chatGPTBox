@@ -113,11 +113,19 @@ export function Composer({ session, rpc, apiRef }) {
         <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
           <span>⧗ {session.queueItems.length} queued</span>
           {session.queueItems.map((item) => (
-            <span key={item.id} className="flex items-center gap-1 bg-secondary rounded-full px-2 py-0.5 max-w-60">
+            <span
+              key={item.id}
+              className="flex items-center gap-1 bg-secondary rounded-full px-2 py-0.5 max-w-60"
+            >
               <span className="truncate">{item.text || 'queued prompt'}</span>
               <button
                 title="Withdraw"
-                onClick={() => void rpc('session.queue-remove', { sessionId: session.sessionId, itemId: item.id })}
+                onClick={() =>
+                  void rpc('session.queue-remove', {
+                    sessionId: session.sessionId,
+                    itemId: item.id,
+                  })
+                }
               >
                 <X size={11} />
               </button>
@@ -129,7 +137,11 @@ export function Composer({ session, rpc, apiRef }) {
         <div className="flex gap-2 mb-1.5">
           {images.map((image, index) => (
             <span key={index} className="relative">
-              <img src={`data:${image.mediaType};base64,${image.data}`} alt={image.name} className="h-14 rounded border border-border object-cover" />
+              <img
+                src={`data:${image.mediaType};base64,${image.data}`}
+                alt={image.name}
+                className="h-14 rounded border border-border object-cover"
+              />
               <button
                 className="absolute -top-1.5 -right-1.5 bg-secondary rounded-full p-0.5"
                 onClick={() => setImages((prev) => prev.filter((_, i2) => i2 !== index))}
@@ -141,7 +153,10 @@ export function Composer({ session, rpc, apiRef }) {
         </div>
       )}
       <div className="flex items-end gap-2">
-        <label className="text-muted-foreground hover:text-foreground cursor-pointer pb-2" title="Attach image">
+        <label
+          className="text-muted-foreground hover:text-foreground cursor-pointer pb-2"
+          title="Attach image"
+        >
           <Paperclip size={15} />
           <input
             type="file"
@@ -155,7 +170,11 @@ export function Composer({ session, rpc, apiRef }) {
           ref={textareaRef}
           className="flex-1 bg-transparent text-sm resize-none outline-none py-2 max-h-[200px] placeholder:text-muted-foreground"
           rows={1}
-          placeholder={session.blank ? 'Describe the task — e.g. "fix the failing build in ~/repo and open a PR"…' : 'Reply, queue the next step, or steer…'}
+          placeholder={
+            session.blank
+              ? 'Describe the task — e.g. "fix the failing build in ~/repo and open a PR"…'
+              : 'Reply, queue the next step, or steer…'
+          }
           value={text}
           onInput={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -177,9 +196,17 @@ export function Composer({ session, rpc, apiRef }) {
             {['queue', 'steer'].map((value) => (
               <button
                 key={value}
-                className={`px-2 py-1 ${mode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}
+                className={`px-2 py-1 ${
+                  mode === value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-secondary'
+                }`}
                 onClick={() => setMode(value)}
-                title={value === 'queue' ? 'Run after the current turn finishes' : 'Steer the running turn immediately'}
+                title={
+                  value === 'queue'
+                    ? 'Run after the current turn finishes'
+                    : 'Steer the running turn immediately'
+                }
               >
                 {value}
               </button>
@@ -188,7 +215,9 @@ export function Composer({ session, rpc, apiRef }) {
         )}
         <button
           className={`text-xs px-3 py-1.5 rounded-md mb-1.5 flex items-center gap-1.5 ${
-            text.trim() || images.length ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+            text.trim() || images.length
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-secondary text-muted-foreground'
           }`}
           disabled={sending || (!text.trim() && images.length === 0)}
           onClick={() => void send()}

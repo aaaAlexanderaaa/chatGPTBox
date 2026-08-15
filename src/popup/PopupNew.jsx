@@ -8,14 +8,11 @@ import {
   getUserConfig,
   setUserConfig,
 } from '../config/storage.mjs'
-import {
-  exportChatgptHistoryData,
-  importChatgptHistoryData,
-} from '../services/clients/chatgpt-web/history-transfer.mjs'
 import { useWindowTheme } from '../hooks/use-window-theme.mjs'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../utils/cn.mjs'
 import { applyDocumentAppearance } from '../utils/appearance.mjs'
+import { downloadJsonFile, pickJsonFile } from './file-transfer.mjs'
 
 // Tab components
 import { GeneralTab } from './components/GeneralTab.jsx'
@@ -39,50 +36,6 @@ const POPUP_TABS = [
 function getInitialTab(requestedTab, tabs) {
   if (requestedTab && tabs.some((tab) => tab.id === requestedTab)) return requestedTab
   return tabs[0].id
-}
-
-function downloadJsonFile(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-function pickJsonFile() {
-  return new Promise((resolve) => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json,application/json'
-    let settled = false
-    let focusTimer = null
-
-    const finish = (file = null) => {
-      if (settled) return
-      settled = true
-      if (focusTimer !== null) {
-        window.clearTimeout(focusTimer)
-      }
-      window.removeEventListener('focus', handleWindowFocus, true)
-      input.removeEventListener('cancel', handleCancel)
-      resolve(file)
-    }
-
-    const handleCancel = () => finish(null)
-
-    const handleWindowFocus = () => {
-      focusTimer = window.setTimeout(() => {
-        finish(input.files?.[0] || null)
-      }, 400)
-    }
-
-    input.onchange = (event) => finish(event.target.files?.[0] || null)
-    input.addEventListener('cancel', handleCancel)
-    window.addEventListener('focus', handleWindowFocus, true)
-    input.click()
-  })
 }
 
 function Popup() {
@@ -169,23 +122,6 @@ function Popup() {
         console.error('Failed to import config:', err)
       }
     })
-  }
-
-  const handleExportChatgptHistory = async () => {
-    const payload = await exportChatgptHistoryData()
-    downloadJsonFile(
-      payload,
-      `chatgptbox-chatgpt-history-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
-    )
-    return payload.summary
-  }
-
-  const handleImportChatgptHistory = async () => {
-    const file = await pickJsonFile()
-    if (!file) return null
-    const text = await file.text()
-    const imported = JSON.parse(text)
-    return await importChatgptHistoryData(imported)
   }
 
   // Reset config
@@ -285,8 +221,6 @@ function Popup() {
             openFullSettings={openFullSettings}
             onExport={handleExport}
             onImport={handleImport}
-            onExportChatgptHistory={handleExportChatgptHistory}
-            onImportChatgptHistory={handleImportChatgptHistory}
             onReset={handleReset}
           />
         )}

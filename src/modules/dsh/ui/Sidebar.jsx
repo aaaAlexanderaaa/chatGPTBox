@@ -71,14 +71,20 @@ export function Sidebar({ sessions, selectedId, onSelect, onCreate, searchRef, r
             <button
               key={session.sessionId}
               className={`flex items-center gap-2 text-left text-xs px-2 py-1.5 rounded-md ${
-                session.sessionId === selectedId ? 'bg-secondary text-foreground' : 'hover:bg-secondary/60 text-muted-foreground'
+                session.sessionId === selectedId
+                  ? 'bg-secondary text-foreground'
+                  : 'hover:bg-secondary/60 text-muted-foreground'
               }`}
               onClick={() => onSelect(session.sessionId)}
               title={session.cwd || session.sessionId}
             >
               <span style={{ color: dot.color }}>{dot.symbol}</span>
-              <span className="truncate flex-1">{session.title || session.blank ? session.title || 'Untitled' : session.sessionId}</span>
-              {session.waiting > 0 && <span style={{ color: 'var(--dsh-waiting-approval)' }}>⧗{session.waiting}</span>}
+              <span className="truncate flex-1">
+                {session.title || session.blank ? session.title || 'Untitled' : session.sessionId}
+              </span>
+              {session.waiting > 0 && (
+                <span style={{ color: 'var(--dsh-waiting-approval)' }}>⧗{session.waiting}</span>
+              )}
             </button>
           )
         })}

@@ -28,6 +28,9 @@ import { RuntimeMessage } from '../protocol/messages.mjs'
  *  (tests/message-contract.test.mjs enforces the single source of truth). */
 export const ModuleMessage = {
   DshDiagnose: RuntimeMessage.DshModuleDiagnose,
+  ChatgptWebSyncConversations: RuntimeMessage.ChatgptWebSyncConversations,
+  ChatgptWebStopConversationSync: RuntimeMessage.ChatgptWebStopConversationSync,
+  ChatgptWebUnlockConversationSync: RuntimeMessage.ChatgptWebUnlockConversationSync,
 }
 
 /**
@@ -44,6 +47,10 @@ export const ModuleMessage = {
  *   (statically imported there so the MV3 service worker bundle stays
  *   chunk-free); the manifest itself stays data-only so UI bundles that
  *   only need settings cards never pull service code.
+ * @property {string} [settingsPlacement='engines'] - render site of the
+ *   module's settings card. Grown for the second module (chatgptweb, C1):
+ *   its card initially stays inside the Advanced tab it always lived in;
+ *   the Engines tab (C2) later becomes the single home for every engine.
  * @property {string} [consolePage] - extension page URL of the module's
  *   full-page surface (e.g. 'dsh.html'), for the settings card link.
  */
@@ -79,9 +86,20 @@ export function registerSettingsCard(id, Component) {
   settingsCards.set(id, Component)
 }
 
-/** @returns {Array<{ id: string, Component: unknown }>} */
-export function getSettingsCards() {
-  return [...settingsCards.entries()].map(([id, Component]) => ({ id, Component }))
+/**
+ * Registered settings cards, optionally filtered by render site.
+ * @param {string} [placement] - manifest settingsPlacement to filter by
+ *   (default 'engines'). Omit to get every card.
+ * @returns {Array<{ id: string, Component: unknown }>}
+ */
+export function getSettingsCards(placement) {
+  return [...settingsCards.entries()]
+    .filter(([id]) => {
+      if (!placement) return true
+      const manifest = registeredModules.find((m) => m.id === id)
+      return (manifest?.settingsPlacement || 'engines') === placement
+    })
+    .map(([id, Component]) => ({ id, Component }))
 }
 
 /** @returns {ModuleManifest[]} */

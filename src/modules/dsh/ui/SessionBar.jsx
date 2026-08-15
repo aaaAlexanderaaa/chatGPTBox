@@ -30,14 +30,16 @@ export function SessionBar({ session, rpc }) {
   const commitTitle = () => {
     setEditing(false)
     const title = titleDraft.trim()
-    if (title && title !== session.title) void rpc('session.rename', { sessionId: session.sessionId, title })
+    if (title && title !== session.title)
+      void rpc('session.rename', { sessionId: session.sessionId, title })
   }
 
   const modelOptions = (models?.groups || []).flatMap((group) =>
     (group.models || []).map((model) => ({ ...model, groupName: group.name })),
   )
-  const currentModel =
-    models?.current ? `${models.current.provider}/${models.current.model}` : 'model'
+  const currentModel = models?.current
+    ? `${models.current.provider}/${models.current.model}`
+    : 'model'
 
   return (
     <div className="flex items-center gap-2 h-11 px-4 border-b border-border shrink-0">
@@ -107,14 +109,19 @@ export function SessionBar({ session, rpc }) {
         className="ml-auto flex items-center gap-2 text-xs cursor-pointer select-none"
         title="Auto-approve every decision in this session (default off — the agent never steps past an approval without you)"
       >
-        <span className={session.autoApprove ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+        <span
+          className={session.autoApprove ? 'text-foreground font-medium' : 'text-muted-foreground'}
+        >
           auto-approve
         </span>
         <input
           type="checkbox"
           checked={session.autoApprove === true}
           onChange={(event) =>
-            void rpc('autoApprove.set', { sessionId: session.sessionId, value: event.target.checked })
+            void rpc('autoApprove.set', {
+              sessionId: session.sessionId,
+              value: event.target.checked,
+            })
           }
         />
       </label>

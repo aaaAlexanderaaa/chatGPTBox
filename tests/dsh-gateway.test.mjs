@@ -61,7 +61,8 @@ function createFakeHarness() {
   const hostClients = new Set()
 
   server.on('upgrade', (req, socket, head) => {
-    const wss = req.url === '/api/events.mux' ? muxWss : req.url === '/api/events.host' ? hostWss : null
+    const wss =
+      req.url === '/api/events.mux' ? muxWss : req.url === '/api/events.host' ? hostWss : null
     if (!wss) {
       socket.destroy()
       return
@@ -106,7 +107,11 @@ function createFakeHarness() {
       'session.updateQueue': async () => ({ accepted: true }),
       'session.rename': async (payload) => ({ title: payload.title }),
       'session.fork': async () => ({ sessionId: 'forked' }),
-      'session.models': async () => ({ current: { provider: 'deepseek', model: 'chat' }, routable: true, groups: [] }),
+      'session.models': async () => ({
+        current: { provider: 'deepseek', model: 'chat' },
+        routable: true,
+        groups: [],
+      }),
       'session.selectModel': async () => ({ selected: {} }),
     },
     /** Broadcast a mux frame (server-request envelope) to every subscriber. */
@@ -184,8 +189,22 @@ describe('dsh gateway (against a fake harness)', () => {
     harness.sessions['s1'] = { running: true, updatedAt: 42 }
     harness.historyEvents['s1'] = [
       { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'assistant/chunk', seq: 1, time: 1100, data: { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'Hello' } } },
-      { type: 'assistant/message', seq: 2, time: 1200, data: { turn: 1, step: 0, message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] } } },
+      {
+        type: 'assistant/chunk',
+        seq: 1,
+        time: 1100,
+        data: { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'Hello' } },
+      },
+      {
+        type: 'assistant/message',
+        seq: 2,
+        time: 1200,
+        data: {
+          turn: 1,
+          step: 0,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+        },
+      },
     ]
     hostHooks = {
       notified: [],
@@ -237,7 +256,12 @@ describe('dsh gateway (against a fake harness)', () => {
     harness.broadcast({
       type: 'session/event',
       sessionId: 's1',
-      event: { type: 'assistant/chunk', seq: 3, time: 1300, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: ' more' } } },
+      event: {
+        type: 'assistant/chunk',
+        seq: 3,
+        time: 1300,
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: ' more' } },
+      },
     })
     await sleep(120) // ledger debounce
     expect(port.receivedOf('ledger').at(-1).blocks).toHaveLength(2)
@@ -247,7 +271,13 @@ describe('dsh gateway (against a fake harness)', () => {
     const port = createTestPort()
     gateway.attachPort(port)
 
-    harness.broadcast({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap1', toolName: 'shell', callId: 'c1' })
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap1',
+      toolName: 'shell',
+      callId: 'c1',
+    })
     await sleep(30)
     // Unattached: OS notification + badge carry the life-level contract.
     expect(hostHooks.notified.at(-1)).toMatchObject({ sessionId: 's1', kind: 'approval' })
@@ -269,7 +299,12 @@ describe('dsh gateway (against a fake harness)', () => {
     expect(gateway.getSessionSummaries()[0].waiting).toBe(0)
 
     // Resolution by another client settles the block too (idempotent).
-    harness.broadcast({ type: 'approval/resolved', sessionId: 's1', approvalId: 'ap1', outcome: 'allowed-once' })
+    harness.broadcast({
+      type: 'approval/resolved',
+      sessionId: 's1',
+      approvalId: 'ap1',
+      outcome: 'allowed-once',
+    })
     await sleep(30)
     expect(gateway.getSessionSummaries()[0].waiting).toBe(0)
     expect(hostHooks.badge).toHaveBeenLastCalledWith(0)
@@ -280,10 +315,18 @@ describe('dsh gateway (against a fake harness)', () => {
     gateway.attachPort(port)
     await portRequest(port, 'autoApprove.set', { sessionId: 's1', value: true })
 
-    harness.broadcast({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap2', toolName: 'shell' })
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap2',
+      toolName: 'shell',
+    })
     await sleep(50)
     expect(harness.respondCalls).toHaveLength(1)
-    expect(harness.respondCalls[0].result.value).toMatchObject({ approvalId: 'ap2', outcome: 'allowed-once' })
+    expect(harness.respondCalls[0].result.value).toMatchObject({
+      approvalId: 'ap2',
+      outcome: 'allowed-once',
+    })
     expect(gateway.getSessionSummaries()[0].waiting).toBe(0)
   })
 
@@ -293,8 +336,18 @@ describe('dsh gateway (against a fake harness)', () => {
 
     // The turn continues while we are deaf: server folds seq 3-5.
     harness.historyEvents['s1'].push(
-      { type: 'tool/call', seq: 3, time: 2000, data: { turn: 1, step: 1, callId: 'c1', name: 'shell', arguments: '{"cmd":"ls"}' } },
-      { type: 'tool/result', seq: 4, time: 3000, data: { turn: 1, step: 1, message: { toolCallId: 'c1', content: [] } } },
+      {
+        type: 'tool/call',
+        seq: 3,
+        time: 2000,
+        data: { turn: 1, step: 1, callId: 'c1', name: 'shell', arguments: '{"cmd":"ls"}' },
+      },
+      {
+        type: 'tool/result',
+        seq: 4,
+        time: 3000,
+        data: { turn: 1, step: 1, message: { toolCallId: 'c1', content: [] } },
+      },
       { type: 'turn/end', seq: 5, time: 4000, data: { turn: 1, reason: { kind: 'completed' } } },
     )
     harness.dropMuxClients()
@@ -330,9 +383,13 @@ describe('dsh gateway (against a fake harness)', () => {
   it('question lifecycle: answer with options and free text', async () => {
     const port = createTestPort()
     gateway.attachPort(port)
-    harness.broadcast(
-      { type: 'question/requested', sessionId: 's1', questions: [{ id: 'q1', question: 'Which DB?', options: [{ label: 'postgres' }, { label: 'sqlite' }] }] },
-    )
+    harness.broadcast({
+      type: 'question/requested',
+      sessionId: 's1',
+      questions: [
+        { id: 'q1', question: 'Which DB?', options: [{ label: 'postgres' }, { label: 'sqlite' }] },
+      ],
+    })
     await sleep(30)
     expect(gateway.getSessionSummaries()[0].waiting).toBe(1)
     expect(hostHooks.notified.at(-1)).toMatchObject({ kind: 'question' })
@@ -353,7 +410,12 @@ describe('dsh gateway (against a fake harness)', () => {
     harness.respondAccepted = false // e.g. answered first from the dsh web UI
     const port = createTestPort()
     gateway.attachPort(port)
-    harness.broadcast({ type: 'approval/requested', sessionId: 's1', approvalId: 'ap9', toolName: 'shell' })
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap9',
+      toolName: 'shell',
+    })
     await sleep(30)
     const pending = gateway._internals.sessions.get('s1').fold.getPendingDecisions()[0]
     const res = await portRequest(port, 'approval.respond', {

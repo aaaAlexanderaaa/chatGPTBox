@@ -8,7 +8,12 @@ const event = (type, data, seq = 0, time = 0) => ({ type, seq, time, data })
 const frame = (type, payload = {}) => ({ type, sessionId: 's1', ...payload })
 
 function chunk(turn, step, text, seq, time) {
-  return event('assistant/chunk', { turn, step, chunk: { type: 'text-delta', index: 0, text } }, seq, time)
+  return event(
+    'assistant/chunk',
+    { turn, step, chunk: { type: 'text-delta', index: 0, text } },
+    seq,
+    time,
+  )
 }
 
 describe('dsh ledger fold', () => {
@@ -42,7 +47,11 @@ describe('dsh ledger fold', () => {
       frame('session/event', {
         event: event(
           'assistant/message',
-          { turn: 1, step: 0, message: { role: 'assistant', content: [{ type: 'text', text: 'Final text' }] } },
+          {
+            turn: 1,
+            step: 0,
+            message: { role: 'assistant', content: [{ type: 'text', text: 'Final text' }] },
+          },
           2,
         ),
       }),
@@ -57,7 +66,13 @@ describe('dsh ledger fold', () => {
       frame('session/event', {
         event: event(
           'tool/call',
-          { turn: 1, step: 0, callId: 'c1', name: 'shell', arguments: '{"cmd":"rm -rf node_modules && npm install"}' },
+          {
+            turn: 1,
+            step: 0,
+            callId: 'c1',
+            name: 'shell',
+            arguments: '{"cmd":"rm -rf node_modules && npm install"}',
+          },
           1,
           2000,
         ),
@@ -67,7 +82,11 @@ describe('dsh ledger fold', () => {
       frame('session/event', {
         event: event(
           'tool/result',
-          { turn: 1, step: 0, message: { toolCallId: 'c1', content: [{ type: 'text', text: 'done' }] } },
+          {
+            turn: 1,
+            step: 0,
+            message: { toolCallId: 'c1', content: [{ type: 'text', text: 'done' }] },
+          },
           2,
           32000,
         ),
@@ -98,7 +117,9 @@ describe('dsh ledger fold', () => {
     for (const [reason, expectedKind] of reasons) {
       const fold = createDshLedgerFold()
       fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }, seq++) }))
-      fold.pushFrame(frame('session/event', { event: event('turn/end', { turn: 1, reason }, seq++) }))
+      fold.pushFrame(
+        frame('session/event', { event: event('turn/end', { turn: 1, reason }, seq++) }),
+      )
       const end = fold.getBlocks().at(-1)
       expect(end.reasonKind).toBe(expectedKind)
       if (expectedKind === 'error') expect(end.note).toContain('provider down')
@@ -113,7 +134,11 @@ describe('dsh ledger fold', () => {
       chunk(1, 0, 'lo', 2),
       event(
         'assistant/message',
-        { turn: 1, step: 0, message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] } },
+        {
+          turn: 1,
+          step: 0,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+        },
         3,
       ),
       event('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'ls', arguments: '{}' }, 4),
@@ -139,7 +164,10 @@ describe('dsh ledger fold', () => {
       frame('session/event', {
         event: event(
           'user/message',
-          { turn: 0, message: { role: 'user', content: [{ type: 'text', text: 'fix the build' }] } },
+          {
+            turn: 0,
+            message: { role: 'user', content: [{ type: 'text', text: 'fix the build' }] },
+          },
           0,
         ),
       }),
@@ -149,13 +177,20 @@ describe('dsh ledger fold', () => {
 
   it('exposes pending approvals/questions and applies outcomes', () => {
     const fold = createDshLedgerFold()
-    fold.pushFrame(frame('approval/requested', { approvalId: 'ap1', toolName: 'bash', callId: 'c1' }), {
-      rpcId: 'rpc-1',
-    })
+    fold.pushFrame(
+      frame('approval/requested', { approvalId: 'ap1', toolName: 'bash', callId: 'c1' }),
+      {
+        rpcId: 'rpc-1',
+      },
+    )
     fold.pushFrame(
       frame('question/requested', {
         questions: [
-          { id: 'q1', question: 'Which DB?', options: [{ label: 'postgres' }, { label: 'sqlite' }] },
+          {
+            id: 'q1',
+            question: 'Which DB?',
+            options: [{ label: 'postgres' }, { label: 'sqlite' }],
+          },
         ],
       }),
       { rpcId: 'rpc-2' },
@@ -179,7 +214,9 @@ describe('dsh ledger fold', () => {
     fold.markQuestionOutcome('rpc-2', 'answered')
     expect(fold.getPendingDecisions()).toEqual([])
     // approval/resolved from another client settles unknown outcomes too.
-    fold.pushFrame(frame('approval/requested', { approvalId: 'ap2', toolName: 'edit_file' }), { rpcId: 'rpc-3' })
+    fold.pushFrame(frame('approval/requested', { approvalId: 'ap2', toolName: 'edit_file' }), {
+      rpcId: 'rpc-3',
+    })
     fold.pushFrame(frame('approval/resolved', { approvalId: 'ap2', outcome: 'rejected' }))
     expect(fold.getBlocks().at(-1).status).toBe('rejected')
   })

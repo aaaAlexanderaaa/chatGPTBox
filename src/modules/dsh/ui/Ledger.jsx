@@ -54,7 +54,11 @@ function ToolRow({ block }) {
         onClick={() => setExpanded((value) => !value)}
         data-status={block.status}
       >
-        {expanded ? <ChevronDown size={13} className="shrink-0" /> : <ChevronRight size={13} className="shrink-0" />}
+        {expanded ? (
+          <ChevronDown size={13} className="shrink-0" />
+        ) : (
+          <ChevronRight size={13} className="shrink-0" />
+        )}
         <span className="shrink-0">🔧 {block.name}</span>
         <span className="dsh-args-preview">{previewToolArgs(block.args)}</span>
         {duration && <span className="shrink-0 text-muted-foreground">{duration}</span>}
@@ -81,27 +85,55 @@ function ToolRow({ block }) {
 function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }) {
   const settled = block.status !== 'pending'
   return (
-    <div className="dsh-decision-card my-3" data-kind="approval" data-settled={settled} tabIndex={-1}>
-      <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--dsh-waiting-approval)' }}>
+    <div
+      className="dsh-decision-card my-3"
+      data-kind="approval"
+      data-settled={settled}
+      tabIndex={-1}
+    >
+      <div
+        className="flex items-center gap-2 text-xs font-semibold"
+        style={{ color: 'var(--dsh-waiting-approval)' }}
+      >
         ⚠ {settled ? `Decision · ${block.toolName}` : `Waiting for you · ${block.toolName}`}
       </div>
-      <div className="dsh-decision-args my-2">{toolCall ? toolCall.args : '(arguments not captured)'}</div>
+      <div className="dsh-decision-args my-2">
+        {toolCall ? toolCall.args : '(arguments not captured)'}
+      </div>
       {block.reason && <p className="text-xs text-muted-foreground mb-2">{block.reason}</p>}
       {settled ? (
         <p className="text-xs text-muted-foreground">
-          {block.status === 'allowed-once' ? '✓ Allowed' : block.status === 'rejected' ? '✗ Rejected — the tool did not run' : `· ${block.status}`}
+          {block.status === 'allowed-once'
+            ? '✓ Allowed'
+            : block.status === 'rejected'
+            ? '✗ Rejected — the tool did not run'
+            : `· ${block.status}`}
         </p>
       ) : (
         <div className="dsh-decision-actions">
           <button
             className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
-            onClick={() => onRespond('approval', { rpcId: block.rpcId, sessionId: block.sessionId, approvalId: block.approvalId, outcome: 'allowed-once' })}
+            onClick={() =>
+              onRespond('approval', {
+                rpcId: block.rpcId,
+                sessionId: block.sessionId,
+                approvalId: block.approvalId,
+                outcome: 'allowed-once',
+              })
+            }
           >
             Allow once (a)
           </button>
           <button
             className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-secondary"
-            onClick={() => onRespond('approval', { rpcId: block.rpcId, sessionId: block.sessionId, approvalId: block.approvalId, outcome: 'rejected' })}
+            onClick={() =>
+              onRespond('approval', {
+                rpcId: block.rpcId,
+                sessionId: block.sessionId,
+                approvalId: block.approvalId,
+                outcome: 'rejected',
+              })
+            }
           >
             Reject (r)
           </button>
@@ -126,7 +158,9 @@ function QuestionCard({ block, onRespond, onCancel }) {
   if (settled) {
     return (
       <div className="dsh-decision-card my-3" data-kind="question" data-settled="true">
-        <div className="text-xs font-semibold" style={{ color: 'var(--dsh-waiting-question)' }}>? Question</div>
+        <div className="text-xs font-semibold" style={{ color: 'var(--dsh-waiting-question)' }}>
+          ? Question
+        </div>
         <p className="text-xs text-muted-foreground mt-1">
           {block.status === 'answered' ? '✓ Answered' : '· Cancelled'}
         </p>
@@ -145,7 +179,9 @@ function QuestionCard({ block, onRespond, onCancel }) {
 
   return (
     <div className="dsh-decision-card my-3" data-kind="question">
-      <div className="text-xs font-semibold" style={{ color: 'var(--dsh-waiting-question)' }}>? The agent is asking</div>
+      <div className="text-xs font-semibold" style={{ color: 'var(--dsh-waiting-question)' }}>
+        ? The agent is asking
+      </div>
       {block.questions.map((question) => (
         <div key={question.id} className="my-2">
           {question.header && <p className="text-xs font-medium">{question.header}</p>}
@@ -156,7 +192,10 @@ function QuestionCard({ block, onRespond, onCancel }) {
               {question.options.map((option) => {
                 const picked = (selected[question.id] || []).includes(option.label)
                 return (
-                  <label key={option.label} className="flex items-start gap-2 text-sm cursor-pointer">
+                  <label
+                    key={option.label}
+                    className="flex items-start gap-2 text-sm cursor-pointer"
+                  >
                     <input
                       type={question.multiSelect ? 'checkbox' : 'radio'}
                       name={`q-${block.rpcId}-${question.id}`}
@@ -165,7 +204,12 @@ function QuestionCard({ block, onRespond, onCancel }) {
                         setSelected((prev) => {
                           const current = prev[question.id] || []
                           if (question.multiSelect) {
-                            return { ...prev, [question.id]: picked ? current.filter((l) => l !== option.label) : [...current, option.label] }
+                            return {
+                              ...prev,
+                              [question.id]: picked
+                                ? current.filter((l) => l !== option.label)
+                                : [...current, option.label],
+                            }
                           }
                           return { ...prev, [question.id]: [option.label] }
                         })
@@ -173,7 +217,11 @@ function QuestionCard({ block, onRespond, onCancel }) {
                     />
                     <span>
                       {option.label}
-                      {option.description && <span className="text-xs text-muted-foreground block">{option.description}</span>}
+                      {option.description && (
+                        <span className="text-xs text-muted-foreground block">
+                          {option.description}
+                        </span>
+                      )}
                     </span>
                   </label>
                 )
@@ -192,10 +240,16 @@ function QuestionCard({ block, onRespond, onCancel }) {
         </div>
       ))}
       <div className="dsh-decision-actions">
-        <button className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground" onClick={submit}>
+        <button
+          className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
+          onClick={submit}
+        >
           Submit
         </button>
-        <button className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-secondary" onClick={onCancel}>
+        <button
+          className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-secondary"
+          onClick={onCancel}
+        >
           Dismiss
         </button>
       </div>
@@ -207,8 +261,11 @@ function TurnEnd({ block }) {
   return (
     <div className="dsh-turn-end" data-reason={block.reasonKind}>
       <span>
-        {block.note} · {block.steps} step{block.steps === 1 ? '' : 's'} · {block.tools} tool{block.tools === 1 ? '' : 's'}
-        {block.startedAt != null && block.endedAt != null ? ` · ${formatDuration(block.endedAt - block.startedAt)}` : ''}
+        {block.note} · {block.steps} step{block.steps === 1 ? '' : 's'} · {block.tools} tool
+        {block.tools === 1 ? '' : 's'}
+        {block.startedAt != null && block.endedAt != null
+          ? ` · ${formatDuration(block.endedAt - block.startedAt)}`
+          : ''}
       </span>
     </div>
   )
@@ -233,7 +290,9 @@ export function Ledger({ session, blocks, onRespond, rpc }) {
   // A newly arriving pending decision focuses its card when the ledger has focus.
   const pendingRef = useRef(null)
   useEffect(() => {
-    const pending = blocks.find((b) => (b.kind === 'approval' || b.kind === 'question') && b.status === 'pending')
+    const pending = blocks.find(
+      (b) => (b.kind === 'approval' || b.kind === 'question') && b.status === 'pending',
+    )
     if (pending && document.activeElement === scrollRef.current && pendingRef.current !== pending) {
       pendingRef.current = pending
       // focus ring lands on the card via data-attribute styling
@@ -260,7 +319,11 @@ export function Ledger({ session, blocks, onRespond, rpc }) {
           const key = `${block.kind}-${block.seq ?? block.approvalId ?? block.rpcId ?? index}`
           switch (block.kind) {
             case 'user':
-              return <div key={key} className="dsh-user-block my-3">{block.text}</div>
+              return (
+                <div key={key} className="dsh-user-block my-3">
+                  {block.text}
+                </div>
+              )
             case 'text':
               return (
                 <div key={key} className="dsh-prose my-3">
@@ -277,7 +340,12 @@ export function Ledger({ session, blocks, onRespond, rpc }) {
                   toolCall={block.callId ? toolCalls.get(block.callId) : null}
                   onRespond={onRespond}
                   autoApprove={session.autoApprove}
-                  onSessionAuto={() => void rpc('autoApprove.set', { sessionId: session.sessionId, value: !session.autoApprove })}
+                  onSessionAuto={() =>
+                    void rpc('autoApprove.set', {
+                      sessionId: session.sessionId,
+                      value: !session.autoApprove,
+                    })
+                  }
                 />
               )
             case 'question':
@@ -286,7 +354,12 @@ export function Ledger({ session, blocks, onRespond, rpc }) {
                   key={key}
                   block={{ ...block, sessionId: session.sessionId }}
                   onRespond={onRespond}
-                  onCancel={() => void rpc('question.cancel', { rpcId: block.rpcId, sessionId: session.sessionId })}
+                  onCancel={() =>
+                    void rpc('question.cancel', {
+                      rpcId: block.rpcId,
+                      sessionId: session.sessionId,
+                    })
+                  }
                 />
               )
             case 'turn-end':

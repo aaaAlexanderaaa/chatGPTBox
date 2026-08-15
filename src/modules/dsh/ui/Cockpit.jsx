@@ -28,7 +28,8 @@ export function Cockpit() {
   const composerRef = useRef(null)
 
   useEffect(() => {
-    if (!selectedId && merged.length > 0) setSelectedId(merged.find((s) => !s.blank)?.sessionId ?? merged[0].sessionId)
+    if (!selectedId && merged.length > 0)
+      setSelectedId(merged.find((s) => !s.blank)?.sessionId ?? merged[0].sessionId)
   }, [merged, selectedId])
 
   const selected = merged.find((s) => s.sessionId === selectedId) || null
@@ -38,7 +39,8 @@ export function Cockpit() {
     if (!selectedId) return
     setLedger({ blocks: [], lastSeq: -1 })
     return subscribeLedger(selectedId, (message) => {
-      if (message.sessionId === selectedId) setLedger({ blocks: message.blocks, lastSeq: message.lastSeq })
+      if (message.sessionId === selectedId)
+        setLedger({ blocks: message.blocks, lastSeq: message.lastSeq })
     })
   }, [selectedId, subscribeLedger])
 
@@ -67,7 +69,8 @@ export function Cockpit() {
   useEffect(() => {
     const onKeyDown = (event) => {
       const target = event.target
-      const inEditable = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      const inEditable =
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       if (event.key === 'Escape' && inEditable) {
         target.blur()
         return
@@ -90,7 +93,9 @@ export function Cockpit() {
         // Direct decision on the newest pending card of the open session.
         const pending = ledger.blocks.find(
           (block) =>
-            (block.kind === 'approval' || block.kind === 'question') && block.status === 'pending' && block.rpcId,
+            (block.kind === 'approval' || block.kind === 'question') &&
+            block.status === 'pending' &&
+            block.rpcId,
         )
         if (!pending) return
         event.preventDefault()
@@ -136,14 +141,20 @@ export function Cockpit() {
           {connection.version ? ` · v${connection.version}` : ''}
         </span>
         {!online && (
-          <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={runDiagnose}>
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+            onClick={runDiagnose}
+          >
             <RefreshCw size={12} className={diagnosis?.running ? 'animate-spin' : ''} /> diagnose
           </button>
         )}
         {waitingTotal > 0 && (
           <button
             className="ml-auto text-xs font-medium rounded-full px-3 py-1 border"
-            style={{ borderColor: 'var(--dsh-waiting-approval)', color: 'var(--dsh-waiting-approval)' }}
+            style={{
+              borderColor: 'var(--dsh-waiting-approval)',
+              color: 'var(--dsh-waiting-approval)',
+            }}
             onClick={() => {
               const target = merged.find((s) => s.waiting > 0)
               if (target) setSelectedId(target.sessionId)
@@ -166,13 +177,23 @@ export function Cockpit() {
 
         <main className="flex-1 min-w-0 flex flex-col">
           {!online ? (
-            <OfflineState connection={connection} diagnosis={diagnosis} onDiagnose={runDiagnose} onRetry={createSession} />
+            <OfflineState
+              connection={connection}
+              diagnosis={diagnosis}
+              onDiagnose={runDiagnose}
+              onRetry={createSession}
+            />
           ) : !selected ? (
             <EmptyState onCreate={createSession} />
           ) : (
             <>
               <SessionBar session={selected} rpc={rpc} />
-              <Ledger session={selected} blocks={ledger.blocks} onRespond={respondDecision} rpc={rpc} />
+              <Ledger
+                session={selected}
+                blocks={ledger.blocks}
+                onRespond={respondDecision}
+                rpc={rpc}
+              />
               <Composer apiRef={composerRef} session={selected} rpc={rpc} />
             </>
           )}
@@ -204,7 +225,8 @@ function OfflineState({ connection, diagnosis, onDiagnose }) {
       <p className="text-sm font-medium">The harness is unreachable</p>
       <p className="text-xs text-muted-foreground font-mono">{connection.endpoint}</p>
       <p className="text-xs text-muted-foreground max-w-md">
-        {connection.lastError || 'Is `dsh web` running? The session list lives on the engine side, so an offline engine shows no list.'}
+        {connection.lastError ||
+          'Is `dsh web` running? The session list lives on the engine side, so an offline engine shows no list.'}
       </p>
       {diagnosis && !diagnosis.running && (
         <pre className="text-xs text-left bg-secondary rounded-md p-3 max-w-md overflow-auto">
@@ -215,7 +237,8 @@ function OfflineState({ connection, diagnosis, onDiagnose }) {
         className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border hover:bg-secondary"
         onClick={onDiagnose}
       >
-        <Loader2 size={14} className={diagnosis?.running ? 'animate-spin' : 'hidden'} /> Run diagnosis
+        <Loader2 size={14} className={diagnosis?.running ? 'animate-spin' : 'hidden'} /> Run
+        diagnosis
       </button>
     </div>
   )

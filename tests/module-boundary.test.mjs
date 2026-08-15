@@ -56,7 +56,8 @@ describe('module boundary', () => {
       for (const specifier of importsOf(file)) {
         const resolved = resolveSpecifier(file, specifier)
         if (!resolved) continue
-        const escapesModule = !resolved.startsWith(`${modulesDir}${path.sep}`) && resolved !== modulesDir
+        const escapesModule =
+          !resolved.startsWith(`${modulesDir}${path.sep}`) && resolved !== modulesDir
         if (escapesModule && resolved !== seam) {
           expect.unreachable(
             `"${specifier}" escapes the module; import the seam (api.mjs) or take an injected dependency`,
@@ -72,8 +73,7 @@ describe('module boundary', () => {
       for (const specifier of importsOf(file)) {
         const resolved = resolveSpecifier(file, specifier)
         if (!resolved) continue
-        const inModules =
-          resolved === modulesDir || resolved.startsWith(`${modulesDir}${path.sep}`)
+        const inModules = resolved === modulesDir || resolved.startsWith(`${modulesDir}${path.sep}`)
         if (!inModules) continue
         const basename = path.basename(resolved)
         const isAggregation = resolved === modulesDir || AGGREGATION_BASENAMES.has(basename)
@@ -81,7 +81,8 @@ describe('module boundary', () => {
         // index.mjs) are still module internals — only the top-level files count.
         const isTopLevel = path.dirname(resolved) === modulesDir
         expect(
-          isAggregation && (!AGGREGATION_BASENAMES.has(basename) || isTopLevel || resolved === modulesDir),
+          isAggregation &&
+            (!AGGREGATION_BASENAMES.has(basename) || isTopLevel || resolved === modulesDir),
           `${path.relative(root, file)} reaches into modules via "${specifier}"`,
         ).toBe(true)
       }
