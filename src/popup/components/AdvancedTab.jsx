@@ -18,9 +18,6 @@ import {
 } from '../../config/limits.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
 
-const TEXT_INPUT_CLASS =
-  'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
-
 /**
  * AdvancedTab - advanced parameters, the API server bridge, site matching,
  * and data. Provider/engine configuration moved to the Engines tab and the
@@ -221,38 +218,6 @@ export function AdvancedTab({
       {!isPopupMode && (
         <>
           <Divider />
-
-          <SettingSection title={t('Search Engine Queries')}>
-            <SettingRow
-              label={t('Input Query')}
-              hint={t('Selector used to read the search box of a matched site')}
-            >
-              <input
-                type="text"
-                value={config.inputQuery || ''}
-                onChange={(e) => updateConfig({ inputQuery: e.target.value })}
-                className={TEXT_INPUT_CLASS}
-              />
-            </SettingRow>
-
-            <SettingRow label={t('Prepend Query')}>
-              <input
-                type="text"
-                value={config.prependQuery || ''}
-                onChange={(e) => updateConfig({ prependQuery: e.target.value })}
-                className={TEXT_INPUT_CLASS}
-              />
-            </SettingRow>
-
-            <SettingRow label={t('Append Query')}>
-              <input
-                type="text"
-                value={config.appendQuery || ''}
-                onChange={(e) => updateConfig({ appendQuery: e.target.value })}
-                className={TEXT_INPUT_CLASS}
-              />
-            </SettingRow>
-          </SettingSection>
         </>
       )}
 

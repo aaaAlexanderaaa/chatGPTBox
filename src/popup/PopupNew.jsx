@@ -1,6 +1,6 @@
 import './styles.css'
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Settings, Layers, Puzzle, Sliders, ExternalLink, ArrowUpRight, Cpu } from 'lucide-react'
+import { Settings, Layers, Sliders, ExternalLink, ArrowUpRight, Cpu, Wrench } from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -18,14 +18,14 @@ import { downloadJsonFile, pickJsonFile } from './file-transfer.mjs'
 import { GeneralTab } from './components/GeneralTab.jsx'
 import { EnginesTab } from './components/EnginesTab.jsx'
 import { FeaturesTab } from './components/FeaturesTab.jsx'
-import { ModulesTab } from './components/ModulesTab.jsx'
+import { ToolsTab } from './components/ToolsTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
 
 const FULL_SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Settings },
   { id: 'engines', label: 'Engines', icon: Cpu },
   { id: 'features', label: 'Sites', icon: Layers },
-  { id: 'modules', label: 'Modules', icon: Puzzle },
+  { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
 
@@ -215,8 +215,8 @@ function Popup() {
             openFullSettings={openFullSettings}
           />
         )}
-        {!isPopupMode && activeTab === 'modules' && (
-          <ModulesTab config={config} updateConfig={updateConfig} />
+        {!isPopupMode && activeTab === 'tools' && (
+          <ToolsTab config={config} updateConfig={updateConfig} />
         )}
         {activeTab === 'advanced' && (
           <AdvancedTab
