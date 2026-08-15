@@ -43,7 +43,7 @@ export function DshSettingsCard({ config, updateConfig }) {
           <input
             type="checkbox"
             checked={enabled}
-            onChange={(event) => updateConfig('dshModuleEnabled', event.target.checked)}
+            onChange={(event) => updateConfig({ dshModuleEnabled: event.target.checked })}
           />
           {enabled ? t('Enabled') : t('Disabled')}
         </label>
@@ -61,7 +61,7 @@ export function DshSettingsCard({ config, updateConfig }) {
               className="flex-1 text-xs bg-secondary border border-border rounded-md px-2 py-1 outline-none"
               placeholder="http://127.0.0.1:3080"
               value={config.dshEndpoint || ''}
-              onInput={(event) => updateConfig('dshEndpoint', event.target.value)}
+              onInput={(event) => updateConfig({ dshEndpoint: event.target.value })}
             />
           </div>
           <div className="flex items-center gap-2">

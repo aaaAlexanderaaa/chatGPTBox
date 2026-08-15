@@ -50,7 +50,7 @@
         "src/background/index.mjs",
         "src/popup/index.jsx",
         "src/popup/components/GeneralTab.jsx",
-        "src/popup/components/AdvancedTab.jsx"
+        "src/popup/components/EnginesTab.jsx"
       ],
       "rules": {
         "no-restricted-imports": [

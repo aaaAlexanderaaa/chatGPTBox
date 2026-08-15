@@ -4,21 +4,19 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '../../utils/cn.mjs'
 
 // Reuse the fully-featured legacy editors (feature-parity) while the redesigned panels mature
-import { ApiModes } from '../sections/ApiModes.jsx'
 import { SelectionTools } from '../sections/SelectionTools.jsx'
 import { SiteAdapters } from '../sections/SiteAdapters.jsx'
 import { ContentExtractor } from '../sections/ContentExtractor.jsx'
 
 /**
- * ModulesTab - API modes, selection tools, sites, and extractor
- * Matches the demo design with sub-tabs, but uses legacy editors for full CRUD.
+ * ModulesTab - selection tools, sites, and extractor
+ * (the API-modes sub-tab moved to the Engines tab — roadmap C2)
  */
 export function ModulesTab({ config, updateConfig }) {
   const { t } = useTranslation()
-  const [activeSubTab, setActiveSubTab] = useState('api')
+  const [activeSubTab, setActiveSubTab] = useState('tools')
 
   const subTabs = [
-    { id: 'api', label: t('API Modes') },
     { id: 'tools', label: t('Selection Tools') },
     { id: 'sites', label: t('Sites') },
     { id: 'extractor', label: t('Extractor') },
@@ -44,12 +42,6 @@ export function ModulesTab({ config, updateConfig }) {
       </div>
 
       <div className="modules-legacy">
-        {activeSubTab === 'api' && (
-          <div className="tools-section">
-            <h3 className="section-title">{t('API Modes')}</h3>
-            <ApiModes config={config} updateConfig={updateConfig} />
-          </div>
-        )}
         {activeSubTab === 'tools' && <SelectionTools config={config} updateConfig={updateConfig} />}
         {activeSubTab === 'sites' && (
           <div className="tools-section">

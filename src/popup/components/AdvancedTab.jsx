@@ -22,92 +22,15 @@ import {
   MIN_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
 } from '../../config/limits.mjs'
-import { ModelGroups } from '../../config/models.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
-import { getSettingsCards } from '../../modules/api.mjs'
-import { downloadJsonFile, pickJsonFile } from '../file-transfer.mjs'
-import {
-  exportChatgptHistoryData,
-  importChatgptHistoryData,
-} from '../../services/clients/chatgpt-web/history-transfer.mjs'
-import {
-  CHATGPT_WEB_CONVERSATION_META_KEY,
-  CHATGPT_WEB_DEBUG_LOG_KEY,
-} from '../../services/clients/chatgpt-web/conversation-cache.mjs'
-import {
-  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-  DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
-  MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-  MAX_CHATGPT_WEB_HISTORY_SYNC_RPM,
-  MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-  MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-  MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-  MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
-} from '../../config/limits.mjs'
 
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
 
-// The dependency kit handed to the chatgptweb module card (module code may
-// not import the core, so the render site injects everything the frozen
-// settings JSX needs — see src/modules/api.mjs).
-function buildModuleKit() {
-  return {
-    SettingRow,
-    SettingSection,
-    ToggleRow,
-    ToggleSwitch,
-    Divider,
-    parseIntWithClamp,
-    parseFloatWithClamp,
-    limits: {
-      DEFAULT_CONVERSATION_POLL_INTERVAL_SECONDS:
-        DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-      MIN_CONVERSATION_POLL_INTERVAL_SECONDS: MIN_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-      MAX_CONVERSATION_POLL_INTERVAL_SECONDS: MAX_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
-      DEFAULT_CONVERSATION_POLL_TIMEOUT_SECONDS:
-        DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-      MIN_CONVERSATION_POLL_TIMEOUT_SECONDS: MIN_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-      MAX_CONVERSATION_POLL_TIMEOUT_SECONDS: MAX_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
-      DEFAULT_HISTORY_SYNC_RPM: DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
-      MIN_HISTORY_SYNC_RPM: MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
-      MAX_HISTORY_SYNC_RPM: MAX_CHATGPT_WEB_HISTORY_SYNC_RPM,
-      DEFAULT_HISTORY_SYNC_INTERVAL_HOURS: DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-      MIN_HISTORY_SYNC_INTERVAL_HOURS: MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-      MAX_HISTORY_SYNC_INTERVAL_HOURS: MAX_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
-    },
-    storageKeys: {
-      debugLog: CHATGPT_WEB_DEBUG_LOG_KEY,
-      conversationMeta: CHATGPT_WEB_CONVERSATION_META_KEY,
-    },
-    exportHistory: async () => {
-      const payload = await exportChatgptHistoryData()
-      downloadJsonFile(
-        payload,
-        `chatgptbox-chatgpt-history-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
-      )
-      return payload.summary
-    },
-    importHistory: async () => {
-      const file = await pickJsonFile()
-      if (!file) return null
-      const text = await file.text()
-      const imported = JSON.parse(text)
-      return await importChatgptHistoryData(imported)
-    },
-  }
-}
-
 /**
- * AdvancedTab - Advanced settings and data management.
- *
- * The ChatGPT Web groups (history sync, endpoint, debug viewer, history
- * backup) moved into the chatgptweb module card (roadmap C1) and render
- * below in their original position; behavior is unchanged (D-3).
+ * AdvancedTab - advanced parameters, the API server bridge, site matching,
+ * and data. Provider/engine configuration moved to the Engines tab and the
+ * ChatGPT Web groups into the chatgptweb module card (roadmap C1/C2).
  */
 export function AdvancedTab({
   config,
@@ -145,45 +68,6 @@ export function AdvancedTab({
     MIN_API_SERVER_THINKING_TIMEOUT_SECONDS,
     MAX_API_SERVER_THINKING_TIMEOUT_SECONDS,
   )
-  const enabledProviders = config.enabledProviders || {}
-  const enabledProviderCount = Object.values(enabledProviders).filter(Boolean).length
-
-  const providerEntries = Object.entries(ModelGroups)
-  const providerOrder = [
-    'chatgptWebModelKeys',
-    'chatgptApiModelKeys',
-    'customApiModelKeys',
-    'azureOpenAiApiModelKeys',
-    'claudeApiModelKeys',
-    'moonshotApiModelKeys',
-    'moonshotWebModelKeys',
-    'openRouterApiModelKeys',
-    'deepSeekApiModelKeys',
-    'aimlModelKeys',
-    'ollamaApiModelKeys',
-    'chatglmApiModelKeys',
-    'gptApiModelKeys',
-  ]
-  providerEntries.sort(([a], [b]) => {
-    const ia = providerOrder.indexOf(a)
-    const ib = providerOrder.indexOf(b)
-    if (ia === -1 && ib === -1) return a.localeCompare(b)
-    if (ia === -1) return 1
-    if (ib === -1) return -1
-    return ia - ib
-  })
-
-  const updateProvider = (groupName, enabled) => {
-    updateConfig({
-      enabledProviders: {
-        ...enabledProviders,
-        [groupName]: enabled,
-      },
-    })
-  }
-
-  const moduleKit = buildModuleKit()
-
   return (
     <div className="space-y-4">
       {/* Model Parameters */}
@@ -246,43 +130,6 @@ export function AdvancedTab({
           />
         </SettingRow>
       </SettingSection>
-
-      <Divider />
-
-      <SettingSection title={t('Providers & Models')}>
-        <ToggleRow
-          label={t('Show deprecated models')}
-          checked={config.showDeprecatedModels === true}
-          onChange={(value) => updateConfig({ showDeprecatedModels: value })}
-        />
-
-        {!isPopupMode && (
-          <div className="pt-2 space-y-2">
-            {providerEntries.map(([groupName, { desc }]) => (
-              <ToggleRow
-                key={groupName}
-                label={t(desc)}
-                checked={enabledProviders[groupName] === true}
-                onChange={(value) => updateProvider(groupName, value)}
-              />
-            ))}
-          </div>
-        )}
-      </SettingSection>
-
-      <Divider />
-
-      {/* ChatGPT Web groups (history / endpoint / debug / backup) live in the
-          chatgptweb module card now — same position, same behavior (C1). */}
-      {getSettingsCards('advanced').map(({ id, Component }) => (
-        <Component
-          key={id}
-          config={config}
-          updateConfig={updateConfig}
-          isPopupMode={isPopupMode}
-          kit={moduleKit}
-        />
-      ))}
 
       <Divider />
 
@@ -463,7 +310,9 @@ export function AdvancedTab({
               'Provider toggles, ChatGPT Web request logs, config import/export, and reset actions are available in the full settings workspace.',
             )}
             stats={[
-              `${enabledProviderCount} ${t('providers enabled')}`,
+              `${Object.values(config.enabledProviders || {}).filter(Boolean).length} ${t(
+                'providers enabled',
+              )}`,
               config.debugChatgptWebRequests === true ? t('Web debug on') : t('Web debug off'),
             ]}
             actionLabel={t('Open full settings')}

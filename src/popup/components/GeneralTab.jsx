@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Sun, Moon, Monitor, Pencil, ExternalLink, KeyRound } from 'lucide-react'
+import { Sun, Moon, Monitor, Pencil, KeyRound } from 'lucide-react'
 import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
@@ -13,22 +13,9 @@ import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
 import { ThemeMode, TriggerMode } from '../../config/constants.mjs'
 import { isModelDeprecated } from '../../config/models.mjs'
-import {
-  isUsingAimlApiModel,
-  isUsingAzureOpenAiApiModel,
-  isUsingChatGLMApiModel,
-  isUsingClaudeApiModel,
-  isUsingCustomModel,
-  isUsingDeepSeekApiModel,
-  isUsingMoonshotApiModel,
-  isUsingOllamaApiModel,
-  isUsingOpenAiApiModel,
-  isUsingOpenRouterApiModel,
-  isUsingChatgptWebModel,
-} from '../../config/predicates.mjs'
+import { isUsingChatgptWebModel, isUsingOpenAiApiModel } from '../../config/predicates.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
-import { getSettingsCards } from '../../modules/api.mjs'
 
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
@@ -79,7 +66,7 @@ export function GeneralTab({
   updateConfig,
   isPopupMode,
   openFullSettings,
-  onNavigateToModules,
+  onNavigateToEngines,
 }) {
   const { t, i18n } = useTranslation()
   const [manualModelId, setManualModelId] = useState('')
@@ -185,27 +172,8 @@ export function GeneralTab({
   }
 
   const usingOpenAiApi = isUsingOpenAiApiModel(config)
-  const usingAzureOpenAi = isUsingAzureOpenAiApiModel(config)
-  const usingOpenRouter = isUsingOpenRouterApiModel(config)
-  const usingAiml = isUsingAimlApiModel(config)
-  const usingClaudeApi = isUsingClaudeApiModel(config)
-  const usingMoonshotApi = isUsingMoonshotApiModel(config)
-  const usingDeepSeekApi = isUsingDeepSeekApiModel(config)
-  const usingChatGLMApi = isUsingChatGLMApiModel(config)
-  const usingOllamaApi = isUsingOllamaApiModel(config)
-  const usingCustomApi = isUsingCustomModel(config)
   const usingChatGptWeb = isUsingChatgptWebModel(config)
-  const hasProviderSettings =
-    usingOpenAiApi ||
-    usingAzureOpenAi ||
-    usingOpenRouter ||
-    usingAiml ||
-    usingClaudeApi ||
-    usingMoonshotApi ||
-    usingDeepSeekApi ||
-    usingChatGLMApi ||
-    usingOllamaApi ||
-    usingCustomApi
+  const hasProviderSettings = usingOpenAiApi || usingChatGptWeb
 
   return (
     <div className="space-y-4">
@@ -334,11 +302,11 @@ export function GeneralTab({
           label={t('API Mode')}
           hint={t('Select provider / model')}
           action={
-            onNavigateToModules && (
+            onNavigateToEngines && (
               <button
-                onClick={onNavigateToModules}
+                onClick={onNavigateToEngines}
                 className="text-muted-foreground hover:text-primary transition-colors"
-                title={t('Configure API modes')}
+                title={t('Configure engines')}
               >
                 <Pencil className="w-3.5 h-3.5" />
               </button>
@@ -383,271 +351,23 @@ export function GeneralTab({
         )}
       </SettingSection>
 
-      {getSettingsCards().length > 0 && (
-        <>
-          <Divider />
-          <SettingSection title={t('Engines')}>
-            {getSettingsCards().map(({ id, Component }) => (
-              <Component key={id} config={config} updateConfig={updateConfig} />
-            ))}
-          </SettingSection>
-        </>
-      )}
-
       {isPopupMode && hasProviderSettings && (
         <>
           <Divider />
 
           <QuickLinkCard
             icon={KeyRound}
-            title={t('Provider credentials live in full settings')}
+            title={t('Provider credentials live in Engines')}
             description={t(
-              'API keys, custom endpoints, and API mode definitions were moved out of the popup so this panel stays focused on everyday controls.',
+              'API keys, custom endpoints, and engine toggles were unified into the Engines tab — one anatomy per engine.',
             )}
             stats={[
               selectedModelName ? modelNameToSelectLabel(selectedModelName, config, t) : null,
-              usingChatGptWeb ? t('ChatGPT Web session') : t('Custom provider connection'),
+              usingChatGptWeb ? t('ChatGPT Web session') : t('API provider connection'),
             ]}
-            actionLabel={t('Open full settings')}
-            onAction={() => openFullSettings?.('general')}
+            actionLabel={t('Open Engines')}
+            onAction={() => openFullSettings?.('engines')}
           />
-        </>
-      )}
-
-      {!isPopupMode && hasProviderSettings && (
-        <>
-          <Divider />
-
-          <SettingSection title={t('Provider Settings')}>
-            {usingOpenAiApi && (
-              <>
-                <SettingRow label={t('OpenAI API Key')} hint={t('Used for OpenAI API models')}>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="password"
-                      placeholder="sk-..."
-                      value={config.apiKey || ''}
-                      onChange={(e) => updateConfig({ apiKey: e.target.value })}
-                      className={cn(inputClassName, 'w-[260px]')}
-                    />
-                    <a
-                      href="https://platform.openai.com/account/api-keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="h-9 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      {t('Get')}
-                    </a>
-                  </div>
-                </SettingRow>
-
-                <SettingRow label={t('OpenAI Base URL')} hint={t('For proxies / custom domains')}>
-                  <input
-                    type="text"
-                    value={config.customOpenAiApiUrl || ''}
-                    onChange={(e) => updateConfig({ customOpenAiApiUrl: e.target.value })}
-                    placeholder="https://api.openai.com"
-                    className={cn(inputClassName, 'w-[320px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-
-            {usingAzureOpenAi && (
-              <>
-                <SettingRow
-                  label={t('Azure Endpoint')}
-                  hint={t('e.g. https://xxx.openai.azure.com')}
-                >
-                  <input
-                    type="text"
-                    value={config.azureEndpoint || ''}
-                    onChange={(e) => updateConfig({ azureEndpoint: e.target.value })}
-                    placeholder="https://..."
-                    className={cn(inputClassName, 'w-[320px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Azure Deployment Name')} hint={t('Used to build model ID')}>
-                  <input
-                    type="text"
-                    value={config.azureDeploymentName || ''}
-                    onChange={(e) => updateConfig({ azureDeploymentName: e.target.value })}
-                    placeholder={t('Deployment name')}
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Azure API Key')} hint={t('Credential for Azure OpenAI')}>
-                  <input
-                    type="password"
-                    value={config.azureApiKey || ''}
-                    onChange={(e) => updateConfig({ azureApiKey: e.target.value })}
-                    placeholder={t('API Key')}
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-
-            {usingOpenRouter && (
-              <SettingRow label={t('OpenRouter API Key')} hint={t('Used for OpenRouter models')}>
-                <input
-                  type="password"
-                  value={config.openRouterApiKey || ''}
-                  onChange={(e) => updateConfig({ openRouterApiKey: e.target.value })}
-                  placeholder={t('API Key')}
-                  className={cn(inputClassName, 'w-[260px]')}
-                />
-              </SettingRow>
-            )}
-
-            {usingAiml && (
-              <SettingRow label={t('AIML API Key')} hint={t('Used for AIML models')}>
-                <input
-                  type="password"
-                  value={config.aimlApiKey || ''}
-                  onChange={(e) => updateConfig({ aimlApiKey: e.target.value })}
-                  placeholder={t('API Key')}
-                  className={cn(inputClassName, 'w-[260px]')}
-                />
-              </SettingRow>
-            )}
-
-            {usingClaudeApi && (
-              <>
-                <SettingRow label={t('Claude API Key')} hint={t('Used for Anthropic API models')}>
-                  <input
-                    type="password"
-                    value={config.claudeApiKey || ''}
-                    onChange={(e) => updateConfig({ claudeApiKey: e.target.value })}
-                    placeholder={t('API Key')}
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Claude Base URL')} hint={t('For proxies / custom domains')}>
-                  <input
-                    type="text"
-                    value={config.customClaudeApiUrl || ''}
-                    onChange={(e) => updateConfig({ customClaudeApiUrl: e.target.value })}
-                    placeholder="https://api.anthropic.com"
-                    className={cn(inputClassName, 'w-[320px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-
-            {usingMoonshotApi && (
-              <SettingRow label={t('Moonshot API Key')} hint={t('Used for Moonshot API models')}>
-                <input
-                  type="password"
-                  value={config.moonshotApiKey || ''}
-                  onChange={(e) => updateConfig({ moonshotApiKey: e.target.value })}
-                  placeholder={t('API Key')}
-                  className={cn(inputClassName, 'w-[260px]')}
-                />
-              </SettingRow>
-            )}
-
-            {usingDeepSeekApi && (
-              <SettingRow label={t('DeepSeek API Key')} hint={t('Used for DeepSeek API models')}>
-                <input
-                  type="password"
-                  value={config.deepSeekApiKey || ''}
-                  onChange={(e) => updateConfig({ deepSeekApiKey: e.target.value })}
-                  placeholder={t('API Key')}
-                  className={cn(inputClassName, 'w-[260px]')}
-                />
-              </SettingRow>
-            )}
-
-            {usingChatGLMApi && (
-              <SettingRow label={t('ChatGLM API Key')} hint={t('Used for ChatGLM API models')}>
-                <input
-                  type="password"
-                  value={config.chatglmApiKey || ''}
-                  onChange={(e) => updateConfig({ chatglmApiKey: e.target.value })}
-                  placeholder={t('API Key')}
-                  className={cn(inputClassName, 'w-[260px]')}
-                />
-              </SettingRow>
-            )}
-
-            {usingOllamaApi && (
-              <>
-                <SettingRow label={t('Ollama Endpoint')} hint={t('Local Ollama server')}>
-                  <input
-                    type="text"
-                    value={config.ollamaEndpoint || ''}
-                    onChange={(e) => updateConfig({ ollamaEndpoint: e.target.value })}
-                    placeholder="http://127.0.0.1:11434"
-                    className={cn(inputClassName, 'w-[320px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Ollama Model Name')} hint={t('e.g. llama3.1')}>
-                  <input
-                    type="text"
-                    value={config.ollamaModelName || ''}
-                    onChange={(e) => updateConfig({ ollamaModelName: e.target.value })}
-                    placeholder="llama3.1"
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Ollama API Key')} hint={t('Optional (for proxies)')}>
-                  <input
-                    type="password"
-                    value={config.ollamaApiKey || ''}
-                    onChange={(e) => updateConfig({ ollamaApiKey: e.target.value })}
-                    placeholder={t('API Key')}
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Keep Alive')} hint={t('e.g. 5m / 0')}>
-                  <input
-                    type="text"
-                    value={config.ollamaKeepAliveTime || ''}
-                    onChange={(e) => updateConfig({ ollamaKeepAliveTime: e.target.value })}
-                    placeholder="5m"
-                    className={cn(inputClassName, 'w-[140px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-
-            {usingCustomApi && (
-              <>
-                <SettingRow
-                  label={t('Custom API URL')}
-                  hint={t('OpenAI-compatible chat/completions')}
-                >
-                  <input
-                    type="text"
-                    value={config.customModelApiUrl || ''}
-                    onChange={(e) => updateConfig({ customModelApiUrl: e.target.value })}
-                    placeholder="http://localhost:8000/v1/chat/completions"
-                    className={cn(inputClassName, 'w-[360px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Custom API Key')} hint={t('Optional')}>
-                  <input
-                    type="password"
-                    value={config.customApiKey || ''}
-                    onChange={(e) => updateConfig({ customApiKey: e.target.value })}
-                    placeholder={t('API Key')}
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-                <SettingRow label={t('Custom Model Name')} hint={t('Sent as model field')}>
-                  <input
-                    type="text"
-                    value={config.customModelName || ''}
-                    onChange={(e) => updateConfig({ customModelName: e.target.value })}
-                    placeholder="gpt-4.1"
-                    className={cn(inputClassName, 'w-[260px]')}
-                  />
-                </SettingRow>
-              </>
-            )}
-          </SettingSection>
         </>
       )}
 
@@ -714,7 +434,7 @@ GeneralTab.propTypes = {
   updateConfig: PropTypes.func.isRequired,
   isPopupMode: PropTypes.bool,
   openFullSettings: PropTypes.func,
-  onNavigateToModules: PropTypes.func,
+  onNavigateToEngines: PropTypes.func,
 }
 
 /**

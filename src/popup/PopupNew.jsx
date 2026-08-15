@@ -1,6 +1,6 @@
 import './styles.css'
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Settings, Layers, Puzzle, Sliders, ExternalLink, ArrowUpRight } from 'lucide-react'
+import { Settings, Layers, Puzzle, Sliders, ExternalLink, ArrowUpRight, Cpu } from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -16,13 +16,15 @@ import { downloadJsonFile, pickJsonFile } from './file-transfer.mjs'
 
 // Tab components
 import { GeneralTab } from './components/GeneralTab.jsx'
+import { EnginesTab } from './components/EnginesTab.jsx'
 import { FeaturesTab } from './components/FeaturesTab.jsx'
 import { ModulesTab } from './components/ModulesTab.jsx'
 import { AdvancedTab } from './components/AdvancedTab.jsx'
 
 const FULL_SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Settings },
-  { id: 'features', label: 'Features', icon: Layers },
+  { id: 'engines', label: 'Engines', icon: Cpu },
+  { id: 'features', label: 'Sites', icon: Layers },
   { id: 'modules', label: 'Modules', icon: Puzzle },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
 ]
@@ -197,10 +199,13 @@ function Popup() {
             updateConfig={updateConfig}
             isPopupMode={isPopupMode}
             openFullSettings={openFullSettings}
-            onNavigateToModules={() =>
-              isPopupMode ? void openFullSettings('modules') : setActiveTab('modules')
+            onNavigateToEngines={() =>
+              isPopupMode ? void openFullSettings('engines') : setActiveTab('engines')
             }
           />
+        )}
+        {!isPopupMode && activeTab === 'engines' && (
+          <EnginesTab config={config} updateConfig={updateConfig} />
         )}
         {activeTab === 'features' && (
           <FeaturesTab

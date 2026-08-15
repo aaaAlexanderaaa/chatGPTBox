@@ -8,13 +8,14 @@
 // the extension core (they are wired into the background service worker
 // and the proxy tab lifecycle); only the settings surface moved.
 //
-// settingsPlacement 'advanced' keeps the card rendering exactly where the
-// sections used to render until the Engines tab (C2) becomes their home.
+// settingsPlacement 'engines': the unified engine anatomy tab (C2) is the
+// card's home; the interim 'advanced' placement existed only for the frozen
+// migration step (C1).
 
 export const CHATGPTWEB_MODULE_ID = 'chatgptweb'
 
 export const chatgptWebModule = {
   id: CHATGPTWEB_MODULE_ID,
   label: 'ChatGPT Web',
-  settingsPlacement: 'advanced',
+  settingsPlacement: 'engines',
 }
