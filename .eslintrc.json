@@ -4,7 +4,54 @@
     "es2021": true
   },
   "extends": ["eslint:recommended", "plugin:react/recommended"],
-  "overrides": [],
+  "overrides": [
+    {
+      "files": ["src/modules/**/*"],
+      "excludedFiles": [
+        "src/modules/api.mjs",
+        "src/modules/index.mjs",
+        "src/modules/background-services.mjs",
+        "src/modules/settings-cards.mjs"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["..", "../*", "../**"],
+                "message": "Module code never imports extension core code (not even src/modules/api.mjs — registration happens in index.mjs). Everything the module needs arrives through injected dependencies. The precise rule is enforced by tests/module-boundary.test.mjs; see src/modules/api.mjs."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/**/*"],
+      "excludedFiles": [
+        "src/modules/api.mjs",
+        "src/modules/index.mjs",
+        "src/modules/background-services.mjs",
+        "src/modules/settings-cards.mjs",
+        "src/config/storage.mjs",
+        "src/background/index.mjs"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/modules/**"],
+                "message": "Core code reaches modules only via src/modules/{api,index,background-services,settings-cards}.mjs, imported from the sanctioned entry points only — never a module's internals."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module"

@@ -16,6 +16,7 @@ import {
 } from './limits.mjs'
 import { DefaultActiveModelKeysByGroup, DefaultEnabledProviderGroups, Models } from './models.mjs'
 import { migrateArrayField, normalizeStoredModelSelection } from './migrations.mjs'
+import { getModuleConfigDefaults } from '../modules/index.mjs'
 
 export function getNavigatorLanguage() {
   const l =
@@ -232,6 +233,10 @@ export const defaultConfig = {
     'followin',
     'arxiv',
   ],
+
+  // Optional engine modules contribute their config keys through the module
+  // seam (D-10: the settings skeleton ships first, domains migrate in).
+  ...getModuleConfigDefaults(),
 }
 
 /**
@@ -276,6 +281,7 @@ export async function getUserConfig() {
   // Only treat an explicit boolean `true` as enabled.
   config.showDeprecatedModels = config.showDeprecatedModels === true
   config.debugChatgptWebRequests = config.debugChatgptWebRequests === true
+  config.dshModuleEnabled = config.dshModuleEnabled === true
   config.apiServerEnabled = config.apiServerEnabled === true
   config.apiServerKeepHistory = config.apiServerKeepHistory === true
   config.chatgptWebHistorySyncEnabled = config.chatgptWebHistorySyncEnabled === true

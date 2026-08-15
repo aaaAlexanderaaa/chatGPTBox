@@ -39,6 +39,7 @@ import {
 } from '../services/clients/chatgpt-web/conversation-sync-policy.mjs'
 import { handleApiBridgeProxyPort } from './api-bridge-proxy-service.mjs'
 import { registerWebRequestRules } from './webrequest-rules.mjs'
+import { startModuleBackgrounds } from '../modules/background-services.mjs'
 import { createMessageRouter } from './message-router.mjs'
 
 // Pure diagnostic helper surfaced to the provider router via ctx so the router
@@ -193,5 +194,6 @@ try {
 // stream the conversation through registerPortListener's executor).
 registerPortListener(async (session, port, config) => await executeApi(session, port, config))
 registerWebRequestRules()
+void startModuleBackgrounds()
 registerCommands()
 refreshMenu()
