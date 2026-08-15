@@ -12,9 +12,9 @@ import { cn } from '../../utils/cn.mjs'
 import { languageList } from '../../config/language.mjs'
 import { config as menuConfig } from '../../content-script/menu-tools/index.mjs'
 import { ThemeMode, TriggerMode } from '../../config/constants.mjs'
-import { isModelDeprecated } from '../../config/models.mjs'
 import { isUsingChatgptWebModel, isUsingOpenAiApiModel } from '../../config/predicates.mjs'
-import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
+import { apiModeToModelName } from '../../utils/index.mjs'
+import { buildEngineOptions, modelNameToSelectLabel } from './engine-options.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 const inputClassName =
@@ -48,15 +48,6 @@ function getSelectedModelName(config) {
   return config.modelName
 }
 
-function modelNameToSelectLabel(modelName, config, t) {
-  if (modelName === 'customModel') return modelNameToDesc(modelName, t, config.customModelName)
-  if (modelName.startsWith('azureOpenAi-') && modelName.endsWith('-'))
-    return modelNameToDesc('azureOpenAi', t)
-  if (modelName.startsWith('ollama-') && modelName.endsWith('-'))
-    return modelNameToDesc('ollama', t)
-  return modelNameToDesc(modelName, t)
-}
-
 /**
  * GeneralTab - General settings tab (redesigned)
  * Keeps functional parity with legacy GeneralPart while using the new styles.
@@ -71,54 +62,7 @@ export function GeneralTab({
   const { t, i18n } = useTranslation()
   const [manualModelId, setManualModelId] = useState('')
 
-  const apiModes = useMemo(() => {
-    const selected = getSelectedModelName(config)
-    return getApiModesFromConfig(config, true).filter((apiMode) => {
-      if (!apiMode || !apiMode.groupName) return false
-      const modelName = apiModeToModelName(apiMode)
-      const isSelected = modelName === selected
-      const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
-      if (!providerEnabled && !isSelected) return false
-      if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName)) return false
-      return true
-    })
-  }, [config])
-
-  const apiModeOptions = useMemo(() => {
-    const opts = apiModes
-      .map((apiMode) => {
-        const modelName = apiModeToModelName(apiMode)
-        if (!modelName) return null
-        const displayName = apiMode.displayName?.trim()
-        return {
-          value: modelName,
-          label: displayName ? displayName : modelNameToSelectLabel(modelName, config, t),
-        }
-      })
-      .filter(Boolean)
-
-    opts.push({
-      value: 'customModel',
-      label: modelNameToSelectLabel('customModel', config, t),
-    })
-
-    const current = getSelectedModelName(config)
-    if (current && !opts.some((o) => o.value === current)) {
-      opts.unshift({
-        value: current,
-        label: modelNameToSelectLabel(current, config, t),
-      })
-    }
-
-    const deduped = []
-    const seen = new Set()
-    for (const opt of opts) {
-      if (seen.has(opt.value)) continue
-      seen.add(opt.value)
-      deduped.push(opt)
-    }
-    return deduped
-  }, [apiModes, config, t])
+  const engineOptions = useMemo(() => buildEngineOptions(config, t), [config, t])
 
   const languageOptions = useMemo(() => {
     const opts = Object.entries(languageList).map(([value, v]) => ({
@@ -148,8 +92,8 @@ export function GeneralTab({
       updateConfig({ modelName: 'customModel', apiMode: null })
       return
     }
-    const found = apiModes.find((m) => apiModeToModelName(m) === modelName)
-    if (found) updateConfig({ apiMode: found })
+    const found = engineOptions.find((o) => o.value === modelName)
+    if (found?.apiMode) updateConfig({ apiMode: found.apiMode })
     else updateConfig({ modelName, apiMode: null })
   }
 
@@ -316,7 +260,7 @@ export function GeneralTab({
           <SearchableSelect
             value={selectedModelName || 'customModel'}
             onChange={handleModelChange}
-            options={apiModeOptions}
+            options={engineOptions}
             placeholder={t('Select…')}
             searchPlaceholder={t('Search…')}
             minWidth="260px"

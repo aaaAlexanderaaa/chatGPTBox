@@ -19,6 +19,8 @@ import {
   getClientPosition,
   getPossibleElementByQuerySelector,
   getExtractedContentWithMetadata,
+  matchSiteName,
+  resolveEngineForSite,
   resolvePromptTemplate,
 } from '../utils'
 import FloatingToolbar from '../components/FloatingToolbar'
@@ -49,6 +51,16 @@ import {
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
+
+/**
+ * The engine selection for conversations born on this page: the site's
+ * explicit override (D-14: per-site engine is a site rule) or the global
+ * default. Same shape initSession consumes.
+ */
+function engineForCurrentPage(userConfig) {
+  const siteName = matchSiteName(userConfig, location.hostname, Object.keys(siteConfig))
+  return resolveEngineForSite(userConfig, siteName)
+}
 
 /**
  * @param {string} siteName
@@ -117,8 +129,7 @@ async function mountComponent(siteName, siteConfig) {
     render(
       <FloatingToolbar
         session={initSession({
-          modelName: userConfig.modelName,
-          apiMode: userConfig.apiMode,
+          ...engineForCurrentPage(userConfig),
           extraCustomModelName: userConfig.customModelName,
         })}
         selection=""
@@ -140,8 +151,7 @@ async function mountComponent(siteName, siteConfig) {
   render(
     <DecisionCard
       session={initSession({
-        modelName: userConfig.modelName,
-        apiMode: userConfig.apiMode,
+        ...resolveEngineForSite(userConfig, siteName),
         extraCustomModelName: userConfig.customModelName,
       })}
       question={question}
@@ -203,8 +213,7 @@ const createSelectionTools = async (toolbarContainer, selection) => {
   render(
     <FloatingToolbar
       session={initSession({
-        modelName: userConfig.modelName,
-        apiMode: userConfig.apiMode,
+        ...engineForCurrentPage(userConfig),
         extraCustomModelName: userConfig.customModelName,
       })}
       selection={selection}
@@ -375,8 +384,7 @@ async function prepareForRightClickMenu() {
       render(
         <FloatingToolbar
           session={initSession({
-            modelName: userConfig.modelName,
-            apiMode: userConfig.apiMode,
+            ...engineForCurrentPage(userConfig),
             extraCustomModelName: userConfig.customModelName,
           })}
           selection={data.selectionText}

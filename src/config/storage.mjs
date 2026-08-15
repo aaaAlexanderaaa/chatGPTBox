@@ -128,6 +128,9 @@ export const defaultConfig = {
   prependQuery: '',
   enabledProviders: { ...DefaultEnabledProviderGroups },
   showDeprecatedModels: false,
+  // Per-site engine assignment (D-14): site key -> { modelName, apiMode }.
+  // An absent/empty entry means "follow the global default engine".
+  siteEngineOverrides: {},
 
   // others
 

@@ -2,13 +2,7 @@ import PropTypes from 'prop-types'
 import { Download, Upload, RotateCcw, AlertTriangle, ExternalLink, Sliders } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
-import {
-  SettingRow,
-  SettingSection,
-  ToggleRow,
-  ToggleSwitch,
-  Divider,
-} from './SettingComponents.jsx'
+import { SettingRow, SettingSection, Divider } from './SettingComponents.jsx'
 import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import {
@@ -226,43 +220,6 @@ export function AdvancedTab({
 
       {!isPopupMode && (
         <>
-          <Divider />
-
-          <SettingSection title={t('Site Matching & Menus')}>
-            <SettingRow
-              label={t('Hide context menu of this extension')}
-              hint={t('Removes the ChatGPTBox entries from the browser right-click menu')}
-            >
-              <ToggleSwitch
-                checked={config.hideContextMenu === true}
-                onChange={async (value) => {
-                  await updateConfig({ hideContextMenu: value })
-                  Browser.runtime.sendMessage({ type: RuntimeMessage.RefreshMenu }).catch(() => {})
-                }}
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Custom Site Regex')}
-              hint={t('Match extra sites where the search-engine panel is injected')}
-            >
-              <input
-                type="text"
-                value={config.siteRegex || ''}
-                onChange={(e) => updateConfig({ siteRegex: e.target.value })}
-                className={TEXT_INPUT_CLASS}
-              />
-            </SettingRow>
-
-            <ToggleRow
-              label={t(
-                'Exclusively use Custom Site Regex for website matching, ignoring built-in rules',
-              )}
-              checked={config.useSiteRegexOnly === true}
-              onChange={(value) => updateConfig({ useSiteRegexOnly: value })}
-            />
-          </SettingSection>
-
           <Divider />
 
           <SettingSection title={t('Search Engine Queries')}>

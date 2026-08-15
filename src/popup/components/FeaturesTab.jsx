@@ -1,27 +1,59 @@
 import PropTypes from 'prop-types'
-import { Zap, Globe } from 'lucide-react'
+import { Globe, MapPin } from 'lucide-react'
+import { useMemo } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
-import { ToggleSwitch } from './SettingComponents.jsx'
+import Browser from 'webextension-polyfill'
+import { ToggleSwitch, SettingRow, SettingSection, ToggleRow } from './SettingComponents.jsx'
 import { QuickLinkCard } from './QuickLinkCard.jsx'
+import { SearchableSelect } from './SearchableSelect.jsx'
+import { ContentExtractor } from '../sections/ContentExtractor.jsx'
+import { buildEngineOptions } from './engine-options.mjs'
+import { apiModeToModelName, modelNameToDesc } from '../../utils/index.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
+
+const TEXT_INPUT_CLASS =
+  'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
+
+const SITE_DISPLAY_NAMES = {
+  google: 'Google Search',
+  kagi: 'Kagi',
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  youtube: 'YouTube',
+  reddit: 'Reddit',
+  quora: 'Quora',
+  stackoverflow: 'Stack Overflow',
+  arxiv: 'arXiv',
+  bilibili: 'Bilibili',
+  zhihu: 'Zhihu',
+  juejin: 'Juejin',
+  'mp.weixin.qq': 'WeChat Articles',
+  followin: 'Followin',
+}
 
 /**
- * FeaturesTab - Feature pages and site integrations
- * Matches the demo design
+ * FeaturesTab - the Sites tab: where the product integrates (集成).
+ *
+ * Per-site rules live here as one row per site: adapter on/off and — D-14 —
+ * the site's engine assignment ("on GitHub, answer with Claude"). Page
+ * context extraction and site matching complete the "on this site,
+ * behave like this" roof.
  */
 export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSettings }) {
   const { t } = useTranslation()
 
-  // Site adapters configuration
-  const siteAdapters = [
-    { key: 'google', name: 'Google Search', domain: 'google.com' },
-    { key: 'github', name: 'GitHub', domain: 'github.com' },
-    { key: 'youtube', name: 'YouTube', domain: 'youtube.com' },
-    { key: 'reddit', name: 'Reddit', domain: 'reddit.com' },
-    { key: 'stackoverflow', name: 'Stack Overflow', domain: 'stackoverflow.com' },
-    { key: 'arxiv', name: 'arXiv', domain: 'arxiv.org' },
-    { key: 'bilibili', name: 'Bilibili', domain: 'bilibili.com' },
-    { key: 'zhihu', name: 'Zhihu', domain: 'zhihu.com' },
-  ]
+  const siteKeys = useMemo(() => {
+    const stored = Array.isArray(config.siteAdapters) ? config.siteAdapters : []
+    const known = Object.keys(SITE_DISPLAY_NAMES)
+    return [...new Set([...stored, ...known])]
+  }, [config.siteAdapters])
+
+  const engineOptions = useMemo(() => buildEngineOptions(config, t, {}), [config, t])
+
+  const defaultEngineLabel = useMemo(() => {
+    const name = config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName
+    return name ? modelNameToDesc(name, t, config.customModelName) : t('Default engine')
+  }, [config.apiMode, config.modelName, config.customModelName, t])
 
   const toggleSiteAdapter = (key, enabled) => {
     const activeSiteAdapters = config.activeSiteAdapters || []
@@ -32,67 +64,135 @@ export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSetting
     }
   }
 
-  const isSiteEnabled = (key) => {
-    return (config.activeSiteAdapters || []).includes(key)
+  const isSiteEnabled = (key) => (config.activeSiteAdapters || []).includes(key)
+
+  const setSiteEngine = (key, opt) => {
+    const overrides = { ...(config.siteEngineOverrides || {}) }
+    if (!opt || !opt.value) delete overrides[key]
+    else overrides[key] = { modelName: opt.value, apiMode: opt.apiMode || null }
+    updateConfig({ siteEngineOverrides: overrides })
+  }
+
+  const siteEngineValue = (key) => {
+    const override = config.siteEngineOverrides?.[key]
+    if (!override) return ''
+    return override.apiMode ? apiModeToModelName(override.apiMode) : override.modelName || ''
   }
 
   return (
     <div className="space-y-4">
-      {/* Feature Pages Header */}
-      <div className="p-4 rounded-xl bg-gradient-to-br from-primary/5 to-transparent border border-primary/10">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Zap className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-medium text-foreground mb-1">{t('Feature Pages')}</h3>
-            <p className="text-sm text-muted-foreground">
-              {t('Enhanced AI integration on supported websites')}
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Site Integrations */}
       <div className="space-y-2">
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          {t('Site Integrations')}
+          {t('Site Rules')}
         </h3>
-        {siteAdapters.map((site) => (
+        {siteKeys.map((key) => (
           <div
-            key={site.key}
-            className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+            key={key}
+            className="p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors space-y-2"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-card flex items-center justify-center border border-border">
-                <Globe className="w-4 h-4 text-muted-foreground" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-card flex items-center justify-center border border-border">
+                  <Globe className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {SITE_DISPLAY_NAMES[key] || key}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{key}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">{site.name}</p>
-                <p className="text-xs text-muted-foreground">{site.domain}</p>
-              </div>
+              <ToggleSwitch
+                checked={isSiteEnabled(key)}
+                onChange={(enabled) => toggleSiteAdapter(key, enabled)}
+              />
             </div>
-            <ToggleSwitch
-              checked={isSiteEnabled(site.key)}
-              onChange={(enabled) => toggleSiteAdapter(site.key, enabled)}
-            />
+            {!isPopupMode && (
+              <div className="flex items-center justify-between gap-3 pl-11">
+                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {t('Engine on this site')}
+                </span>
+                <SearchableSelect
+                  value={siteEngineValue(key)}
+                  onChange={(value) =>
+                    setSiteEngine(
+                      key,
+                      engineOptions.find((opt) => opt.value === value),
+                    )
+                  }
+                  options={[
+                    {
+                      value: '',
+                      label: `${t('Follow default')} (${defaultEngineLabel})`,
+                    },
+                    ...engineOptions,
+                  ]}
+                  minWidth="220px"
+                  searchPlaceholder={t('Search…')}
+                />
+              </div>
+            )}
           </div>
         ))}
       </div>
 
+      {!isPopupMode && (
+        <>
+          <SettingSection title={t('Site Matching')}>
+            <SettingRow
+              label={t('Hide context menu of this extension')}
+              hint={t('Removes the ChatGPTBox entries from the browser right-click menu')}
+            >
+              <ToggleSwitch
+                checked={config.hideContextMenu === true}
+                onChange={async (value) => {
+                  await updateConfig({ hideContextMenu: value })
+                  Browser.runtime.sendMessage({ type: RuntimeMessage.RefreshMenu }).catch(() => {})
+                }}
+              />
+            </SettingRow>
+
+            <SettingRow
+              label={t('Custom Site Regex')}
+              hint={t('Match extra sites where the search-engine panel is injected')}
+            >
+              <input
+                type="text"
+                value={config.siteRegex || ''}
+                onChange={(e) => updateConfig({ siteRegex: e.target.value })}
+                className={TEXT_INPUT_CLASS}
+              />
+            </SettingRow>
+
+            <ToggleRow
+              label={t(
+                'Exclusively use Custom Site Regex for website matching, ignoring built-in rules',
+              )}
+              checked={config.useSiteRegexOnly === true}
+              onChange={(value) => updateConfig({ useSiteRegexOnly: value })}
+            />
+          </SettingSection>
+
+          <ContentExtractor config={config} updateConfig={updateConfig} />
+        </>
+      )}
+
       {isPopupMode && (
         <QuickLinkCard
           icon={Globe}
-          title={t('Site adapters and extractors moved to full settings')}
+          title={t('Site rules moved to full settings')}
           description={t(
-            'The popup keeps the on/off switches for supported sites. Use the full settings page for adapter rules, extractor templates, and deeper context controls.',
+            'The popup keeps the on/off switches for supported sites. Per-site engine assignment, extractor templates, and site matching live in the full settings page.',
           )}
           stats={[
             `${(config.activeSiteAdapters || []).length} ${t('active sites')}`,
-            `${(config.siteAdapters || []).length} ${t('configured adapters')}`,
+            Object.keys(config.siteEngineOverrides || {}).length
+              ? `${Object.keys(config.siteEngineOverrides).length} ${t('site engine rules')}`
+              : t('All sites follow the default engine'),
           ]}
           actionLabel={t('Open full settings')}
-          onAction={() => openFullSettings?.('modules')}
+          onAction={() => openFullSettings?.('features')}
         />
       )}
     </div>
