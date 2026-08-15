@@ -3,7 +3,7 @@
 // the per-site picker (roadmap C3) needed the identical list, including the
 // enabled-provider gating and deprecated-model filtering.
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
-import { isModelDeprecated } from '../../config/models.mjs'
+import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
 
 function modelNameToSelectLabel(modelName, config, t) {
   if (modelName === 'customModel') return modelNameToDesc(modelName, t, config.customModelName)
@@ -53,6 +53,16 @@ export function buildEngineOptions(config, t, { selectedModelName } = {}) {
     label: modelNameToSelectLabel('customModel', config, t),
     apiMode: null,
   })
+
+  // The dsh engine exists only while its module is enabled (D-2); it is not
+  // part of the user's model directory.
+  if (config.dshModuleEnabled === true) {
+    opts.push({
+      value: 'dshHarnessAgent',
+      label: modelNameToDesc('dshHarnessAgent', t),
+      apiMode: DSH_HARNESS_API_MODE,
+    })
+  }
 
   if (selected && !opts.some((o) => o.value === selected)) {
     opts.unshift({

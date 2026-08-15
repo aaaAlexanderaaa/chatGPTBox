@@ -30,7 +30,12 @@ import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { getUserConfig } from '../../config/storage.mjs'
-import { isModelDeprecated } from '../../config/models.mjs'
+import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
+import {
+  isUsingChatgptWebModel,
+  isUsingDshHarnessModel,
+  isUsingMoonshotWebModel,
+} from '../../config/predicates.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -82,6 +87,8 @@ function ConversationCard(props) {
   const [apiModes, setApiModes] = useState([])
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [modelPickerQuery, setModelPickerQuery] = useState('')
+  const [dshDecisions, setDshDecisions] = useState([])
+  const [engineMemoryNote, setEngineMemoryNote] = useState('')
   const modelPickerRef = useRef(null)
   const modelPickerInputRef = useRef(null)
 
@@ -296,12 +303,38 @@ function ConversationCard(props) {
       port.onDisconnect.removeListener(portListener)
     }
   }, [port])
+  // dsh bridge messages ride the same port: decisions render as cards, the
+  // session binding (dshSessionId) is kept on the session; everything else
+  // goes to the runtime reducer.
   useEffect(() => {
-    port.onMessage.addListener(dispatchInbound)
-    return () => {
-      port.onMessage.removeListener(dispatchInbound)
+    const listener = (msg) => {
+      if (msg && typeof msg === 'object' && 'dshDecision' in msg) {
+        const decision = msg.dshDecision
+        setDshDecisions((prev) => {
+          const key = `${decision.kind}:${decision.approvalId ?? decision.rpcId}`
+          const next = prev.filter(
+            (item) => `${item.kind}:${item.approvalId ?? item.rpcId}` !== key,
+          )
+          if (decision.status === 'pending') next.push(decision)
+          return next
+        })
+        return
+      }
+      if (msg && typeof msg === 'object' && 'dshSessionId' in msg) {
+        setSession((prev) =>
+          prev && prev.dshSessionId !== msg.dshSessionId
+            ? { ...prev, dshSessionId: msg.dshSessionId }
+            : prev,
+        )
+        return
+      }
+      dispatchInbound(msg)
     }
-  }, [port, dispatchInbound])
+    port.onMessage.addListener(listener)
+    return () => {
+      port.onMessage.removeListener(listener)
+    }
+  }, [port, dispatchInbound, setSession])
 
   // Retry state machine lives in useConversationRuntime.buildRetry; it needs the
   // transport `postMessage` to (re)send, which we inject here so the runtime
@@ -328,6 +361,16 @@ function ConversationCard(props) {
       apiMode: null,
       label: modelNameToDesc('customModel', t, config.customModelName),
     })
+
+    // The dsh engine exists only while its module is enabled (D-2).
+    if (config.dshModuleEnabled === true) {
+      opts.push({
+        id: 'dshHarnessAgent',
+        modelName: 'dshHarnessAgent',
+        apiMode: DSH_HARNESS_API_MODE,
+        label: modelNameToDesc('dshHarnessAgent', t),
+      })
+    }
 
     const currentModelName = session.apiMode
       ? apiModeToModelName(session.apiMode)
@@ -360,6 +403,52 @@ function ConversationCard(props) {
     })
   }, [modelPickerOptions, modelPickerQuery])
 
+  // D-12: switching engines mid-conversation discloses the memory semantics
+  // in one line — never a blocking confirm.
+  const showMemoryNote = (nextModelName) => {
+    if (isUsingChatgptWebModel({ modelName: nextModelName }))
+      setEngineMemoryNote(t('ChatGPT Web keeps the conversation server-side'))
+    else if (isUsingMoonshotWebModel({ modelName: nextModelName }))
+      setEngineMemoryNote(t('Kimi Web keeps the conversation server-side'))
+    else if (isUsingDshHarnessModel({ modelName: nextModelName }))
+      setEngineMemoryNote(t('The agent keeps the conversation engine-side'))
+    else setEngineMemoryNote(t('History lives in this window and is re-sent'))
+    setTimeout(() => setEngineMemoryNote(''), 6000)
+  }
+
+  const respondDshDecision = (decision, outcome) => {
+    void Browser.runtime
+      .sendMessage({
+        type: RuntimeMessage.DshModuleRespond,
+        data:
+          decision.kind === 'question'
+            ? {
+                kind: 'question',
+                rpcId: decision.rpcId,
+                sessionId: decision.sessionId,
+                answers: outcome,
+              }
+            : {
+                kind: 'approval',
+                rpcId: decision.rpcId,
+                sessionId: decision.sessionId,
+                approvalId: decision.approvalId,
+                outcome,
+              },
+      })
+      .catch(() => {})
+    if (decision.kind === 'approval') {
+      // optimistic collapse; the ledger echo is authoritative
+      setDshDecisions((prev) =>
+        prev.filter(
+          (item) =>
+            `${item.kind}:${item.approvalId ?? item.rpcId}` !==
+            `${decision.kind}:${decision.approvalId ?? decision.rpcId}`,
+        ),
+      )
+    }
+  }
+
   const applyModelSelection = useCallback(
     ({ apiMode, modelName }) => {
       const newSession = {
@@ -374,6 +463,7 @@ function ConversationCard(props) {
               config.customModelName,
             ),
       }
+      showMemoryNote(apiMode ? apiModeToModelName(apiMode) : modelName)
       setModelPickerOpen(false)
       setModelPickerQuery('')
       if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
@@ -727,40 +817,283 @@ function ConversationCard(props) {
           </span>
         </p>
       ) : (
-        <InputBox
-          enabled={isReady}
-          postMessage={postMessage}
-          reverseResizeDir={props.pageMode}
-          onSubmit={async (question) => {
-            const newQuestion = new ConversationItemData('question', question)
-            const newAnswer = new ConversationItemData(
-              'answer',
-              `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
-            )
-            setConversationItemData([...conversationItemData, newQuestion, newAnswer])
-            setIsReady(false)
+        <>
+          {engineMemoryNote && (
+            <div
+              className="gpt-memory-note"
+              style={{
+                padding: '4px 15px',
+                fontSize: '12px',
+                color: 'var(--muted-foreground, #666)',
+                borderTop: '1px dashed var(--border, #ddd)',
+              }}
+            >
+              ℹ {engineMemoryNote}
+            </div>
+          )}
+          {props.selection && isUsingDshHarnessModel(session) && (
+            <div
+              className="gpt-context-chip"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                margin: '6px 15px 0',
+                padding: '3px 10px',
+                fontSize: '12px',
+                borderRadius: '999px',
+                border: '1px solid var(--border, #ddd)',
+                color: 'var(--muted-foreground, #666)',
+                width: 'fit-content',
+              }}
+              title={t('Exactly what will be sent — nothing more')}
+            >
+              📄 {t('Selection attached')} · {props.selection.length} {t('chars')}
+            </div>
+          )}
+          {dshDecisions.length > 0 && (
+            <div style={{ padding: '0 15px' }}>
+              {dshDecisions.map((decision) => (
+                <DshDecisionCard
+                  key={`${decision.kind}:${decision.approvalId ?? decision.rpcId}`}
+                  decision={decision}
+                  onRespond={respondDshDecision}
+                  onCancelQuestion={(d) =>
+                    void Browser.runtime
+                      .sendMessage({
+                        type: RuntimeMessage.DshModuleRespond,
+                        data: { kind: 'question-cancel', rpcId: d.rpcId, sessionId: d.sessionId },
+                      })
+                      .catch(() => {})
+                  }
+                />
+              ))}
+            </div>
+          )}
+          <InputBox
+            draftKey={props.draftKey}
+            enabled={isReady}
+            postMessage={postMessage}
+            reverseResizeDir={props.pageMode}
+            onSubmit={async (question) => {
+              const newQuestion = new ConversationItemData('question', question)
+              const newAnswer = new ConversationItemData(
+                'answer',
+                `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
+              )
+              setConversationItemData([...conversationItemData, newQuestion, newAnswer])
+              setIsReady(false)
 
-            const newSession = { ...session, question, isRetry: false }
-            setSession(newSession)
-            try {
-              await postMessage({ session: newSession })
-            } catch (e) {
-              updateAnswer(e, false, 'error')
-            }
-            bodyRef.current.scrollTo({
-              top: bodyRef.current.scrollHeight,
-              behavior: 'instant',
-            })
-          }}
-        />
+              const newSession = { ...session, question, isRetry: false }
+              setSession(newSession)
+              try {
+                await postMessage({ session: newSession })
+              } catch (e) {
+                updateAnswer(e, false, 'error')
+              }
+              bodyRef.current.scrollTo({
+                top: bodyRef.current.scrollHeight,
+                behavior: 'instant',
+              })
+            }}
+          />
+        </>
       )}
     </div>
   )
 }
 
+// Floating approval/question card (D-5): the floating window grows organs
+// for L3 engines — the loudest element on the surface while pending.
+function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
+  const { t } = useTranslation()
+  const [selected, setSelected] = useState({})
+  const [custom, setCustom] = useState('')
+  const amber = '#d97706' // the waiting color (ui-console D-17), one value
+
+  if (decision.kind === 'approval') {
+    return (
+      <div
+        style={{
+          border: `1px solid ${amber}`,
+          borderRadius: '8px',
+          padding: '10px 12px',
+          margin: '8px 0',
+          background: 'var(--card, #fff)',
+        }}
+      >
+        <div style={{ fontSize: '12px', fontWeight: 600, color: amber, marginBottom: '6px' }}>
+          ⚠ {t('The agent is waiting for you')} · {decision.toolName}
+        </div>
+        <pre
+          style={{
+            margin: '0 0 8px',
+            padding: '8px',
+            maxHeight: '160px',
+            overflow: 'auto',
+            fontSize: '12px',
+            whiteSpace: 'pre-wrap',
+            background: 'var(--secondary, #f5f5f5)',
+            borderRadius: '6px',
+          }}
+        >
+          {decision.args || '(arguments not captured)'}
+        </pre>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            style={{
+              fontSize: '13px',
+              padding: '5px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: amber,
+              color: '#fff',
+              cursor: 'pointer',
+            }}
+            onClick={() => onRespond(decision, 'allowed-once')}
+          >
+            {t('Allow once')}
+          </button>
+          <button
+            style={{
+              fontSize: '13px',
+              padding: '5px 12px',
+              borderRadius: '6px',
+              border: '1px solid var(--border, #ddd)',
+              background: 'transparent',
+              cursor: 'pointer',
+            }}
+            onClick={() => onRespond(decision, 'rejected')}
+          >
+            {t('Reject')}
+          </button>
+          <a
+            href={Browser.runtime.getURL('dsh.html')}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: '12px', alignSelf: 'center', marginLeft: 'auto' }}
+          >
+            {t('Open cockpit')}
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  const submit = () => {
+    const answers = (decision.questions || []).map((question) => ({
+      id: question.id,
+      selected: selected[question.id] || [],
+      custom: !question.options && custom ? custom : undefined,
+    }))
+    onRespond(decision, answers)
+  }
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${amber}`,
+        borderRadius: '8px',
+        padding: '10px 12px',
+        margin: '8px 0',
+        background: 'var(--card, #fff)',
+      }}
+    >
+      <div style={{ fontSize: '12px', fontWeight: 600, color: amber, marginBottom: '6px' }}>
+        ? {t('The agent is asking')}
+      </div>
+      {(decision.questions || []).map((question) => (
+        <div key={question.id} style={{ marginBottom: '6px' }}>
+          {question.header && (
+            <p style={{ fontSize: '12px', margin: '0 0 2px' }}>{question.header}</p>
+          )}
+          <p style={{ fontSize: '13px', margin: '0 0 4px' }}>{question.question}</p>
+          {question.options && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {question.options.map((option) => {
+                const picked = (selected[question.id] || []).includes(option.label)
+                return (
+                  <label key={option.label} style={{ fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type={question.multiSelect ? 'checkbox' : 'radio'}
+                      name={`fw-q-${decision.rpcId}-${question.id}`}
+                      checked={picked}
+                      onChange={() =>
+                        setSelected((prev) => {
+                          const current = prev[question.id] || []
+                          if (question.multiSelect) {
+                            return {
+                              ...prev,
+                              [question.id]: picked
+                                ? current.filter((label) => label !== option.label)
+                                : [...current, option.label],
+                            }
+                          }
+                          return { ...prev, [question.id]: [option.label] }
+                        })
+                      }
+                    />{' '}
+                    {option.label}
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          {!question.options && (
+            <textarea
+              rows={2}
+              style={{ width: '100%', fontSize: '13px', boxSizing: 'border-box' }}
+              placeholder={t('Type your answer…')}
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+            />
+          )}
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          style={{
+            fontSize: '13px',
+            padding: '5px 12px',
+            borderRadius: '6px',
+            border: 'none',
+            background: amber,
+            color: '#fff',
+            cursor: 'pointer',
+          }}
+          onClick={submit}
+        >
+          {t('Submit')}
+        </button>
+        <button
+          style={{
+            fontSize: '13px',
+            padding: '5px 12px',
+            borderRadius: '6px',
+            border: '1px solid var(--border, #ddd)',
+            background: 'transparent',
+            cursor: 'pointer',
+          }}
+          onClick={() => onCancelQuestion(decision)}
+        >
+          {t('Dismiss')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+DshDecisionCard.propTypes = {
+  decision: PropTypes.object.isRequired,
+  onRespond: PropTypes.func.isRequired,
+  onCancelQuestion: PropTypes.func.isRequired,
+}
+
 ConversationCard.propTypes = {
   session: PropTypes.object.isRequired,
   question: PropTypes.string,
+  selection: PropTypes.string,
+  draftKey: PropTypes.string,
   onUpdate: PropTypes.func,
   draggable: PropTypes.bool,
   closeable: PropTypes.bool,

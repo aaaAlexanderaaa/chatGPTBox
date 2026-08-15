@@ -119,12 +119,18 @@ export function createMessageRouter() {
         if (typeof chrome !== 'undefined' && chrome.sidePanel) {
           const tabId = message?.data?.tabId || sender?.tab?.id
           const windowId = message?.data?.windowId || sender?.tab?.windowId
+          const requestedPath = message?.data?.path
+          // Surfaces may ask for a specific panel page (e.g. the dsh cockpit
+          // narrow layout); whitelist extension pages so this can never be
+          // pointed outside the extension.
+          const path =
+            requestedPath === 'dsh.html' ? 'dsh.html' : 'IndependentPanel.html'
           if (tabId && windowId) {
             try {
               // eslint-disable-next-line no-undef
               await chrome.sidePanel.setOptions({
                 tabId,
-                path: 'IndependentPanel.html',
+                path,
                 enabled: true,
               })
               // eslint-disable-next-line no-undef

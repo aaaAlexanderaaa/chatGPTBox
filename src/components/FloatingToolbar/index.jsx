@@ -264,6 +264,8 @@ function FloatingToolbar(props) {
               <ConversationCard
                 session={props.session}
                 question={prompt}
+                selection={selection}
+                draftKey={`floating-draft-${props.session?.sessionId || 'adhoc'}`}
                 draggable={true}
                 closeable={closeable}
                 onClose={onClose}

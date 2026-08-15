@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { GitBranch, Pencil } from 'lucide-react'
 
 // Session bar: title (rename), model chip, auto-approve switch (D-8: at
-// hand, explicit, in view at all times, default off), fork.
+// hand, explicit, in view at all times, default off), fork. In the narrow
+// layout (sidepanel) it also carries the session dropdown the sidebar
+// collapsed into (D-9).
 
-export function SessionBar({ session, rpc }) {
+export function SessionBar({ session, rpc, sessions, onSelect }) {
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [models, setModels] = useState(null)
   const titleRef = useRef(null)
+  const narrow = sessions != null
 
   useEffect(() => {
     setModels(null)
@@ -42,7 +45,22 @@ export function SessionBar({ session, rpc }) {
     : 'model'
 
   return (
-    <div className="flex items-center gap-2 h-11 px-4 border-b border-border shrink-0">
+    <div className="flex flex-wrap items-center gap-2 min-h-11 px-4 border-b border-border shrink-0">
+      {narrow && (
+        <select
+          className="text-xs bg-secondary border border-border rounded-md px-1.5 py-1 max-w-40"
+          value={session.sessionId}
+          onChange={(event) => onSelect?.(event.target.value)}
+          title="Switch session"
+        >
+          {sessions.map((candidate) => (
+            <option key={candidate.sessionId} value={candidate.sessionId}>
+              {candidate.waiting > 0 ? '◐ ' : candidate.running ? '● ' : '○ '}
+              {candidate.title || candidate.sessionId.slice(0, 8)}
+            </option>
+          ))}
+        </select>
+      )}
       {editing ? (
         <input
           ref={titleRef}

@@ -50,7 +50,8 @@
         "src/background/index.mjs",
         "src/popup/index.jsx",
         "src/popup/components/GeneralTab.jsx",
-        "src/popup/components/EnginesTab.jsx"
+        "src/popup/components/EnginesTab.jsx",
+        "src/background/providers/dsh-bridge.mjs"
       ],
       "rules": {
         "no-restricted-imports": [

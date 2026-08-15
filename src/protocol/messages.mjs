@@ -47,6 +47,7 @@ export const RuntimeMessage = {
   OpenApiServer: 'OPEN_API_SERVER',
   OpenSidePanel: 'OPEN_SIDE_PANEL',
   DshModuleDiagnose: 'DSH_MODULE_DIAGNOSE',
+  DshModuleRespond: 'DSH_MODULE_RESPOND',
   ActivateUrl: 'ACTIVATE_URL',
   PinTab: 'PIN_TAB',
 

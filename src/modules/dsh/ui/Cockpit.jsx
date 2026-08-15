@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { AlertTriangle, CircleDot, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, CircleDot, Loader2, PanelRight, Plus, RefreshCw } from 'lucide-react'
+import Browser from 'webextension-polyfill'
+import { ModuleMessage } from '../../api.mjs'
 import { useGatewayPort } from './useGatewayPort.js'
 import { Sidebar } from './Sidebar.jsx'
 import { SessionBar } from './SessionBar.jsx'
@@ -9,9 +11,29 @@ import { Composer } from './Composer.jsx'
 // Full-page cockpit per ui-console.md: global header (identity + health +
 // waiting pill), sidebar (session list + search), session bar (title / model /
 // auto-approve), ledger (three registers), composer.
+//
+// Three widths, one component set (D-9): below ~520px (sidepanel) the
+// sidebar collapses into a session dropdown in the session bar.
+
+function useNarrowLayout(breakpoint = 520) {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia(`(max-width: ${breakpoint}px)`).matches
+      : false,
+  )
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(`(max-width: ${breakpoint}px)`)
+    const listener = (event) => setNarrow(event.matches)
+    query.addEventListener?.('change', listener)
+    return () => query.removeEventListener?.('change', listener)
+  }, [breakpoint])
+  return narrow
+}
 
 export function Cockpit() {
   const { connection, sessions, sessionUpdates, rpc, subscribeLedger } = useGatewayPort()
+  const narrow = useNarrowLayout()
 
   const merged = useMemo(() => {
     const byId = new Map(sessions.map((s) => [s.sessionId, s]))
@@ -163,17 +185,33 @@ export function Cockpit() {
             {waitingTotal} waiting for you
           </button>
         )}
+        <button
+          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+          title="Open this cockpit in the browser side panel (narrow layout)"
+          onClick={() => {
+            void Browser.runtime
+              .sendMessage({
+                type: ModuleMessage.OpenSidePanel,
+                data: { path: 'dsh.html' },
+              })
+              .catch(() => {})
+          }}
+        >
+          <PanelRight size={13} />
+        </button>
       </header>
 
       <div className="flex flex-1 min-h-0">
-        <Sidebar
-          sessions={merged}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          onCreate={createSession}
-          searchRef={searchRef}
-          rpc={rpc}
-        />
+        {!narrow && (
+          <Sidebar
+            sessions={merged}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onCreate={createSession}
+            searchRef={searchRef}
+            rpc={rpc}
+          />
+        )}
 
         <main className="flex-1 min-w-0 flex flex-col">
           {!online ? (
@@ -187,7 +225,12 @@ export function Cockpit() {
             <EmptyState onCreate={createSession} />
           ) : (
             <>
-              <SessionBar session={selected} rpc={rpc} />
+              <SessionBar
+                session={selected}
+                rpc={rpc}
+                sessions={narrow ? merged : null}
+                onSelect={narrow ? setSelectedId : null}
+              />
               <Ledger
                 session={selected}
                 blocks={ledger.blocks}

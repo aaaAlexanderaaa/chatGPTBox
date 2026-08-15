@@ -10,6 +10,7 @@ import {
   claudeApiModelKeys,
   customApiModelKeys,
   deepSeekApiModelKeys,
+  dshHarnessModelKeys,
   gptApiModelKeys,
   moonshotApiModelKeys,
   moonshotWebModelKeys,
@@ -19,6 +20,10 @@ import {
 
 export function isUsingChatgptWebModel(configOrSession) {
   return isInApiModeGroup(chatgptWebModelKeys, configOrSession)
+}
+
+export function isUsingDshHarnessModel(configOrSession) {
+  return isInApiModeGroup(dshHarnessModelKeys, configOrSession)
 }
 
 export function isUsingMoonshotWebModel(configOrSession) {

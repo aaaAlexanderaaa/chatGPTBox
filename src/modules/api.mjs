@@ -28,6 +28,8 @@ import { RuntimeMessage } from '../protocol/messages.mjs'
  *  (tests/message-contract.test.mjs enforces the single source of truth). */
 export const ModuleMessage = {
   DshDiagnose: RuntimeMessage.DshModuleDiagnose,
+  DshRespond: RuntimeMessage.DshModuleRespond,
+  OpenSidePanel: RuntimeMessage.OpenSidePanel,
   ChatgptWebSyncConversations: RuntimeMessage.ChatgptWebSyncConversations,
   ChatgptWebStopConversationSync: RuntimeMessage.ChatgptWebStopConversationSync,
   ChatgptWebUnlockConversationSync: RuntimeMessage.ChatgptWebUnlockConversationSync,

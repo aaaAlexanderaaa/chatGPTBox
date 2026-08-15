@@ -13,6 +13,7 @@ import { PROVIDERS, detectExecutionRoute } from '../src/background/providers/reg
 // accept. The modelNames here must belong to exactly one provider group each,
 // so the "first match wins" ordering is unambiguous.
 const SESSION_BY_ROUTE = {
+  'dsh-bridge': { modelName: 'dshHarnessAgent' },
   'custom-api': { modelName: 'customModel' },
   'chatgpt-web': { modelName: 'chatgptWeb56Thinking' },
   'moonshot-web': { modelName: 'moonshotWebFree' },
@@ -29,8 +30,8 @@ const SESSION_BY_ROUTE = {
 }
 
 describe('provider registry', () => {
-  it('has exactly 13 providers', () => {
-    expect(PROVIDERS.length).toBe(13)
+  it('has exactly 14 providers', () => {
+    expect(PROVIDERS.length).toBe(14)
   })
 
   it('each provider exposes { route, match, run }', () => {
@@ -50,6 +51,7 @@ describe('provider registry', () => {
   // array without comparing against the pre-refactor chain — the isUsing*
   // predicates can overlap on edge-case models, so order is load-bearing.
   const EXPECTED_ORDER = [
+    'dsh-bridge',
     'custom-api',
     'chatgpt-web',
     'moonshot-web',

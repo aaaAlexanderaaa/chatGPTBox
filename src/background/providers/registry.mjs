@@ -8,6 +8,7 @@
 // ordered list, eliminating the previous two-copies-of-the-same-ordering hazard.
 
 import customApiProvider from './custom-api.mjs'
+import dshBridgeProvider from './dsh-bridge.mjs'
 import chatgptWebHostProvider from './chatgpt-web.mjs'
 import moonshotWebHostProvider from './moonshot-web.mjs'
 import chatgptApiProvider from './chatgpt-api.mjs'
@@ -22,9 +23,11 @@ import azureOpenaiApiProvider from './azure-openai-api.mjs'
 import gptCompletionApiProvider from './gpt-completion-api.mjs'
 import { assertProviderAdapter } from './adapter-contract.mjs'
 
-// Order mirrors the original executeApi if/else-if chain exactly.
+// Order mirrors the original executeApi if/else-if chain exactly, with the
+// dsh bridge first (newest engine, most specific match).
 // Do NOT reorder without comparing against the pre-refactor chain.
 const RAW_PROVIDERS = [
+  dshBridgeProvider,
   customApiProvider,
   chatgptWebHostProvider,
   moonshotWebHostProvider,

@@ -131,6 +131,22 @@ export const aimlApiModelKeys = [
   'aiml_moonshot_kimi_k2_preview',
 ]
 
+export const dshHarnessModelKeys = ['dshHarnessAgent']
+
+// The picker entry for the dsh engine. Not part of activeApiModes (that
+// array belongs to the user's directory); surfaces append this option
+// whenever the module is enabled instead.
+export const DSH_HARNESS_API_MODE = Object.freeze({
+  groupName: 'dshHarnessModelKeys',
+  itemName: 'dshHarnessAgent',
+  isCustom: false,
+  displayName: '',
+  customName: '',
+  customUrl: '',
+  apiKey: '',
+  active: true,
+})
+
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
   'customApiModelKeys',
@@ -191,6 +207,10 @@ export const ModelGroups = {
   customApiModelKeys: {
     value: customApiModelKeys,
     desc: 'Custom Model',
+  },
+  dshHarnessModelKeys: {
+    value: dshHarnessModelKeys,
+    desc: 'DeepSeek Harness (agent)',
   },
 }
 
@@ -481,6 +501,7 @@ export const Models = {
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
   azureOpenAi: { value: '', desc: 'ChatGPT (Azure)' },
+  dshHarnessAgent: { value: 'dsh', desc: 'DeepSeek Harness (agent)' },
 
   moonshot_k2: {
     value: 'kimi-k2-0711-preview',

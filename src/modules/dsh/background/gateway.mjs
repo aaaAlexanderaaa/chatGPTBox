@@ -124,24 +124,6 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     pendingLedgerPushes.set(sessionId, timer)
   }
 
-  function pushLedger(sessionId) {
-    const session = sessions.get(sessionId)
-    if (!session) return
-    for (const [port, ids] of ledgerSubscriptions) {
-      if (!ids.has(sessionId)) continue
-      try {
-        port.postMessage({
-          type: 'ledger',
-          sessionId,
-          blocks: session.fold.getBlocks(),
-          lastSeq: session.fold.getLastSeq(),
-        })
-      } catch {
-        // dead port
-      }
-    }
-  }
-
   function summarize(session) {
     return {
       ...session.summary,
@@ -160,6 +142,25 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
         })),
       jobs: session.jobs,
       waiting: session.fold.getPendingDecisions().length,
+      // Compact pending-decision payloads so waiting surfaces that are not
+      // subscribed to the ledger (popup pinned cards, notification jumps)
+      // can render the actual ask, not just a count. Approval arguments
+      // live on the tool block (keyed by callId) — resolve them here.
+      pendingDecisions: (() => {
+        const toolBlocks = new Map()
+        for (const block of session.fold.getBlocks()) {
+          if (block.kind === 'tool' && block.callId) toolBlocks.set(block.callId, block)
+        }
+        return session.fold.getPendingDecisions().map((block) => ({
+          kind: block.kind,
+          rpcId: block.rpcId,
+          approvalId: block.approvalId,
+          toolName: block.toolName,
+          args: block.callId ? toolBlocks.get(block.callId)?.args ?? null : null,
+          questions: block.kind === 'question' ? block.questions ?? null : null,
+          sessionId: session.summary.sessionId,
+        }))
+      })(),
     }
   }
 
@@ -596,6 +597,15 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
 
   // --- RPC surface (UI requests, correlated by id) ---------------------------
 
+  /** In-process RPC: same handler table the port surface uses. Consumers
+   *  that are not runtime ports (the dsh bridge provider, respond messages
+   *  from popup/floating approval cards) call this directly. */
+  async function callRpc(method, args = {}) {
+    const handler = rpcHandlers[method]
+    if (!handler) throw new Error(`unknown method "${method}"`)
+    return handler(args)
+  }
+
   const rpcHandlers = {
     'session.list': () => api.rpc('session.list', {}),
     'session.search': ({ query }) => api.rpc('session.search', { query }),
@@ -695,6 +705,67 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     for (const sessionId of sessions.keys()) broadcastSession(sessionId)
   }
 
+  // --- in-process ledger watches (the bridge provider translates ledger
+  //     blocks into floating-window port messages through this) ---------------
+
+  /** @type {Map<string, Set<(message: object) => void>>} */
+  const ledgerWatchers = new Map()
+
+  /**
+   * Subscribe to a session's ledger pushes without a runtime port.
+   * Immediately replays the current ledger snapshot, then follows debounced
+   * pushes — the same stream ports receive.
+   * @param {string} sessionId
+   * @param {(message: { sessionId: string, blocks: object[], lastSeq: number }) => void} listener
+   * @returns {() => void} unwatch
+   */
+  function watchLedger(sessionId, listener) {
+    let watchers = ledgerWatchers.get(sessionId)
+    if (!watchers) {
+      watchers = new Set()
+      ledgerWatchers.set(sessionId, watchers)
+    }
+    watchers.add(listener)
+    const session = sessions.get(sessionId)
+    if (session) {
+      listener({
+        sessionId,
+        blocks: session.fold.getBlocks(),
+        lastSeq: session.fold.getLastSeq(),
+      })
+    }
+    return () => {
+      watchers.delete(listener)
+      if (watchers.size === 0) ledgerWatchers.delete(sessionId)
+    }
+  }
+
+  function pushLedger(sessionId) {
+    const session = sessions.get(sessionId)
+    if (!session) return
+    const message = {
+      type: 'ledger',
+      sessionId,
+      blocks: session.fold.getBlocks(),
+      lastSeq: session.fold.getLastSeq(),
+    }
+    for (const watcher of ledgerWatchers.get(sessionId) || []) {
+      try {
+        watcher(message)
+      } catch {
+        // a broken watcher must not break the push path
+      }
+    }
+    for (const [port, ids] of ledgerSubscriptions) {
+      if (!ids.has(sessionId)) continue
+      try {
+        port.postMessage(message)
+      } catch {
+        // dead port
+      }
+    }
+  }
+
   // --- lifecycle ---------------------------------------------------------------
 
   async function start() {
@@ -739,6 +810,8 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     start,
     stop,
     attachPort,
+    rpc: callRpc,
+    watchLedger,
     getState: () => ({ ...state, sessions: sessions.size }),
     getSessionSummaries: () => [...sessions.values()].map(summarize),
     // test/inspection seams

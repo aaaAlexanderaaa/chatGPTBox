@@ -195,3 +195,26 @@ button:focus-visible,
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
+
+/* --- narrow layout (sidepanel, D-9) ------------------------------------- */
+
+@media (max-width: 520px) {
+  .dsh-app {
+    font-size: 14px;
+  }
+
+  .dsh-prose,
+  .dsh-user-block,
+  .dsh-turn-end {
+    max-width: none;
+  }
+
+  .dsh-machine-row .dsh-args-preview {
+    max-width: 28ch;
+  }
+
+  .dsh-decision-card,
+  .dsh-decision-args {
+    max-width: none;
+  }
+}

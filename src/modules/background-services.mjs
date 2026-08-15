@@ -98,6 +98,16 @@ async function applyDshModuleState(config, previousEndpoint) {
 }
 
 /**
+ * The live dsh gateway, for core consumers that reach modules only through
+ * the aggregation files: the dsh bridge provider (background/providers/
+ * dsh-bridge.mjs) drives sessions through this handle. Null while the
+ * module is disabled or not yet started.
+ */
+export function getDshGateway() {
+  return dshGateway
+}
+
+/**
  * Start every registered module's background side. Called once from the
  * background entry point after the message router is wired.
  */
@@ -124,8 +134,19 @@ export async function startModuleBackgrounds() {
   // Settings-card diagnose: exercises the real path (RPC + WS through the
   // fence rewrite) and reports which stage failed.
   Browser.runtime.onMessage.addListener((message) => {
-    if (message?.type !== RuntimeMessage.DshModuleDiagnose) return undefined
-    return readConfig().then((config) => diagnoseDsh(config.dshEndpoint))
+    if (message?.type === RuntimeMessage.DshModuleDiagnose) {
+      return readConfig().then((config) => diagnoseDsh(config.dshEndpoint))
+    }
+    if (message?.type === RuntimeMessage.DshModuleRespond) {
+      // Approval/question answers from surfaces that are not gateway ports
+      // (floating window cards, the popup's pinned waiting cards).
+      const data = message.data || {}
+      if (!dshGateway || !data.rpcId) return Promise.resolve({ accepted: false })
+      return dshGateway
+        .rpc(data.kind === 'question' ? 'question.respond' : 'approval.respond', data)
+        .catch((error) => ({ accepted: false, error: error?.message || String(error) }))
+    }
+    return undefined
   })
 
   // Clicking the waiting notification opens the cockpit (≤2 operations to

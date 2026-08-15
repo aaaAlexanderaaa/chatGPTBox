@@ -6,9 +6,32 @@ import { useTranslation } from 'react-i18next'
 import { getUserConfig } from '../../config/storage.mjs'
 import { cn } from '../../utils/cn.mjs'
 
-export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
+export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, draftKey }) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
+
+  // Draft autosave (D-19 hard requirement): any blur, crash, or surface
+  // switch keeps every keystroke. Keyed by the owning surface.
+  useEffect(() => {
+    if (!draftKey) return
+    try {
+      setValue(localStorage.getItem(draftKey) || '')
+    } catch {
+      setValue('')
+    }
+  }, [draftKey])
+
+  useEffect(() => {
+    if (!draftKey) return
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(draftKey, value)
+      } catch {
+        // private mode / quota — best effort
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [draftKey, value])
   const [isFocused, setIsFocused] = useState(false)
   const reverseDivRef = useRef(null)
   const inputRef = useRef(null)
@@ -64,6 +87,13 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
         if (!value) return
         onSubmit(value)
         setValue('')
+        if (draftKey) {
+          try {
+            localStorage.removeItem(draftKey)
+          } catch {
+            // best effort
+          }
+        }
       } else {
         postMessage({ stop: true })
       }
@@ -123,6 +153,7 @@ InputBox.propTypes = {
   enabled: PropTypes.bool.isRequired,
   reverseResizeDir: PropTypes.bool,
   postMessage: PropTypes.func.isRequired,
+  draftKey: PropTypes.string,
 }
 
 export default InputBox
