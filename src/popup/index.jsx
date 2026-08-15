@@ -5,6 +5,7 @@ import { getUserConfig } from '../config/storage.mjs'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 import Browser from 'webextension-polyfill'
 import { RuntimeMessage } from '../protocol/messages.mjs'
+import '../modules/settings-cards.mjs'
 
 getUserConfig().then(async (config) => {
   if (config.clickIconAction === 'popup' || (window.innerWidth > 100 && window.innerHeight > 100)) {

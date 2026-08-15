@@ -12,7 +12,8 @@
 
 import Browser from 'webextension-polyfill'
 import { defaultConfig, getUserConfig } from '../config/storage.mjs'
-import { syncDshHeaderRules } from './dsh/background/fence.mjs'
+import { RuntimeMessage } from '../protocol/messages.mjs'
+import { diagnoseDsh, syncDshHeaderRules } from './dsh/background/fence.mjs'
 import { createDshGateway } from './dsh/background/gateway.mjs'
 
 const DSH_PORT_NAME = 'dsh-gateway'
@@ -118,6 +119,13 @@ export async function startModuleBackgrounds() {
       return
     }
     dshGateway.attachPort(port)
+  })
+
+  // Settings-card diagnose: exercises the real path (RPC + WS through the
+  // fence rewrite) and reports which stage failed.
+  Browser.runtime.onMessage.addListener((message) => {
+    if (message?.type !== RuntimeMessage.DshModuleDiagnose) return undefined
+    return readConfig().then((config) => diagnoseDsh(config.dshEndpoint))
   })
 
   // Clicking the waiting notification opens the cockpit (≤2 operations to

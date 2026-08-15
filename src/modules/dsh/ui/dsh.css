@@ -1,0 +1,197 @@
+@import '../../../styles/globals.css';
+
+/* dsh cockpit — visual language per ui-console.md:
+   "长在 ChatGPTBox里"（复用现有 token，暗色天生对齐）；
+   色彩语义五枚封顶：琥珀=等你、蓝=运行中、绿=完成、红=错误、灰=其余。
+   "等你"一色制，落两个 token（D-17），v1 同值。 */
+
+:root,
+[data-theme='dark'],
+[data-theme='light'],
+[data-theme='auto'] {
+  --dsh-waiting-approval: #d97706; /* amber-600 */
+  --dsh-waiting-question: #d97706;
+  --dsh-running: #3b82f6; /* blue-500 */
+  --dsh-done: #10b981; /* emerald-500 (fades out after a minute) */
+  --dsh-error: #ef4444; /* red-500 */
+  --dsh-idle: var(--muted-foreground);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+.dsh-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+/* --- ledger registers ------------------------------------------------ */
+
+.dsh-prose {
+  max-width: 68ch;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+}
+
+.dsh-prose p {
+  margin: 0 0 0.75em;
+}
+
+.dsh-prose pre {
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.dsh-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.dsh-prose :not(pre) > code {
+  background: var(--secondary);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.dsh-prose ul,
+.dsh-prose ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+}
+
+.dsh-user-block {
+  max-width: 68ch;
+  border-left: 2px solid var(--border-strong, var(--border));
+  padding-left: 0.9em;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+}
+
+.dsh-machine-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--secondary-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.dsh-machine-row .dsh-args-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60ch;
+}
+
+.dsh-machine-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6em 0.9em;
+  display: grid;
+  gap: 0.5em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@keyframes dsh-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.dsh-status-running {
+  animation: dsh-pulse 1.6s ease-in-out infinite;
+}
+
+/* --- decision cards (the money component) ----------------------------- */
+
+.dsh-decision-card {
+  border: 1px solid var(--dsh-waiting-approval);
+  border-radius: var(--radius);
+  padding: 0.9em 1.1em;
+  max-width: 72ch;
+  background: color-mix(in srgb, var(--dsh-waiting-approval) 7%, var(--card));
+}
+
+.dsh-decision-card[data-kind='question'] {
+  border-color: var(--dsh-waiting-question);
+  background: color-mix(in srgb, var(--dsh-waiting-question) 7%, var(--card));
+}
+
+.dsh-decision-card[data-settled='true'] {
+  border-color: var(--border);
+  background: var(--card);
+  opacity: 0.75;
+}
+
+.dsh-decision-args {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: var(--secondary);
+  border-radius: var(--radius);
+  padding: 0.6em 0.9em;
+  max-height: 14em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dsh-decision-actions {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* --- turn boundaries --------------------------------------------------- */
+
+.dsh-turn-end {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  max-width: 68ch;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin: 0.5em 0;
+}
+
+.dsh-turn-end::before,
+.dsh-turn-end::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.dsh-turn-end[data-reason='error'] {
+  color: var(--dsh-error);
+}
+
+/* --- misc --------------------------------------------------------------- */
+
+.dsh-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+button:focus-visible,
+.dsh-decision-card:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}

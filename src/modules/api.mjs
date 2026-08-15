@@ -12,14 +12,23 @@
  *   - by `tests/module-boundary.test.mjs`, which walks src/modules with the
  *     same rule so CI fails even when eslint is not run.
  *
- * Deliberately dependency-free (pure data + registry) so it can be imported
- * from the background bundle, every UI bundle, and unit tests without
- * pulling in services code.
+ * Deliberately near-dependency-free (pure data + registry + the module-facing
+ * slice of the runtime message contract) so it can be imported from the
+ * background bundle, every UI bundle, and unit tests without pulling in
+ * services code.
  *
  * Seam API policy (roadmap Phase A): extract only what the dsh module
  * actually uses. A second module with different needs grows the seam then,
  * not now.
  */
+
+import { RuntimeMessage } from '../protocol/messages.mjs'
+
+/** Message types a module may send over Browser.runtime — never bare literals
+ *  (tests/message-contract.test.mjs enforces the single source of truth). */
+export const ModuleMessage = {
+  DshDiagnose: RuntimeMessage.DshModuleDiagnose,
+}
 
 /**
  * @typedef {object} ModuleManifest
@@ -41,6 +50,8 @@
 
 /** @type {ModuleManifest[]} */
 const registeredModules = []
+/** @type {Map<string, unknown>} settings card components by module id */
+const settingsCards = new Map()
 
 /**
  * Register a module manifest. Called once per module from
@@ -55,6 +66,22 @@ export function registerModule(manifest) {
     throw new Error(`modules: duplicate module id "${manifest.id}"`)
   }
   registeredModules.push(manifest)
+}
+
+/**
+ * Register a settings card component for a module. Called from
+ * src/modules/settings-cards.mjs (the UI-side aggregation point) so the
+ * component code only lands in bundles that opt in.
+ * @param {string} id
+ * @param {unknown} Component
+ */
+export function registerSettingsCard(id, Component) {
+  settingsCards.set(id, Component)
+}
+
+/** @returns {Array<{ id: string, Component: unknown }>} */
+export function getSettingsCards() {
+  return [...settingsCards.entries()].map(([id, Component]) => ({ id, Component }))
 }
 
 /** @returns {ModuleManifest[]} */

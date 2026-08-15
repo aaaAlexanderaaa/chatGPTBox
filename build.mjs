@@ -57,6 +57,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         import: './src/pages/ApiServer/index.jsx',
         dependOn: 'shared',
       },
+      dsh: {
+        import: './src/modules/dsh/ui/index.jsx',
+        dependOn: 'shared',
+      },
       shared: shared,
     },
     output: {
@@ -332,6 +336,10 @@ async function finishOutput(outputDirSuffix) {
     { src: 'build/ApiServer.js', dst: 'ApiServer.js' },
     { src: 'build/ApiServer.css', dst: 'ApiServer.css' },
     { src: 'src/pages/ApiServer/index.html', dst: 'ApiServer.html' },
+
+    { src: 'build/dsh.js', dst: 'dsh.js' },
+    { src: 'build/dsh.css', dst: 'dsh.css' },
+    { src: 'src/modules/dsh/ui/index.html', dst: 'dsh.html' },
   ]
 
   // chromium

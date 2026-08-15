@@ -210,5 +210,16 @@
   "RPM values above 20 may increase the risk of account rate limiting.": "RPM values above 20 may increase the risk of account rate limiting.",
   "Current sync": "Current sync",
   "last minute": "last minute",
-  "last 24 hours": "last 24 hours"
+  "last 24 hours": "last 24 hours",
+  "local agent engine — off by default": "local agent engine — off by default",
+  "Enabled": "Enabled",
+  "Disabled": "Disabled",
+  "A locally running `dsh web` instance becomes an agent engine: a full-page cockpit, approval notifications, and per-session auto-approve. Everything stays on your machine.": "A locally running `dsh web` instance becomes an agent engine: a full-page cockpit, approval notifications, and per-session auto-approve. Everything stays on your machine.",
+  "Harness endpoint": "Harness endpoint",
+  "Testing…": "Testing…",
+  "Diagnose": "Diagnose",
+  "Open the cockpit": "Open the cockpit",
+  "Connected (harness {{version}}, {{latencyMs}}ms)": "Connected (harness {{version}}, {{latencyMs}}ms)",
+  "Failed at \"{{stage}}\": {{message}}": "Failed at \"{{stage}}\": {{message}}",
+  "Engines": "Engines"
 }

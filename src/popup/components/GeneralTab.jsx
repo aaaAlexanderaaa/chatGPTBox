@@ -28,6 +28,7 @@ import {
 } from '../../config/predicates.mjs'
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
+import { getSettingsCards } from '../../modules/api.mjs'
 
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
@@ -381,6 +382,17 @@ export function GeneralTab({
           </SettingRow>
         )}
       </SettingSection>
+
+      {getSettingsCards().length > 0 && (
+        <>
+          <Divider />
+          <SettingSection title={t('Engines')}>
+            {getSettingsCards().map(({ id, Component }) => (
+              <Component key={id} config={config} updateConfig={updateConfig} />
+            ))}
+          </SettingSection>
+        </>
+      )}
 
       {isPopupMode && hasProviderSettings && (
         <>

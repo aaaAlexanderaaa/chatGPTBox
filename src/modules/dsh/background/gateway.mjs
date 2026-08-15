@@ -29,6 +29,7 @@
 
 import { createDshClient } from '../client.mjs'
 import { createDshLedgerFold } from '../turn-fold.mjs'
+import { diagnoseDsh } from './fence.mjs'
 
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
@@ -147,7 +148,16 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       title: projectionValue(session, 'title') ?? session.summary.title ?? null,
       loaded: session.loaded,
       autoApprove: session.autoApprove,
-      queueCount: session.queue.length,
+      queueCount: session.queue.filter((item) => item?.placement === 'queued').length,
+      queueItems: session.queue
+        .filter((item) => item?.placement === 'queued')
+        .map((item) => ({
+          id: item.id,
+          text: (item.message?.content || [])
+            .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+            .map((block) => block.text)
+            .join(' '),
+        })),
       jobs: session.jobs,
       waiting: session.fold.getPendingDecisions().length,
     }
@@ -630,6 +640,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     'question.cancel': ({ rpcId, sessionId }) => cancelQuestion(rpcId, sessionId),
     'autoApprove.set': ({ sessionId, value }) => persistAutoApprove(sessionId, value),
     'gateway.diagnose': () => ({ ...connectionMessage(), sessions: sessions.size }),
+    'gateway.diagnoseFull': () => diagnoseDsh(endpoint),
   }
 
   async function handleRequest(port, message) {

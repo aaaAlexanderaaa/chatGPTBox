@@ -46,6 +46,7 @@ export const RuntimeMessage = {
   OpenChatWindow: 'OPEN_CHAT_WINDOW',
   OpenApiServer: 'OPEN_API_SERVER',
   OpenSidePanel: 'OPEN_SIDE_PANEL',
+  DshModuleDiagnose: 'DSH_MODULE_DIAGNOSE',
   ActivateUrl: 'ACTIVATE_URL',
   PinTab: 'PIN_TAB',
 
