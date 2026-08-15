@@ -81,6 +81,13 @@ export function renderLedgerMarkdown(blocks) {
  * @returns {Array<object>}
  */
 export function collectDecisionStates(blocks, sessionId) {
+  // Approval blocks carry no arguments themselves — they live on the tool
+  // block matched by callId (same resolution the gateway's summaries use),
+  // resolved here so no surface ever asks the user to decide blind.
+  const toolBlocks = new Map()
+  for (const block of blocks) {
+    if (block.kind === 'tool' && block.callId) toolBlocks.set(block.callId, block)
+  }
   const decisions = []
   for (const block of blocks) {
     if (block.kind !== 'approval' && block.kind !== 'question') continue
@@ -90,7 +97,7 @@ export function collectDecisionStates(blocks, sessionId) {
       rpcId: block.rpcId,
       approvalId: block.approvalId,
       toolName: block.toolName,
-      args: block.args ?? null,
+      args: block.callId ? toolBlocks.get(block.callId)?.args ?? null : null,
       questions: block.questions ?? null,
       sessionId,
     })
@@ -132,12 +139,24 @@ export default {
 
     let dshSessionId = session.dshSessionId || null
     let unwatch = null
-    let stopRequested = false
+    let cleanedUp = false
+
+    // The abort listeners must live for the TURN's lifetime, not run()'s:
+    // session.prompt resolves on acceptance, seconds before the turn ends.
+    // finish() / stop / disconnect do the cleanup — never a finally block.
+    const cleanup = () => {
+      if (cleanedUp) return
+      cleanedUp = true
+      unwatch?.()
+      cleanController()
+    }
+
     const { cleanController } = setAbortController(
       port,
       () => {
-        // user pressed stop — cancel the running turn, honestly
-        stopRequested = true
+        // user pressed stop — cancel the running turn, honestly, and end
+        // the stream even if the engine's turn-end never arrives.
+        finishRef.current?.()
         if (dshSessionId) {
           void gateway.rpc('session.cancel', { sessionId: dshSessionId }).catch(() => {})
         }
@@ -145,9 +164,10 @@ export default {
       () => {
         // port gone: stop watching. The turn itself keeps running engine-side
         // (记忆即所属 — closing the window never kills work).
-        unwatch?.()
+        cleanup()
       },
     )
+    const finishRef = { current: null }
 
     try {
       if (!dshSessionId) {
@@ -160,42 +180,40 @@ export default {
       let lastAnswer = null
       let finished = false
       const knownDecisions = new Map()
+      let latestBlocks = []
       let baseline = null
       let turnEndBaseline = null
+      let promptAccepted = false
 
       const finish = () => {
         if (finished) return
         finished = true
         const answer = lastAnswer || ''
         pushRecord(session, session.question, answer)
-        port.postMessage({
-          session: {
-            ...session,
-            dshSessionId,
-            conversationRecords: session.conversationRecords,
-          },
-          answer,
-          done: true,
-        })
+        try {
+          port.postMessage({
+            session: {
+              ...session,
+              dshSessionId,
+              conversationRecords: session.conversationRecords,
+            },
+            answer,
+            done: true,
+          })
+        } catch {
+          // port died mid-finish; the disconnect cleanup follows
+        }
+        cleanup()
       }
+      finishRef.current = finish
 
       unwatch = gateway.watchLedger(dshSessionId, (message) => {
         if (message.sessionId !== dshSessionId) return
         const { blocks } = message
-        if (baseline === null) {
-          // First (history) replay: everything before this position is the
-          // session's past — the cockpit owns its display.
-          baseline = baselinePosition(blocks)
-          turnEndBaseline = blocks.filter((b) => b.kind === 'turn-end').length
-        }
-        const fresh = blocks.slice(baseline)
+        latestBlocks = blocks
 
-        const answer = renderLedgerMarkdown(fresh)
-        if (answer !== lastAnswer) {
-          lastAnswer = answer
-          port.postMessage({ answer })
-        }
-
+        // Pending approvals/questions are relevant no matter when they were
+        // raised; announce every state change.
         for (const decision of collectDecisionStates(blocks, dshSessionId)) {
           const key = decisionKey(decision)
           const known = knownDecisions.get(key)
@@ -204,8 +222,20 @@ export default {
           port.postMessage({ dshDecision: decision })
         }
 
+        // The answer stream only starts once this prompt has been accepted:
+        // anything on the ledger before that belongs to earlier turns
+        // (a still-running turn included — its end must not finish us).
+        if (!promptAccepted || baseline === null) return
+        const fresh = blocks.slice(baseline)
+
+        const answer = renderLedgerMarkdown(fresh)
+        if (answer !== lastAnswer) {
+          lastAnswer = answer
+          port.postMessage({ answer })
+        }
+
         const turnEnds = blocks.filter((b) => b.kind === 'turn-end').length
-        if (!stopRequested && turnEnds > turnEndBaseline) finish()
+        if (turnEnds > turnEndBaseline) finish()
       })
 
       try {
@@ -215,16 +245,29 @@ export default {
           content: [{ type: 'text', text: session.question }],
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
-        // The turn usually completes inside the watcher; a stop cancels it
-        // engine-side and the mux will deliver that turn-end too.
+        // Snapshot the baseline at acceptance: everything already on the
+        // ledger predates this turn. Blocks arriving between acceptance and
+        // this assignment are captured on the next push (blocks is the full
+        // fold, the slice is monotone).
+        promptAccepted = true
+        baseline = baselinePosition(latestBlocks)
+        turnEndBaseline = latestBlocks.filter((b) => b.kind === 'turn-end').length
+        const fresh = latestBlocks.slice(baseline)
+        const answer = renderLedgerMarkdown(fresh)
+        if (answer !== lastAnswer) {
+          lastAnswer = answer
+          port.postMessage({ answer })
+        }
       } catch (error) {
-        unwatch()
         port.postMessage({ error: error?.message || String(error) })
         port.postMessage({ done: true })
+        cleanup()
         return
       }
-    } finally {
-      cleanController()
+    } catch (error) {
+      port.postMessage({ error: error?.message || String(error) })
+      port.postMessage({ done: true })
+      cleanup()
     }
   },
 }

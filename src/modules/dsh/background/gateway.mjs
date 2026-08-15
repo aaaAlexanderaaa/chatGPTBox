@@ -788,6 +788,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     }
     for (const timer of pendingLedgerPushes.values()) t.clearTimeout(timer)
     pendingLedgerPushes.clear()
+    ledgerWatchers.clear()
     try {
       mux?.close()
     } catch {

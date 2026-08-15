@@ -3,8 +3,15 @@ import PropTypes from 'prop-types'
 import { Send, Square } from 'lucide-react'
 import { isFirefox, isMobile, isSafari, updateRefHeight } from '../../utils'
 import { useTranslation } from 'react-i18next'
+import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/storage.mjs'
 import { cn } from '../../utils/cn.mjs'
+
+// Draft storage lives in the extension's own storage.local, never page
+// localStorage: this component also renders inside content scripts, where
+// localStorage belongs to the host page and would leak every keystroke to
+// the site and its third-party scripts.
+const draftStorageKey = (draftKey) => `inputbox-draft:${draftKey}`
 
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, draftKey }) {
   const { t } = useTranslation()
@@ -12,23 +19,32 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
 
   // Draft autosave (D-19 hard requirement): any blur, crash, or surface
   // switch keeps every keystroke. Keyed by the owning surface.
+  const draftSavedRef = useRef(true) // false while a debounced save is pending
+
   useEffect(() => {
     if (!draftKey) return
-    try {
-      setValue(localStorage.getItem(draftKey) || '')
-    } catch {
-      setValue('')
+    let cancelled = false
+    void Browser.storage.local
+      .get(draftStorageKey(draftKey))
+      .then((stored) => {
+        if (cancelled) return
+        setValue(stored?.[draftStorageKey(draftKey)] || '')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
   }, [draftKey])
 
   useEffect(() => {
-    if (!draftKey) return
+    if (!draftKey || draftSavedRef.current) return
     const timer = setTimeout(() => {
-      try {
-        localStorage.setItem(draftKey, value)
-      } catch {
-        // private mode / quota — best effort
-      }
+      void Browser.storage.local
+        .set({ [draftStorageKey(draftKey)]: value })
+        .catch(() => {})
+        .then(() => {
+          draftSavedRef.current = true
+        })
     }, 250)
     return () => clearTimeout(timer)
   }, [draftKey, value])
@@ -88,11 +104,8 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
         onSubmit(value)
         setValue('')
         if (draftKey) {
-          try {
-            localStorage.removeItem(draftKey)
-          } catch {
-            // best effort
-          }
+          draftSavedRef.current = true // suppress the debounced re-save of ''
+          void Browser.storage.local.remove(draftStorageKey(draftKey)).catch(() => {})
         }
       } else {
         postMessage({ stop: true })
@@ -129,7 +142,10 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
             enabled ? t('Type your question here') : t('Generating... Press Enter to stop')
           }
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            draftSavedRef.current = false
+            setValue(e.target.value)
+          }}
           onKeyDown={handleKeyDownOrClick}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}

@@ -112,12 +112,9 @@ export function getDshGateway() {
  * background entry point after the message router is wired.
  */
 export async function startModuleBackgrounds() {
-  let config = await readConfig()
-  await applyDshModuleState(config)
-
   // The console (and later popup/sidepanel surfaces) talk to the gateway
-  // over a single runtime port; registered at top level so a revived MV3
-  // worker re-arms it even before any config read resolves.
+  // over a single runtime port; registered before the first (network-bound)
+  // apply so a port opened during MV3 worker cold-start is not dropped.
   Browser.runtime.onConnect.addListener((port) => {
     if (port.name !== DSH_PORT_NAME) return
     if (!dshGateway) {
@@ -157,6 +154,9 @@ export async function startModuleBackgrounds() {
 
   // Clicking the waiting notification opens the cockpit (≤2 operations to
   // answer: click, decide).
+  let config = await readConfig()
+  await applyDshModuleState(config)
+
   Browser.notifications?.onClicked?.addListener((notificationId) => {
     if (notificationId !== DSH_NOTIFICATION_ID) return
     clearDshWaiting()
@@ -171,7 +171,7 @@ export async function startModuleBackgrounds() {
     const relevant =
       'dshModuleEnabled' in changes ||
       'dshEndpoint' in changes ||
-      'dshAutoApproveSetting' in changes
+      'dshModuleAutoApprove' in changes
     if (!relevant) return
     void readConfig().then((next) => {
       const previousEndpoint = config?.dshEndpoint

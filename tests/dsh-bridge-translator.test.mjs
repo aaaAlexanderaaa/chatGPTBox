@@ -56,13 +56,14 @@ describe('collectDecisionStates', () => {
   it('maps approvals and questions into compact payloads with the session id', () => {
     const decisions = collectDecisionStates(
       [
+        { kind: 'tool', callId: 'call-1', name: 'shell', args: 'npm install', status: 'running' },
         {
           kind: 'approval',
           status: 'pending',
           rpcId: 'rpc-1',
           approvalId: 'appr-1',
+          callId: 'call-1',
           toolName: 'shell',
-          args: 'npm install',
         },
         {
           kind: 'question',
