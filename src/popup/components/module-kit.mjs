@@ -5,6 +5,7 @@
 import { SettingRow, SettingSection, ToggleRow, ToggleSwitch, Divider } from './SettingComponents.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import {
+  CHATGPT_WEB_DEBUG_LOG_KEY,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
@@ -18,10 +19,7 @@ import {
   MIN_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
   MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
 } from '../../config/limits.mjs'
-import {
-  CHATGPT_WEB_CONVERSATION_META_KEY,
-  CHATGPT_WEB_DEBUG_LOG_KEY,
-} from '../../services/clients/chatgpt-web/conversation-cache.mjs'
+import { CHATGPT_WEB_CONVERSATION_META_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import { downloadJsonFile, pickJsonFile } from '../file-transfer.mjs'
 import {
   exportChatgptHistoryData,

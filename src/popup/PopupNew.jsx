@@ -1,6 +1,15 @@
 import './styles.css'
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Settings, Layers, Sliders, ExternalLink, ArrowUpRight, Cpu, Wrench } from 'lucide-react'
+import {
+  Settings,
+  Layers,
+  Sliders,
+  ExternalLink,
+  ArrowUpRight,
+  Cpu,
+  Wrench,
+  MessageSquare,
+} from 'lucide-react'
 import Browser from 'webextension-polyfill'
 import {
   defaultConfig,
@@ -13,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '../utils/cn.mjs'
 import { applyDocumentAppearance } from '../utils/appearance.mjs'
 import { downloadJsonFile, pickJsonFile } from './file-transfer.mjs'
+import { ChatPanel } from './ChatPanel.jsx'
 
 // Tab components
 import { GeneralTab } from './components/GeneralTab.jsx'
@@ -30,6 +40,7 @@ const FULL_SETTINGS_TABS = [
 ]
 
 const POPUP_TABS = [
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'general', label: 'General', icon: Settings },
   { id: 'features', label: 'Sites', icon: Layers },
   { id: 'advanced', label: 'Advanced', icon: Sliders },
@@ -192,44 +203,50 @@ function Popup() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
-        {activeTab === 'general' && (
-          <GeneralTab
-            config={config}
-            updateConfig={updateConfig}
-            isPopupMode={isPopupMode}
-            openFullSettings={openFullSettings}
-            onNavigateToEngines={() =>
-              isPopupMode ? void openFullSettings('engines') : setActiveTab('engines')
-            }
-          />
-        )}
-        {!isPopupMode && activeTab === 'engines' && (
-          <EnginesTab config={config} updateConfig={updateConfig} />
-        )}
-        {activeTab === 'features' && (
-          <FeaturesTab
-            config={config}
-            updateConfig={updateConfig}
-            isPopupMode={isPopupMode}
-            openFullSettings={openFullSettings}
-          />
-        )}
-        {!isPopupMode && activeTab === 'tools' && (
-          <ToolsTab config={config} updateConfig={updateConfig} />
-        )}
-        {activeTab === 'advanced' && (
-          <AdvancedTab
-            config={config}
-            updateConfig={updateConfig}
-            isPopupMode={isPopupMode}
-            openFullSettings={openFullSettings}
-            onExport={handleExport}
-            onImport={handleImport}
-            onReset={handleReset}
-          />
-        )}
-      </div>
+      {isPopupMode && activeTab === 'chat' ? (
+        <div className="flex-1 min-h-0">
+          <ChatPanel />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
+          {activeTab === 'general' && (
+            <GeneralTab
+              config={config}
+              updateConfig={updateConfig}
+              isPopupMode={isPopupMode}
+              openFullSettings={openFullSettings}
+              onNavigateToEngines={() =>
+                isPopupMode ? void openFullSettings('engines') : setActiveTab('engines')
+              }
+            />
+          )}
+          {!isPopupMode && activeTab === 'engines' && (
+            <EnginesTab config={config} updateConfig={updateConfig} />
+          )}
+          {activeTab === 'features' && (
+            <FeaturesTab
+              config={config}
+              updateConfig={updateConfig}
+              isPopupMode={isPopupMode}
+              openFullSettings={openFullSettings}
+            />
+          )}
+          {!isPopupMode && activeTab === 'tools' && (
+            <ToolsTab config={config} updateConfig={updateConfig} />
+          )}
+          {activeTab === 'advanced' && (
+            <AdvancedTab
+              config={config}
+              updateConfig={updateConfig}
+              isPopupMode={isPopupMode}
+              openFullSettings={openFullSettings}
+              onExport={handleExport}
+              onImport={handleImport}
+              onReset={handleReset}
+            />
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <div className="px-5 py-3 border-t border-border bg-card/50 flex items-center justify-between">
