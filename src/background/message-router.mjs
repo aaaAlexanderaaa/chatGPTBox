@@ -117,8 +117,15 @@ export function createMessageRouter() {
       case RuntimeMessage.OpenSidePanel: {
         // eslint-disable-next-line no-undef
         if (typeof chrome !== 'undefined' && chrome.sidePanel) {
-          const tabId = message?.data?.tabId || sender?.tab?.id
-          const windowId = message?.data?.windowId || sender?.tab?.windowId
+          // Extension pages (e.g. the dsh cockpit) have no sender.tab — fall
+          // back to the tab the user is currently looking at.
+          let tabId = message?.data?.tabId || sender?.tab?.id
+          let windowId = message?.data?.windowId || sender?.tab?.windowId
+          if (!tabId) {
+            const [activeTab] = await Browser.tabs.query({ active: true, currentWindow: true })
+            tabId = activeTab?.id
+            windowId = windowId || activeTab?.windowId
+          }
           const requestedPath = message?.data?.path
           // Surfaces may ask for a specific panel page (e.g. the dsh cockpit
           // narrow layout); whitelist extension pages so this can never be

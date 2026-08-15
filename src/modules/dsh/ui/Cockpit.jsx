@@ -256,7 +256,9 @@ function EmptyState({ onCreate }) {
       >
         <Plus size={14} /> New session
       </button>
-      <p className="text-xs">Selection tools on any page can also dispatch work here (Phase B).</p>
+      <p className="text-xs">
+        Pick the DeepSeek Harness engine in any floating window to dispatch work from that page.
+      </p>
     </div>
   )
 }

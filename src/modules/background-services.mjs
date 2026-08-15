@@ -142,8 +142,14 @@ export async function startModuleBackgrounds() {
       // (floating window cards, the popup's pinned waiting cards).
       const data = message.data || {}
       if (!dshGateway || !data.rpcId) return Promise.resolve({ accepted: false })
+      const method =
+        data.kind === 'question'
+          ? 'question.respond'
+          : data.kind === 'question-cancel'
+            ? 'question.cancel'
+            : 'approval.respond'
       return dshGateway
-        .rpc(data.kind === 'question' ? 'question.respond' : 'approval.respond', data)
+        .rpc(method, data)
         .catch((error) => ({ accepted: false, error: error?.message || String(error) }))
     }
     return undefined
