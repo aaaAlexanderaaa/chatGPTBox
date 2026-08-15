@@ -4,6 +4,10 @@ import '../_locales/i18n-react'
 import Browser from 'webextension-polyfill'
 import { changeLanguage } from 'i18next'
 import { getPreferredLanguageKey } from '../config/storage.mjs'
+// Register the module settings cards for THIS bundle too: options.html is
+// where the Engines tab (and its module cards) renders, but this entry
+// imports PopupNew directly and never passes through popup/index.jsx.
+import '../modules/settings-cards.mjs'
 import IndependentPanelApp from '../pages/IndependentPanel/App.jsx'
 import Popup from '../popup/PopupNew.jsx'
 import { RuntimeMessage } from '../protocol/messages.mjs'
