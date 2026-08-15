@@ -25,7 +25,8 @@
     "tabs",
     "webRequest",
     "declarativeNetRequestWithHostAccess",
-    "sidePanel"
+    "sidePanel",
+    "notifications"
   ],
   "optional_permissions": [
     "background"

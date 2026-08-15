@@ -20,7 +20,8 @@
     "https://*.chatgpt.com/*",
     "https://*.openai.com/",
     "https://*.moonshot.cn/*",
-    "<all_urls>"
+    "<all_urls>",
+    "notifications"
   ],
   "content_security_policy": "script-src 'self'; object-src 'self'; connect-src 'self' http: https: ws: wss:",
   "background": {

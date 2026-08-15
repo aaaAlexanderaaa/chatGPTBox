@@ -154,8 +154,11 @@ export function createDshClient({
   }
 
   /**
-   * Open the mux downlink and resolve once the socket is open.
+   * Open a downlink-only WebSocket (`/api/events.mux` or `/api/events.host`)
+   * and resolve once the socket is open. Both streams broadcast to ALL
+   * subscribers and close with 1008 if the client ever sends a frame.
    *
+   * @param {string} path - '/api/events.mux' | '/api/events.host'
    * @param {object} handlers
    * @param {(frame: object, envelope: { rpcId: string, method: string }) => void} handlers.onFrame
    * @param {() => void} [handlers.onClose]
@@ -163,15 +166,15 @@ export function createDshClient({
    * @param {AbortSignal} [handlers.signal]
    * @returns {Promise<{ close: () => void }>}
    */
-  function openMux({ onFrame, onClose, onError, signal } = {}) {
-    const url = `${origin.replace(/^http/, 'ws')}/api/events.mux`
+  function openDownlink(path, { onFrame, onClose, onError, signal } = {}) {
+    const url = `${origin.replace(/^http/, 'ws')}${path}`
     return new Promise((resolve, reject) => {
       let settled = false
       let socket
       try {
         socket = new SocketImpl(url)
       } catch (error) {
-        reject(new DshTransportError(`DSH bridge: cannot open mux socket (${error})`))
+        reject(new DshTransportError(`DSH module: cannot open ${path} socket (${error})`))
         return
       }
       const handleOpen = () => {
@@ -193,14 +196,12 @@ export function createDshClient({
           if (envelope?.type !== 'server-request') return
           onFrame?.(envelope.payload, envelope)
         } catch (error) {
-          console.debug('DSH bridge: dropping malformed mux frame', error)
+          console.debug(`DSH module: dropping malformed ${path} frame`, error)
         }
       }
       const handleFailure = (event) => {
         const error = new DshTransportError(
-          `DSH bridge: mux socket closed before turn end${
-            event?.reason ? ` (${event.reason})` : ''
-          }`,
+          `DSH module: ${path} socket closed${event?.reason ? ` (${event.reason})` : ''}`,
         )
         if (!settled) {
           settled = true
@@ -228,5 +229,22 @@ export function createDshClient({
     })
   }
 
-  return { rpc, respond: respondToServerRequest, openMux, baseUrl: origin }
+  /**
+   * The session multiplex downlink (all sessions, all frames).
+   * @param {object} handlers - see openDownlink.
+   */
+  function openMux(handlers) {
+    return openDownlink('/api/events.mux', handlers)
+  }
+
+  /**
+   * The host downlink (session-added/removed/status, workspace changes,
+   * agent errors).
+   * @param {object} handlers - see openDownlink.
+   */
+  function openHost(handlers) {
+    return openDownlink('/api/events.host', handlers)
+  }
+
+  return { rpc, respond: respondToServerRequest, openMux, openHost, baseUrl: origin }
 }

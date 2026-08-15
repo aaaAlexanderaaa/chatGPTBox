@@ -1,142 +1,191 @@
 import { describe, expect, it } from 'vitest'
-import { createDshTurnFold } from '../src/modules/dsh/turn-fold.mjs'
+import { createDshLedgerFold, previewToolArgs } from '../src/modules/dsh/turn-fold.mjs'
 
 // Frame/event builders matching the harness wire shapes (MuxFrame payloads and
 // SessionEvent envelopes from packages/host/apiproxy + packages/core/session).
 
-const event = (type, data) => ({ type, seq: 0, time: 0, data })
+const event = (type, data, seq = 0, time = 0) => ({ type, seq, time, data })
 const frame = (type, payload = {}) => ({ type, sessionId: 's1', ...payload })
 
-function chunk(turn, step, text) {
-  return event('assistant/chunk', { turn, step, chunk: { type: 'text-delta', index: 0, text } })
+function chunk(turn, step, text, seq, time) {
+  return event('assistant/chunk', { turn, step, chunk: { type: 'text-delta', index: 0, text } }, seq, time)
 }
 
-describe('dsh turn fold', () => {
-  it('accumulates streamed text and completes on turn/end', () => {
-    const fold = createDshTurnFold()
-    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }) }))
-    let r = fold.pushFrame(frame('session/event', { event: chunk(1, 0, 'Hello') }))
-    expect(r.answer).toBe('Hello')
-    r = fold.pushFrame(frame('session/event', { event: chunk(1, 0, ' world') }))
-    expect(r.answer).toBe('Hello world')
-    expect(r.done).toBe(false)
-    r = fold.pushFrame(
+describe('dsh ledger fold', () => {
+  it('accumulates streamed text and records the turn boundary', () => {
+    const fold = createDshLedgerFold()
+    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }, 0, 1000) }))
+    fold.pushFrame(frame('session/event', { event: chunk(1, 0, 'Hello', 1, 1100) }))
+    fold.pushFrame(frame('session/event', { event: chunk(1, 0, ' world', 2, 1200) }))
+    fold.pushFrame(
       frame('session/event', {
-        event: event('turn/end', { turn: 1, reason: { kind: 'completed' } }),
+        event: event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3, 2000),
       }),
     )
-    expect(r.done).toBe(true)
-    expect(r.error).toBeNull()
-    expect(fold.getAnswer()).toBe('Hello world')
+    const blocks = fold.getBlocks()
+    expect(blocks.map((b) => b.kind)).toEqual(['text', 'turn-end'])
+    expect(blocks[0].text).toBe('Hello world')
+    expect(blocks[1]).toMatchObject({
+      kind: 'turn-end',
+      turn: 1,
+      reasonKind: 'completed',
+      startedAt: 1000,
+      endedAt: 2000,
+    })
   })
 
   it('assistant/message replaces the streamed text authoritatively', () => {
-    const fold = createDshTurnFold()
-    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }) }))
-    fold.pushFrame(frame('session/event', { event: chunk(1, 0, 'Hel') }))
+    const fold = createDshLedgerFold()
+    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }, 0) }))
+    fold.pushFrame(frame('session/event', { event: chunk(1, 0, 'Hel', 1) }))
     fold.pushFrame(
       frame('session/event', {
-        event: event('assistant/message', {
-          turn: 1,
-          step: 0,
-          message: { role: 'assistant', content: [{ type: 'text', text: 'Final text' }] },
-        }),
+        event: event(
+          'assistant/message',
+          { turn: 1, step: 0, message: { role: 'assistant', content: [{ type: 'text', text: 'Final text' }] } },
+          2,
+        ),
       }),
     )
-    expect(fold.getAnswer()).toBe('Final text')
+    expect(fold.getBlocks()[0].text).toBe('Final text')
   })
 
-  it('renders tool calls and results as activity lines', () => {
-    const fold = createDshTurnFold()
-    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }) }))
+  it('folds tool calls with full arguments, status, and wall time', () => {
+    const fold = createDshLedgerFold()
+    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }, 0, 1000) }))
     fold.pushFrame(
       frame('session/event', {
-        event: event('tool/call', {
-          turn: 1,
-          step: 0,
-          callId: 'c1',
-          name: 'read_file',
-          arguments: '{"path":"a.txt"}',
-        }),
+        event: event(
+          'tool/call',
+          { turn: 1, step: 0, callId: 'c1', name: 'shell', arguments: '{"cmd":"rm -rf node_modules && npm install"}' },
+          1,
+          2000,
+        ),
       }),
     )
     fold.pushFrame(
       frame('session/event', {
-        event: event('tool/result', {
-          turn: 1,
-          step: 0,
-          message: { toolCallId: 'c1', content: [] },
-        }),
+        event: event(
+          'tool/result',
+          { turn: 1, step: 0, message: { toolCallId: 'c1', content: [{ type: 'text', text: 'done' }] } },
+          2,
+          32000,
+        ),
       }),
     )
-    expect(fold.getAnswer()).toContain('🔧 `read_file`')
-    expect(fold.getAnswer()).toContain('a.txt')
-  })
-
-  it('does not complete on a turn/end of a turn it never saw start', () => {
-    const fold = createDshTurnFold()
-    const r = fold.pushFrame(
-      frame('session/event', {
-        event: event('turn/end', { turn: 7, reason: { kind: 'completed' } }),
-      }),
-    )
-    expect(r.done).toBe(false)
-  })
-
-  it('exposes approval requests and applies outcomes', () => {
-    const fold = createDshTurnFold()
-    fold.pushFrame(frame('approval/requested', { approvalId: 'ap1', toolName: 'bash' }), {
-      rpcId: 'rpc-1',
+    const tool = fold.getBlocks().find((b) => b.kind === 'tool')
+    expect(tool).toMatchObject({
+      callId: 'c1',
+      name: 'shell',
+      args: '{"cmd":"rm -rf node_modules && npm install"}',
+      status: 'done',
+      startedAt: 2000,
+      endedAt: 32000,
+      resultText: 'done',
     })
-    const pending = fold.takePendingApprovals()
-    expect(pending).toEqual([{ rpcId: 'rpc-1', approvalId: 'ap1', toolName: 'bash' }])
-    expect(fold.getAnswer()).toContain('bash')
-    fold.markApprovalOutcome('ap1', 'allowed-once')
-    expect(fold.getAnswer()).toContain('Approved')
   })
 
-  it('turn/end with an error surfaces the failure message', () => {
-    const fold = createDshTurnFold()
-    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }) }))
-    const r = fold.pushFrame(
-      frame('session/event', {
-        event: event('turn/end', {
-          turn: 1,
-          reason: { kind: 'error', error: { message: 'provider down' } },
-        }),
-      }),
-    )
-    expect(r.done).toBe(true)
-    expect(r.error).toBe('provider down')
+  it('turn/end notes the six end shapes distinctly', () => {
+    const reasons = [
+      [{ kind: 'completed' }, 'completed'],
+      [{ kind: 'aborted', reason: { kind: 'user' } }, 'aborted'],
+      [{ kind: 'interrupted' }, 'interrupted'],
+      [{ kind: 'blocked' }, 'blocked'],
+      [{ kind: 'max-tokens' }, 'max-tokens'],
+      [{ kind: 'error', error: { message: 'provider down' } }, 'error'],
+    ]
+    let seq = 0
+    for (const [reason, expectedKind] of reasons) {
+      const fold = createDshLedgerFold()
+      fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 1 }, seq++) }))
+      fold.pushFrame(frame('session/event', { event: event('turn/end', { turn: 1, reason }, seq++) }))
+      const end = fold.getBlocks().at(-1)
+      expect(end.reasonKind).toBe(expectedKind)
+      if (expectedKind === 'error') expect(end.note).toContain('provider down')
+    }
   })
 
-  it('re-folding the same events (history salvage) does not duplicate output', () => {
-    const fold = createDshTurnFold()
+  it('gates on seq: replays (history salvage) never duplicate', () => {
+    const fold = createDshLedgerFold()
     const events = [
-      event('turn/start', { turn: 1 }),
-      chunk(1, 0, 'Hel'),
-      chunk(1, 0, 'lo'),
-      event('assistant/message', {
-        turn: 1,
-        step: 0,
-        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
-      }),
-      event('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'ls', arguments: '{}' }),
-      event('turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      event('turn/start', { turn: 1 }, 0),
+      chunk(1, 0, 'Hel', 1),
+      chunk(1, 0, 'lo', 2),
+      event(
+        'assistant/message',
+        { turn: 1, step: 0, message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] } },
+        3,
+      ),
+      event('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'ls', arguments: '{}' }, 4),
+      event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5),
     ]
     for (const e of events) fold.pushFrame(frame('session/event', { event: e }))
-    const once = fold.getAnswer()
-    for (const e of events) fold.pushFrame(frame('session/event', { event: e }))
-    expect(fold.getAnswer()).toBe(once)
-    expect(fold.getAnswer()).toBe('Hello\n\n> 🔧 `ls` `{}`')
+    // getBlocks() returns the live array — snapshot it for the assertions.
+    const once = [...fold.getBlocks()]
+    expect(fold.getLastSeq()).toBe(5)
+    for (const e of events) fold.pushFrame(frame('session/event', { event: e })) // full replay
+    expect(fold.getBlocks()).toEqual(once)
+    // Strictly-new seq continues the same fold (turn/start itself adds no
+    // block; the next chunk does).
+    fold.pushFrame(frame('session/event', { event: event('turn/start', { turn: 2 }, 6) }))
+    fold.pushFrame(frame('session/event', { event: chunk(2, 0, 'Next', 7) }))
+    expect(fold.getBlocks().length).toBe(once.length + 1)
+    expect(fold.getBlocks().at(-1).text).toBe('Next')
   })
 
-  it('stream/error fails the fold', () => {
-    const fold = createDshTurnFold()
-    const r = fold.pushFrame(
-      frame('stream/error', { error: { code: 'internal', message: 'boom' } }),
+  it('user prompts become user blocks', () => {
+    const fold = createDshLedgerFold()
+    fold.pushFrame(
+      frame('session/event', {
+        event: event(
+          'user/message',
+          { turn: 0, message: { role: 'user', content: [{ type: 'text', text: 'fix the build' }] } },
+          0,
+        ),
+      }),
     )
-    expect(r.done).toBe(true)
-    expect(r.error).toContain('boom')
+    expect(fold.getBlocks()).toEqual([{ kind: 'user', seq: 0, turn: 0, text: 'fix the build' }])
+  })
+
+  it('exposes pending approvals/questions and applies outcomes', () => {
+    const fold = createDshLedgerFold()
+    fold.pushFrame(frame('approval/requested', { approvalId: 'ap1', toolName: 'bash', callId: 'c1' }), {
+      rpcId: 'rpc-1',
+    })
+    fold.pushFrame(
+      frame('question/requested', {
+        questions: [
+          { id: 'q1', question: 'Which DB?', options: [{ label: 'postgres' }, { label: 'sqlite' }] },
+        ],
+      }),
+      { rpcId: 'rpc-2' },
+    )
+    const pending = fold.getPendingDecisions()
+    expect(pending.map((p) => p.type)).toEqual(['approval', 'question'])
+    expect(pending[0].block.rpcId).toBe('rpc-1')
+    // Full approval arguments come from the matched tool/call block.
+    fold.pushFrame(
+      frame('session/event', {
+        event: event(
+          'tool/call',
+          { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{"cmd":"reboot"}' },
+          0,
+        ),
+      }),
+    )
+    expect(fold.getToolCall('c1').args).toBe('{"cmd":"reboot"}')
+
+    fold.markApprovalOutcome('ap1', 'allowed-once')
+    fold.markQuestionOutcome('rpc-2', 'answered')
+    expect(fold.getPendingDecisions()).toEqual([])
+    // approval/resolved from another client settles unknown outcomes too.
+    fold.pushFrame(frame('approval/requested', { approvalId: 'ap2', toolName: 'edit_file' }), { rpcId: 'rpc-3' })
+    fold.pushFrame(frame('approval/resolved', { approvalId: 'ap2', outcome: 'rejected' }))
+    expect(fold.getBlocks().at(-1).status).toBe('rejected')
+  })
+
+  it('args preview clamps long single lines', () => {
+    expect(previewToolArgs('a'.repeat(100), 60)).toHaveLength(61)
+    expect(previewToolArgs('a b\n c', 60)).toBe('a b c')
   })
 })
