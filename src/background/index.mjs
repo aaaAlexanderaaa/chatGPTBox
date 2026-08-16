@@ -35,6 +35,7 @@ import {
   handleProxyResponsePort,
 } from './chatgpt-proxy-service.mjs'
 import { handleGrokProxyResponsePort } from './grok-proxy-service.mjs'
+import { registerGrokProbe } from './grok-probe-service.mjs'
 import { getChatgptWebConversationMeta } from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
   CHATGPT_WEB_HISTORY_SYNC_ALARM,
@@ -242,6 +243,41 @@ try {
 } catch (error) {
   console.log(error)
 }
+
+// --- Grok Web login probe (GET-only; never opens a tab) -------------------
+
+async function fetchGrokProbeOnTab(tabId) {
+  // Page-context GETs so cookies travel with the existing grok.com document.
+  // No new protocol types; no tabs.create.
+  const results = await Browser.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      const getJson = async (url) => {
+        try {
+          const resp = await fetch(url, { credentials: 'include', method: 'GET' })
+          if (!resp.ok) return null
+          return await resp.json().catch(() => null)
+        } catch {
+          return null
+        }
+      }
+      return {
+        sessionJson: await getJson('https://grok.com/api/auth/session'),
+        rateLimitJson: await getJson('https://grok.com/rest/rate-limits'),
+      }
+    },
+  })
+  return results?.[0]?.result ?? { sessionJson: null, rateLimitJson: null }
+}
+
+registerGrokProbe({
+  cookiesApi: Browser.cookies,
+  tabsApi: Browser.tabs,
+  fetchImpl: typeof fetch === 'function' ? fetch.bind(globalThis) : undefined,
+  fetchOnTab: fetchGrokProbeOnTab,
+  setUserConfig,
+  getUserConfig,
+})
 
 // --- startup --------------------------------------------------------------
 
