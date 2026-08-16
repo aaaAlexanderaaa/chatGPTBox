@@ -6,7 +6,6 @@ import ConversationItem from '../ConversationItem'
 import {
   apiModeToModelName,
   createElementAtPosition,
-  getApiModesFromConfig,
   isApiModeSelected,
   isFirefox,
   isMobile,
@@ -30,8 +29,8 @@ import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { getUserConfig } from '../../config/storage.mjs'
-import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
-import { isChatgptWebKeyAvailableForAccount } from '../../config/account-models.mjs'
+import { DSH_HARNESS_API_MODE } from '../../config/models.mjs'
+import { visibleApiModesForConfig } from '../../popup/components/engine-options.mjs'
 import {
   isUsingChatgptWebModel,
   isUsingDshHarnessModel,
@@ -216,25 +215,8 @@ function ConversationCard(props) {
   }, [props.question, triggered]) // usually only triggered once
 
   useLayoutEffect(() => {
-    setApiModes(
-      getApiModesFromConfig(config, true).filter((apiMode) => {
-        if (!apiMode || !apiMode.groupName) return false
-        const modelName = apiModeToModelName(apiMode)
-        const isSelected = isApiModeSelected(apiMode, session)
-        const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
-        if (!providerEnabled && !isSelected) return false
-        if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName))
-          return false
-        // D-15: never offer a ChatGPT Web tier the account cannot use
-        if (
-          !isSelected &&
-          apiMode.groupName === 'chatgptWebModelKeys' &&
-          !isChatgptWebKeyAvailableForAccount(modelName, config.chatgptWebAccountModels)
-        )
-          return false
-        return true
-      }),
-    )
+    const selected = session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName
+    setApiModes(visibleApiModesForConfig(config, selected))
   }, [
     config.activeApiModes,
     config.customApiModes,
@@ -243,6 +225,9 @@ function ConversationCard(props) {
     config.enabledProviders,
     config.showDeprecatedModels,
     config.chatgptWebAccountModels,
+    config.grokWebSignedIn,
+    config.grokWebAccountTier,
+    config.grokWebAccountModels,
     session.apiMode,
     session.modelName,
   ])

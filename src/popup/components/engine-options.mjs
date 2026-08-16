@@ -17,16 +17,16 @@ function modelNameToSelectLabel(modelName, config, t) {
 }
 
 /**
- * Build the selectable engine list from config.
+ * Api modes visible in Settings and ConversationCard pickers.
+ * Grok is gated by `grokWebSignedIn` (not `enabledProviders`).
  *
  * @param {object} config
- * @param {(key: string, opts?: object) => string} t
- * @param {{ selectedModelName?: string }} [options] - keep the given
- *   selection visible even when its provider is disabled/deprecated
- * @returns {Array<{ value: string, label: string, apiMode: object|null }>}
+ * @param {string} [selectedModelName] - keep this selection visible when filtered out
+ * @returns {object[]}
  */
-export function buildEngineOptions(config, t, { selectedModelName } = {}) {
-  const selected = selectedModelName || (config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName)
+export function visibleApiModesForConfig(config, selectedModelName) {
+  const selected =
+    selectedModelName || (config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName)
   const apiModes = getApiModesFromConfig(config, true).filter((apiMode) => {
     if (!apiMode || !apiMode.groupName) return false
     const modelName = apiModeToModelName(apiMode)
@@ -45,6 +45,35 @@ export function buildEngineOptions(config, t, { selectedModelName } = {}) {
     }
     return true
   })
+
+  const seen = new Set(apiModes.map((m) => apiModeToModelName(m)).filter(Boolean))
+  const withGrok = [...apiModes]
+  for (const apiMode of grokWebApiModesForAccount({
+    signedIn: config.grokWebSignedIn === true,
+    tier: config.grokWebAccountTier,
+    availableSlugs: config.grokWebAccountModels,
+    selectedModelName: selected,
+  })) {
+    const modelName = apiModeToModelName(apiMode)
+    if (!modelName || seen.has(modelName)) continue
+    seen.add(modelName)
+    withGrok.push(apiMode)
+  }
+  return withGrok
+}
+
+/**
+ * Build the selectable engine list from config.
+ *
+ * @param {object} config
+ * @param {(key: string, opts?: object) => string} t
+ * @param {{ selectedModelName?: string }} [options] - keep the given
+ *   selection visible even when its provider is disabled/deprecated
+ * @returns {Array<{ value: string, label: string, apiMode: object|null }>}
+ */
+export function buildEngineOptions(config, t, { selectedModelName } = {}) {
+  const selected = selectedModelName || (config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName)
+  const apiModes = visibleApiModesForConfig(config, selected)
 
   const opts = apiModes
     .map((apiMode) => {
@@ -72,19 +101,6 @@ export function buildEngineOptions(config, t, { selectedModelName } = {}) {
       value: 'dshHarnessAgent',
       label: modelNameToDesc('dshHarnessAgent', t),
       apiMode: DSH_HARNESS_API_MODE,
-    })
-  }
-
-  for (const apiMode of grokWebApiModesForAccount({
-    signedIn: config.grokWebSignedIn === true,
-    tier: config.grokWebAccountTier,
-    availableSlugs: config.grokWebAccountModels,
-    selectedModelName: selected,
-  })) {
-    opts.push({
-      value: apiMode.itemName,
-      label: modelNameToSelectLabel(apiMode.itemName, config, t),
-      apiMode,
     })
   }
 

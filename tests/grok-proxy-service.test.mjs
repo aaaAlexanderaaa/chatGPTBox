@@ -6,6 +6,25 @@ import {
 } from '../src/content-script/grok-proxy-handlers.mjs'
 import { GrokProxyControlAction, RuntimeMessage } from '../src/protocol/messages.mjs'
 
+function signedInSessionFetch({ postStatus = 200, postBody } = {}) {
+  return async (url, init) => {
+    if (String(url).includes('/api/auth/session')) {
+      return new Response(JSON.stringify({ user: { userId: 'u1' } }), { status: 200 })
+    }
+    if (String(url).includes('/rest/rate-limits')) {
+      return new Response(JSON.stringify({ tier: 'super' }), { status: 200 })
+    }
+    if (String(url).includes('/conversations/new')) {
+      expect(init?.method).toBe('POST')
+      return new Response(
+        postBody ?? `data: ${JSON.stringify({ token: 'ok', conversationId: 'c1' })}\n\n`,
+        { status: postStatus },
+      )
+    }
+    throw new Error(`unexpected url ${url}`)
+  }
+}
+
 describe('acquireGrokWebSessionLock', () => {
   it('serializes one session and rejects a second locker', () => {
     const posts = []
@@ -20,22 +39,106 @@ describe('acquireGrokWebSessionLock', () => {
 })
 
 describe('handleGrokProxyRequest', () => {
-  it('uses the injected fetch once and returns folded text', async () => {
-    let posts = 0
+  it('hard-confirms session then POSTs once and returns folded text', async () => {
+    let chatPosts = 0
+    const configs = []
     const messages = []
     const result = await handleGrokProxyRequest({
       session: { question: 'hi', modelName: 'grokWebExpert' },
-      fetch: async () => {
-        posts += 1
-        return new Response(`data: ${JSON.stringify({ token: 'ok', conversationId: 'c1' })}\n\n`, {
-          status: 200,
-        })
+      fetch: async (url, init) => {
+        if (String(url).includes('/conversations/new')) chatPosts += 1
+        return signedInSessionFetch()(url, init)
       },
       post: (m) => messages.push(m),
+      setUserConfig: async (value) => {
+        configs.push(value)
+      },
     })
-    expect(posts).toBe(1)
+    expect(chatPosts).toBe(1)
     expect(result.answer).toBe('ok')
     expect(messages.some((m) => m.done)).toBe(true)
+    expect(configs.at(-1)).toMatchObject({
+      grokWebSignedIn: true,
+      grokWebAccountTier: 'super',
+    })
+  })
+
+  it('does not POST when session GET is unauthenticated and clears signed-in', async () => {
+    let chatPosts = 0
+    const configs = []
+    await expect(
+      handleGrokProxyRequest({
+        session: { question: 'hi', modelName: 'grokWebFast' },
+        fetch: async (url) => {
+          if (String(url).includes('/conversations/new')) chatPosts += 1
+          if (String(url).includes('/api/auth/session')) {
+            return new Response(JSON.stringify({ status: 'unauthenticated' }), { status: 200 })
+          }
+          throw new Error(`unexpected url ${url}`)
+        },
+        setUserConfig: async (value) => {
+          configs.push(value)
+        },
+      }),
+    ).rejects.toThrow(/Please login at https:\/\/grok\.com first/)
+    expect(chatPosts).toBe(0)
+    expect(configs).toEqual([
+      {
+        grokWebSignedIn: false,
+        grokWebAccountTier: '',
+        grokWebAccountModels: [],
+      },
+    ])
+  })
+
+  it('does not POST when session GET fails and clears signed-in', async () => {
+    let chatPosts = 0
+    const configs = []
+    await expect(
+      handleGrokProxyRequest({
+        session: { question: 'hi', modelName: 'grokWebFast' },
+        fetch: async (url) => {
+          if (String(url).includes('/conversations/new')) chatPosts += 1
+          if (String(url).includes('/api/auth/session')) {
+            return new Response('nope', { status: 500 })
+          }
+          throw new Error(`unexpected url ${url}`)
+        },
+        setUserConfig: async (value) => {
+          configs.push(value)
+        },
+      }),
+    ).rejects.toThrow(/Please login at https:\/\/grok\.com first/)
+    expect(chatPosts).toBe(0)
+    expect(configs.at(-1)).toMatchObject({ grokWebSignedIn: false })
+  })
+
+  it('clears signed-in on 401 from writer.send without retrying POST', async () => {
+    let chatPosts = 0
+    const configs = []
+    await expect(
+      handleGrokProxyRequest({
+        session: { question: 'hi', modelName: 'grokWebFast' },
+        fetch: async (url, init) => {
+          if (String(url).includes('/api/auth/session')) {
+            return new Response(JSON.stringify({ user: { userId: 'u1' } }), { status: 200 })
+          }
+          if (String(url).includes('/rest/rate-limits')) {
+            return new Response(JSON.stringify({ tier: 'basic' }), { status: 200 })
+          }
+          if (String(url).includes('/conversations/new')) {
+            chatPosts += 1
+            return new Response('unauthorized', { status: 401 })
+          }
+          throw new Error(`unexpected ${url} ${init?.method}`)
+        },
+        setUserConfig: async (value) => {
+          configs.push(value)
+        },
+      }),
+    ).rejects.toThrow(/401/)
+    expect(chatPosts).toBe(1)
+    expect(configs.at(-1)).toMatchObject({ grokWebSignedIn: false })
   })
 })
 

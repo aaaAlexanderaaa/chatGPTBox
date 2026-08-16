@@ -1,7 +1,7 @@
 import Browser from 'webextension-polyfill'
 import { Models } from '../config/models.mjs'
 import { pickDefaultGrokWebKey } from '../config/grok-web.mjs'
-import { getUserConfig } from '../config/storage.mjs'
+import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { createGrokChatWriter } from '../services/clients/grok-web/chat.mjs'
 import {
@@ -10,7 +10,16 @@ import {
   normalizeGrokConversationList,
   normalizeGrokConversationSnapshot,
 } from '../services/clients/grok-web/conversations.mjs'
+import {
+  buildGrokProbeConfig,
+  parseGrokAuthSession,
+  parseGrokRateLimits,
+} from '../services/clients/grok-web/session.mjs'
 import { saveGrokWebSessionSnapshot } from '../services/clients/grok-web/thread-state.mjs'
+
+const GROK_AUTH_SESSION_URL = 'https://grok.com/api/auth/session'
+const GROK_RATE_LIMITS_URL = 'https://grok.com/rest/rate-limits'
+const GROK_LOGIN_ERROR = 'Please login at https://grok.com first'
 
 export function isGrokProxyMessage(message) {
   return (
@@ -21,6 +30,49 @@ export function isGrokProxyMessage(message) {
 
 function pageFetchWithCredentials(fetchImpl) {
   return (url, init = {}) => fetchImpl(url, { ...init, credentials: 'include' })
+}
+
+function looksLikeGrokUnauthError(err) {
+  const msg = err?.message || String(err)
+  return /\b401\b/.test(msg) || /unauth/i.test(msg)
+}
+
+async function clearGrokSignedIn(setConfig) {
+  await setConfig(buildGrokProbeConfig({ session: { signedIn: false }, tier: '' }))
+}
+
+/**
+ * GET-confirm session (and optionally tier) before any chat POST.
+ * Never POSTs. On failure clears signed-in and throws a login error.
+ */
+async function hardConfirmGrokSessionBeforeWrite({ fetch, setConfig }) {
+  let sessionJson
+  try {
+    const response = await fetch(GROK_AUTH_SESSION_URL)
+    if (!response.ok) throw new Error(`session ${response.status}`)
+    sessionJson = await response.json()
+  } catch {
+    await clearGrokSignedIn(setConfig)
+    throw new Error(GROK_LOGIN_ERROR)
+  }
+
+  const session = parseGrokAuthSession(sessionJson)
+  if (!session.signedIn) {
+    await clearGrokSignedIn(setConfig)
+    throw new Error(GROK_LOGIN_ERROR)
+  }
+
+  let tier = 'basic'
+  try {
+    const rateResponse = await fetch(GROK_RATE_LIMITS_URL)
+    if (rateResponse.ok) {
+      tier = parseGrokRateLimits(await rateResponse.json())
+    }
+  } catch {
+    /* keep basic; session is already confirmed */
+  }
+
+  await setConfig(buildGrokProbeConfig({ session, tier }))
 }
 
 function extractQuery(payload = {}) {
@@ -46,25 +98,43 @@ async function resolveGrokModelSlug(payload = {}) {
 
 /**
  * In-page chat write for GROK_PROXY_REQUEST.
- * Tests inject `fetch` and optional `post`; production uses page fetch + port.
+ * Tests inject `fetch`, optional `post`, and optional `setUserConfig`.
+ * Hard-confirms auth via GET before the single at-most-once POST.
  */
-export async function handleGrokProxyRequest({ session, fetch: fetchImpl, post } = {}) {
+export async function handleGrokProxyRequest({
+  session,
+  fetch: fetchImpl,
+  post,
+  setUserConfig: setConfigImpl,
+} = {}) {
   const baseFetch = fetchImpl || globalThis.fetch
   const fetch = pageFetchWithCredentials(baseFetch)
+  const setConfig = setConfigImpl || setUserConfig
+
+  await hardConfirmGrokSessionBeforeWrite({ fetch, setConfig })
+
   const modelSlug = Models[session?.modelName]?.value ?? 'grok-chat-fast'
   const writer = createGrokChatWriter({ fetch })
 
-  const result = await writer.send({
-    question: session?.question,
-    modelSlug,
-    conversationId: session?.conversationId,
-    previousResponseID: session?.previousResponseID,
-    onDelta: (answer) => {
-      if (typeof post === 'function') {
-        post({ answer, done: false, session: null })
-      }
-    },
-  })
+  let result
+  try {
+    result = await writer.send({
+      question: session?.question,
+      modelSlug,
+      conversationId: session?.conversationId,
+      previousResponseID: session?.previousResponseID,
+      onDelta: (answer) => {
+        if (typeof post === 'function') {
+          post({ answer, done: false, session: null })
+        }
+      },
+    })
+  } catch (err) {
+    if (looksLikeGrokUnauthError(err)) {
+      await clearGrokSignedIn(setConfig)
+    }
+    throw err
+  }
 
   if (session && typeof session === 'object') {
     if (result.conversationId) session.conversationId = result.conversationId
