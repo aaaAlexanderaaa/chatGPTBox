@@ -670,4 +670,46 @@ describe('dsh gateway connect failure', () => {
     expect(hostClosed).toBe(true)
     gateway.stop()
   })
+
+  it('runs gateway.diagnoseFull through the downlink probe, not a direct socket', async () => {
+    const probe = vi.fn(async () => ({ ok: true, detail: '' }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          type: 'server-response',
+          result: { ok: true, value: { version: '0.1.0-rc.6' } },
+        }),
+      })),
+    )
+    const gateway = createDshGateway({
+      endpoint: 'http://127.0.0.1:3080',
+      storage: { local: { get: async () => ({}), set: async () => {} } },
+      timers: {
+        setTimeout: () => 1,
+        clearTimeout: () => {},
+        setInterval: () => 1,
+        clearInterval: () => {},
+      },
+      client: {
+        rpc: async () => ({}),
+        respond: async () => ({}),
+        openMux: async () => ({ close: () => {} }),
+        openHost: async () => ({ close: () => {} }),
+      },
+      downlink: {
+        openMux: async () => ({ close: () => {} }),
+        openHost: async () => ({ close: () => {} }),
+        probe,
+      },
+    })
+    await gateway.start()
+    const result = await gateway.rpc('gateway.diagnoseFull')
+    expect(probe).toHaveBeenCalled()
+    expect(result).toMatchObject({ ok: true, wsOk: true, stage: 'done' })
+    gateway.stop()
+    vi.unstubAllGlobals()
+  })
 })

@@ -17,6 +17,14 @@
 // `/api*` requests initiated by this extension — the harness's own web UI
 // traffic is never modified, and neither side's code changes.
 //
+// Boundary of the rewrite (D-22): it covers the extension's HTTP requests
+// (RPC, /api/respond), NOT WebSocket handshakes — Chromium's DNR cannot
+// modify handshake headers at all (remove or set), so an extension-context
+// socket always reaches the fence with its chrome-extension:// Origin and is
+// refused. The two event downlinks therefore ride the content-script bridge
+// (downlink-bridge.mjs); the `websocket` resource type stays listed only so
+// the rule would cover handshakes on a future Chromium that lifts this.
+//
 // Boundary note: config is injected by the caller (background-services.mjs)
 // — this file never imports extension core code, only webextension-polyfill.
 
@@ -240,10 +248,19 @@ export async function syncDshHeaderRules(endpoint) {
 
 /**
  * Connectivity diagnosis for the settings UI. Exercises the real path the
- * gateway uses (RPC + WebSocket, through the header rewrite) and reports
- * which step failed.
+ * gateway uses and reports which step failed:
+ *   - endpoint:  not a loopback http(s) origin;
+ *   - fence:     HTTP 403 — the header rewrite is not taking effect;
+ *   - rpc:       the harness answered, but not with a sane envelope;
+ *   - websocket: the mux event stream did not open. In a browser this MUST
+ *     go through the carrier-tab bridge (probeDownlink): a direct
+ *     extension-context WebSocket can never pass the harness trust fence
+ *     (D-22), so the injected probe is the only meaningful browser-side
+ *     test. Without one (Node smoke tests) a direct socket is attempted.
+ * @param {string} endpoint
+ * @param {{ probeDownlink?: () => Promise<{ ok: boolean, detail: string }> }} [options]
  */
-export async function diagnoseDsh(endpoint) {
+export async function diagnoseDsh(endpoint, { probeDownlink } = {}) {
   const normalized = normalizeDshEndpoint(endpoint)
   if (!normalized) {
     return { ok: false, stage: 'endpoint', message: `invalid endpoint "${endpoint}"` }
@@ -286,6 +303,18 @@ export async function diagnoseDsh(endpoint) {
   }
 
   // The mux downlink is a WebSocket upgrade on the same /api fence.
+  if (probeDownlink) {
+    const probe = await probeDownlink()
+    result.wsOk = probe.ok === true
+    if (!result.wsOk) {
+      result.message = `mux downlink bridge failed — ${probe.detail || 'unknown cause'}`
+      return result
+    }
+    result.ok = true
+    result.stage = 'done'
+    result.latencyMs = Date.now() - started
+    return result
+  }
   result.wsOk = await new Promise((resolve) => {
     let settled = false
     const done = (value) => {
@@ -320,7 +349,8 @@ export async function diagnoseDsh(endpoint) {
     })
   })
   if (!result.wsOk) {
-    result.message = 'mux WebSocket upgrade failed — the harness may be an older build'
+    result.message =
+      'mux WebSocket upgrade failed — /api/events.mux did not upgrade (direct probe; browser runs go through the carrier-tab bridge)'
     return result
   }
   result.ok = true

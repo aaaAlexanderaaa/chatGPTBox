@@ -2,7 +2,12 @@
 //
 // ONE mux downlink + ONE host downlink, held for the service-worker
 // lifetime while the module is enabled. Everything the cockpit renders is
-// derived from this single connection pair:
+// derived from this single connection pair. In a browser the pair rides the
+// carrier-tab bridge (D-22: extension-origin WebSocket handshakes cannot
+// pass the harness trust fence); the sockets themselves are opened by the
+// downlink content script on the harness origin, so they even survive
+// service-worker restarts until the next worker Pings (empty sid list
+// reaps the orphaned sockets) and Opens a new pair:
 //
 //   - session registry: summary (session.list + host frames) × ledger fold
 //     (mux session events + history salvage) × projections (high-seq-wins)
@@ -54,9 +59,14 @@ function newId() {
  * @param {(count: number) => void} [options.host.setBadge]
  * @param {(...args: unknown[]) => void} [options.host.log]
  * @param {ReturnType<typeof createDshClient>} [options.client]
+ * @param {{ openMux: Function, openHost: Function }} [options.downlink] - the
+ *   event-stream transport. Defaults to the client's own sockets (the direct
+ *   path, valid for Node smoke tests); the browser wiring passes the
+ *   carrier-tab bridge because extension-origin WebSocket handshakes cannot
+ *   pass the harness trust fence (D-22).
  * @param {{ setTimeout: Function, clearTimeout: Function, setInterval: Function, clearInterval: Function }} [options.timers]
  */
-export function createDshGateway({ endpoint, storage, host = {}, client, timers }) {
+export function createDshGateway({ endpoint, storage, host = {}, client, downlink, timers }) {
   const t = {
     setTimeout: timers?.setTimeout ?? ((fn, ms) => setTimeout(fn, ms)),
     clearTimeout: timers?.clearTimeout ?? ((id) => clearTimeout(id)),
@@ -67,6 +77,9 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
 
   /** @type {ReturnType<typeof createDshClient>} */
   let api = client ?? createDshClient({ baseUrl: endpoint })
+  // The downlink transport for the two event streams: the injected bridge in
+  // a browser, the client's direct sockets otherwise (tests, Node smoke).
+  const streams = downlink ?? api
 
   // --- registry -----------------------------------------------------------
 
@@ -620,7 +633,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     let nextMux = null
     let nextHost = null
     try {
-      nextMux = await api.openMux({
+      nextMux = await streams.openMux({
         onFrame: handleMuxFrame,
         onClose: () => {
           if (generation !== connectGeneration) return
@@ -640,7 +653,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
         return
       }
       mux = nextMux
-      nextHost = await api.openHost({
+      nextHost = await streams.openHost({
         onFrame: handleHostFrame,
         onClose: () => {
           if (generation !== connectGeneration) return
@@ -797,7 +810,11 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     'question.cancel': ({ rpcId, sessionId }) => cancelQuestion(rpcId, sessionId),
     'autoApprove.set': ({ sessionId, value }) => persistAutoApprove(sessionId, value),
     'gateway.diagnose': () => ({ ...connectionMessage(), sessions: sessions.size }),
-    'gateway.diagnoseFull': () => diagnoseDsh(endpoint),
+    'gateway.diagnoseFull': () =>
+      diagnoseDsh(endpoint, {
+        probeDownlink:
+          typeof downlink?.probe === 'function' ? () => downlink.probe(5_000) : undefined,
+      }),
   }
 
   async function handleRequest(port, message) {
