@@ -132,6 +132,9 @@ export const defaultConfig = {
   // whenever the model catalog refreshes; empty = unknown, pickers filter
   // nothing.
   chatgptWebAccountModels: [],
+  grokWebSignedIn: false,
+  grokWebAccountTier: '',
+  grokWebAccountModels: [],
   // Per-site engine assignment (D-14): site key -> { modelName, apiMode }.
   // An absent/empty entry means "follow the global default engine".
   siteEngineOverrides: {},

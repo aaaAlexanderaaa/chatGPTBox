@@ -4,6 +4,7 @@
 // enabled-provider gating and deprecated-model filtering.
 import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import { isChatgptWebKeyAvailableForAccount } from '../../config/account-models.mjs'
+import { grokWebApiModesForAccount } from '../../config/grok-web.mjs'
 import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
 
 function modelNameToSelectLabel(modelName, config, t) {
@@ -71,6 +72,19 @@ export function buildEngineOptions(config, t, { selectedModelName } = {}) {
       value: 'dshHarnessAgent',
       label: modelNameToDesc('dshHarnessAgent', t),
       apiMode: DSH_HARNESS_API_MODE,
+    })
+  }
+
+  for (const apiMode of grokWebApiModesForAccount({
+    signedIn: config.grokWebSignedIn === true,
+    tier: config.grokWebAccountTier,
+    availableSlugs: config.grokWebAccountModels,
+    selectedModelName: selected,
+  })) {
+    opts.push({
+      value: apiMode.itemName,
+      label: modelNameToSelectLabel(apiMode.itemName, config, t),
+      apiMode,
     })
   }
 
