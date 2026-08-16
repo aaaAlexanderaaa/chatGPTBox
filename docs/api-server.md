@@ -349,6 +349,96 @@ The response includes:
 - `resume`
 - `text`
 
+### `GET /grok/conversations`
+
+Returns a live Grok Web conversation list through the extension's grok.com proxy tab.
+
+Unlike `/chatgpt/conversations`, this endpoint always performs a live GET. There is no local conversation cache, no `force_sync`, and no history-sync / 429 lock behavior.
+
+Query parameters:
+
+- `limit` or `pageSize` (default `20`)
+
+Example:
+
+```bash
+curl "http://127.0.0.1:18080/grok/conversations?limit=20"
+```
+
+Typical response fields include:
+
+- `items` (each with `conversationId`, `title`)
+- `total`
+
+### `GET /grok/conversations/:id`
+
+Returns a live Grok Web conversation snapshot (messages flattened from response nodes).
+
+Example:
+
+```bash
+curl "http://127.0.0.1:18080/grok/conversations/<conversation-id>"
+```
+
+The response includes fields such as:
+
+- `conversationId`
+- `title`
+- `messages`
+- `defaultModel`
+- `pending`
+
+### `POST /grok/conversations`
+
+Starts a brand-new Grok Web conversation from a user prompt. The write is at-most-once after dispatch: the gateway does not auto-retry create on timeout or bridge error.
+
+JSON body:
+
+- `query` or `message`
+- `model` (optional Grok slug such as `grok-chat-expert`; when omitted, the bridge uses `pickDefaultGrokWebKey` for the signed-in account tier)
+
+Required header: `Idempotency-Key` (or `X-Idempotency-Key`). Ledger keys are scoped under `/grok/conversations` and cannot collide with `/chatgpt/` writes.
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:18080/grok/conversations \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"query":"Hello","model":"grok-chat-fast"}'
+```
+
+### `POST /grok/conversations/:id/messages`
+
+Sends a follow-up message into an existing Grok Web conversation. Same at-most-once write contract as create: Idempotency-Key required; no automatic replay after dispatch.
+
+JSON body:
+
+- `query` or `message`
+- `model` (optional)
+- `previousResponseID` (optional parent response id)
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:18080/grok/conversations/<conversation-id>/messages \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"query":"Follow up"}'
+```
+
+### `POST /grok/conversations/:id/refresh`
+
+Re-GETs the conversation snapshot. This is not ChatGPT-style resume: there is no conduit token, `preferResume`, or streaming resume path.
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:18080/grok/conversations/<conversation-id>/refresh \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
 ## Internal Bridge Endpoints
 
 These are the HTTP polling fallback for the bridge transport, not the main client API. The extension page uses the WebSocket bridge, so nothing ships against these today; they exist for a client that cannot hold a socket open. All require the bridge token (see [Bridge Authentication](#bridge-authentication)):
@@ -360,7 +450,9 @@ These are the HTTP polling fallback for the bridge transport, not the main clien
 
 ## Conversation Endpoints
 
-If you meant the manual ChatGPT conversation APIs, these are the current endpoints:
+If you meant the manual conversation APIs, these are the current endpoints:
+
+ChatGPT Web:
 
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
@@ -368,4 +460,12 @@ If you meant the manual ChatGPT conversation APIs, these are the current endpoin
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
-The HTTP routing for them is in [`scripts/api-server.mjs`](../scripts/api-server.mjs), and the ChatGPT Web data-fetching logic is in [`src/services/clients/chatgpt-web/conversation-api.mjs`](../src/services/clients/chatgpt-web/conversation-api.mjs).
+Grok Web:
+
+- `GET /grok/conversations`
+- `GET /grok/conversations/:id`
+- `POST /grok/conversations`
+- `POST /grok/conversations/:id/messages`
+- `POST /grok/conversations/:id/refresh`
+
+The HTTP routing for them is in [`scripts/api-server.mjs`](../scripts/api-server.mjs). ChatGPT Web data-fetching lives in [`src/services/clients/chatgpt-web/conversation-api.mjs`](../src/services/clients/chatgpt-web/conversation-api.mjs); Grok Web uses the grok.com proxy tab and [`src/services/clients/grok-web/`](../src/services/clients/grok-web/).

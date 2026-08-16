@@ -15,7 +15,7 @@ import { openUrl } from '../utils/open-url'
 import { getChatGptAccessToken } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
-import { RuntimeMessage } from '../protocol/messages.mjs'
+import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import {
   refreshChatgptWebConversationWithFallback,
   sendChatgptWebConversationMessageThroughProxy,
@@ -29,6 +29,7 @@ import {
 } from './chatgpt-proxy-service.mjs'
 import { handleFetchMessage } from './fetch-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
+import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -203,6 +204,31 @@ export function createMessageRouter() {
         if (config.grokWebSignedIn !== true) return []
         return Array.isArray(config.grokWebAccountModels) ? config.grokWebAccountModels : []
       }
+      case RuntimeMessage.GrokWebListConversations:
+        return await executeGrokWebControlRequest(
+          GrokProxyControlAction.ListConversations,
+          message.data || {},
+        )
+      case RuntimeMessage.GrokWebGetConversation:
+        return await executeGrokWebControlRequest(
+          GrokProxyControlAction.GetConversation,
+          message.data || {},
+        )
+      case RuntimeMessage.GrokWebRefreshConversation:
+        return await executeGrokWebControlRequest(
+          GrokProxyControlAction.RefreshConversation,
+          message.data || {},
+        )
+      case RuntimeMessage.GrokWebCreateConversation:
+        return await executeGrokWebControlRequest(
+          GrokProxyControlAction.CreateConversation,
+          message.data || {},
+        )
+      case RuntimeMessage.GrokWebSendConversationMessage:
+        return await executeGrokWebControlRequest(
+          GrokProxyControlAction.SendConversationMessage,
+          message.data || {},
+        )
       default:
         return
     }

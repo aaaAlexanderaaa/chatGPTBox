@@ -127,6 +127,64 @@ export async function sendGrokProxyRequest(tabId, session, uiPort) {
   })
 }
 
+/**
+ * Send a Grok proxy control action through an existing proxy tab.
+ * Injectable `{ tabs, createTab, sendMessage }` for tests — never open a real tab from unit tests.
+ */
+export async function sendGrokProxyControlRequest(
+  tabId,
+  action,
+  payload,
+  { sendMessage } = {},
+) {
+  const send = sendMessage || ((id, message) => Browser.tabs.sendMessage(id, message))
+
+  const doSend = async () => {
+    const response = await send(tabId, {
+      type: RuntimeMessage.GrokProxyControlRequest,
+      data: { action, payload },
+    })
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Grok proxy control request failed')
+    }
+    return response.data
+  }
+
+  try {
+    return await doSend()
+  } catch (firstErr) {
+    if (/receiving end does not exist/i.test(firstErr?.message)) {
+      try {
+        await injectContentScript(tabId)
+        await new Promise((r) => setTimeout(r, 500))
+        return await doSend()
+      } catch {
+        throw new Error(
+          'Content script could not be loaded in the Grok tab. ' +
+            'Please make sure ChatGPTBox has permission to access grok.com, ' +
+            'then reload the tab and retry.',
+        )
+      }
+    }
+    throw firstErr
+  }
+}
+
+/**
+ * Bridge conversation controls: ensure proxy tab, then dispatch control action.
+ * Allowed for Bridge conversation API only — never from probe.
+ * Injectable deps for tests.
+ */
+export async function executeGrokWebControlRequest(action, payload = {}, deps = {}) {
+  const tab = await ensureGrokProxyTab(deps)
+  if (!tab?.id) {
+    throw new Error(
+      'Grok proxy tab is unavailable. Open https://grok.com in this browser and sign in, then retry.',
+    )
+  }
+  return await sendGrokProxyControlRequest(tab.id, action, payload, deps)
+}
+
 export function handleGrokProxyResponsePort(port) {
   if (!port.name.startsWith('grok-proxy-response:')) return false
   const requestId = port.name.replace('grok-proxy-response:', '')

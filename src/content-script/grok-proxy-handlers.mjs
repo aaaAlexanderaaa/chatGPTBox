@@ -1,5 +1,7 @@
 import Browser from 'webextension-polyfill'
 import { Models } from '../config/models.mjs'
+import { pickDefaultGrokWebKey } from '../config/grok-web.mjs'
+import { getUserConfig } from '../config/storage.mjs'
 import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { createGrokChatWriter } from '../services/clients/grok-web/chat.mjs'
 import {
@@ -18,6 +20,27 @@ export function isGrokProxyMessage(message) {
 
 function pageFetchWithCredentials(fetchImpl) {
   return (url, init = {}) => fetchImpl(url, { ...init, credentials: 'include' })
+}
+
+function extractQuery(payload = {}) {
+  return (
+    (typeof payload.query === 'string' && payload.query.trim()) ||
+    (typeof payload.message === 'string' && payload.message.trim()) ||
+    (typeof payload.raw === 'string' && payload.raw.trim()) ||
+    ''
+  )
+}
+
+async function resolveGrokModelSlug(payload = {}) {
+  if (typeof payload.model === 'string' && payload.model.trim()) {
+    return payload.model.trim()
+  }
+  if (typeof payload.modelSlug === 'string' && payload.modelSlug.trim()) {
+    return payload.modelSlug.trim()
+  }
+  const config = await getUserConfig()
+  const key = pickDefaultGrokWebKey(config.grokWebAccountTier)
+  return Models[key]?.value ?? 'grok-chat-fast'
 }
 
 /**
@@ -72,6 +95,45 @@ async function handleGrokProxyControlRequest(action, payload = {}, fetchImpl) {
       if (!conversationId) throw new Error('conversationId is required')
       const raw = await getGrokConversation({ fetch, conversationId })
       return normalizeGrokConversationSnapshot(raw, conversationId)
+    }
+    case GrokProxyControlAction.CreateConversation: {
+      const query = extractQuery(payload)
+      if (!query) throw new Error('query is required')
+      const modelSlug = await resolveGrokModelSlug(payload)
+      // At-most-once: a single createGrokChatWriter.send — never auto-replay.
+      const writer = createGrokChatWriter({ fetch })
+      const result = await writer.send({ question: query, modelSlug })
+      return {
+        conversationId: result.conversationId,
+        previousResponseID: result.previousResponseID,
+        answer: result.answer,
+        query,
+        defaultModel: modelSlug,
+        pending: false,
+      }
+    }
+    case GrokProxyControlAction.SendConversationMessage: {
+      const conversationId = payload?.conversationId
+      if (!conversationId) throw new Error('conversationId is required')
+      const query = extractQuery(payload)
+      if (!query) throw new Error('query is required')
+      const modelSlug = await resolveGrokModelSlug(payload)
+      // At-most-once: a single createGrokChatWriter.send — never auto-replay.
+      const writer = createGrokChatWriter({ fetch })
+      const result = await writer.send({
+        question: query,
+        modelSlug,
+        conversationId,
+        previousResponseID: payload?.previousResponseID,
+      })
+      return {
+        conversationId: result.conversationId || conversationId,
+        previousResponseID: result.previousResponseID,
+        answer: result.answer,
+        query,
+        defaultModel: modelSlug,
+        pending: false,
+      }
     }
     default:
       throw new Error(`Unsupported Grok proxy control action: ${action}`)

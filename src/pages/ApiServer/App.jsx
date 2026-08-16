@@ -33,6 +33,8 @@ const RETRYABLE_CONTROL_ACTIONS = new Set([
   ChatgptProxyControlAction.ListConversations,
   ChatgptProxyControlAction.GetConversation,
   ChatgptProxyControlAction.ListModels,
+  GrokProxyControlAction.ListConversations,
+  GrokProxyControlAction.GetConversation,
   GrokProxyControlAction.ListModels,
 ])
 
@@ -346,6 +348,12 @@ function App() {
         chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
         chatgpt_web_list_models: RuntimeMessage.ChatgptWebListModels,
         [GrokProxyControlAction.ListModels]: RuntimeMessage.GrokWebListModels,
+        [GrokProxyControlAction.ListConversations]: RuntimeMessage.GrokWebListConversations,
+        [GrokProxyControlAction.GetConversation]: RuntimeMessage.GrokWebGetConversation,
+        [GrokProxyControlAction.RefreshConversation]: RuntimeMessage.GrokWebRefreshConversation,
+        [GrokProxyControlAction.CreateConversation]: RuntimeMessage.GrokWebCreateConversation,
+        [GrokProxyControlAction.SendConversationMessage]:
+          RuntimeMessage.GrokWebSendConversationMessage,
       }
 
       try {

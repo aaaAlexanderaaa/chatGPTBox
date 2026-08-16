@@ -13,6 +13,10 @@ import {
   normalizeIdempotencyKey,
   OperationLedger,
 } from './lib/operation-ledger.mjs'
+import {
+  grokWriteOperationPath,
+  matchGrokConversationRoute,
+} from './lib/grok-conversation-routes.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults
@@ -1209,6 +1213,207 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
   }
 }
 
+async function handleGrokConversationList(url, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  try {
+    const pageSize = Number(url.searchParams.get('limit') || url.searchParams.get('pageSize') || 20)
+    const result = await sendControlRequestToBridge('grok_web_list_conversations', {
+      pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 20,
+    })
+    if (result == null) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              'Grok conversation list returned null from the extension bridge. Restart the local API server, rebuild/reload the extension, and retry.',
+            type: 'server_error',
+          },
+        }),
+      )
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleGrokConversationGet(conversationId, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  try {
+    const result = await sendControlRequestToBridge('grok_web_get_conversation', {
+      conversationId,
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleGrokConversationRefresh(conversationId, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  try {
+    // Refresh is a re-GET of the snapshot — no ChatGPT-style resume/conduit.
+    const result = await sendControlRequestToBridge('grok_web_refresh_conversation', {
+      conversationId,
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: error.message, type: 'server_error' } }))
+  }
+}
+
+async function handleGrokConversationCreate(req, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  const body = await readBodyObject(req)
+  const operationBegin = beginWriteOperation(req, grokWriteOperationPath('create'), body, {
+    requireIdempotencyKey: true,
+  })
+  if (respondForControlWriteOperation(res, operationBegin)) return
+  const operation = operationBegin.record
+  res.setHeader('X-Operation-Id', operation.operationId)
+
+  try {
+    const query =
+      (typeof body.query === 'string' && body.query.trim()) ||
+      (typeof body.message === 'string' && body.message.trim()) ||
+      (typeof body.raw === 'string' && body.raw.trim()) ||
+      ''
+    const result = await sendControlRequestToBridge(
+      'grok_web_create_conversation',
+      {
+        query,
+        model: body.model,
+        operationId: operation.operationId,
+      },
+      Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
+    )
+    if (result == null || typeof result?.conversationId !== 'string' || !result.conversationId) {
+      throw new Error('Conversation creation returned no conversation ID')
+    }
+    operationLedger.complete(operation, result)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    // After dispatch: never auto-retry create; mark ambiguous like ChatGPT.
+    markOperationAmbiguous(operation, error)
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
+  }
+}
+
+async function handleGrokConversationMessage(req, res, conversationId) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            'Extension bridge not connected. Open the API Server page in the extension first.',
+          type: 'server_error',
+        },
+      }),
+    )
+    return
+  }
+
+  const body = await readBodyObject(req)
+  const route = grokWriteOperationPath('messages', conversationId)
+  const operationBegin = beginWriteOperation(req, route, body, {
+    requireIdempotencyKey: true,
+  })
+  if (respondForControlWriteOperation(res, operationBegin)) return
+  const operation = operationBegin.record
+  res.setHeader('X-Operation-Id', operation.operationId)
+
+  try {
+    const query =
+      (typeof body.query === 'string' && body.query.trim()) ||
+      (typeof body.message === 'string' && body.message.trim()) ||
+      (typeof body.raw === 'string' && body.raw.trim()) ||
+      ''
+    const result = await sendControlRequestToBridge(
+      'grok_web_send_conversation_message',
+      {
+        conversationId,
+        query,
+        model: body.model,
+        previousResponseID: body.previousResponseID,
+        operationId: operation.operationId,
+      },
+      Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
+    )
+    if (result == null) throw new Error('Conversation message returned no acknowledgement')
+    operationLedger.complete(operation, result)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
+  } catch (error) {
+    // After dispatch: never auto-retry send; mark ambiguous like ChatGPT.
+    markOperationAmbiguous(operation, error)
+    res.writeHead(409, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HTTP polling bridge endpoints
 // ---------------------------------------------------------------------------
@@ -1336,6 +1541,7 @@ const server = http.createServer((req, res) => {
   const conversationRefreshMatch = url.pathname.match(
     /^\/chatgpt\/conversations\/([^/]+)\/refresh$/,
   )
+  const grokRoute = matchGrokConversationRoute(url.pathname)
 
   if (url.pathname === '/v1/models' && req.method === 'GET') {
     handleModels(res).catch((err) => {
@@ -1403,6 +1609,46 @@ const server = http.createServer((req, res) => {
       decodeURIComponent(conversationRefreshMatch[1]),
     ).catch((err) => {
       logError(`Conversation refresh error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (grokRoute?.kind === 'collection' && req.method === 'GET') {
+    handleGrokConversationList(url, res).catch((err) => {
+      logError(`Grok conversation list error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (grokRoute?.kind === 'collection' && req.method === 'POST') {
+    handleGrokConversationCreate(req, res).catch((err) => {
+      logError(`Grok conversation create error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (grokRoute?.kind === 'item' && req.method === 'GET') {
+    handleGrokConversationGet(grokRoute.id, res).catch((err) => {
+      logError(`Grok conversation get error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (grokRoute?.kind === 'messages' && req.method === 'POST') {
+    handleGrokConversationMessage(req, res, grokRoute.id).catch((err) => {
+      logError(`Grok conversation message error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
+  } else if (grokRoute?.kind === 'refresh' && req.method === 'POST') {
+    handleGrokConversationRefresh(grokRoute.id, res).catch((err) => {
+      logError(`Grok conversation refresh error: ${err.message}`)
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
