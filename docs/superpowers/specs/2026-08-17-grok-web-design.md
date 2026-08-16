@@ -32,6 +32,7 @@
 - 不在扩展里执行工具
 - 不默认改用户当前引擎（登录后只是出现在列表里）
 - API Bridge 默认模型仍是 ChatGPT 的 `gpt-5-6-thinking`
+- 自动化测试不准碰真实浏览器、真实 cookie、真实 grok.com 账号（见「测试」）
 
 ## 架构
 
@@ -191,16 +192,30 @@ Bridge 页 control action 与 `RuntimeMessage` 成对新增（`grok_web_list_con
 
 ## 测试
 
-不依赖真 grok.com。用假 session / 假 `/rest/app-chat` 覆盖：
+**硬约束：自动化测试不得接触真实账号。** 写坏一条测试就可能对 grok.com 打出 429 或突发并发，把登录态打残。这比漏测更糟。
+
+禁止（`vitest` / CI / 任何默认会跑的脚本）：
+
+- 访问正在使用的浏览器配置（真实 cookie、真实 grok.com 标签、真实扩展存储里的 SSO）
+- 对 `https://grok.com`（及其 API 主机）发真实网络请求
+- 打开、复用、或驱动用户已经登录的 grok.com 页
+- 用用户的 SSO / `sso` cookie 当夹具
+- 并发打真实上游，或在测试里“顺便试一下真会话”
+
+允许：注入的假 `cookies`、假 `fetch`、假代理页、内存里的假 session JSON、录好的 SSE 文本。覆盖：
 
 - 探针：无 cookie、unauthenticated、有效 session、档位失败只开 fast
 - 选择器：未登录隐藏；已登录按档过滤；当前选中不藏
 - 默认模型：Basic/Super/Heavy 三档
 - 客户端：SSE → port；带 `conversationId` 续聊
-- 429 / 未登录错误原文，不降档
+- 429 / 未登录错误原文，不降档（429 也是假响应）
 - Bridge：`grok-chat-expert` 分到 Grok 而不是 ChatGPT 默认；未知 slug 仍回落 ChatGPT；`/grok/conversations` 路由与 Idempotency-Key；Grok 和 ChatGPT conversation 路径互不干扰
 
+没有 `GROK_WEB_LIVE=1` 这类显式开关，就不存在“打真 grok.com”的测试入口。v1 不写这条 live 测试。
+
 ## 验收
+
+下面 1–6 是**人在自己的浏览器里、自己点**的终验，不是自动化、不是 agent 代开你的 grok.com。实现过程中默认不跑它们。第 7 条才是每次提交要绿的自动化。
 
 1. 浏览器已登录 grok.com：引擎列表出现 Grok，档位对，默认 Expert 或 Heavy 符合上表。
 2. 未登录：选择器没有 Grok；设置卡能点去 grok.com。
@@ -208,4 +223,4 @@ Bridge 页 control action 与 `RuntimeMessage` 成对新增（`grok_web_list_con
 4. 登出后再发：明确登录错误，不改用户默认引擎。
 5. `curl` `POST /v1/chat/completions` 且 `model=grok-chat-expert` 走 Grok；省略 model 仍走 ChatGPT。
 6. `GET/POST /grok/conversations*` 能列、开、跟、再拉；`/chatgpt/conversations*` 行为不变。
-7. 现有测试（含 ChatGPT Web / API Bridge）全绿。
+7. 现有测试（含 ChatGPT Web / API Bridge）全绿，且没有一条测试打到真 grok.com。
