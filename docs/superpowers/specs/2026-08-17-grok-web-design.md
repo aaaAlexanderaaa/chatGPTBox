@@ -9,6 +9,20 @@
 
 复用用户在 **grok.com** 已登录的浏览器会话，做成一张 **L2 文字引擎**，并在 API Bridge 上暴露同一套模型和 conversation 面。不运行 grok2api 进程。
 
+## 账号安全优先（对标 ChatGPT Web）
+
+**功能可以坏，用户的真实账号不能坏。** 浮窗没答出来、Bridge 报错、代理页挂了，都比把 grok.com 会话打成 429、并发打爆、或把同一句 prompt 自动重打一遍更可接受。
+
+和 ChatGPT Web 同一条线：
+
+- **写请求 at-most-once。** `POST /rest/app-chat/conversations/new`（以及跟帖的写）一旦发出去，超时、断连、代理页死、Bridge 没收到回执，都**不准自动再打一遍**。对用户报错（Bridge 用 `ambiguous_dispatch` / `retryable: false`）。重试是人的决定，不是客户端的循环。
+- **429 / 配额 / 反爬 = 停。** 原文抛出，不换模型，不隔一秒再试，不并行补打。同 session 本就串行；全局也不准为“多开几个代理页加快”而打。
+- **探针只读。** 登录/档位只用 GET（`/api/auth/session`、`/rest/rate-limits`）。探针失败就当没登录或只开 fast，**绝不**为了“再确认一下”去 POST。
+- **不为探测开标签、不后台刷。** v1 没有历史同步，也就没有 ChatGPT 那种 429 锁；同时也不准发明轮询、预热对话、保活 POST。
+- **读和写分开。** list/get/refresh 是读，失败可再读。写过之后的“不确定”只能报不确定，不能当成没写再写一次。
+
+实现时如果“让功能更稳”和“可能多打一次 grok.com”打架，选前者停、选后者报错。
+
 ## 已决范围
 
 | 项 | 决定 |
@@ -19,7 +33,8 @@
 | 可见性 | 检测到 grok.com 已登录才出现在引擎选择器 |
 | 传输 | 专用 grok.com 代理页（方案 A） |
 | grok.com 历史 | 接受对话落在 grok.com（1a） |
-| 429 / 配额 | 只报错，不自动降档（2a） |
+| 429 / 配额 | 只报错，不自动降档、不自动重试（2a） |
+| 账号 | 功能可坏，真实 grok.com 账号不可坏（对标 ChatGPT Web 写路径） |
 | API Bridge | `grok-chat-*` 映射 + `/grok/conversations*` |
 
 ## 明确不做（v1）
@@ -27,7 +42,7 @@
 - 不嵌入、不启动、不依赖 grok2api Go 服务
 - 不接 Grok Build / Grok Console
 - 不接 x.com
-- 不抄 ChatGPT 的 Arkose、WS resume、conduit、历史同步缓存、`force_sync`、429 锁
+- 不抄 ChatGPT 的 Arkose、WS resume、conduit、历史同步缓存、`force_sync`（没有同步，也就不抄那把 429 锁；**写路径的 at-most-once 和 429 即停要抄**）
 - 不把 grok.com 原生对话推进扩展自己的会话列表（D-4 / D-13）
 - 不在扩展里执行工具
 - 不默认改用户当前引擎（登录后只是出现在列表里）
@@ -131,8 +146,8 @@ Content script 已对所有 https 注入，只加 Grok 代理消息处理。`coo
 1. UI `runtime.connect()` → `executeApi` → `grok-web` provider。
 2. 同 session 串行（会话锁）。
 3. `ensureGrokProxyTab()`；失败则报登录/代理页错误。
-4. content script 取 session，`POST /rest/app-chat/conversations/new`。
-5. SSE 折成 `{ answer, done, session }`。`session` 必须带上 grok2api Web 续聊用的两个 id：`conversationId` 和 `previousResponseID`（上游若用别的字段名，在 client 里译成这两个）。
+4. content script 取 session，`POST /rest/app-chat/conversations/new`。这一下是写：发出去之后禁止自动重放。
+5. SSE 折成 `{ answer, done, session }`。`session` 必须带上 grok2api Web 续聊用的两个 id：`conversationId` 和 `previousResponseID`（上游若用别的字段名，在 client 里译成这两个）。流中途断了：把已收到的文本留下并报错，不拿同一句再 POST 一次。
 6. `pushRecord` 写本地 `conversationRecords`。`saveGrokWebSessionSnapshot` 只服务扩展自己发起的线程。
 
 续聊：已有 `conversationId` 时跟到同一 grok.com 对话。新浮窗/新 session 开新对话。
@@ -147,11 +162,12 @@ v1 接受这些对话出现在 grok.com 历史里。扩展会话列表只收扩�
 | --- | --- |
 | 未登录 / session 无效 | 明确提示去 grok.com 登录；探针把 `grokWebSignedIn` 清掉 |
 | 代理页起不来 | 说明需要专用 grok.com 代理页（对标 ChatGPT Web 的 Brave 文案） |
-| Cloudflare / Statsig / 反爬 | 提示刷新或重开代理页；把上游状态码/原文带到浮窗 |
-| 429 / 配额用尽 | 原文抛出，**不**自动换模型 |
+| Cloudflare / Statsig / 反爬 | 提示刷新或重开代理页；把上游状态码/原文带到浮窗；**不**自动重打写请求 |
+| 429 / 配额用尽 | 原文抛出，**不**换模型、**不**隔秒重试、**不**换代理页再打 |
+| 写已发出后超时 / 断连 | 报不确定（功能坏了）；**不**当失败重发 |
 | 选了账号没有的档 | 发送前拦下，或把上游拒绝原文抛出；不静默改档 |
 
-停止按钮走现有 abort controller；断开代理 port 即停。
+停止按钮走现有 abort controller；断开代理 port 即停。停止不得再补发一条“取消用”的写（除非 grok.com 有单独的、明确是取消的接口；v1 没有就只断流）。
 
 ## API Bridge
 
@@ -208,7 +224,8 @@ Bridge 页 control action 与 `RuntimeMessage` 成对新增（`grok_web_list_con
 - 选择器：未登录隐藏；已登录按档过滤；当前选中不藏
 - 默认模型：Basic/Super/Heavy 三档
 - 客户端：SSE → port；带 `conversationId` 续聊
-- 429 / 未登录错误原文，不降档（429 也是假响应）
+- 写已发出后断连 / 超时：假 fetch 只见到一次 POST
+- 429 / 未登录错误原文，不降档、不重试（429 也是假响应）
 - Bridge：`grok-chat-expert` 分到 Grok 而不是 ChatGPT 默认；未知 slug 仍回落 ChatGPT；`/grok/conversations` 路由与 Idempotency-Key；Grok 和 ChatGPT conversation 路径互不干扰
 
 没有 `GROK_WEB_LIVE=1` 这类显式开关，就不存在“打真 grok.com”的测试入口。v1 不写这条 live 测试。
