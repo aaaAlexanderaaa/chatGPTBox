@@ -143,6 +143,10 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5-1', name: 'GPT-5.1' },
   { id: 'gpt-5-1-instant', name: 'GPT-5.1 Instant' },
   { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
+  { id: 'grok-chat-fast', name: 'Grok (Web, Fast)' },
+  { id: 'grok-chat-auto', name: 'Grok (Web, Auto)' },
+  { id: 'grok-chat-expert', name: 'Grok (Web, Expert)' },
+  { id: 'grok-chat-heavy', name: 'Grok (Web, Heavy)' },
 ]
 
 const DEFAULT_MODEL = 'gpt-5-6-thinking'
@@ -872,21 +876,41 @@ async function handleModels(res) {
     models = cachedModels
   }
 
-  if (!models && isBridgeConnected()) {
-    try {
-      const slugs = await sendControlRequestToBridge('chatgpt_web_list_models', {}, 10_000)
-      if (Array.isArray(slugs) && slugs.length > 0) {
-        models = slugs
-        cachedModels = slugs
-        cachedModelsAt = Date.now()
-      }
-    } catch (err) {
-      log(`Model list fetch failed, using fallback: ${err.message}`)
-    }
-  }
-
   if (!models) {
-    models = AVAILABLE_MODELS.map((m) => m.id)
+    if (isBridgeConnected()) {
+      try {
+        const slugs = await sendControlRequestToBridge('chatgpt_web_list_models', {}, 10_000)
+        if (Array.isArray(slugs) && slugs.length > 0) {
+          models = slugs
+        }
+      } catch (err) {
+        log(`Model list fetch failed, using fallback: ${err.message}`)
+      }
+    }
+
+    if (!models) {
+      models = AVAILABLE_MODELS.map((m) => m.id)
+    }
+
+    if (isBridgeConnected()) {
+      try {
+        const grokSlugs = await sendControlRequestToBridge('grok_web_list_models', {}, 10_000)
+        if (Array.isArray(grokSlugs) && grokSlugs.length > 0) {
+          const seen = new Set(models)
+          for (const id of grokSlugs) {
+            if (typeof id === 'string' && id && !seen.has(id)) {
+              seen.add(id)
+              models.push(id)
+            }
+          }
+        }
+      } catch (err) {
+        log(`Grok model list fetch failed, keeping ChatGPT list: ${err.message}`)
+      }
+    }
+
+    cachedModels = models
+    cachedModelsAt = Date.now()
   }
 
   const data = models.map((id) => ({

@@ -198,6 +198,11 @@ export function createMessageRouter() {
         }
         return models
       }
+      case RuntimeMessage.GrokWebListModels: {
+        const config = await getUserConfig()
+        if (config.grokWebSignedIn !== true) return []
+        return Array.isArray(config.grokWebAccountModels) ? config.grokWebAccountModels : []
+      }
       default:
         return
     }

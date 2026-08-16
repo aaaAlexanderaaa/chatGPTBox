@@ -70,6 +70,7 @@ export const RuntimeMessage = {
   ChatgptWebStopConversationSync: 'CHATGPT_WEB_STOP_CONVERSATION_SYNC',
   ChatgptWebUnlockConversationSync: 'CHATGPT_WEB_UNLOCK_CONVERSATION_SYNC',
   ChatgptWebListModels: 'CHATGPT_WEB_LIST_MODELS',
+  GrokWebListModels: 'GROK_WEB_LIST_MODELS',
 
   // API bridge diagnose (ApiServer page -> background)
   ApiBridgeDiagnose: 'API_BRIDGE_DIAGNOSE',

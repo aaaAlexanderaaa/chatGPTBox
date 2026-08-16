@@ -15,11 +15,14 @@ import {
   exportConversationCache,
   importConversationCache,
 } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
-import { Models, chatgptWebModelKeys } from '../../config/models.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
-import { ChatgptProxyControlAction, RuntimeMessage } from '../../protocol/messages.mjs'
+import {
+  ChatgptProxyControlAction,
+  GrokProxyControlAction,
+  RuntimeMessage,
+} from '../../protocol/messages.mjs'
+import { isGrokEngineKey, slugToModelKey } from './model-slug.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000
@@ -30,16 +33,8 @@ const RETRYABLE_CONTROL_ACTIONS = new Set([
   ChatgptProxyControlAction.ListConversations,
   ChatgptProxyControlAction.GetConversation,
   ChatgptProxyControlAction.ListModels,
+  GrokProxyControlAction.ListModels,
 ])
-
-function slugToModelKey(slug) {
-  const normalized = (slug || '').trim()
-  for (const key of chatgptWebModelKeys) {
-    if (Models[key] && Models[key].value === normalized) return key
-  }
-  if (Models[normalized]) return normalized
-  return CHATGPT_WEB_DEFAULT_MODEL_KEY
-}
 
 function formatMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return ''
@@ -176,7 +171,8 @@ function App() {
       const { id, model, messages, stream, thinkingEffort } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
-      const isThinkingRequest = needsChatgptWebThinkingEffort(model)
+      const isGrokRequest = isGrokEngineKey(modelKey)
+      const isThinkingRequest = !isGrokRequest && needsChatgptWebThinkingEffort(model)
       const continuation = isThinkingRequest
         ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
         : null
@@ -197,17 +193,26 @@ function App() {
 
       const runtimeConfigPromise = getUserConfig()
 
-      const session = initSession({
-        question,
-        modelName: modelKey,
-        apiMode: apiMode || null,
-        conversationRecords: [],
-        chatgptWebIncrementalOutput: stream === true,
-        chatgptWebThinkingEffortOverride:
-          typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
-      })
+      const session = isGrokRequest
+        ? initSession({
+            question,
+            modelName: modelKey,
+            apiMode: apiMode || null,
+            conversationRecords: [],
+          })
+        : initSession({
+            question,
+            modelName: modelKey,
+            apiMode: apiMode || null,
+            conversationRecords: [],
+            chatgptWebIncrementalOutput: stream === true,
+            chatgptWebThinkingEffortOverride:
+              typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
+          })
       session.messageId = typeof data.operationId === 'string' ? data.operationId : null
-      session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
+      if (!isGrokRequest) {
+        session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
+      }
       if (continuation) {
         session.conversationId = continuation.conversationId
         session.parentMessageId = continuation.parentMessageId
@@ -251,9 +256,11 @@ function App() {
 
         if (msg.session) {
           latestSession = { ...latestSession, ...msg.session }
-          void saveChatgptWebSessionSnapshot(latestSession, { source: 'api-server-bridge' }).catch(
-            () => {},
-          )
+          if (!isGrokRequest) {
+            void saveChatgptWebSessionSnapshot(latestSession, {
+              source: 'api-server-bridge',
+            }).catch(() => {})
+          }
         }
 
         // Adapters signal completion with `{ answer: null, done: true }`, so a
@@ -307,7 +314,9 @@ function App() {
         // A transport disconnect must never cause a second, hidden PATCH write to
         // ChatGPT. History behavior is decided on the initial conversation POST.
         session.autoClean = false
-        session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
+        if (!isGrokRequest) {
+          session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
+        }
         bgPort.postMessage({ session })
       } catch (err) {
         if (!finished) {
@@ -336,6 +345,7 @@ function App() {
         chatgpt_web_send_conversation_message: RuntimeMessage.ChatgptWebSendConversationMessage,
         chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
         chatgpt_web_list_models: RuntimeMessage.ChatgptWebListModels,
+        [GrokProxyControlAction.ListModels]: RuntimeMessage.GrokWebListModels,
       }
 
       try {
