@@ -10,6 +10,7 @@ import {
   normalizeGrokConversationList,
   normalizeGrokConversationSnapshot,
 } from '../services/clients/grok-web/conversations.mjs'
+import { saveGrokWebSessionSnapshot } from '../services/clients/grok-web/thread-state.mjs'
 
 export function isGrokProxyMessage(message) {
   return (
@@ -72,6 +73,11 @@ export async function handleGrokProxyRequest({ session, fetch: fetchImpl, post }
 
   if (typeof post === 'function') {
     post({ answer: result.answer, done: true, session })
+  }
+
+  // Persist extension-born continuation ids only (never on error / never grok.com import).
+  if (session?.sessionId) {
+    await saveGrokWebSessionSnapshot(session).catch(() => {})
   }
 
   return result
