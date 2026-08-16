@@ -28,6 +28,7 @@ import {
   getChatgptWebConversationWithFallback,
 } from './chatgpt-proxy-service.mjs'
 import { handleFetchMessage } from './fetch-proxy-service.mjs'
+import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -130,8 +131,8 @@ export function createMessageRouter() {
           // Surfaces may ask for a specific panel page (e.g. the dsh cockpit
           // narrow layout); whitelist extension pages so this can never be
           // pointed outside the extension.
-          const path =
-            requestedPath === 'dsh.html' ? 'dsh.html' : 'IndependentPanel.html'
+          const path = whitelistSidePanelPath(requestedPath)
+          if (tabId) sidePanelPaths.remember(tabId, path)
           if (tabId && windowId) {
             try {
               // eslint-disable-next-line no-undef

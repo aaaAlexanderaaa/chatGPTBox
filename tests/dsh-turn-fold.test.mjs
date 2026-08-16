@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createDshLedgerFold, previewToolArgs } from '../src/modules/dsh/turn-fold.mjs'
+import {
+  createDshLedgerFold,
+  newestPendingDecision,
+  previewToolArgs,
+} from '../src/modules/dsh/turn-fold.mjs'
 
 // Frame/event builders matching the harness wire shapes (MuxFrame payloads and
 // SessionEvent envelopes from packages/host/apiproxy + packages/core/session).
@@ -219,6 +223,28 @@ describe('dsh ledger fold', () => {
     })
     fold.pushFrame(frame('approval/resolved', { approvalId: 'ap2', outcome: 'rejected' }))
     expect(fold.getBlocks().at(-1).status).toBe('rejected')
+
+    fold.pushFrame(frame('question/requested', { questions: [{ id: 'q2', question: 'Go?' }] }), {
+      rpcId: 'rpc-4',
+    })
+    fold.pushFrame(frame('question/resolved', { rpcId: 'rpc-4', outcome: 'cancelled' }))
+    expect(fold.getPendingDecisions()).toEqual([])
+    fold.pushFrame(frame('question/requested', { questions: [{ id: 'q3', question: 'Stay?' }] }), {
+      rpcId: 'rpc-5',
+    })
+    fold.pushFrame(frame('question/resolved', { questionRpcId: 'rpc-5', outcome: 'answered' }))
+    expect(fold.getPendingDecisions()).toEqual([])
+  })
+
+  it('newestPendingDecision walks ledger order from the end', () => {
+    expect(
+      newestPendingDecision([
+        { kind: 'approval', status: 'pending', rpcId: 'old' },
+        { kind: 'text', text: 'x' },
+        { kind: 'question', status: 'pending', rpcId: 'new' },
+      ]).rpcId,
+    ).toBe('new')
+    expect(newestPendingDecision([{ kind: 'text', text: 'x' }])).toBeNull()
   })
 
   it('args preview clamps long single lines', () => {

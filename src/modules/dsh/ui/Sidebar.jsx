@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Plus, Search } from 'lucide-react'
+import { canSelectCockpitSession } from '../session-pick.mjs'
 
 // Sidebar: session list driven live by the host stream, plus search.
 // Status colors (ui-console.md): ● blue running / ◐ amber waiting /
@@ -75,7 +76,11 @@ export function Sidebar({ sessions, selectedId, onSelect, onCreate, searchRef, r
                   ? 'bg-secondary text-foreground'
                   : 'hover:bg-secondary/60 text-muted-foreground'
               }`}
-              onClick={() => onSelect(session.sessionId)}
+              onClick={() => {
+                if (canSelectCockpitSession(sessions, session.sessionId)) {
+                  onSelect(session.sessionId)
+                }
+              }}
               title={session.cwd || session.sessionId}
             >
               <span style={{ color: dot.color }}>{dot.symbol}</span>
@@ -89,14 +94,14 @@ export function Sidebar({ sessions, selectedId, onSelect, onCreate, searchRef, r
           )
         })}
         {remoteOnly.map((result) => (
-          <button
+          <div
             key={`remote-${result.sessionId}`}
-            className="flex flex-col text-left text-xs px-2 py-1.5 rounded-md hover:bg-secondary/60 text-muted-foreground"
-            onClick={() => onSelect(result.sessionId)}
+            className="flex flex-col text-left text-xs px-2 py-1.5 rounded-md text-muted-foreground"
+            title="Engine-native session — open it in dsh web; the cockpit does not import foreign sessions"
           >
             <span className="truncate">{result.sessionId}</span>
             <span className="truncate text-[11px] opacity-75">{result.snippet}</span>
-          </button>
+          </div>
         ))}
         {filtered.length === 0 && remoteOnly.length === 0 && query && (
           <p className="text-xs text-muted-foreground px-2 py-1.5">No matches.</p>

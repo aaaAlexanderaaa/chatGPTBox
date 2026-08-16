@@ -158,6 +158,7 @@ function createTestPort() {
     onMessage: { addListener: (fn) => listeners.message.push(fn) },
     onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
     send: (message) => listeners.message.forEach((fn) => fn(message)),
+    disconnect: () => listeners.disconnect.forEach((fn) => fn()),
     receivedOf: (type) => received.filter((m) => m.type === type),
   }
 }
@@ -284,6 +285,14 @@ describe('dsh gateway (against a fake harness)', () => {
     expect(hostHooks.badge).toHaveBeenLastCalledWith(1)
     const summary = gateway.getSessionSummaries()[0]
     expect(summary.waiting).toBe(1)
+    expect(summary.pendingDecisions).toEqual([
+      expect.objectContaining({
+        kind: 'approval',
+        approvalId: 'ap1',
+        toolName: 'shell',
+        sessionId: 's1',
+      }),
+    ])
 
     const res = await portRequest(port, 'approval.respond', {
       rpcId: gateway._internals.sessions.get('s1').fold.getPendingDecisions()[0].rpcId,
@@ -380,6 +389,17 @@ describe('dsh gateway (against a fake harness)', () => {
     expect(gateway.getSessionSummaries().map((s) => s.sessionId)).toEqual(['s1'])
   })
 
+  it('adopts a question for a session not yet in the registry', async () => {
+    harness.broadcast({
+      type: 'question/requested',
+      sessionId: 's-new',
+      questions: [{ id: 'q1', question: 'Continue?' }],
+    })
+    await sleep(30)
+    const row = gateway.getSessionSummaries().find((s) => s.sessionId === 's-new')
+    expect(row?.waiting).toBe(1)
+  })
+
   it('question lifecycle: answer with options and free text', async () => {
     const port = createTestPort()
     gateway.attachPort(port)
@@ -392,6 +412,13 @@ describe('dsh gateway (against a fake harness)', () => {
     })
     await sleep(30)
     expect(gateway.getSessionSummaries()[0].waiting).toBe(1)
+    expect(gateway.getSessionSummaries()[0].pendingDecisions).toEqual([
+      expect.objectContaining({
+        kind: 'question',
+        questions: [{ id: 'q1', question: 'Which DB?', options: expect.any(Array) }],
+        sessionId: 's1',
+      }),
+    ])
     expect(hostHooks.notified.at(-1)).toMatchObject({ kind: 'question' })
 
     const res = await portRequest(port, 'question.respond', {
@@ -435,5 +462,212 @@ describe('dsh gateway (against a fake harness)', () => {
     expect(gateway.getState().status).toBe('offline')
     expect(hostHooks.badge).toHaveBeenLastCalledWith(0)
     gateway = null // afterEach would stop() a stopped gateway, which is fine too
+  })
+
+  it('does not dismiss another session’s OS notification when this one is answered', async () => {
+    harness.sessions['s2'] = { running: false, updatedAt: 99 }
+    harness.broadcastHost({ type: 'host/session-added', sessionId: 's2', blank: true })
+    await sleep(30)
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap-a',
+      toolName: 'shell',
+    })
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's2',
+      approvalId: 'ap-b',
+      toolName: 'edit',
+    })
+    await sleep(40)
+    hostHooks.clearWaiting.mockClear()
+    const s2Pending = gateway._internals.sessions.get('s2').fold.getPendingDecisions()[0]
+    await gateway.rpc('approval.respond', {
+      rpcId: s2Pending.rpcId,
+      sessionId: 's2',
+      approvalId: 'ap-b',
+      outcome: 'allowed-once',
+    })
+    await sleep(30)
+    expect(hostHooks.clearWaiting).not.toHaveBeenCalled()
+    expect(hostHooks.badge).toHaveBeenLastCalledWith(1)
+    expect(hostHooks.notified.at(-1)).toMatchObject({ sessionId: 's1', kind: 'approval' })
+  })
+
+  it('auto-approves a pending card that arrived before storage finished loading', async () => {
+    gateway.stop()
+    let resolveGet
+    const delayedGet = new Promise((resolve) => {
+      resolveGet = resolve
+    })
+    gateway = createDshGateway({
+      endpoint: `http://127.0.0.1:${harness.port}`,
+      storage: {
+        local: {
+          get: async () => delayedGet,
+          set: async () => {},
+        },
+      },
+      host: hostHooks,
+      client: createDshClient({
+        baseUrl: `http://127.0.0.1:${harness.port}`,
+        fetchImpl: (...args) => fetch(...args),
+        WebSocketImpl: WebSocket,
+      }),
+    })
+    await gateway.start()
+    await sleep(150)
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap-late',
+      toolName: 'shell',
+    })
+    await sleep(40)
+    expect(harness.respondCalls).toHaveLength(0)
+    resolveGet({ dshModuleAutoApprove: { s1: true } })
+    await sleep(50)
+    expect(harness.respondCalls.at(-1)?.result?.value).toMatchObject({
+      approvalId: 'ap-late',
+      outcome: 'allowed-once',
+    })
+  })
+
+  it('stays quiet while a cockpit ledger is subscribed, then notifies on disconnect', async () => {
+    const port = createTestPort()
+    gateway.attachPort(port)
+    port.send({ type: 'subscribe-ledger', sessionId: 's1' })
+    hostHooks.notified.length = 0
+
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap-attached',
+      toolName: 'shell',
+    })
+    await sleep(30)
+    expect(hostHooks.notified).toEqual([])
+    expect(hostHooks.badge).toHaveBeenLastCalledWith(1)
+
+    port.disconnect()
+    expect(hostHooks.notified.at(-1)).toMatchObject({ sessionId: 's1', kind: 'approval' })
+  })
+
+  it('notifies again after the cockpit unsubscribes without disconnecting', async () => {
+    const port = createTestPort()
+    gateway.attachPort(port)
+    port.send({ type: 'subscribe-ledger', sessionId: 's1' })
+    hostHooks.notified.length = 0
+
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap-unsub',
+      toolName: 'shell',
+    })
+    await sleep(30)
+    expect(hostHooks.notified).toEqual([])
+
+    port.send({ type: 'unsubscribe-ledger', sessionId: 's1' })
+    expect(hostHooks.notified.at(-1)).toMatchObject({ sessionId: 's1', kind: 'approval' })
+  })
+
+  it('treats an in-process ledger watcher as attached, then notifies on unwatch', async () => {
+    const unwatch = gateway.watchLedger('s1', () => {})
+    hostHooks.notified.length = 0
+
+    harness.broadcast({
+      type: 'approval/requested',
+      sessionId: 's1',
+      approvalId: 'ap-watch',
+      toolName: 'shell',
+    })
+    await sleep(30)
+    expect(hostHooks.notified).toEqual([])
+    expect(hostHooks.badge).toHaveBeenLastCalledWith(1)
+
+    unwatch()
+    expect(hostHooks.notified.at(-1)).toMatchObject({ sessionId: 's1', kind: 'approval' })
+  })
+
+  it('adopts a forked session so the cockpit can switch to it immediately', async () => {
+    const port = createTestPort()
+    gateway.attachPort(port)
+    const res = await portRequest(port, 'session.fork', { sessionId: 's1' })
+    expect(res.ok).toBe(true)
+    expect(res.value.sessionId).toBe('forked')
+    expect(gateway.getSessionSummaries().map((s) => s.sessionId)).toEqual(
+      expect.arrayContaining(['s1', 'forked']),
+    )
+  })
+})
+
+describe('dsh gateway connect failure', () => {
+  it('closes mux if the host stream fails to open', async () => {
+    let muxClosed = false
+    const gateway = createDshGateway({
+      endpoint: 'http://127.0.0.1:1',
+      storage: { local: { get: async () => ({}), set: async () => {} } },
+      timers: {
+        setTimeout: () => 1,
+        clearTimeout: () => {},
+        setInterval: () => 1,
+        clearInterval: () => {},
+      },
+      client: {
+        rpc: async () => ({}),
+        respond: async () => ({}),
+        openMux: async () => ({
+          close: () => {
+            muxClosed = true
+          },
+        }),
+        openHost: async () => {
+          throw new Error('host down')
+        },
+      },
+    })
+    await gateway.start()
+    expect(muxClosed).toBe(true)
+    expect(gateway.getState().status).toBe('offline')
+    gateway.stop()
+  })
+
+  it('does not stay online with a leaked host stream if mux dies during openHost', async () => {
+    let hostClosed = false
+    let muxOnClose
+    const gateway = createDshGateway({
+      endpoint: 'http://127.0.0.1:1',
+      storage: { local: { get: async () => ({}), set: async () => {} } },
+      timers: {
+        setTimeout: () => 1,
+        clearTimeout: () => {},
+        setInterval: () => 1,
+        clearInterval: () => {},
+      },
+      client: {
+        rpc: async () => ({}),
+        respond: async () => ({}),
+        openMux: async ({ onClose }) => {
+          muxOnClose = onClose
+          return { close: () => {} }
+        },
+        openHost: async () => {
+          muxOnClose?.()
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          return {
+            close: () => {
+              hostClosed = true
+            },
+          }
+        },
+      },
+    })
+    await gateway.start()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(gateway.getState().status).not.toBe('online')
+    expect(hostClosed).toBe(true)
+    gateway.stop()
   })
 })

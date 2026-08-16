@@ -28,7 +28,9 @@ const TOOL_ARGS_PREVIEW_CHARS = 120
 // importing module internals from core, and dragging this through the seam
 // would cost more than the eight lines it saves.
 function previewToolArgs(args, maxChars = TOOL_ARGS_PREVIEW_CHARS) {
-  const oneLine = String(args || '').replace(/\s+/g, ' ').trim()
+  const oneLine = String(args || '')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (oneLine.length <= maxChars) return oneLine
   return `${oneLine.slice(0, maxChars)}…`
 }
@@ -53,10 +55,10 @@ export function renderLedgerMarkdown(blocks) {
           block.status === 'running'
             ? '◌'
             : block.status === 'error'
-              ? '✗'
-              : block.status === 'done'
-                ? '✓'
-                : '⊘'
+            ? '✗'
+            : block.status === 'done'
+            ? '✓'
+            : '⊘'
         lines.push(`\`${symbol} 🔧 ${block.name} ${previewToolArgs(block.args)}\``)
         break
       }
@@ -111,8 +113,39 @@ function decisionKey(decision) {
 
 /** Index of the first block this bridge has not seen yet (seq gate:
  *  decision blocks carry no seq, so the baseline is positional). */
-function baselinePosition(blocks) {
-  return blocks.length
+export function captureLedgerBaseline(blocks) {
+  const list = Array.isArray(blocks) ? blocks : []
+  return { position: list.length }
+}
+
+/**
+ * Blocks that belong to THIS prompt: after the first user echo that landed
+ * past the snapshot. A previous in-flight turn's leftovers (including its
+ * turn-end) stay out — dual-surface queueing on the same session must not
+ * close the bubble on someone else's turn.
+ */
+export function ledgerSliceForPrompt(blocks, baseline) {
+  if (!baseline) return []
+  const list = Array.isArray(blocks) ? blocks : []
+  const fresh = list.slice(baseline.position)
+  const userIdx = fresh.findIndex((block) => block.kind === 'user')
+  if (userIdx === -1) return []
+  const afterUser = fresh.slice(userIdx + 1)
+  const userTurn = fresh[userIdx].turn
+  if (typeof userTurn === 'number') {
+    return afterUser.filter((block) => block.turn === userTurn)
+  }
+  const oldTurns = new Set(
+    list
+      .slice(0, baseline.position)
+      .map((block) => block.turn)
+      .filter((turn) => typeof turn === 'number'),
+  )
+  return afterUser.filter((block) => typeof block.turn !== 'number' || !oldTurns.has(block.turn))
+}
+
+export function shouldFinishFromLedger(blocks, baseline) {
+  return ledgerSliceForPrompt(blocks, baseline).some((block) => block.kind === 'turn-end')
 }
 
 export default {
@@ -182,7 +215,6 @@ export default {
       const knownDecisions = new Map()
       let latestBlocks = []
       let baseline = null
-      let turnEndBaseline = null
       let promptAccepted = false
 
       const finish = () => {
@@ -222,42 +254,38 @@ export default {
           port.postMessage({ dshDecision: decision })
         }
 
-        // The answer stream only starts once this prompt has been accepted:
-        // anything on the ledger before that belongs to earlier turns
-        // (a still-running turn included — its end must not finish us).
+        // Stream and finish only after THIS prompt's user echo — a still-
+        // running turn on the same session must not fill or close us.
         if (!promptAccepted || baseline === null) return
-        const fresh = blocks.slice(baseline)
-
-        const answer = renderLedgerMarkdown(fresh)
+        const captured = { position: baseline }
+        const answer = renderLedgerMarkdown(ledgerSliceForPrompt(blocks, captured))
         if (answer !== lastAnswer) {
           lastAnswer = answer
           port.postMessage({ answer })
         }
 
-        const turnEnds = blocks.filter((b) => b.kind === 'turn-end').length
-        if (turnEnds > turnEndBaseline) finish()
+        if (shouldFinishFromLedger(blocks, captured)) finish()
       })
 
       try {
+        // Snapshot BEFORE the RPC: a turn that completes during the await
+        // must still finish the bubble. promptAccepted is flipped first so
+        // the watcher does not drop those frames.
+        const captured = captureLedgerBaseline(latestBlocks)
+        baseline = captured.position
+        promptAccepted = true
         await gateway.rpc('session.prompt', {
           sessionId: dshSessionId,
           mode: 'queue',
           content: [{ type: 'text', text: session.question }],
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
-        // Snapshot the baseline at acceptance: everything already on the
-        // ledger predates this turn. Blocks arriving between acceptance and
-        // this assignment are captured on the next push (blocks is the full
-        // fold, the slice is monotone).
-        promptAccepted = true
-        baseline = baselinePosition(latestBlocks)
-        turnEndBaseline = latestBlocks.filter((b) => b.kind === 'turn-end').length
-        const fresh = latestBlocks.slice(baseline)
-        const answer = renderLedgerMarkdown(fresh)
+        const answer = renderLedgerMarkdown(ledgerSliceForPrompt(latestBlocks, captured))
         if (answer !== lastAnswer) {
           lastAnswer = answer
           port.postMessage({ answer })
         }
+        if (shouldFinishFromLedger(latestBlocks, captured)) finish()
       } catch (error) {
         port.postMessage({ error: error?.message || String(error) })
         port.postMessage({ done: true })

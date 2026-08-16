@@ -7,6 +7,8 @@ import { Sidebar } from './Sidebar.jsx'
 import { SessionBar } from './SessionBar.jsx'
 import { Ledger } from './Ledger.jsx'
 import { Composer } from './Composer.jsx'
+import { resolveCockpitSelection } from '../session-pick.mjs'
+import { newestPendingDecision } from '../turn-fold.mjs'
 
 // Full-page cockpit per ui-console.md: global header (identity + health +
 // waiting pill), sidebar (session list + search), session bar (title / model /
@@ -43,16 +45,32 @@ export function Cockpit() {
     return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
   }, [sessions, sessionUpdates])
 
+  const requestedId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('session')
+      : null
   const [selectedId, setSelectedId] = useState(null)
   const [ledger, setLedger] = useState({ blocks: [], lastSeq: -1 })
   const [diagnosis, setDiagnosis] = useState(null)
   const searchRef = useRef(null)
   const composerRef = useRef(null)
+  const userPickedRef = useRef(false)
+
+  const selectSession = useCallback((sessionId) => {
+    if (!sessionId) return
+    userPickedRef.current = true
+    setSelectedId(sessionId)
+  }, [])
 
   useEffect(() => {
-    if (!selectedId && merged.length > 0)
-      setSelectedId(merged.find((s) => !s.blank)?.sessionId ?? merged[0].sessionId)
-  }, [merged, selectedId])
+    const next = resolveCockpitSelection({
+      sessions: merged,
+      requestedId,
+      currentId: selectedId,
+      userPicked: userPickedRef.current,
+    })
+    if (next && next !== selectedId) setSelectedId(next)
+  }, [merged, selectedId, requestedId])
 
   const selected = merged.find((s) => s.sessionId === selectedId) || null
 
@@ -69,12 +87,12 @@ export function Cockpit() {
   const createSession = useCallback(async () => {
     try {
       const value = await rpc('session.create')
-      setSelectedId(value.sessionId)
+      selectSession(value.sessionId)
       composerRef.current?.focus()
     } catch {
       // surfaced through the connection state; nothing else to do honestly
     }
-  }, [rpc])
+  }, [rpc, selectSession])
 
   const respondDecision = useCallback(
     async (kind, payload) => {
@@ -107,18 +125,12 @@ export function Cockpit() {
       if (event.key === 'j' || event.key === 'k') {
         const index = merged.findIndex((s) => s.sessionId === selectedId)
         const next = merged[index + (event.key === 'j' ? 1 : -1)]
-        if (next) setSelectedId(next.sessionId)
+        if (next) selectSession(next.sessionId)
         return
       }
       if (!selected) return
       if (event.key === 'a' || event.key === 'r') {
-        // Direct decision on the newest pending card of the open session.
-        const pending = ledger.blocks.find(
-          (block) =>
-            (block.kind === 'approval' || block.kind === 'question') &&
-            block.status === 'pending' &&
-            block.rpcId,
-        )
+        const pending = newestPendingDecision(ledger.blocks)
         if (!pending) return
         event.preventDefault()
         if (pending.kind === 'approval') {
@@ -135,7 +147,7 @@ export function Cockpit() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [merged, selected, selectedId, ledger, respondDecision, rpc])
+  }, [merged, selected, selectedId, ledger, respondDecision, rpc, selectSession])
 
   const waitingTotal = merged.reduce((sum, s) => sum + (s.waiting || 0), 0)
   const online = connection.status === 'online'
@@ -179,7 +191,7 @@ export function Cockpit() {
             }}
             onClick={() => {
               const target = merged.find((s) => s.waiting > 0)
-              if (target) setSelectedId(target.sessionId)
+              if (target) selectSession(target.sessionId)
             }}
           >
             {waitingTotal} waiting for you
@@ -206,7 +218,7 @@ export function Cockpit() {
           <Sidebar
             sessions={merged}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={selectSession}
             onCreate={createSession}
             searchRef={searchRef}
             rpc={rpc}
@@ -215,12 +227,7 @@ export function Cockpit() {
 
         <main className="flex-1 min-w-0 flex flex-col">
           {!online ? (
-            <OfflineState
-              connection={connection}
-              diagnosis={diagnosis}
-              onDiagnose={runDiagnose}
-              onRetry={createSession}
-            />
+            <OfflineState connection={connection} diagnosis={diagnosis} onDiagnose={runDiagnose} />
           ) : !selected ? (
             <EmptyState onCreate={createSession} />
           ) : (
@@ -229,7 +236,7 @@ export function Cockpit() {
                 session={selected}
                 rpc={rpc}
                 sessions={narrow ? merged : null}
-                onSelect={narrow ? setSelectedId : null}
+                onSelect={selectSession}
               />
               <Ledger
                 session={selected}

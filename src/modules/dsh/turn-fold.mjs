@@ -288,7 +288,8 @@ export function createDshLedgerFold({ strings = {} } = {}) {
         break
       }
       case 'question/resolved': {
-        const block = questionByRpcId.get(frame.questionRpcId)
+        const rpcId = frame.questionRpcId || frame.rpcId || envelope.rpcId
+        const block = rpcId ? questionByRpcId.get(rpcId) : null
         if (block) block.status = frame.outcome === 'cancelled' ? 'cancelled' : 'answered'
         break
       }
@@ -342,7 +343,25 @@ export function createDshLedgerFold({ strings = {} } = {}) {
 
 /** One-line preview of tool arguments for the machine register (UI may clamp). */
 export function previewToolArgs(args, maxChars = TOOL_ARGS_PREVIEW_CHARS) {
-  const oneLine = String(args || '').replace(/\s+/g, ' ').trim()
+  const oneLine = String(args || '')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (oneLine.length <= maxChars) return oneLine
   return `${oneLine.slice(0, maxChars)}…`
+}
+
+/** Newest pending approval/question in ledger order (cockpit a/r). */
+export function newestPendingDecision(blocks) {
+  if (!Array.isArray(blocks)) return null
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i]
+    if (
+      (block.kind === 'approval' || block.kind === 'question') &&
+      block.status === 'pending' &&
+      block.rpcId
+    ) {
+      return block
+    }
+  }
+  return null
 }

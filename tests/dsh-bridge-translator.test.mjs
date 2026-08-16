@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  captureLedgerBaseline,
   collectDecisionStates,
+  ledgerSliceForPrompt,
   renderLedgerMarkdown,
+  shouldFinishFromLedger,
 } from '../src/background/providers/dsh-bridge.mjs'
 
 // The bridge provider's translation layer (roadmap B): ledger blocks → the
@@ -96,6 +99,113 @@ describe('collectDecisionStates', () => {
         questions: [{ id: 'q1', question: 'Which database?' }],
         sessionId: 'session-9',
       },
+    ])
+  })
+})
+
+describe('bridge turn baseline', () => {
+  it('finishes when a turn-end arrives after this prompt’s user echo', () => {
+    const before = [
+      { kind: 'text', text: 'old' },
+      { kind: 'turn-end', note: 'previous' },
+    ]
+    const baseline = captureLedgerBaseline(before)
+    expect(shouldFinishFromLedger(before, baseline)).toBe(false)
+
+    const duringRpc = [
+      ...before,
+      { kind: 'user', text: 'the question' },
+      { kind: 'text', text: 'new answer' },
+      { kind: 'turn-end', note: 'this prompt' },
+    ]
+    expect(shouldFinishFromLedger(duringRpc, baseline)).toBe(true)
+  })
+
+  it('does not finish on ledger that only grew with non-end blocks', () => {
+    const baseline = captureLedgerBaseline([{ kind: 'text', text: 'hi' }])
+    expect(
+      shouldFinishFromLedger(
+        [
+          { kind: 'text', text: 'hi' },
+          { kind: 'user', text: 'q' },
+          { kind: 'text', text: 'more' },
+        ],
+        baseline,
+      ),
+    ).toBe(false)
+  })
+
+  it('does not finish when a previous in-flight turn ends after the snapshot', () => {
+    const before = [{ kind: 'text', text: 'still running' }]
+    const baseline = captureLedgerBaseline(before)
+    const previousEnded = [
+      ...before,
+      { kind: 'text', text: 'leftover' },
+      { kind: 'turn-end', note: 'the other turn' },
+    ]
+    expect(shouldFinishFromLedger(previousEnded, baseline)).toBe(false)
+    expect(ledgerSliceForPrompt(previousEnded, baseline)).toEqual([])
+
+    const ours = [
+      ...previousEnded,
+      { kind: 'user', text: 'queued from the bubble' },
+      { kind: 'text', text: 'our answer' },
+      { kind: 'turn-end', note: 'ours' },
+    ]
+    expect(shouldFinishFromLedger(ours, baseline)).toBe(true)
+    expect(ledgerSliceForPrompt(ours, baseline).map((block) => block.kind)).toEqual([
+      'text',
+      'turn-end',
+    ])
+  })
+
+  it('ignores a previous turn that ends after this prompt’s user echo was queued', () => {
+    const before = [{ kind: 'text', text: 'still running', turn: 1 }]
+    const baseline = captureLedgerBaseline(before)
+    const queuedThenPreviousEnded = [
+      ...before,
+      { kind: 'user', text: 'queued from the bubble', turn: 2 },
+      { kind: 'text', text: 'leftover', turn: 1 },
+      { kind: 'turn-end', note: 'the other turn', turn: 1 },
+    ]
+    expect(shouldFinishFromLedger(queuedThenPreviousEnded, baseline)).toBe(false)
+    expect(
+      ledgerSliceForPrompt(queuedThenPreviousEnded, baseline).map((block) => block.kind),
+    ).toEqual([])
+
+    const ours = [
+      ...queuedThenPreviousEnded,
+      { kind: 'text', text: 'our answer', turn: 2 },
+      { kind: 'turn-end', note: 'ours', turn: 2 },
+    ]
+    expect(shouldFinishFromLedger(ours, baseline)).toBe(true)
+    expect(ledgerSliceForPrompt(ours, baseline).map((block) => block.kind)).toEqual([
+      'text',
+      'turn-end',
+    ])
+  })
+
+  it('does not finish on a previous turn-end when the user echo has no turn number', () => {
+    const before = [{ kind: 'text', text: 'still running', turn: 1 }]
+    const baseline = captureLedgerBaseline(before)
+    const queuedThenPreviousEnded = [
+      ...before,
+      { kind: 'user', text: 'queued from the bubble' },
+      { kind: 'text', text: 'leftover', turn: 1 },
+      { kind: 'turn-end', note: 'the other turn', turn: 1 },
+    ]
+    expect(shouldFinishFromLedger(queuedThenPreviousEnded, baseline)).toBe(false)
+    expect(ledgerSliceForPrompt(queuedThenPreviousEnded, baseline)).toEqual([])
+
+    const ours = [
+      ...queuedThenPreviousEnded,
+      { kind: 'text', text: 'our answer', turn: 2 },
+      { kind: 'turn-end', note: 'ours', turn: 2 },
+    ]
+    expect(shouldFinishFromLedger(ours, baseline)).toBe(true)
+    expect(ledgerSliceForPrompt(ours, baseline).map((block) => block.kind)).toEqual([
+      'text',
+      'turn-end',
     ])
   })
 })

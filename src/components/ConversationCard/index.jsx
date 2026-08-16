@@ -50,6 +50,11 @@ import {
   saveChatgptWebSessionSnapshot,
 } from '../../services/clients/chatgpt-web/thread-state.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
+import {
+  cockpitHrefForSession,
+  buildQuestionAnswers,
+  decisionsAfterRespond,
+} from './dsh-decision-state.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 
@@ -400,7 +405,14 @@ function ConversationCard(props) {
     }
 
     return opts
-  }, [apiModes, config.customModelName, session.apiMode, session.modelName, t])
+  }, [
+    apiModes,
+    config.customModelName,
+    config.dshModuleEnabled,
+    session.apiMode,
+    session.modelName,
+    t,
+  ])
 
   const filteredModelPickerOptions = useMemo(() => {
     const q = modelPickerQuery.trim().toLowerCase()
@@ -426,36 +438,32 @@ function ConversationCard(props) {
   }
 
   const respondDshDecision = (decision, outcome) => {
-    void Browser.runtime
-      .sendMessage({
-        type: RuntimeMessage.DshModuleRespond,
-        data:
-          decision.kind === 'question'
-            ? {
-                kind: 'question',
-                rpcId: decision.rpcId,
-                sessionId: decision.sessionId,
-                answers: outcome,
-              }
-            : {
-                kind: 'approval',
-                rpcId: decision.rpcId,
-                sessionId: decision.sessionId,
-                approvalId: decision.approvalId,
-                outcome,
-              },
-      })
-      .catch(() => {})
-    if (decision.kind === 'approval') {
-      // optimistic collapse; the ledger echo is authoritative
-      setDshDecisions((prev) =>
-        prev.filter(
-          (item) =>
-            `${item.kind}:${item.approvalId ?? item.rpcId}` !==
-            `${decision.kind}:${decision.approvalId ?? decision.rpcId}`,
-        ),
-      )
-    }
+    void (async () => {
+      let receipt
+      try {
+        receipt = await Browser.runtime.sendMessage({
+          type: RuntimeMessage.DshModuleRespond,
+          data:
+            decision.kind === 'question'
+              ? {
+                  kind: 'question',
+                  rpcId: decision.rpcId,
+                  sessionId: decision.sessionId,
+                  answers: outcome,
+                }
+              : {
+                  kind: 'approval',
+                  rpcId: decision.rpcId,
+                  sessionId: decision.sessionId,
+                  approvalId: decision.approvalId,
+                  outcome,
+                },
+        })
+      } catch {
+        receipt = { accepted: false }
+      }
+      setDshDecisions((prev) => decisionsAfterRespond(prev, decision, receipt))
+    })()
   }
 
   const applyModelSelection = useCallback(
@@ -867,14 +875,24 @@ function ConversationCard(props) {
                   key={`${decision.kind}:${decision.approvalId ?? decision.rpcId}`}
                   decision={decision}
                   onRespond={respondDshDecision}
-                  onCancelQuestion={(d) =>
-                    void Browser.runtime
-                      .sendMessage({
-                        type: RuntimeMessage.DshModuleRespond,
-                        data: { kind: 'question-cancel', rpcId: d.rpcId, sessionId: d.sessionId },
-                      })
-                      .catch(() => {})
-                  }
+                  onCancelQuestion={(d) => {
+                    void (async () => {
+                      let receipt
+                      try {
+                        receipt = await Browser.runtime.sendMessage({
+                          type: RuntimeMessage.DshModuleRespond,
+                          data: {
+                            kind: 'question-cancel',
+                            rpcId: d.rpcId,
+                            sessionId: d.sessionId,
+                          },
+                        })
+                      } catch {
+                        receipt = { accepted: false }
+                      }
+                      setDshDecisions((prev) => decisionsAfterRespond(prev, d, receipt))
+                    })()
+                  }}
                 />
               ))}
             </div>
@@ -917,7 +935,7 @@ function ConversationCard(props) {
 function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState({})
-  const [custom, setCustom] = useState('')
+  const [custom, setCustom] = useState({})
   const amber = '#d97706' // the waiting color (ui-console D-17), one value
 
   if (decision.kind === 'approval') {
@@ -977,7 +995,7 @@ function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
             {t('Reject')}
           </button>
           <a
-            href={Browser.runtime.getURL('dsh.html')}
+            href={cockpitHrefForSession(Browser.runtime.getURL('dsh.html'), decision.sessionId)}
             target="_blank"
             rel="noopener noreferrer"
             style={{ fontSize: '12px', alignSelf: 'center', marginLeft: 'auto' }}
@@ -990,12 +1008,7 @@ function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
   }
 
   const submit = () => {
-    const answers = (decision.questions || []).map((question) => ({
-      id: question.id,
-      selected: selected[question.id] || [],
-      custom: !question.options && custom ? custom : undefined,
-    }))
-    onRespond(decision, answers)
+    onRespond(decision, buildQuestionAnswers(decision.questions, selected, custom))
   }
 
   return (
@@ -1053,8 +1066,8 @@ function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
               rows={2}
               style={{ width: '100%', fontSize: '13px', boxSizing: 'border-box' }}
               placeholder={t('Type your answer…')}
-              value={custom}
-              onChange={(e) => setCustom(e.target.value)}
+              value={custom[question.id] || ''}
+              onChange={(e) => setCustom((prev) => ({ ...prev, [question.id]: e.target.value }))}
             />
           )}
         </div>

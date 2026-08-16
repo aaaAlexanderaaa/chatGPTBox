@@ -17,6 +17,7 @@
     "unlimitedStorage",
     "tabs",
     "webRequest",
+    "webRequestBlocking",
     "https://*.chatgpt.com/*",
     "https://*.openai.com/",
     "https://*.moonshot.cn/*",

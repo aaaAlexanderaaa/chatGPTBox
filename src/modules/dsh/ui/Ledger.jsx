@@ -153,7 +153,7 @@ function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }
 function QuestionCard({ block, onRespond, onCancel }) {
   const settled = block.status !== 'pending'
   const [selected, setSelected] = useState({})
-  const [custom, setCustom] = useState('')
+  const [custom, setCustom] = useState({})
 
   if (settled) {
     return (
@@ -172,7 +172,7 @@ function QuestionCard({ block, onRespond, onCancel }) {
     const answers = block.questions.map((question) => ({
       id: question.id,
       selected: selected[question.id] || [],
-      custom: !question.options && custom ? custom : undefined,
+      custom: !question.options && custom[question.id] ? custom[question.id] : undefined,
     }))
     onRespond('question', { rpcId: block.rpcId, sessionId: block.sessionId, answers })
   }
@@ -233,8 +233,10 @@ function QuestionCard({ block, onRespond, onCancel }) {
               className="w-full mt-1 text-sm bg-secondary border border-border rounded-md p-2"
               rows={2}
               placeholder="Type your answer…"
-              value={custom}
-              onInput={(event) => setCustom(event.target.value)}
+              value={custom[question.id] || ''}
+              onInput={(event) =>
+                setCustom((prev) => ({ ...prev, [question.id]: event.target.value }))
+              }
             />
           )}
         </div>

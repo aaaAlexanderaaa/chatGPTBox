@@ -7,6 +7,7 @@ import ConversationCard from '../components/ConversationCard'
 import { useConfig } from '../hooks/use-config.mjs'
 import { initSession } from '../services/init-session.mjs'
 import { RuntimeMessage } from '../protocol/messages.mjs'
+import { cockpitHrefForSession } from '../components/ConversationCard/dsh-decision-state.mjs'
 
 // Popup chat surface (roadmap B / D-19): the popup is first an unblocking
 // surface — dsh waiting decisions pin to the top, answerable in two clicks
@@ -81,16 +82,16 @@ function useDshWaiting(enabled) {
 function WaitingCard({ decision, sessionTitle }) {
   const { t } = useTranslation()
   const amber = '#d97706'
-  const respond = (outcome) => {
+  const cockpitHref = cockpitHrefForSession(Browser.runtime.getURL('dsh.html'), decision.sessionId)
+  const respond = (kind, extra) => {
     void Browser.runtime
       .sendMessage({
         type: RuntimeMessage.DshModuleRespond,
         data: {
-          kind: 'approval',
+          kind,
           rpcId: decision.rpcId,
           sessionId: decision.sessionId,
-          approvalId: decision.approvalId,
-          outcome,
+          ...extra,
         },
       })
       .catch(() => {})
@@ -124,18 +125,22 @@ function WaitingCard({ decision, sessionTitle }) {
           <button
             className="text-xs px-2.5 py-1 rounded-md text-white"
             style={{ background: amber }}
-            onClick={() => respond('allowed-once')}
+            onClick={() =>
+              respond('approval', { approvalId: decision.approvalId, outcome: 'allowed-once' })
+            }
           >
             {t('Allow once')} (a)
           </button>
           <button
             className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
-            onClick={() => respond('rejected')}
+            onClick={() =>
+              respond('approval', { approvalId: decision.approvalId, outcome: 'rejected' })
+            }
           >
             {t('Reject')} (r)
           </button>
           <a
-            href={Browser.runtime.getURL('dsh.html')}
+            href={cockpitHref}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[11px] text-muted-foreground hover:text-foreground self-center ml-auto inline-flex items-center gap-1"
@@ -144,14 +149,22 @@ function WaitingCard({ decision, sessionTitle }) {
           </a>
         </div>
       ) : (
-        <a
-          href={Browser.runtime.getURL('dsh.html')}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-        >
-          <ExternalLink size={11} /> {t('Answer in the cockpit')}
-        </a>
+        <div className="flex gap-2">
+          <button
+            className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
+            onClick={() => respond('question-cancel', {})}
+          >
+            {t('Dismiss')}
+          </button>
+          <a
+            href={cockpitHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-muted-foreground hover:text-foreground self-center inline-flex items-center gap-1"
+          >
+            <ExternalLink size={11} /> {t('Answer in the cockpit')}
+          </a>
+        </div>
       )}
     </div>
   )

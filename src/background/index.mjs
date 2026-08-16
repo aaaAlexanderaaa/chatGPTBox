@@ -44,6 +44,8 @@ import {
 import { handleApiBridgeProxyPort } from './api-bridge-proxy-service.mjs'
 import { registerWebRequestRules } from './webrequest-rules.mjs'
 import { startModuleBackgrounds } from '../modules/background-services.mjs'
+import { applyActionBadge, setRateLimitedFlag } from './action-badge.mjs'
+import { sidePanelPaths } from './sidepanel-path.mjs'
 import { createMessageRouter } from './message-router.mjs'
 
 // Pure diagnostic helper surfaced to the provider router via ctx so the router
@@ -132,10 +134,10 @@ async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false }
     getChatgptWebConversationMeta().catch(() => ({})),
   ])
   const badgeApi = Browser.action || Browser.browserAction
-  if (meta?.safetyLock?.reason === 'rate_limited') {
-    await Promise.resolve(badgeApi?.setBadgeText?.({ text: '429' })).catch(() => {})
-    await Promise.resolve(badgeApi?.setBadgeBackgroundColor?.({ color: '#b91c1c' })).catch(() => {})
-  }
+  applyActionBadge(
+    badgeApi,
+    setRateLimitedFlag(meta?.safetyLock?.reason === 'rate_limited'),
+  )
   const existingAlarm =
     (await Browser.alarms.get?.(CHATGPT_WEB_HISTORY_SYNC_ALARM).catch(() => null)) || null
   const decision = resolveChatgptWebHistorySyncAlarmAction({
@@ -227,7 +229,7 @@ try {
         // eslint-disable-next-line no-undef
         await chrome.sidePanel.setOptions({
           tabId,
-          path: 'IndependentPanel.html',
+          path: sidePanelPaths.pathFor(tabId),
           enabled: true,
         })
       } catch {
@@ -248,3 +250,7 @@ registerWebRequestRules()
 void startModuleBackgrounds()
 registerCommands()
 refreshMenu()
+
+Browser.tabs?.onRemoved?.addListener((tabId) => {
+  sidePanelPaths.forget(tabId)
+})

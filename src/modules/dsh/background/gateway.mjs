@@ -29,7 +29,8 @@
 
 import { createDshClient } from '../client.mjs'
 import { createDshLedgerFold } from '../turn-fold.mjs'
-import { diagnoseDsh } from './fence.mjs'
+import { diagnoseDsh, helloForGatewayHold } from './fence.mjs'
+import { waitingNotificationAction } from './waiting-inbox.mjs'
 
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
@@ -39,8 +40,7 @@ const HISTORY_PAGE_DEFAULT = 50
 
 function newId() {
   return (
-    globalThis.crypto?.randomUUID?.() ??
-    `id-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`
   )
 }
 
@@ -97,6 +97,8 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
   const ports = new Set()
   /** @type {Map<object, Set<string>>} port -> subscribed sessionIds */
   const ledgerSubscriptions = new Map()
+  /** @type {Map<string, Set<(message: object) => void>>} */
+  const ledgerWatchers = new Map()
   const pendingLedgerPushes = new Map() // sessionId -> timer
 
   function broadcast(message) {
@@ -151,13 +153,13 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
         for (const block of session.fold.getBlocks()) {
           if (block.kind === 'tool' && block.callId) toolBlocks.set(block.callId, block)
         }
-        return session.fold.getPendingDecisions().map((block) => ({
-          kind: block.kind,
-          rpcId: block.rpcId,
+        return session.fold.getPendingDecisions().map(({ type, rpcId, block }) => ({
+          kind: type,
+          rpcId,
           approvalId: block.approvalId,
           toolName: block.toolName,
           args: block.callId ? toolBlocks.get(block.callId)?.args ?? null : null,
-          questions: block.kind === 'question' ? block.questions ?? null : null,
+          questions: type === 'question' ? block.questions ?? null : null,
           sessionId: session.summary.sessionId,
         }))
       })(),
@@ -171,7 +173,9 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
   function sessionListMessage() {
     return {
       type: 'sessions',
-      items: [...sessions.values()].map(summarize).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
+      items: [...sessions.values()]
+        .map(summarize)
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     }
   }
 
@@ -209,6 +213,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       if (session && stored.dshModuleAutoApprove?.[sessionId] === true) {
         session.autoApprove = true
         broadcastSession(sessionId)
+        await flushAutoApprove(sessionId)
       }
     } catch {
       // storage read failure leaves the switch off — the safe direction
@@ -228,6 +233,21 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       log('cannot persist auto-approve', error)
     }
     broadcastSession(sessionId)
+    if (value === true) await flushAutoApprove(sessionId)
+  }
+
+  async function flushAutoApprove(sessionId) {
+    const session = sessions.get(sessionId)
+    if (!session?.autoApprove) return
+    for (const pending of session.fold.getPendingDecisions()) {
+      if (pending.type !== 'approval' || !pending.rpcId) continue
+      await answerApproval(
+        pending.rpcId,
+        sessionId,
+        pending.block.approvalId,
+        'allowed-once',
+      ).catch((error) => log('auto-approve respond failed', error))
+    }
   }
 
   // --- waiting inbox (approvals + questions) → badge + OS notification ------
@@ -238,24 +258,16 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     return count
   }
 
-  function refreshWaiting(sessionId) {
-    const session = sessions.get(sessionId)
-    if (!session) return
-    const pending = session.fold.getPendingDecisions()
-    host.setBadge?.(totalPending())
-    broadcastSession(sessionId)
-    if (pending.length === 0) {
-      host.clearWaiting?.()
-      return
-    }
-    // Notify only when no UI surface is attached to this session's ledger
-    // (contract: approval is life-critical — badge always, notification only
-    // when nobody is already looking).
-    const attached = [...ledgerSubscriptions.values()].some((ids) => ids.has(sessionId))
-    if (attached) return
-    const latest = pending.at(-1)
+  function sessionIsAttached(sessionId) {
+    if ([...ledgerSubscriptions.values()].some((ids) => ids.has(sessionId))) return true
+    return (ledgerWatchers.get(sessionId)?.size || 0) > 0
+  }
+
+  function emitWaitingNotification(session) {
+    const latest = session.fold.getPendingDecisions().at(-1)
+    if (!latest) return
     host.notifyWaiting?.({
-      sessionId,
+      sessionId: session.summary.sessionId,
       kind: latest.type,
       title: summarize(session).title || 'DeepSeek Harness',
       message:
@@ -263,6 +275,39 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
           ? `Waiting for approval: ${latest.block.toolName}`
           : `Waiting for an answer: ${latest.block.questions?.[0]?.question || ''}`,
     })
+  }
+
+  function findOtherWaitingSession(exceptId) {
+    for (const session of sessions.values()) {
+      if (session.summary.sessionId === exceptId) continue
+      if (session.fold.getPendingDecisions().length > 0) return session
+    }
+    return null
+  }
+
+  function refreshWaiting(sessionId) {
+    const session = sessions.get(sessionId)
+    if (!session) return
+    const pending = session.fold.getPendingDecisions()
+    host.setBadge?.(totalPending())
+    broadcastSession(sessionId)
+    const action = waitingNotificationAction({
+      sessionPending: pending.length,
+      totalPending: totalPending(),
+      attached: sessionIsAttached(sessionId),
+    })
+    if (action === 'clear') {
+      host.clearWaiting?.()
+      return
+    }
+    if (action === 'none') return
+    if (action === 'notify') {
+      emitWaitingNotification(session)
+      return
+    }
+    const other = findOtherWaitingSession(sessionId)
+    if (!other || sessionIsAttached(other.summary.sessionId)) return
+    emitWaitingNotification(other)
   }
 
   // --- approvals / questions ----------------------------------------------
@@ -326,19 +371,22 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
         const session = ensureSession({ sessionId })
         session.fold.pushFrame(frame, envelope)
         if (session.autoApprove && envelope.rpcId) {
-          void answerApproval(
-            envelope.rpcId,
-            sessionId,
-            frame.approvalId,
-            'allowed-once',
-          ).catch((error) => log('auto-approve respond failed', error))
+          void answerApproval(envelope.rpcId, sessionId, frame.approvalId, 'allowed-once').catch(
+            (error) => log('auto-approve respond failed', error),
+          )
         }
         refreshWaiting(sessionId)
         scheduleLedgerPush(sessionId)
         break
       }
+      case 'question/requested': {
+        const session = ensureSession({ sessionId })
+        session.fold.pushFrame(frame, envelope)
+        refreshWaiting(sessionId)
+        scheduleLedgerPush(sessionId)
+        break
+      }
       case 'approval/resolved':
-      case 'question/requested':
       case 'question/resolved': {
         const session = sessions.get(sessionId)
         if (!session) break
@@ -404,7 +452,16 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       case 'host/session-removed':
         sessions.delete(frame.sessionId)
         broadcastSessionList()
-        host.setBadge?.(totalPending())
+        {
+          const leftover = [...sessions.values()].find(
+            (item) => item.fold.getPendingDecisions().length > 0,
+          )
+          if (leftover) refreshWaiting(leftover.summary.sessionId)
+          else {
+            host.setBadge?.(0)
+            host.clearWaiting?.()
+          }
+        }
         break
       case 'host/session-status': {
         const session = sessions.get(frame.sessionId)
@@ -435,6 +492,22 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
   let reconnectTimer = null
   let reconnectAttempt = 0
   let keepaliveTimer = null
+  let connectGeneration = 0
+
+  function closeStreams() {
+    try {
+      mux?.close()
+    } catch {
+      // already closed
+    }
+    try {
+      hostStream?.close()
+    } catch {
+      // already closed
+    }
+    mux = null
+    hostStream = null
+  }
 
   function connectionMessage() {
     return {
@@ -534,30 +607,92 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     pushLedger(sessionId)
     return {
       hasMore: value?.hasMore === true,
-      firstSeq: entries.length ? (entries[0]?.event?.seq ?? null) : null,
+      firstSeq: entries.length ? entries[0]?.event?.seq ?? null : null,
     }
   }
 
   async function connect() {
     if (stopped) return
+    const generation = ++connectGeneration
+    closeStreams()
     state.status = 'connecting'
     broadcast({ type: 'connection', ...connectionMessage() })
+    let nextMux = null
+    let nextHost = null
     try {
-      mux = await api.openMux({
+      nextMux = await api.openMux({
         onFrame: handleMuxFrame,
-        onClose: () => onStreamLost('mux'),
-        onError: () => onStreamLost('mux'),
+        onClose: () => {
+          if (generation !== connectGeneration) return
+          onStreamLost('mux')
+        },
+        onError: () => {
+          if (generation !== connectGeneration) return
+          onStreamLost('mux')
+        },
       })
-      hostStream = await api.openHost({
+      if (stopped || generation !== connectGeneration) {
+        try {
+          nextMux?.close()
+        } catch {
+          // superseded
+        }
+        return
+      }
+      mux = nextMux
+      nextHost = await api.openHost({
         onFrame: handleHostFrame,
-        onClose: () => onStreamLost('host'),
-        onError: () => onStreamLost('host'),
+        onClose: () => {
+          if (generation !== connectGeneration) return
+          onStreamLost('host')
+        },
+        onError: () => {
+          if (generation !== connectGeneration) return
+          onStreamLost('host')
+        },
       })
+      if (stopped || generation !== connectGeneration) {
+        try {
+          nextMux?.close()
+        } catch {
+          // superseded
+        }
+        try {
+          nextHost?.close()
+        } catch {
+          // mux died while host was still opening
+        }
+        mux = null
+        return
+      }
+      hostStream = nextHost
     } catch (error) {
+      try {
+        nextMux?.close()
+      } catch {
+        // openMux succeeded, openHost failed
+      }
+      try {
+        nextHost?.close()
+      } catch {
+        // neither stream finished opening
+      }
+      if (generation !== connectGeneration) return
+      mux = null
+      hostStream = null
       state.lastError = error?.message || String(error)
       state.status = 'offline'
       broadcast({ type: 'connection', ...connectionMessage() })
       scheduleReconnect()
+      return
+    }
+    if (stopped || generation !== connectGeneration) {
+      closeStreams()
+      try {
+        nextHost?.close()
+      } catch {
+        // already closed in the generation check above
+      }
       return
     }
     reconnectAttempt = 0
@@ -566,30 +701,20 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     state.startedAt = Date.now()
     broadcast({ type: 'connection', ...connectionMessage() })
     await refreshVersion()
+    if (stopped || generation !== connectGeneration) return
     await syncRegistry().catch((error) => {
       state.lastError = error?.message || String(error)
       broadcast({ type: 'connection', ...connectionMessage() })
     })
+    if (stopped || generation !== connectGeneration) return
     syncKeepalive()
   }
 
   function onStreamLost(which) {
     if (stopped) return
     log(`${which} stream lost; reconnecting`)
-    // Losing either stream invalidates both: reopen the pair so the mux
-    // baseline (pending approvals replay) is regenerated in one place.
-    try {
-      mux?.close()
-    } catch {
-      // already closed
-    }
-    try {
-      hostStream?.close()
-    } catch {
-      // already closed
-    }
-    mux = null
-    hostStream = null
+    connectGeneration += 1
+    closeStreams()
     state.status = 'connecting'
     broadcast({ type: 'connection', ...connectionMessage() })
     scheduleReconnect()
@@ -632,8 +757,24 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       }),
     'session.cancel': ({ sessionId }) => api.rpc('session.cancel', { sessionId }),
     'session.rename': ({ sessionId, title }) => api.rpc('session.rename', { sessionId, title }),
-    'session.fork': ({ sessionId, atSeq }) =>
-      api.rpc('session.fork', { sessionId, ...(typeof atSeq === 'number' ? { atSeq } : {}) }),
+    'session.fork': async ({ sessionId, atSeq }) => {
+      const value = await api.rpc('session.fork', {
+        sessionId,
+        ...(typeof atSeq === 'number' ? { atSeq } : {}),
+      })
+      if (value?.sessionId) {
+        ensureSession({
+          sessionId: value.sessionId,
+          blank: false,
+          running: false,
+          updatedAt: Date.now(),
+          origin: 'fork',
+          parentSessionId: sessionId,
+        })
+        broadcastSessionList()
+      }
+      return value
+    },
     'session.models': ({ sessionId }) => api.rpc('session.models', { sessionId }),
     'session.selectModel': ({ sessionId, provider, model, reasoningEffort }) =>
       api.rpc('session.selectModel', {
@@ -645,8 +786,14 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     'session.queue-remove': ({ sessionId, itemId }) =>
       api.rpc('session.updateQueue', { sessionId, itemId, action: { kind: 'remove' } }),
     'approval.respond': ({ rpcId, sessionId, approvalId, outcome }) =>
-      answerApproval(rpcId, sessionId, approvalId, outcome === 'rejected' ? 'rejected' : 'allowed-once'),
-    'question.respond': ({ rpcId, sessionId, answers }) => answerQuestion(rpcId, sessionId, answers),
+      answerApproval(
+        rpcId,
+        sessionId,
+        approvalId,
+        outcome === 'rejected' ? 'rejected' : 'allowed-once',
+      ),
+    'question.respond': ({ rpcId, sessionId, answers }) =>
+      answerQuestion(rpcId, sessionId, answers),
     'question.cancel': ({ rpcId, sessionId }) => cancelQuestion(rpcId, sessionId),
     'autoApprove.set': ({ sessionId, value }) => persistAutoApprove(sessionId, value),
     'gateway.diagnose': () => ({ ...connectionMessage(), sessions: sessions.size }),
@@ -683,6 +830,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
       }
       case 'unsubscribe-ledger': {
         ledgerSubscriptions.get(port)?.delete(message.sessionId)
+        if (message.sessionId) refreshWaiting(message.sessionId)
         break
       }
       default:
@@ -696,9 +844,14 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     ledgerSubscriptions.set(port, new Set())
     port.onMessage.addListener((message) => handlePortMessage(port, message))
     port.onDisconnect.addListener(() => {
+      const ids = [...(ledgerSubscriptions.get(port) || [])]
       ports.delete(port)
       ledgerSubscriptions.delete(port)
-      host.setBadge?.(totalPending())
+      if (ids.length === 0) {
+        host.setBadge?.(totalPending())
+        return
+      }
+      for (const sessionId of ids) refreshWaiting(sessionId)
     })
     port.postMessage({ type: 'hello', ...connectionMessage() })
     port.postMessage(sessionListMessage())
@@ -707,9 +860,6 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
 
   // --- in-process ledger watches (the bridge provider translates ledger
   //     blocks into floating-window port messages through this) ---------------
-
-  /** @type {Map<string, Set<(message: object) => void>>} */
-  const ledgerWatchers = new Map()
 
   /**
    * Subscribe to a session's ledger pushes without a runtime port.
@@ -737,6 +887,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     return () => {
       watchers.delete(listener)
       if (watchers.size === 0) ledgerWatchers.delete(sessionId)
+      refreshWaiting(sessionId)
     }
   }
 
@@ -776,8 +927,9 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     await connect()
   }
 
-  function stop() {
+  function stop({ reason } = {}) {
     stopped = true
+    connectGeneration += 1
     if (reconnectTimer != null) {
       t.clearTimeout(reconnectTimer)
       reconnectTimer = null
@@ -789,19 +941,24 @@ export function createDshGateway({ endpoint, storage, host = {}, client, timers 
     for (const timer of pendingLedgerPushes.values()) t.clearTimeout(timer)
     pendingLedgerPushes.clear()
     ledgerWatchers.clear()
-    try {
-      mux?.close()
-    } catch {
-      // already closed
+    closeStreams()
+    if (reason === 'disabled' || reason === 'invalid-endpoint') {
+      const hold = helloForGatewayHold(reason)
+      state.status = hold.status
+      state.lastError = hold.lastError
+    } else {
+      state.status = 'offline'
     }
-    try {
-      hostStream?.close()
-    } catch {
-      // already closed
+    broadcast({ type: 'connection', ...connectionMessage() })
+    for (const port of [...ports]) {
+      try {
+        port.disconnect?.()
+      } catch {
+        // test doubles may not implement disconnect
+      }
     }
-    mux = null
-    hostStream = null
-    state.status = 'offline'
+    ports.clear()
+    ledgerSubscriptions.clear()
     sessions.clear()
     host.setBadge?.(0)
     host.clearWaiting?.()

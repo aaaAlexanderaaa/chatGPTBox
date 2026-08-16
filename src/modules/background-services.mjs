@@ -13,11 +13,23 @@
 import Browser from 'webextension-polyfill'
 import { defaultConfig, getUserConfig } from '../config/storage.mjs'
 import { RuntimeMessage } from '../protocol/messages.mjs'
-import { diagnoseDsh, syncDshHeaderRules } from './dsh/background/fence.mjs'
+import { applyActionBadge, setDshWaitingCount } from '../background/action-badge.mjs'
+import {
+  diagnoseDsh,
+  endpointForLiveGateway,
+  helloForGatewayHold,
+  resolveGatewayHoldReason,
+  shouldRecreateDshGateway,
+  syncDshHeaderRules,
+} from './dsh/background/fence.mjs'
 import { createDshGateway } from './dsh/background/gateway.mjs'
+import { cockpitUrlForSession } from './dsh/session-pick.mjs'
 
 const DSH_PORT_NAME = 'dsh-gateway'
 const DSH_NOTIFICATION_ID = 'dsh-waiting'
+let lastWaitingSessionId = null
+const heldGatewayPorts = new Set()
+let portHoldReason = 'starting'
 
 /** Read the config once, tolerating storage failures at early startup. */
 async function readConfig() {
@@ -32,17 +44,11 @@ async function readConfig() {
 
 function setDshBadge(count) {
   const action = Browser.action || Browser.browserAction
-  if (!action?.setBadgeText) return
-  const text = count > 0 ? String(count) : ''
-  void action.setBadgeText({ text }).catch(() => {})
-  if (count > 0) {
-    void action
-      .setBadgeBackgroundColor({ color: '#d97706' }) // --dsh-waiting amber
-      .catch(() => {})
-  }
+  applyActionBadge(action, setDshWaitingCount(count))
 }
 
 function notifyDshWaiting(payload) {
+  lastWaitingSessionId = payload?.sessionId || null
   if (!Browser.notifications?.create) return
   void Browser.notifications
     .create(DSH_NOTIFICATION_ID, {
@@ -77,24 +83,50 @@ function createDshGatewayFor(endpoint) {
   })
 }
 
+function holdGatewayPort(port) {
+  heldGatewayPorts.add(port)
+  try {
+    port.postMessage(helloForGatewayHold(portHoldReason))
+    port.postMessage({ type: 'sessions', items: [] })
+  } catch {
+    heldGatewayPorts.delete(port)
+    return
+  }
+  port.onDisconnect.addListener(() => heldGatewayPorts.delete(port))
+}
+
+function drainHeldGatewayPorts() {
+  if (!dshGateway) return
+  for (const port of [...heldGatewayPorts]) {
+    heldGatewayPorts.delete(port)
+    dshGateway.attachPort(port)
+  }
+}
+
 async function applyDshModuleState(config, previousEndpoint) {
-  if (config.dshModuleEnabled !== true) {
-    // Disabled: stop the gateway and remove the fence rewrite so a disabled
-    // module leaves zero visible trace (roadmap Phase A acceptance #5).
-    dshGateway?.stop()
+  // Off, or a non-loopback URL: no gateway, no rewrite. A remote origin
+  // must never replace a live loopback connection (D-13).
+  const endpoint = endpointForLiveGateway(config.dshModuleEnabled, config.dshEndpoint)
+  if (!endpoint) {
+    portHoldReason = resolveGatewayHoldReason({
+      enabled: config.dshModuleEnabled,
+      endpoint: config.dshEndpoint,
+    })
+    dshGateway?.stop({ reason: portHoldReason })
     dshGateway = null
     setDshBadge(0)
     clearDshWaiting()
     await syncDshHeaderRules('')
     return
   }
-  const endpointChanged = previousEndpoint !== undefined && previousEndpoint !== config.dshEndpoint
-  if (endpointChanged || !dshGateway) {
+  const endpointChanged = shouldRecreateDshGateway(previousEndpoint, endpoint, Boolean(dshGateway))
+  if (endpointChanged) {
     dshGateway?.stop()
-    dshGateway = createDshGatewayFor(config.dshEndpoint)
+    dshGateway = createDshGatewayFor(endpoint)
   }
-  await syncDshHeaderRules(config.dshEndpoint)
+  await syncDshHeaderRules(endpoint)
   await dshGateway.start()
+  drainHeldGatewayPorts()
 }
 
 /**
@@ -118,11 +150,7 @@ export async function startModuleBackgrounds() {
   Browser.runtime.onConnect.addListener((port) => {
     if (port.name !== DSH_PORT_NAME) return
     if (!dshGateway) {
-      try {
-        port.disconnect()
-      } catch {
-        // already gone
-      }
+      holdGatewayPort(port)
       return
     }
     dshGateway.attachPort(port)
@@ -143,8 +171,8 @@ export async function startModuleBackgrounds() {
         data.kind === 'question'
           ? 'question.respond'
           : data.kind === 'question-cancel'
-            ? 'question.cancel'
-            : 'approval.respond'
+          ? 'question.cancel'
+          : 'approval.respond'
       return dshGateway
         .rpc(method, data)
         .catch((error) => ({ accepted: false, error: error?.message || String(error) }))
@@ -160,18 +188,14 @@ export async function startModuleBackgrounds() {
   Browser.notifications?.onClicked?.addListener((notificationId) => {
     if (notificationId !== DSH_NOTIFICATION_ID) return
     clearDshWaiting()
-    void Browser.tabs
-      .create({ url: Browser.runtime.getURL('dsh.html') })
-      .catch(() => {})
+    const url = cockpitUrlForSession(Browser.runtime.getURL('dsh.html'), lastWaitingSessionId)
+    void Browser.tabs.create({ url }).catch(() => {})
   })
 
   const storageChanges = Browser.storage?.onChanged || Browser.storage?.local?.onChanged
   storageChanges?.addListener((changes) => {
     if (!changes) return
-    const relevant =
-      'dshModuleEnabled' in changes ||
-      'dshEndpoint' in changes ||
-      'dshModuleAutoApprove' in changes
+    const relevant = 'dshModuleEnabled' in changes || 'dshEndpoint' in changes
     if (!relevant) return
     void readConfig().then((next) => {
       const previousEndpoint = config?.dshEndpoint

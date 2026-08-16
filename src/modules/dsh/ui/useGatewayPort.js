@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
+import { createPortReconnect } from './port-reconnect.mjs'
 
 // The cockpit's single link to the background gateway: one runtime port
 // ('dsh-gateway'), message-driven. Everything the UI knows arrives here —
@@ -12,23 +13,34 @@ export function useGatewayPort() {
   const requestId = useRef(0)
   const pendingRpc = useRef(new Map())
   const ledgerListeners = useRef(new Set())
-  const [connection, setConnection] = useState({ status: 'connecting', endpoint: '', version: null, lastError: null })
+  const subscriptionsRef = useRef(new Set())
+  const [connection, setConnection] = useState({
+    status: 'connecting',
+    endpoint: '',
+    version: null,
+    lastError: null,
+  })
   const [sessions, setSessions] = useState([])
   const [sessionUpdates, setSessionUpdates] = useState({}) // sessionId -> summary
   const [connected, setConnected] = useState(false)
+  const connectionRef = useRef(connection)
+  connectionRef.current = connection
 
   const handleMessage = useCallback((message) => {
     if (!message || typeof message !== 'object') return
     switch (message.type) {
       case 'hello':
-      case 'connection':
-        setConnection({
+      case 'connection': {
+        const next = {
           status: message.status,
           endpoint: message.endpoint,
           version: message.version,
           lastError: message.lastError,
-        })
+        }
+        connectionRef.current = next
+        setConnection(next)
         break
+      }
       case 'sessions':
         setSessions(message.items || [])
         setSessionUpdates({})
@@ -53,25 +65,34 @@ export function useGatewayPort() {
   }, [])
 
   useEffect(() => {
-    const connect = () => {
-      let port
-      try {
-        port = Browser.runtime.connect({ name: PORT_NAME })
-      } catch {
-        setConnected(false)
-        return
-      }
-      portRef.current = port
-      setConnected(true)
-      port.onMessage.addListener(handleMessage)
-      port.onDisconnect.addListener(() => {
-        setConnected(false)
-        // The background worker may have been idle-dead; retry quietly.
-        setTimeout(connect, 1000)
-      })
-    }
-    connect()
+    const life = createPortReconnect({
+      connect: () => {
+        let port
+        try {
+          port = Browser.runtime.connect({ name: PORT_NAME })
+        } catch {
+          setConnected(false)
+          return
+        }
+        portRef.current = port
+        setConnected(true)
+        port.onMessage.addListener(handleMessage)
+        port.onDisconnect.addListener(() => {
+          setConnected(false)
+          life.onDisconnect()
+        })
+        for (const sessionId of subscriptionsRef.current) {
+          try {
+            port.postMessage({ type: 'subscribe-ledger', sessionId })
+          } catch {
+            // port died before replay
+          }
+        }
+      },
+    })
+    life.start()
     return () => {
+      life.stop()
       try {
         portRef.current?.disconnect()
       } catch {
@@ -102,11 +123,17 @@ export function useGatewayPort() {
 
   const subscribeLedger = useCallback(
     (sessionId, listener) => {
-      if (sessionId) send({ type: 'subscribe-ledger', sessionId })
+      if (sessionId) {
+        subscriptionsRef.current.add(sessionId)
+        send({ type: 'subscribe-ledger', sessionId })
+      }
       ledgerListeners.current.add(listener)
       return () => {
         ledgerListeners.current.delete(listener)
-        if (sessionId) send({ type: 'unsubscribe-ledger', sessionId })
+        if (sessionId) {
+          subscriptionsRef.current.delete(sessionId)
+          send({ type: 'unsubscribe-ledger', sessionId })
+        }
       }
     },
     [send],

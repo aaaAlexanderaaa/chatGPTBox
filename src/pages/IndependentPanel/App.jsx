@@ -405,6 +405,7 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
                 session={currentSession}
                 notClampSize={true}
                 pageMode={true}
+                draftKey={`independent-draft-${currentSession.sessionId}`}
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
                   if (cData.length > 0 && cData[cData.length - 1].done) {

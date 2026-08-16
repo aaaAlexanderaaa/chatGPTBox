@@ -25,10 +25,92 @@ import Browser from 'webextension-polyfill'
 export const DSH_HEADER_RULE_ID = 1003
 const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
 
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || '')
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase()
+  if (host === 'localhost' || host === '::1') return true
+  const ipv4 = host.match(/^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!ipv4) return false
+  return ipv4.slice(1).every((octet) => {
+    const n = Number(octet)
+    return n >= 0 && n <= 255
+  })
+}
+
 export function normalizeDshEndpoint(raw) {
-  const endpoint = String(raw || '').trim().replace(/\/+$/, '')
-  if (!/^https?:\/\/[^\s/]+/i.test(endpoint)) return null
-  return endpoint
+  const endpoint = String(raw || '').trim()
+  if (!endpoint) return null
+  let url
+  try {
+    url = new URL(endpoint)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  if (!isLoopbackHostname(url.hostname)) return null
+  // Origin only — a typed path would make the client hit /api/api/...
+  return url.origin
+}
+
+/** Live gateway origin, or null when the module is off / the URL is not loopback. */
+export function endpointForLiveGateway(enabled, rawEndpoint) {
+  if (enabled !== true) return null
+  return normalizeDshEndpoint(rawEndpoint)
+}
+
+/**
+ * Why a UI port is held instead of attached to a live gateway.
+ * `applied: false` is the MV3 cold-start window before applyDshModuleState.
+ */
+export function resolveGatewayHoldReason({ enabled, endpoint, applied = true } = {}) {
+  if (applied !== true) return 'starting'
+  if (enabled !== true) return 'disabled'
+  if (!normalizeDshEndpoint(endpoint)) return 'invalid-endpoint'
+  return null
+}
+
+export function helloForGatewayHold(reason) {
+  if (reason === 'starting') {
+    return { type: 'hello', status: 'connecting', endpoint: '', version: null, lastError: null }
+  }
+  if (reason === 'invalid-endpoint') {
+    return {
+      type: 'hello',
+      status: 'offline',
+      endpoint: '',
+      version: null,
+      lastError: 'DeepSeek Harness endpoint must be loopback (127.0.0.1, localhost, or ::1).',
+    }
+  }
+  return {
+    type: 'hello',
+    status: 'disabled',
+    endpoint: '',
+    version: null,
+    lastError: 'DeepSeek Harness module is off',
+  }
+}
+
+/** Recreate the live gateway only when the origin actually moved. */
+export function shouldRecreateDshGateway(previousEndpoint, nextEndpoint, hasGateway) {
+  if (!hasGateway) return true
+  if (previousEndpoint === undefined) return false
+  return normalizeDshEndpoint(previousEndpoint) !== normalizeDshEndpoint(nextEndpoint)
+}
+
+/** MV2 listener filter: only the configured loopback origin, never all URLs. */
+export function webRequestFallbackUrls(endpoint) {
+  const origin = normalizeDshEndpoint(endpoint)
+  return origin ? [`${origin}/*`] : []
+}
+
+/** Persist a typed endpoint on blur: valid origins only, already-normalized. */
+export function resolveEndpointCommit(draft, current) {
+  const normalized = normalizeDshEndpoint(draft)
+  if (!normalized) return current
+  if (normalized === normalizeDshEndpoint(current)) return current
+  return normalized
 }
 
 /**
@@ -72,33 +154,63 @@ export function isDshFenceRewriteTarget(details, endpoint) {
   } catch {
     return false
   }
-  return initiatorOrigin === extensionOrigin && url.origin === origin && url.pathname.startsWith('/api')
-}
-
-function stripFenceHeaders(requestHeaders) {
-  return (requestHeaders || []).filter(
-    (header) => !['origin', 'sec-fetch-site'].includes((header?.name || '').toLowerCase()),
+  return (
+    initiatorOrigin === extensionOrigin && url.origin === origin && url.pathname.startsWith('/api')
   )
 }
 
-let webRequestFallbackRegistered = false
+/** MV2 equivalent of the DNR rewrite: drop Origin, set Sec-Fetch-Site to none. */
+export function rewriteFenceHeaders(requestHeaders) {
+  const kept = (requestHeaders || []).filter(
+    (header) => !['origin', 'sec-fetch-site'].includes((header?.name || '').toLowerCase()),
+  )
+  return [...kept, { name: 'Sec-Fetch-Site', value: 'none' }]
+}
+
+let webRequestFallbackListener = null
+let webRequestFallbackFilter = ''
 let currentEndpointForFallback = ''
 
-/** MV2/Firefox path: one blocking listener, filtered to the configured endpoint. */
+function unregisterDshWebRequestFallback() {
+  if (!webRequestFallbackListener) return
+  try {
+    Browser.webRequest?.onBeforeSendHeaders?.removeListener?.(webRequestFallbackListener)
+  } catch {
+    // listener was never installed, or the API vanished on shutdown
+  }
+  webRequestFallbackListener = null
+  webRequestFallbackFilter = ''
+  currentEndpointForFallback = ''
+}
+
+/** MV2/Firefox path: one blocking listener, scoped to the configured origin. */
 function registerDshWebRequestFallback(endpoint) {
-  currentEndpointForFallback = endpoint
-  if (webRequestFallbackRegistered) return
-  webRequestFallbackRegistered = true
+  const origin = normalizeDshEndpoint(endpoint) || ''
+  const urls = webRequestFallbackUrls(origin)
+  if (!urls.length) {
+    unregisterDshWebRequestFallback()
+    return
+  }
+  if (webRequestFallbackListener && webRequestFallbackFilter === origin) {
+    currentEndpointForFallback = origin
+    return
+  }
+  unregisterDshWebRequestFallback()
+  currentEndpointForFallback = origin
+  const listener = (details) => {
+    if (!isDshFenceRewriteTarget(details, currentEndpointForFallback)) return {}
+    return { requestHeaders: rewriteFenceHeaders(details.requestHeaders) }
+  }
   try {
     Browser.webRequest.onBeforeSendHeaders.addListener(
-      (details) => {
-        if (!isDshFenceRewriteTarget(details, currentEndpointForFallback)) return {}
-        return { requestHeaders: stripFenceHeaders(details.requestHeaders) }
-      },
-      { urls: ['http://*/*', 'https://*/*'], types: ['xmlhttprequest', 'websocket'] },
+      listener,
+      { urls, types: ['xmlhttprequest', 'websocket'] },
       ['blocking', 'requestHeaders'],
     )
+    webRequestFallbackListener = listener
+    webRequestFallbackFilter = origin
   } catch (error) {
+    currentEndpointForFallback = ''
     console.log('DSH module: webRequest fallback unavailable', error)
   }
 }

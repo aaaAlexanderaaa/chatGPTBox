@@ -1,8 +1,9 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { ExternalLink } from 'lucide-react'
 import { ModuleMessage } from '../../api.mjs'
+import { resolveEndpointCommit } from '../background/fence.mjs'
 
 // Engine-list settings card (roadmap A5): one card, default off, endpoint +
 // diagnose + a door into the cockpit. Registered through the module seam
@@ -13,6 +14,17 @@ export function DshSettingsCard({ config, updateConfig }) {
   const [diagnosis, setDiagnosis] = useState(null)
   const [testing, setTesting] = useState(false)
   const enabled = config.dshModuleEnabled === true
+  const [endpointDraft, setEndpointDraft] = useState(config.dshEndpoint || '')
+
+  useEffect(() => {
+    setEndpointDraft(config.dshEndpoint || '')
+  }, [config.dshEndpoint])
+
+  const commitEndpoint = () => {
+    const next = resolveEndpointCommit(endpointDraft, config.dshEndpoint)
+    setEndpointDraft(next || '')
+    if (next !== config.dshEndpoint) updateConfig({ dshEndpoint: next })
+  }
 
   const runDiagnose = async () => {
     setTesting(true)
@@ -60,8 +72,14 @@ export function DshSettingsCard({ config, updateConfig }) {
             <input
               className="flex-1 text-xs bg-secondary border border-border rounded-md px-2 py-1 outline-none"
               placeholder="http://127.0.0.1:3080"
-              value={config.dshEndpoint || ''}
-              onInput={(event) => updateConfig({ dshEndpoint: event.target.value })}
+              value={endpointDraft}
+              onInput={(event) => setEndpointDraft(event.target.value)}
+              onBlur={commitEndpoint}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.currentTarget.blur()
+                }
+              }}
             />
           </div>
           <div className="flex items-center gap-2">

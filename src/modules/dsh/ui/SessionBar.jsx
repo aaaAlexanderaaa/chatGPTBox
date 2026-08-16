@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { GitBranch, Pencil } from 'lucide-react'
+import { modelsFromCatalog, modelChipLabel, selectModelArgs } from './select-model.mjs'
 
 // Session bar: title (rename), model chip, auto-approve switch (D-8: at
 // hand, explicit, in view at all times, default off), fork. In the narrow
@@ -10,25 +11,23 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [models, setModels] = useState(null)
+  const [picked, setPicked] = useState(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const titleRef = useRef(null)
   const narrow = sessions != null
 
   useEffect(() => {
     setModels(null)
-  }, [session.sessionId])
+    setPicked(null)
+    setMenuOpen(false)
+    void rpc('session.models', { sessionId: session.sessionId }).then(setModels, () =>
+      setModels({ groups: [], failures: [] }),
+    )
+  }, [session.sessionId, rpc])
 
   useEffect(() => {
     if (editing) titleRef.current?.focus()
   }, [editing])
-
-  const loadModels = async () => {
-    if (models) return
-    try {
-      setModels(await rpc('session.models', { sessionId: session.sessionId }))
-    } catch {
-      setModels({ groups: [], failures: [] })
-    }
-  }
 
   const commitTitle = () => {
     setEditing(false)
@@ -37,12 +36,8 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
       void rpc('session.rename', { sessionId: session.sessionId, title })
   }
 
-  const modelOptions = (models?.groups || []).flatMap((group) =>
-    (group.models || []).map((model) => ({ ...model, groupName: group.name })),
-  )
-  const currentModel = models?.current
-    ? `${models.current.provider}/${models.current.model}`
-    : 'model'
+  const modelOptions = modelsFromCatalog(models)
+  const currentModel = modelChipLabel(models, picked)
 
   return (
     <div className="flex flex-wrap items-center gap-2 min-h-11 px-4 border-b border-border shrink-0">
@@ -90,23 +85,21 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
       <div className="relative">
         <button
           className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary text-muted-foreground"
-          onClick={loadModels}
+          onClick={() => setMenuOpen((open) => !open)}
         >
           {currentModel} ▾
         </button>
-        {models && (
+        {menuOpen && models && (
           <div className="absolute top-full left-0 mt-1 z-10 max-h-72 w-72 overflow-auto bg-popover text-popover-foreground border border-border rounded-md shadow-lg py-1">
             {modelOptions.map((model) => (
               <button
-                key={`${models.current?.provider}/${model.id}`}
+                key={`${model.provider || models.current?.provider}/${model.id}`}
                 className="block w-full text-left text-xs px-3 py-1.5 hover:bg-secondary"
                 onClick={() => {
-                  void rpc('session.selectModel', {
-                    sessionId: session.sessionId,
-                    provider: models.current?.provider,
-                    model: model.id,
-                  })
-                  setModels(null)
+                  const args = selectModelArgs(session.sessionId, model, models.current?.provider)
+                  setPicked({ provider: args.provider, id: model.id })
+                  setMenuOpen(false)
+                  void rpc('session.selectModel', args)
                 }}
                 title={model.description || model.name}
               >
@@ -149,7 +142,9 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
         title="Fork at the last completed turn"
         onClick={() =>
           void rpc('session.fork', { sessionId: session.sessionId }).then(
-            (value) => value?.sessionId,
+            (value) => {
+              if (value?.sessionId) onSelect?.(value.sessionId)
+            },
             () => null,
           )
         }
