@@ -63,6 +63,7 @@ export {
   getModelProviderGroup,
   getModelStatus,
   gptApiModelKeys,
+  grokWebModelKeys,
   isModelDeprecated,
   ModelGroups,
   Models,
@@ -71,6 +72,16 @@ export {
   ollamaApiModelKeys,
   openRouterApiModelKeys,
 } from './models.mjs'
+
+// grok-web.mjs
+export {
+  GROK_WEB_SLUGS,
+  grokSlugToModelKey,
+  grokWebApiModesForAccount,
+  isGrokChatSlug,
+  pickDefaultGrokWebKey,
+  slugsForGrokWebTier,
+} from './grok-web.mjs'
 
 // predicates.mjs
 export {
@@ -83,6 +94,7 @@ export {
   isUsingCustomModel,
   isUsingDeepSeekApiModel,
   isUsingGptCompletionApiModel,
+  isUsingGrokWebModel,
   isUsingMoonshotApiModel,
   isUsingMoonshotWebModel,
   isUsingOllamaApiModel,

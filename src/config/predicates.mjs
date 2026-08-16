@@ -12,6 +12,7 @@ import {
   deepSeekApiModelKeys,
   dshHarnessModelKeys,
   gptApiModelKeys,
+  grokWebModelKeys,
   moonshotApiModelKeys,
   moonshotWebModelKeys,
   ollamaApiModelKeys,
@@ -28,6 +29,10 @@ export function isUsingDshHarnessModel(configOrSession) {
 
 export function isUsingMoonshotWebModel(configOrSession) {
   return isInApiModeGroup(moonshotWebModelKeys, configOrSession)
+}
+
+export function isUsingGrokWebModel(configOrSession) {
+  return isInApiModeGroup(grokWebModelKeys, configOrSession)
 }
 
 export function isUsingChatgptApiModel(configOrSession) {

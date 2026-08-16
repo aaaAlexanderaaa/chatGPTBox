@@ -39,6 +39,12 @@ export const moonshotWebModelKeys = [
   'moonshotWebFreeK15',
   'moonshotWebFreeK15Think',
 ]
+export const grokWebModelKeys = [
+  'grokWebFast',
+  'grokWebAuto',
+  'grokWebExpert',
+  'grokWebHeavy',
+]
 export const gptApiModelKeys = ['gptApiInstruct', 'gptApiDavinci']
 export const chatgptApiModelKeys = [
   'chatgptApi35',
@@ -162,6 +168,10 @@ export const ModelGroups = {
   moonshotWebModelKeys: {
     value: moonshotWebModelKeys,
     desc: 'Kimi.Moonshot (Web)',
+  },
+  grokWebModelKeys: {
+    value: grokWebModelKeys,
+    desc: 'Grok (Web)',
   },
 
   chatgptApiModelKeys: {
@@ -359,6 +369,11 @@ export function getModelMeta(modelName) {
  * @type {Object.<string,Model>}
  */
 export const Models = {
+  grokWebFast: { value: 'grok-chat-fast', desc: 'Grok (Web, Fast)' },
+  grokWebAuto: { value: 'grok-chat-auto', desc: 'Grok (Web, Auto)' },
+  grokWebExpert: { value: 'grok-chat-expert', desc: 'Grok (Web, Expert)' },
+  grokWebHeavy: { value: 'grok-chat-heavy', desc: 'Grok (Web, Heavy)' },
+
   chatgptWeb56Thinking: { value: 'gpt-5-6-thinking', desc: 'ChatGPT (Web, GPT-5.6 Thinking)' },
   chatgptWeb55Thinking: { value: 'gpt-5-5-thinking', desc: 'ChatGPT (Web, GPT-5.5 Thinking)' },
   chatgptWeb55Pro: { value: 'gpt-5-5-pro', desc: 'ChatGPT (Web, GPT-5.5 Pro)' },
