@@ -56,6 +56,10 @@ export const RuntimeMessage = {
   ChatgptProxyRequest: 'CHATGPT_PROXY_REQUEST',
   ChatgptProxyControlRequest: 'CHATGPT_PROXY_CONTROL_REQUEST',
 
+  // Grok proxy tab request relay (background -> content-script)
+  GrokProxyRequest: 'GROK_PROXY_REQUEST',
+  GrokProxyControlRequest: 'GROK_PROXY_CONTROL_REQUEST',
+
   // ChatGPT Web conversation cache APIs (UI -> background)
   ChatgptWebListConversations: 'CHATGPT_WEB_LIST_CONVERSATIONS',
   ChatgptWebGetConversation: 'CHATGPT_WEB_GET_CONVERSATION',
@@ -105,4 +109,26 @@ export const ChatgptProxyControlAction = {
 
 export const CHATGPT_PROXY_CONTROL_ACTIONS = Object.freeze(
   new Set(Object.values(ChatgptProxyControlAction)),
+)
+
+// ---------------------------------------------------------------------------
+// grok-web proxy control `action` values (data.action, NOT a message.type)
+// ---------------------------------------------------------------------------
+
+/**
+ * Action values carried inside a `GROK_PROXY_CONTROL_REQUEST` message's
+ * `data.action` field. These are dispatched by the content script running on
+ * grok.com. Kept lowercase as an on-wire protocol value.
+ */
+export const GrokProxyControlAction = {
+  ListConversations: 'grok_web_list_conversations',
+  GetConversation: 'grok_web_get_conversation',
+  RefreshConversation: 'grok_web_refresh_conversation',
+  CreateConversation: 'grok_web_create_conversation',
+  SendConversationMessage: 'grok_web_send_conversation_message',
+  ListModels: 'grok_web_list_models',
+}
+
+export const GROK_PROXY_CONTROL_ACTIONS = Object.freeze(
+  new Set(Object.values(GrokProxyControlAction)),
 )

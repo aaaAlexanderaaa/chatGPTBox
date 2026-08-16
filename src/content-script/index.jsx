@@ -51,6 +51,7 @@ import {
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
+import { handleGrokProxyMessage, isGrokProxyMessage } from './grok-proxy-handlers.mjs'
 
 /**
  * The engine selection for conversations born on this page: the site's
@@ -599,7 +600,12 @@ async function run() {
     changeLanguage(lang)
   })
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === RuntimeMessage.ChangeLang) {
+    if (isGrokProxyMessage(message)) {
+      void handleGrokProxyMessage(message)
+        .then(() => sendResponse({ error: 'not implemented' }))
+        .catch((error) => sendResponse({ error: error?.message || String(error) }))
+      return true
+    } else if (message.type === RuntimeMessage.ChangeLang) {
       const data = message.data
       changeLanguage(data.lang)
     } else if (message.type === RuntimeMessage.ChatgptProxyRequest) {
