@@ -877,11 +877,14 @@ async function handleModels(res) {
   }
 
   if (!models) {
+    let fromLiveChatgpt = false
+
     if (isBridgeConnected()) {
       try {
         const slugs = await sendControlRequestToBridge('chatgpt_web_list_models', {}, 10_000)
         if (Array.isArray(slugs) && slugs.length > 0) {
           models = slugs
+          fromLiveChatgpt = true
         }
       } catch (err) {
         log(`Model list fetch failed, using fallback: ${err.message}`)
@@ -909,8 +912,12 @@ async function handleModels(res) {
       }
     }
 
-    cachedModels = models
-    cachedModelsAt = Date.now()
+    // Cache live ChatGPT lists only (including post-concat Grok slugs).
+    // Never cache AVAILABLE_MODELS-only fallback so clients recover after reconnect.
+    if (fromLiveChatgpt) {
+      cachedModels = models
+      cachedModelsAt = Date.now()
+    }
   }
 
   const data = models.map((id) => ({

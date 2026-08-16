@@ -68,4 +68,23 @@ describe('API gateway compatibility contract', () => {
     expect(retryableActions).not.toContain('RefreshConversation')
     expect(retryableActions).not.toContain('SyncConversations')
   })
+
+  it('caches live /v1/models lists only (not AVAILABLE_MODELS fallback)', () => {
+    const handleModels = sourceBetween(
+      gatewaySource,
+      'async function handleModels(res)',
+      'function handleStatus(res)',
+    )
+
+    expect(handleModels).toContain('fromLiveChatgpt = true')
+    expect(handleModels).toMatch(
+      /if \(fromLiveChatgpt\) \{[\s\S]*?cachedModels = models[\s\S]*?cachedModelsAt = Date\.now\(\)/,
+    )
+    const fallbackIdx = handleModels.indexOf('AVAILABLE_MODELS.map')
+    const cacheGuardIdx = handleModels.indexOf('if (fromLiveChatgpt)')
+    const cacheAssignIdx = handleModels.indexOf('cachedModels = models')
+    expect(fallbackIdx).toBeGreaterThan(-1)
+    expect(cacheGuardIdx).toBeGreaterThan(fallbackIdx)
+    expect(cacheAssignIdx).toBeGreaterThan(cacheGuardIdx)
+  })
 })
