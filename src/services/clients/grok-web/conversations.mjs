@@ -43,14 +43,22 @@ export function normalizeGrokConversationSnapshot(payload, conversationId) {
   }
 }
 
+async function parseGrokJsonResponse(response) {
+  if (!response.ok) {
+    const bodyText = await response.text()
+    throw new Error(`Grok Web request failed (${response.status}): ${bodyText}`)
+  }
+  return response.json()
+}
+
 export async function listGrokConversations({ fetch, pageSize }) {
   const url = `${LIST_URL}?pageSize=${encodeURIComponent(pageSize)}`
   const response = await fetch(url, { method: 'GET' })
-  return response.json()
+  return parseGrokJsonResponse(response)
 }
 
 export async function getGrokConversation({ fetch, conversationId }) {
   const url = `https://grok.com/rest/app-chat/conversations/${encodeURIComponent(conversationId)}/response-node?includeThreads=true`
   const response = await fetch(url, { method: 'GET' })
-  return response.json()
+  return parseGrokJsonResponse(response)
 }

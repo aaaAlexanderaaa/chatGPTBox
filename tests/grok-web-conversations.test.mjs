@@ -61,4 +61,18 @@ describe('list/get use GET only', () => {
     })
     expect(methods).toEqual(['GET'])
   })
+
+  it('surfaces 429 on GET without POST', async () => {
+    const methods = []
+    await expect(
+      listGrokConversations({
+        pageSize: 20,
+        fetch: async (_url, init) => {
+          methods.push(init?.method || 'GET')
+          return new Response('rate limited', { status: 429 })
+        },
+      }),
+    ).rejects.toThrow(/429/)
+    expect(methods).toEqual(['GET'])
+  })
 })
