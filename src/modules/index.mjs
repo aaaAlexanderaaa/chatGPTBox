@@ -10,9 +10,11 @@
 import { registerModule } from './api.mjs'
 import { dshModule } from './dsh/module.mjs'
 import { chatgptWebModule } from './chatgptweb/module.mjs'
+import { grokwebModule } from './grokweb/module.mjs'
 
 registerModule(dshModule)
 registerModule(chatgptWebModule)
+registerModule(grokwebModule)
 
 // Re-export the read-side of the seam so core consumers (config storage,
 // settings UI) can import the registry from this single aggregation point.

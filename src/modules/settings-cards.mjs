@@ -8,6 +8,9 @@ import { DSH_MODULE_ID } from './dsh/module.mjs'
 import { DshSettingsCard } from './dsh/ui/SettingsCard.jsx'
 import { CHATGPTWEB_MODULE_ID } from './chatgptweb/module.mjs'
 import { ChatgptWebSettingsCard } from './chatgptweb/ui/SettingsCard.jsx'
+import { GROKWEB_MODULE_ID } from './grokweb/module.mjs'
+import { GrokWebSettingsCard } from './grokweb/ui/SettingsCard.jsx'
 
 registerSettingsCard(DSH_MODULE_ID, DshSettingsCard)
 registerSettingsCard(CHATGPTWEB_MODULE_ID, ChatgptWebSettingsCard)
+registerSettingsCard(GROKWEB_MODULE_ID, GrokWebSettingsCard)
