@@ -1,12 +1,24 @@
-import { Models } from '../../config/models.mjs'
+import {
+  acquireGrokWebSessionLock,
+  ensureGrokProxyTab,
+  sendGrokProxyRequest,
+} from '../../background/grok-proxy-service.mjs'
 
-export async function generateAnswersWithGrokWebApi({ session, config }) {
-  const modelSlug = Models[session.modelName]?.value ?? 'grok-chat-fast'
-
+export async function generateAnswersWithGrokWebApi({ port, session, config }) {
   if (config.grokWebSignedIn !== true) {
     throw new Error('Please login at https://grok.com first')
   }
 
-  void modelSlug
-  throw new Error('Grok Web proxy is not wired')
+  const release = acquireGrokWebSessionLock(session, port)
+  if (release === null) return
+
+  try {
+    const tab = await ensureGrokProxyTab()
+    if (!tab?.id) {
+      throw new Error('Unable to open a dedicated Grok proxy tab')
+    }
+    await sendGrokProxyRequest(tab.id, session, port)
+  } finally {
+    release()
+  }
 }

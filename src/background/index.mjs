@@ -34,6 +34,7 @@ import {
   stopChatgptWebConversationCacheSyncWithFallback,
   handleProxyResponsePort,
 } from './chatgpt-proxy-service.mjs'
+import { handleGrokProxyResponsePort } from './grok-proxy-service.mjs'
 import { getChatgptWebConversationMeta } from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
   CHATGPT_WEB_HISTORY_SYNC_ALARM,
@@ -215,6 +216,7 @@ Browser.runtime.onMessage.addListener(createMessageRouter())
 
 Browser.runtime.onConnect.addListener((port) => {
   if (handleProxyResponsePort(port)) return
+  if (handleGrokProxyResponsePort(port)) return
   if (handleApiBridgeProxyPort(port)) return
 })
 

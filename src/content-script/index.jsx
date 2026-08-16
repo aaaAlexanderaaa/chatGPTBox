@@ -601,8 +601,16 @@ async function run() {
   })
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isGrokProxyMessage(message)) {
+      if (message.type === RuntimeMessage.GrokProxyRequest) {
+        void handleGrokProxyMessage(message)
+        return false
+      }
       void handleGrokProxyMessage(message)
-        .then(() => sendResponse({ error: 'not implemented' }))
+        .then((result) =>
+          sendResponse(
+            result?.handled ? { ok: true, data: result.data } : { error: 'not implemented' },
+          ),
+        )
         .catch((error) => sendResponse({ error: error?.message || String(error) }))
       return true
     } else if (message.type === RuntimeMessage.ChangeLang) {
