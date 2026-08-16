@@ -16,6 +16,7 @@ const SESSION_BY_ROUTE = {
   'dsh-bridge': { modelName: 'dshHarnessAgent' },
   'custom-api': { modelName: 'customModel' },
   'chatgpt-web': { modelName: 'chatgptWeb56Thinking' },
+  'grok-web': { modelName: 'grokWebExpert' },
   'moonshot-web': { modelName: 'moonshotWebFree' },
   'chatgpt-api': { modelName: 'chatgptApi5_4' },
   'claude-api': { modelName: 'claudeSonnet45Api' },
@@ -30,8 +31,8 @@ const SESSION_BY_ROUTE = {
 }
 
 describe('provider registry', () => {
-  it('has exactly 14 providers', () => {
-    expect(PROVIDERS.length).toBe(14)
+  it('has exactly 15 providers', () => {
+    expect(PROVIDERS.length).toBe(15)
   })
 
   it('each provider exposes { route, match, run }', () => {
@@ -54,6 +55,7 @@ describe('provider registry', () => {
     'dsh-bridge',
     'custom-api',
     'chatgpt-web',
+    'grok-web',
     'moonshot-web',
     'chatgpt-api',
     'claude-api',

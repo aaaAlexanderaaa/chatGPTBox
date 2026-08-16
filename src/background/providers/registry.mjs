@@ -10,6 +10,7 @@
 import customApiProvider from './custom-api.mjs'
 import dshBridgeProvider from './dsh-bridge.mjs'
 import chatgptWebHostProvider from './chatgpt-web.mjs'
+import grokWebHostProvider from './grok-web.mjs'
 import moonshotWebHostProvider from './moonshot-web.mjs'
 import chatgptApiProvider from './chatgpt-api.mjs'
 import claudeApiProvider from './claude-api.mjs'
@@ -30,6 +31,7 @@ const RAW_PROVIDERS = [
   dshBridgeProvider,
   customApiProvider,
   chatgptWebHostProvider,
+  grokWebHostProvider,
   moonshotWebHostProvider,
   chatgptApiProvider,
   claudeApiProvider,
