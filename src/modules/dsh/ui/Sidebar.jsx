@@ -97,7 +97,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onCreate, searchRef, r
           <div
             key={`remote-${result.sessionId}`}
             className="flex flex-col text-left text-xs px-2 py-1.5 rounded-md text-muted-foreground"
-            title="Engine-native session — open it in DeepSeek Harness; this list does not import foreign sessions"
+            title="Engine-native session — this list does not import it"
           >
             <span className="truncate">{result.sessionId}</span>
             <span className="truncate text-[11px] opacity-75">{result.snippet}</span>
