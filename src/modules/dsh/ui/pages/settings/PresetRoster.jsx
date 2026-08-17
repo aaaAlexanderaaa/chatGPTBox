@@ -49,27 +49,47 @@ export function PresetRoster({ rpc }) {
     if (!copyFrom || !copyId) return
     const payload = { from: copyFrom, agentPreset: copyId }
     if (copyName) payload.name = copyName
-    await rpc('agentPreset.copy', payload)
-    setCopyId('')
-    setCopyName('')
-    await reload()
+    try {
+      await rpc('agentPreset.copy', payload)
+      setCopyId('')
+      setCopyName('')
+      setError(null)
+      await reload()
+    } catch (err) {
+      setError(err?.message || String(err))
+    }
   }
 
   const onOpen = async (agentPreset) => {
-    const result = await rpc('agentPreset.openDocument', { agentPreset })
-    if (result?.opened === false) {
-      setPathHints((prev) => ({ ...prev, [agentPreset]: result.path }))
+    try {
+      const result = await rpc('agentPreset.openDocument', { agentPreset })
+      if (result?.opened === false) {
+        setPathHints((prev) => ({ ...prev, [agentPreset]: result.path }))
+      }
+      setError(null)
+    } catch (err) {
+      setError(err?.message || String(err))
     }
   }
 
   const onRead = async (agentPreset) => {
-    const value = await rpc('agentPreset.read', { agentPreset })
-    setReadPreview({ agentPreset, value })
+    try {
+      const value = await rpc('agentPreset.read', { agentPreset })
+      setReadPreview({ agentPreset, value })
+      setError(null)
+    } catch (err) {
+      setError(err?.message || String(err))
+    }
   }
 
   const onRemove = async (agentPreset) => {
-    await rpc('agentPreset.remove', { agentPreset })
-    await reload()
+    try {
+      await rpc('agentPreset.remove', { agentPreset })
+      setError(null)
+      await reload()
+    } catch (err) {
+      setError(err?.message || String(err))
+    }
   }
 
   const presets = list.presets || []

@@ -1,10 +1,15 @@
-import { useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import { fieldsFromDescribe } from '../../models/schema-fields.mjs'
 
 export function SchemaForm({ section, values = {}, onSubmit }) {
   const fields = useMemo(() => fieldsFromDescribe(section), [section])
   const [draft, setDraft] = useState(() => ({ ...values }))
   const [touchedSecrets, setTouchedSecrets] = useState(() => new Set())
+
+  useEffect(() => {
+    setDraft({ ...values })
+    setTouchedSecrets(new Set())
+  }, [values, section?.revision])
 
   const setField = (path, value, secret) => {
     setDraft((prev) => ({ ...prev, [path]: value }))

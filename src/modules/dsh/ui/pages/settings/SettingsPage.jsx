@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 import { isSettingsConflict, settingsMutatePayload } from '../../models/settings-write.mjs'
 import { SchemaForm } from './SchemaForm.jsx'
 import { PresetRoster } from './PresetRoster.jsx'
-import { sectionsFromDescribeResult } from './load-sections.mjs'
+import { isSettingsNotExposed, sectionsFromDescribeResult } from './load-sections.mjs'
 
 const TABS = [
   { id: 'general', label: 'General' },
@@ -12,9 +12,10 @@ const TABS = [
 ]
 
 const PLUGIN_NS = /agent-loop|bash|web-search|plugin/i
+const EMPTY_VALUES = {}
 
 function sectionValues(section) {
-  return section?.values || section?.value || {}
+  return section?.values || section?.value || EMPTY_VALUES
 }
 
 function namespaceOf(section) {
@@ -37,7 +38,9 @@ export function SettingsPage({ rpc }) {
       setSections(sectionsFromDescribeResult(result))
     } catch (error) {
       setSections(sectionsFromDescribeResult(null, error))
-      setStatus(error?.message || String(error))
+      if (!isSettingsNotExposed(error)) {
+        setStatus(error?.message || String(error))
+      }
     }
   }, [rpc])
 
@@ -158,7 +161,7 @@ export function SettingsPage({ rpc }) {
         {tab === 'general' &&
           generalSections.map((section) => (
             <SchemaForm
-              key={section.namespace}
+              key={`${section.namespace}:${section.revision ?? ''}`}
               section={section}
               values={sectionValues(section)}
               onSubmit={(payload) => void saveSection(section, payload)}
@@ -181,7 +184,7 @@ export function SettingsPage({ rpc }) {
             )}
             {modelSections.map((section) => (
               <SchemaForm
-                key={section.namespace}
+                key={`${section.namespace}:${section.revision ?? ''}`}
                 section={section}
                 values={sectionValues(section)}
                 onSubmit={(payload) => void saveSection(section, payload)}
@@ -244,7 +247,7 @@ export function SettingsPage({ rpc }) {
         {tab === 'plugins' &&
           pluginSections.map((section) => (
             <SchemaForm
-              key={section.namespace}
+              key={`${section.namespace}:${section.revision ?? ''}`}
               section={section}
               values={sectionValues(section)}
               onSubmit={(payload) => void saveSection(section, payload)}
