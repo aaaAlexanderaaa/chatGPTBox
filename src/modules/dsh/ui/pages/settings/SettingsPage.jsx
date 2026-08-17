@@ -139,6 +139,32 @@ export function SettingsPage({ rpc }) {
     }
   }
 
+  const unsetCredential = async (id) => {
+    try {
+      await rpc('credentials.unset', {
+        endpoint: id || discoverEndpoint || undefined,
+      })
+      await loadModelsExtras()
+      setStatus('Credential unset')
+    } catch (error) {
+      setStatus(error?.message || String(error))
+    }
+  }
+
+  const credentialRows = useMemo(() => {
+    const map = credentials?.credentials
+    if (map && typeof map === 'object') {
+      return Object.entries(map).filter(([, view]) => view?.configured)
+    }
+    if (credentials && typeof credentials === 'object' && !Array.isArray(credentials)) {
+      return Object.entries(credentials).filter(
+        ([key, view]) =>
+          key !== 'credentials' && view && typeof view === 'object' && view.configured,
+      )
+    }
+    return []
+  }, [credentials])
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="px-4 py-2 border-b border-border shrink-0 flex items-center gap-2">
@@ -196,6 +222,26 @@ export function SettingsPage({ rpc }) {
                 <pre className="text-[11px] bg-secondary rounded-md p-3 overflow-auto max-h-40">
                   {JSON.stringify(credentials, null, 2)}
                 </pre>
+                {credentialRows.length > 0 && (
+                  <ul className="space-y-2">
+                    {credentialRows.map(([id, view]) => (
+                      <li key={id} className="flex items-center gap-2 text-xs">
+                        <span className="font-mono">{id}</span>
+                        {view?.source && (
+                          <span className="text-muted-foreground">{view.source}</span>
+                        )}
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
+                          disabled={view?.writable === false}
+                          onClick={() => void unsetCredential(id)}
+                        >
+                          Unset
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
             <form className="space-y-2 border border-border rounded-md p-3" onSubmit={runDiscover}>

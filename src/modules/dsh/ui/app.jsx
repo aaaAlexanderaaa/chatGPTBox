@@ -213,6 +213,18 @@ export function App() {
     }
   }, [rpc, selectSession, selectedWorkspaceId, presetList, presetId])
 
+  const onPresetChange = useCallback(
+    (agentPreset) => {
+      setPresetId(agentPreset)
+      if (selected?.blank === true && selected.sessionId) {
+        void rpc('agentPreset.select', { sessionId: selected.sessionId, agentPreset }).catch(
+          () => {},
+        )
+      }
+    },
+    [rpc, selected],
+  )
+
   const respondDecision = useCallback(
     async (kind, payload) => {
       try {
@@ -331,7 +343,7 @@ export function App() {
             list={presetList}
             session={selected}
             value={presetId}
-            onChange={setPresetId}
+            onChange={onPresetChange}
           />
         </div>
         <SessionHeader session={selected} rpc={rpc} onSelect={selectSession} sessions={merged} />
@@ -401,6 +413,7 @@ export function App() {
             onSelect={selectSession}
             onSelectWorkspace={setSelectedWorkspaceId}
             onNewSession={createSession}
+            onAddWorkspace={addWorkspace}
             searchRef={searchRef}
             rpc={rpc}
           />

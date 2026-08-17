@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import { presetLabel } from '../../models/preset-model.mjs'
+import { fieldsFromDescribe } from '../../models/schema-fields.mjs'
+import { isSettingsConflict, settingsMutatePayload } from '../../models/settings-write.mjs'
+import { sectionsFromDescribeResult } from './load-sections.mjs'
 
 export function PresetRoster({ rpc }) {
   const [list, setList] = useState({ presets: [], hasDocument: true })
@@ -92,6 +95,40 @@ export function PresetRoster({ rpc }) {
     }
   }
 
+  const onSetDefault = async (agentPreset) => {
+    try {
+      const described = await rpc('settings.describe', {})
+      const sections = sectionsFromDescribeResult(described)
+      const section = sections.find((entry) => (entry.namespace || '') === 'agent-presets')
+      if (!section) {
+        setError('agent-presets settings are not available')
+        return
+      }
+      const fields = fieldsFromDescribe(section)
+      const defaultField =
+        fields.find((field) => field.path === 'default') ||
+        fields.find((field) => /default/i.test(field.path))
+      const path = defaultField?.path || 'default'
+      await rpc(
+        'settings.mutate',
+        settingsMutatePayload({
+          namespace: section.namespace,
+          ops: [{ kind: 'set', path, value: agentPreset }],
+          expectedRevision: section.revision,
+        }),
+      )
+      setError(null)
+      await reload()
+    } catch (err) {
+      if (isSettingsConflict(err)) {
+        setError('Conflict — reloaded; set default again if needed.')
+        await reload()
+        return
+      }
+      setError(err?.message || String(err))
+    }
+  }
+
   const presets = list.presets || []
   const hasDocument = list.hasDocument !== false
 
@@ -106,6 +143,9 @@ export function PresetRoster({ rpc }) {
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-medium">{presetLabel(preset)}</span>
                 <span className="text-[11px] text-muted-foreground font-mono">{preset.id}</span>
+                {preset.isDefault && (
+                  <span className="text-[11px] text-muted-foreground">default</span>
+                )}
                 {preset.broken != null && preset.broken !== false && (
                   <span className="text-[11px] text-red-500">broken</span>
                 )}
@@ -154,6 +194,15 @@ export function PresetRoster({ rpc }) {
                 >
                   Copy from
                 </button>
+                {!preset.isDefault && (
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
+                    onClick={() => void onSetDefault(preset.id)}
+                  >
+                    Set default
+                  </button>
+                )}
               </div>
             </li>
           )

@@ -31,6 +31,29 @@ describe('settings page', () => {
     expect(src).toMatch(/hasDocument/)
   })
 
+  it('preset roster sets default via settings.mutate on agent-presets', () => {
+    const src = readFileSync(
+      path.resolve(process.cwd(), 'src/modules/dsh/ui/pages/settings/PresetRoster.jsx'),
+      'utf8',
+    )
+    expect(src).toMatch(/Set default/)
+    expect(src).toMatch(/settings\.describe/)
+    expect(src).toMatch(/settings\.mutate/)
+    expect(src).toMatch(/settingsMutatePayload/)
+    expect(src).toMatch(/fieldsFromDescribe/)
+    expect(src).toMatch(/agent-presets/)
+    expect(src).not.toMatch(/标准|PTC|极简|创造/)
+  })
+
+  it('models tab offers credentials.unset for present credentials', () => {
+    const src = readFileSync(
+      path.resolve(process.cwd(), 'src/modules/dsh/ui/pages/settings/SettingsPage.jsx'),
+      'utf8',
+    )
+    expect(src).toMatch(/credentials\.unset/)
+    expect(src).toMatch(/Unset/)
+  })
+
   it('preset roster catches mutation failures', () => {
     const src = readFileSync(
       path.resolve(process.cwd(), 'src/modules/dsh/ui/pages/settings/PresetRoster.jsx'),

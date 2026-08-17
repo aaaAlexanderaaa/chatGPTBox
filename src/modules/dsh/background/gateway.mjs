@@ -171,6 +171,8 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         trajectory: projectionValue(session, 'trajectory'),
         tokenUsage: projectionValue(session, 'tokenUsage'),
         feedback: projectionValue(session, 'feedback'),
+        permissions: projectionValue(session, 'permissions'),
+        plan: projectionValue(session, 'plan'),
       },
       // Compact pending-decision payloads so waiting surfaces that are not
       // subscribed to the ledger (popup pinned cards, notification jumps)
@@ -785,9 +787,11 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     'session.search': ({ query }) => api.rpc('session.search', { query }),
     'session.history-older': ({ sessionId, beforeSeq }) => pullHistory(sessionId, { beforeSeq }),
     'session.create': async ({ workspaceId, agentPreset } = {}) => {
+      if (!workspaceId) {
+        throw new Error('workspaceId is required for session.create')
+      }
       const sessionId = newId()
-      const payload = { sessionId }
-      if (workspaceId) payload.workspaceId = workspaceId
+      const payload = { sessionId, workspaceId }
       if (agentPreset) payload.agentPreset = agentPreset
       const value = await api.rpc('session.create', payload)
       ensureSession({
@@ -796,7 +800,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         running: false,
         updatedAt: Date.now(),
         origin: 'local-new',
-        workspaceId: workspaceId || null,
+        workspaceId,
         agentPreset: value.agentPreset || agentPreset || null,
       })
       broadcastSessionList()

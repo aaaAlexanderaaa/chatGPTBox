@@ -20,6 +20,20 @@ describe('permission-model', () => {
     const rows = permissionOptions({ options: ['full-access'] })
     expect(rows).toEqual([{ id: 'full-access', label: 'Full Access', danger: true }])
   })
+
+  it('maps host object options via value/name and marks danger ids', () => {
+    const rows = permissionOptions({
+      options: [
+        { value: 'workspace-write', name: 'Workspace Write', description: 'edit in cwd' },
+        { value: 'danger-full-access', name: 'Full Access' },
+      ],
+      currentValue: 'workspace-write',
+    })
+    expect(rows).toEqual([
+      { id: 'workspace-write', label: 'Workspace Write', danger: false },
+      { id: 'danger-full-access', label: 'Full Access', danger: true },
+    ])
+  })
 })
 
 describe('planChipVisible', () => {
@@ -77,6 +91,10 @@ describe('composer extras source scans', () => {
     expect(src).toMatch(/session\.queue-replace/)
     expect(src).toMatch(/mode:\s*'steer'/)
     expect(src).toMatch(/session\.queue-remove/)
+    expect(src).toMatch(/session\.projections\?\.permissions/)
+    expect(src).toMatch(/session\.projections\?\.plan/)
+    expect(src).not.toMatch(/projection=\{session\.permissions\}/)
+    expect(src).not.toMatch(/plan=\{session\.plan\}/)
     expect(src).not.toMatch(/cockpit/i)
     expect(src).not.toMatch(/驾驶舱/)
     expect(src).not.toMatch(/标准模式|PTC|极简|创造/)

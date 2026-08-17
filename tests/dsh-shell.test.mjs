@@ -37,4 +37,16 @@ describe('shell', () => {
     expect(emptyIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeLessThan(emptyIdx)
   })
+
+  it('wires Add workspace and blank-session agentPreset.select', () => {
+    const app = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
+    const sidebar = readFileSync(
+      path.resolve(process.cwd(), 'src/modules/dsh/ui/shell/Sidebar.jsx'),
+      'utf8',
+    )
+    expect(app).toMatch(/onAddWorkspace=\{addWorkspace\}/)
+    expect(app).toMatch(/agentPreset\.select/)
+    expect(sidebar).toMatch(/onAddWorkspace/)
+    expect(sidebar).toMatch(/Add workspace/)
+  })
 })

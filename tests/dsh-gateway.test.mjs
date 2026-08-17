@@ -282,6 +282,8 @@ describe('dsh gateway (against a fake harness)', () => {
       trajectory: null,
       tokenUsage: null,
       feedback: null,
+      permissions: null,
+      plan: null,
     })
     const fold = gateway._internals.sessions.get('s1').fold
     expect(fold.getLastSeq()).toBe(2)
@@ -670,6 +672,17 @@ describe('dsh gateway workspace / preset / settings RPCs', () => {
     expect(harness.lastCreate.workspaceId).toBe('w1')
     expect(harness.lastCreate.agentPreset).toBe('standard')
     expect(harness.lastCreate.sessionId).toBe(value.sessionId)
+  })
+
+  it('rejects session.create without workspaceId', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    harness.lastCreate = undefined
+    await expect(gateway.rpc('session.create', { agentPreset: 'standard' })).rejects.toThrow(
+      /workspaceId/,
+    )
+    expect(harness.lastCreate).toBeUndefined()
   })
 
   it('forwards session.queue-replace as session.updateQueue replace', async () => {

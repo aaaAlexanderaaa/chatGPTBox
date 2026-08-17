@@ -18,6 +18,7 @@ export function Sidebar({
   onSelect,
   onSelectWorkspace,
   onNewSession,
+  onAddWorkspace,
   searchRef,
   rpc,
 }) {
@@ -72,6 +73,14 @@ export function Sidebar({
           title="New session"
         >
           <Plus size={13} />
+        </button>
+        <button
+          type="button"
+          className="flex items-center justify-center gap-1 text-xs px-2 py-1.5 rounded-md border border-border hover:bg-secondary text-muted-foreground"
+          onClick={() => onAddWorkspace?.()}
+          title="Add workspace"
+        >
+          Add workspace
         </button>
       </div>
       <div className="px-2 pb-2 flex items-center gap-1.5 text-muted-foreground border-b border-border">

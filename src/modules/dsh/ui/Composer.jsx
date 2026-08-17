@@ -280,10 +280,10 @@ export function Composer({ session, rpc, apiRef }) {
           }}
         />
         <PermissionSelect
-          projection={session.permissions}
+          projection={session.projections?.permissions}
           onPick={(id) => executeLine(`/permission ${id}`)}
         />
-        <PlanChip plan={session.plan} onTurnOff={() => executeLine('/plan off')} />
+        <PlanChip plan={session.projections?.plan} onTurnOff={() => executeLine('/plan off')} />
         <label
           className="text-muted-foreground hover:text-foreground cursor-pointer pb-2"
           title="Attach image"
