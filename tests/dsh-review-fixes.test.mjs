@@ -284,7 +284,7 @@ describe('cockpit session query', () => {
 })
 
 describe('en locale covers dsh surface copy', () => {
-  it('has the D-12 / decision-card keys that zh-hans already shipped', () => {
+  it('has the decision-card keys without cockpit product names', () => {
     const en = JSON.parse(
       readFileSync(path.resolve(process.cwd(), 'src/_locales/en/main.json'), 'utf8'),
     )
@@ -292,10 +292,23 @@ describe('en locale covers dsh surface copy', () => {
       'ChatGPT Web keeps the conversation server-side',
       'The agent is waiting for you',
       'Selection attached',
-      'Open cockpit',
-      'Answer in the cockpit',
+      'Open DeepSeek Harness',
+      'Answer in DeepSeek Harness',
     ]) {
       expect(en[key]).toBe(key)
+    }
+  })
+})
+
+describe('no cockpit product copy', () => {
+  it('en and zh-hans user strings do not say cockpit or 驾驶舱', () => {
+    for (const rel of ['src/_locales/en/main.json', 'src/_locales/zh-hans/main.json']) {
+      const table = JSON.parse(readFileSync(path.resolve(process.cwd(), rel), 'utf8'))
+      for (const [key, value] of Object.entries(table)) {
+        const blob = `${key}\n${value}`
+        expect(blob).not.toMatch(/cockpit/i)
+        expect(blob).not.toMatch(/驾驶舱/)
+      }
     }
   })
 })

@@ -1032,7 +1032,7 @@ function DshDecisionCard({ decision, onRespond, onCancelQuestion }) {
             rel="noopener noreferrer"
             style={{ fontSize: '12px', alignSelf: 'center', marginLeft: 'auto' }}
           >
-            {t('Open cockpit')}
+            {t('Open DeepSeek Harness')}
           </a>
         </div>
       </div>

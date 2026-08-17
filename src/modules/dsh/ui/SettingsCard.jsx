@@ -62,7 +62,7 @@ export function DshSettingsCard({ config, updateConfig }) {
       </div>
       <p className="text-xs text-muted-foreground">
         {t(
-          'A locally running `dsh web` instance becomes an agent engine: a full-page cockpit, approval notifications, and per-session auto-approve. Everything stays on your machine.',
+          'A locally running `dsh web` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.',
         )}
       </p>
       {enabled && (
@@ -94,7 +94,7 @@ export function DshSettingsCard({ config, updateConfig }) {
               className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary flex items-center gap-1"
               onClick={() => void Browser.tabs.create({ url: Browser.runtime.getURL('dsh.html') })}
             >
-              <ExternalLink size={12} /> {t('Open the cockpit')}
+              <ExternalLink size={12} /> {t('Open DeepSeek Harness')}
             </button>
             {diagnosis && !testing && (
               <span className={`text-[11px] ${diagnosis.ok ? 'text-emerald-500' : 'text-red-500'}`}>

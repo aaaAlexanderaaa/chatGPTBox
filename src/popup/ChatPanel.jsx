@@ -117,7 +117,7 @@ function WaitingCard({ decision, sessionTitle }) {
       {decision.kind === 'question' && (
         <p className="mt-1.5 mb-2 text-xs">
           {(decision.questions || []).map((q) => q.question).join(' / ') ||
-            t('Open the cockpit to answer')}
+            t('Open DeepSeek Harness')}
         </p>
       )}
       {decision.kind === 'approval' ? (
@@ -162,7 +162,7 @@ function WaitingCard({ decision, sessionTitle }) {
             rel="noopener noreferrer"
             className="text-[11px] text-muted-foreground hover:text-foreground self-center inline-flex items-center gap-1"
           >
-            <ExternalLink size={11} /> {t('Answer in the cockpit')}
+            <ExternalLink size={11} /> {t('Answer in DeepSeek Harness')}
           </a>
         </div>
       )}
