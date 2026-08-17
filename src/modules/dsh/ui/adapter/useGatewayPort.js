@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
-import { createPortReconnect } from './port-reconnect.mjs'
+import { createPortReconnect } from '../port-reconnect.mjs'
+import { applyPortMessage, emptyPortState } from './port-state.mjs'
 
 // The cockpit's single link to the background gateway: one runtime port
 // ('dsh-gateway'), message-driven. Everything the UI knows arrives here —
-// connection status, session rows, and the subscribed session's ledger.
+// connection status, session rows, workspaces, and the subscribed session's ledger.
 
 const PORT_NAME = 'dsh-gateway'
 
@@ -14,40 +15,14 @@ export function useGatewayPort() {
   const pendingRpc = useRef(new Map())
   const ledgerListeners = useRef(new Set())
   const subscriptionsRef = useRef(new Set())
-  const [connection, setConnection] = useState({
-    status: 'connecting',
-    endpoint: '',
-    version: null,
-    lastError: null,
-  })
-  const [sessions, setSessions] = useState([])
-  const [sessionUpdates, setSessionUpdates] = useState({}) // sessionId -> summary
+  const [portState, setPortState] = useState(emptyPortState)
   const [connected, setConnected] = useState(false)
-  const connectionRef = useRef(connection)
-  connectionRef.current = connection
+  const connectionRef = useRef(portState.connection)
+  connectionRef.current = portState.connection
 
   const handleMessage = useCallback((message) => {
     if (!message || typeof message !== 'object') return
     switch (message.type) {
-      case 'hello':
-      case 'connection': {
-        const next = {
-          status: message.status,
-          endpoint: message.endpoint,
-          version: message.version,
-          lastError: message.lastError,
-        }
-        connectionRef.current = next
-        setConnection(next)
-        break
-      }
-      case 'sessions':
-        setSessions(message.items || [])
-        setSessionUpdates({})
-        break
-      case 'session':
-        setSessionUpdates((prev) => ({ ...prev, [message.summary.sessionId]: message.summary }))
-        break
       case 'ledger':
         for (const listener of ledgerListeners.current) listener(message)
         break
@@ -59,8 +34,16 @@ export function useGatewayPort() {
         else entry.reject(new Error(message.error))
         break
       }
-      default:
+      default: {
+        setPortState((prev) => {
+          const next = applyPortMessage(prev, message)
+          if (message.type === 'hello' || message.type === 'connection') {
+            connectionRef.current = next.connection
+          }
+          return next
+        })
         break
+      }
     }
   }, [])
 
@@ -139,5 +122,14 @@ export function useGatewayPort() {
     [send],
   )
 
-  return { connection, sessions, sessionUpdates, connected, rpc, subscribeLedger, send }
+  return {
+    connection: portState.connection,
+    sessions: portState.sessions,
+    sessionUpdates: portState.sessionUpdates,
+    workspaces: portState.workspaces,
+    connected,
+    rpc,
+    subscribeLedger,
+    send,
+  }
 }
