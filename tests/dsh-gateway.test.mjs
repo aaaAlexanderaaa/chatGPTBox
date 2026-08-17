@@ -93,10 +93,27 @@ function createFakeHarness() {
         })),
       }),
       'session.create': async (payload) => {
+        harness.lastCreate = payload
         const sessionId = payload.sessionId || `session-${Math.random().toString(36).slice(2)}`
         harness.sessions[sessionId] = { blank: true, running: false }
-        return { sessionId }
+        return { sessionId, agentPreset: payload.agentPreset }
       },
+      'workspace.list': async () => ({ items: harness.workspaces || [], archivedSessionIds: [] }),
+      'workspace.create': async (payload) => {
+        harness.lastWorkspaceCreate = payload
+        return {
+          workspace: { workspaceId: 'w1', path: payload.path, title: 't', sessionIds: [] },
+          created: true,
+        }
+      },
+      'agentPreset.list': async () => ({
+        presets: [{ id: 'standard', trust: 'system', isDefault: true }],
+        authorable: true,
+        hasDocument: false,
+      }),
+      'settings.describe': async (payload) => ({
+        sections: [{ namespace: payload?.namespace || 'locale', revision: 1 }],
+      }),
       'session.history': async (payload) => ({
         events: (harness.historyEvents[payload.sessionId] || []).map((event) => ({ event })),
         hasMore: false,
@@ -177,6 +194,24 @@ async function portRequest(port, method, args) {
   })
   port.send({ type: 'req', id, method, args })
   return done
+}
+
+/** Standalone gateway boot for focused RPC cases (workspace / preset / settings). */
+async function startGateway() {
+  const harness = createFakeHarness()
+  const endpoint = await harness.start()
+  const gateway = createDshGateway({
+    endpoint,
+    storage: { local: { get: async () => ({}), set: async () => {} } },
+    client: createDshClient({
+      baseUrl: endpoint,
+      fetchImpl: (...args) => fetch(...args),
+      WebSocketImpl: WebSocket,
+    }),
+  })
+  await gateway.start()
+  await sleep(150)
+  return { gateway, harness }
 }
 
 describe('dsh gateway (against a fake harness)', () => {
@@ -600,6 +635,46 @@ describe('dsh gateway (against a fake harness)', () => {
     expect(gateway.getSessionSummaries().map((s) => s.sessionId)).toEqual(
       expect.arrayContaining(['s1', 'forked']),
     )
+  })
+})
+
+describe('dsh gateway workspace / preset / settings RPCs', () => {
+  let gateway
+  let harness
+
+  afterEach(async () => {
+    gateway?.stop()
+    gateway = null
+    await harness?.stop()
+    harness = null
+  })
+
+  it('forwards workspaceId and agentPreset on session.create', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    const value = await gateway.rpc('session.create', {
+      workspaceId: 'w1',
+      agentPreset: 'standard',
+    })
+    expect(harness.lastCreate.workspaceId).toBe('w1')
+    expect(harness.lastCreate.agentPreset).toBe('standard')
+    expect(harness.lastCreate.sessionId).toBe(value.sessionId)
+  })
+
+  it('passes privileged workspace.create through', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    await gateway.rpc('workspace.create', { path: '/tmp/proj' })
+    expect(harness.lastWorkspaceCreate).toEqual({ path: '/tmp/proj' })
+  })
+
+  it('still rejects unknown methods', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    await expect(gateway.rpc('settings.not-a-method', {})).rejects.toThrow(/unknown method/)
   })
 })
 

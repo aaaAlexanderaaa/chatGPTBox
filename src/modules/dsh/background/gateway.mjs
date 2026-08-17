@@ -196,6 +196,21 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     broadcast(sessionListMessage())
   }
 
+  let workspaceSnapshot = { items: [], archivedSessionIds: [] }
+
+  async function pullWorkspaces() {
+    try {
+      const value = await api.rpc('workspace.list', {})
+      workspaceSnapshot = {
+        items: value?.items || [],
+        archivedSessionIds: value?.archivedSessionIds || [],
+      }
+      broadcast({ type: 'workspaces', ...workspaceSnapshot })
+    } catch (error) {
+      log('workspace.list failed', error)
+    }
+  }
+
   function ensureSession(summary) {
     const sessionId = summary.sessionId
     let session = sessions.get(sessionId)
@@ -491,8 +506,13 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         broadcast({ type: 'connection', ...connectionMessage() })
         break
       }
+      case 'workspace-added':
+      case 'workspace-removed':
+      case 'workspace-changed':
+      case 'host/archived-sessions-changed':
+        void pullWorkspaces()
+        break
       default:
-        // workspace frames are v1 cut lines
         break
     }
   }
@@ -720,6 +740,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       broadcast({ type: 'connection', ...connectionMessage() })
     })
     if (stopped || generation !== connectGeneration) return
+    void pullWorkspaces()
     syncKeepalive()
   }
 
@@ -748,15 +769,20 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     'session.list': () => api.rpc('session.list', {}),
     'session.search': ({ query }) => api.rpc('session.search', { query }),
     'session.history-older': ({ sessionId, beforeSeq }) => pullHistory(sessionId, { beforeSeq }),
-    'session.create': async () => {
+    'session.create': async ({ workspaceId, agentPreset } = {}) => {
       const sessionId = newId()
-      const value = await api.rpc('session.create', { sessionId })
+      const payload = { sessionId }
+      if (workspaceId) payload.workspaceId = workspaceId
+      if (agentPreset) payload.agentPreset = agentPreset
+      const value = await api.rpc('session.create', payload)
       ensureSession({
         sessionId: value.sessionId,
         blank: true,
         running: false,
         updatedAt: Date.now(),
         origin: 'local-new',
+        workspaceId: workspaceId || null,
+        agentPreset: value.agentPreset || agentPreset || null,
       })
       broadcastSessionList()
       return value
@@ -817,6 +843,46 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       }),
   }
 
+  const PASSTHROUGH_METHODS = [
+    'workspace.list',
+    'workspace.create',
+    'workspace.rename',
+    'workspace.delete',
+    'workspace.insertBefore',
+    'workspace.insertSessionBefore',
+    'workspace.archiveSession',
+    'host.pickDirectory',
+    'host.openPath',
+    'host.listDirectory',
+    'host.createDirectory',
+    'agentPreset.list',
+    'agentPreset.select',
+    'agentPreset.read',
+    'agentPreset.copy',
+    'agentPreset.remove',
+    'agentPreset.openDocument',
+    'settings.describe',
+    'settings.mutate',
+    'settings.update',
+    'settings.replace',
+    'settings.openDocument',
+    'credentials.describe',
+    'credentials.set',
+    'credentials.unset',
+    'llm.providers',
+    'llm.models',
+    'llm.discoverModels',
+    'command.list',
+    'command.execute',
+    'skill.list',
+    'subagent.list',
+    'subagent.prompt',
+    'subagent.interrupt',
+  ]
+  for (const method of PASSTHROUGH_METHODS) {
+    rpcHandlers[method] = (args = {}) => api.rpc(method, args)
+  }
+
   async function handleRequest(port, message) {
     const { id, method, args = {} } = message
     const handler = rpcHandlers[method]
@@ -872,6 +938,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     })
     port.postMessage({ type: 'hello', ...connectionMessage() })
     port.postMessage(sessionListMessage())
+    port.postMessage({ type: 'workspaces', ...workspaceSnapshot })
     for (const sessionId of sessions.keys()) broadcastSession(sessionId)
   }
 
