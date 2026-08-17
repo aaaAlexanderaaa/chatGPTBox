@@ -3,7 +3,7 @@ import Browser from 'webextension-polyfill'
 import { createPortReconnect } from '../port-reconnect.mjs'
 import { applyPortMessage, emptyPortState } from './port-state.mjs'
 
-// The cockpit's single link to the background gateway: one runtime port
+// The full-page UI's single link to the background gateway: one runtime port
 // ('dsh-gateway'), message-driven. Everything the UI knows arrives here —
 // connection status, session rows, workspaces, and the subscribed session's ledger.
 

@@ -1,20 +1,16 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { GitBranch, Pencil } from 'lucide-react'
-import { modelsFromCatalog, modelChipLabel, selectModelArgs } from './select-model.mjs'
+import { modelsFromCatalog, modelChipLabel, selectModelArgs } from '../select-model.mjs'
 
-// Session bar: title (rename), model chip, auto-approve switch (D-8: at
-// hand, explicit, in view at all times, default off), fork. In the narrow
-// layout (sidepanel) it also carries the session dropdown the sidebar
-// collapsed into (D-9).
+// Session chrome: title (rename), model chip, auto-approve switch, fork.
 
-export function SessionBar({ session, rpc, sessions, onSelect }) {
+export function SessionHeader({ session, rpc, onSelect }) {
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [models, setModels] = useState(null)
   const [picked, setPicked] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const titleRef = useRef(null)
-  const narrow = sessions != null
 
   useEffect(() => {
     setModels(null)
@@ -41,21 +37,6 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 min-h-11 px-4 border-b border-border shrink-0">
-      {narrow && (
-        <select
-          className="text-xs bg-secondary border border-border rounded-md px-1.5 py-1 max-w-40"
-          value={session.sessionId}
-          onChange={(event) => onSelect?.(event.target.value)}
-          title="Switch session"
-        >
-          {sessions.map((candidate) => (
-            <option key={candidate.sessionId} value={candidate.sessionId}>
-              {candidate.waiting > 0 ? '◐ ' : candidate.running ? '● ' : '○ '}
-              {candidate.title || candidate.sessionId.slice(0, 8)}
-            </option>
-          ))}
-        </select>
-      )}
       {editing ? (
         <input
           ref={titleRef}
@@ -70,6 +51,7 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
         />
       ) : (
         <button
+          type="button"
           className="text-sm font-medium truncate max-w-sm flex items-center gap-1.5 hover:text-primary"
           title="Rename"
           onClick={() => {
@@ -84,6 +66,7 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
 
       <div className="relative">
         <button
+          type="button"
           className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary text-muted-foreground"
           onClick={() => setMenuOpen((open) => !open)}
         >
@@ -94,6 +77,7 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
             {modelOptions.map((model) => (
               <button
                 key={`${model.provider || models.current?.provider}/${model.id}`}
+                type="button"
                 className="block w-full text-left text-xs px-3 py-1.5 hover:bg-secondary"
                 onClick={() => {
                   const args = selectModelArgs(session.sessionId, model, models.current?.provider)
@@ -138,6 +122,7 @@ export function SessionBar({ session, rpc, sessions, onSelect }) {
       </label>
 
       <button
+        type="button"
         className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
         title="Fork at the last completed turn"
         onClick={() =>

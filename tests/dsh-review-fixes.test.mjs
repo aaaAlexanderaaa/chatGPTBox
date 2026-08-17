@@ -276,9 +276,9 @@ describe('IndependentPanel drafts', () => {
   })
 })
 
-describe('cockpit session query', () => {
+describe('harness session query', () => {
   it('uses resolveCockpitSelection so a late ?session= can still win', () => {
-    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/Cockpit.jsx'), 'utf8')
+    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
     expect(src).toMatch(/resolveCockpitSelection/)
   })
 })
@@ -338,7 +338,12 @@ describe('no cockpit product copy', () => {
   })
 
   it('full-page tooltips do not say cockpit', () => {
-    for (const rel of ['src/modules/dsh/ui/Cockpit.jsx', 'src/modules/dsh/ui/Sidebar.jsx']) {
+    for (const rel of [
+      'src/modules/dsh/ui/app.jsx',
+      'src/modules/dsh/ui/shell/Header.jsx',
+      'src/modules/dsh/ui/shell/Sidebar.jsx',
+      'src/modules/dsh/ui/shell/SessionHeader.jsx',
+    ]) {
       const src = readFileSync(path.resolve(process.cwd(), rel), 'utf8')
       const titles = [...src.matchAll(/title="([^"]*)"/g)].map((m) => m[1])
       for (const title of titles) {
@@ -350,8 +355,10 @@ describe('no cockpit product copy', () => {
 
   it('dsh UI sources do not expose cockpit or 驾驶舱 in user-visible copy', () => {
     for (const rel of [
-      'src/modules/dsh/ui/Cockpit.jsx',
-      'src/modules/dsh/ui/Sidebar.jsx',
+      'src/modules/dsh/ui/app.jsx',
+      'src/modules/dsh/ui/shell/Header.jsx',
+      'src/modules/dsh/ui/shell/Sidebar.jsx',
+      'src/modules/dsh/ui/shell/SessionHeader.jsx',
       'src/popup/ChatPanel.jsx',
       'src/modules/dsh/ui/SettingsCard.jsx',
       'src/components/ConversationCard/index.jsx',

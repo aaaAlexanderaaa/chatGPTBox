@@ -1,9 +1,8 @@
 @import '../../../styles/globals.css';
 
-/* dsh cockpit — visual language per ui-console.md:
-   "长在 ChatGPTBox里"（复用现有 token，暗色天生对齐）；
-   色彩语义五枚封顶：琥珀=等你、蓝=运行中、绿=完成、红=错误、灰=其余。
-   "等你"一色制，落两个 token（D-17），v1 同值。 */
+/* DeepSeek Harness full-page — visual language per ui-console.md:
+   reuse existing tokens; semantic colors capped at five:
+   amber=waiting, blue=running, green=done, red=error, gray=rest. */
 
 :root,
 [data-theme='dark'],
@@ -32,7 +31,7 @@ body,
   font-size: 15px;
 }
 
-/* --- ledger registers ------------------------------------------------ */
+/* --- conversation registers ------------------------------------------ */
 
 .dsh-prose {
   max-width: 68ch;
@@ -120,7 +119,7 @@ body,
   animation: dsh-pulse 1.6s ease-in-out infinite;
 }
 
-/* --- decision cards (the money component) ----------------------------- */
+/* --- decision cards -------------------------------------------------- */
 
 .dsh-decision-card {
   border: 1px solid var(--dsh-waiting-approval);
@@ -160,7 +159,7 @@ body,
   flex-wrap: wrap;
 }
 
-/* --- turn boundaries --------------------------------------------------- */
+/* --- turn boundaries ------------------------------------------------- */
 
 .dsh-turn-end {
   display: flex;
@@ -183,7 +182,51 @@ body,
   color: var(--dsh-error);
 }
 
-/* --- misc --------------------------------------------------------------- */
+/* --- chrome ---------------------------------------------------------- */
+
+.dsh-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  font-size: 12px;
+}
+
+.dsh-preset select {
+  max-width: 16rem;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.25em 0.5em;
+  color: var(--foreground);
+}
+
+.dsh-preset-desc {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.dsh-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75em;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  padding: 1.5em;
+  text-align: center;
+}
+
+.dsh-empty button {
+  font-size: 13px;
+  padding: 0.4em 0.9em;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* --- misc ------------------------------------------------------------ */
 
 .dsh-scroll {
   overflow-y: auto;
@@ -196,7 +239,7 @@ button:focus-visible,
   outline-offset: 1px;
 }
 
-/* --- narrow layout (sidepanel, D-9) ------------------------------------- */
+/* --- narrow layout (sidepanel) --------------------------------------- */
 
 @media (max-width: 520px) {
   .dsh-app {

@@ -343,7 +343,7 @@ async function finishOutput(outputDirSuffix) {
     { src: 'src/pages/ApiServer/index.html', dst: 'ApiServer.html' },
 
     { src: 'build/dsh.js', dst: 'dsh.js' },
-    { src: 'build/dsh.css', dst: 'dsh.css' },
+    { src: 'build/dsh.css', dst: 'tokens.css' },
     { src: 'src/modules/dsh/ui/index.html', dst: 'dsh.html' },
 
     { src: 'build/dsh-downlink.js', dst: 'dsh-downlink.js' },
