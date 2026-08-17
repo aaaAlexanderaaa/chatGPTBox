@@ -70,7 +70,7 @@ body,
   padding-left: 1.4em;
 }
 
-.dsh-user-block {
+.dsh-user-bubble {
   max-width: 68ch;
   border-left: 2px solid var(--border-strong, var(--border));
   padding-left: 0.9em;
@@ -204,7 +204,7 @@ button:focus-visible,
   }
 
   .dsh-prose,
-  .dsh-user-block,
+  .dsh-user-bubble,
   .dsh-turn-end {
     max-width: none;
   }

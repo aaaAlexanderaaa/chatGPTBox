@@ -5,7 +5,7 @@ import { ModuleMessage } from '../../api.mjs'
 import { useGatewayPort } from './adapter/useGatewayPort.js'
 import { Sidebar } from './Sidebar.jsx'
 import { SessionBar } from './SessionBar.jsx'
-import { Ledger } from './Ledger.jsx'
+import { Conversation } from './pages/conversation/Conversation.jsx'
 import { Composer } from './Composer.jsx'
 import { resolveCockpitSelection } from '../session-pick.mjs'
 import { newestPendingDecision } from '../turn-fold.mjs'
@@ -238,7 +238,7 @@ export function Cockpit() {
                 sessions={narrow ? merged : null}
                 onSelect={selectSession}
               />
-              <Ledger
+              <Conversation
                 session={selected}
                 blocks={ledger.blocks}
                 onRespond={respondDecision}
