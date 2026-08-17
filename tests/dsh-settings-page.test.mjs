@@ -30,5 +30,8 @@ describe('settings page', () => {
 
   it('omits a section the host did not expose', () => {
     expect(sectionsFromDescribeResult(null, { code: 'settings-not-exposed' })).toEqual([])
+    expect(
+      sectionsFromDescribeResult(null, new Error('[dsh settings-not-exposed] hidden')),
+    ).toEqual([])
   })
 })
