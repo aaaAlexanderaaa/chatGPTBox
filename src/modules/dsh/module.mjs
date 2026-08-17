@@ -2,7 +2,8 @@
 //
 // The module integrates a locally running `dsh web` instance as an L3 agent
 // engine: a persistent background gateway (mux + host stream subscription,
-// session registry, approval routing) plus a full-page cockpit (dsh.html).
+// session registry, approval routing) plus a full-page DeepSeek Harness client
+// (dsh.html).
 // Everything ships behind dshModuleEnabled, default off — with the module
 // disabled the extension behaves exactly as before (roadmap Phase A
 // acceptance #5).
@@ -18,7 +19,7 @@ export const dshModule = {
     /**
      * Harness origin. Loopback by default — the trust fence on the harness
      * side pins privileged methods to loopback and the extension honors the
-     * same assumption (D-13: we do not touch settings/credentials methods).
+     * same assumption via the existing DNR header rewrite fence.
      */
     dshEndpoint: 'http://127.0.0.1:3080',
   },
