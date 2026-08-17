@@ -12,4 +12,10 @@ describe('product docs for the full client', () => {
     expect(ui.startsWith('# 驾驶舱')).toBe(false)
     expect(ui).toMatch(/DeepSeek Harness/)
   })
+
+  it('ui-console.md does not teach the old 驾驶舱/台账 product language', () => {
+    const ui = readFileSync(path.resolve(process.cwd(), 'docs/product/ui-console.md'), 'utf8')
+    expect(ui).not.toMatch(/驾驶舱/)
+    expect(ui).not.toMatch(/台账/)
+  })
 })
