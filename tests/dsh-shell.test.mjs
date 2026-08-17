@@ -18,4 +18,23 @@ describe('shell', () => {
     expect(withoutAllowed).not.toMatch(/cockpit/i)
     expect(withoutAllowed).not.toMatch(/Cockpit/)
   })
+
+  it('detects directory-picker-unavailable via includes (DshRpcError message prefix)', () => {
+    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
+    expect(src).toMatch(/\.includes\(['"]directory-picker-unavailable['"]\)/)
+    expect(src).not.toMatch(/error\?\.message\s*===\s*['"]directory-picker-unavailable['"]/)
+  })
+
+  it('renders settings before WorkspaceEmpty when online', () => {
+    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
+    const mainStart = src.indexOf('let main = null')
+    expect(mainStart).toBeGreaterThan(-1)
+    const returnStart = src.indexOf('return (', mainStart)
+    const mainSection = src.slice(mainStart, returnStart)
+    const settingsIdx = mainSection.indexOf("activePage === 'settings'")
+    const emptyIdx = mainSection.indexOf('WorkspaceEmpty')
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(emptyIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeLessThan(emptyIdx)
+  })
 })

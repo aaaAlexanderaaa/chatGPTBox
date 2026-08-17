@@ -159,7 +159,7 @@ export function App() {
       const path = await rpc('host.pickDirectory')
       if (path) await rpc('workspace.create', { path })
     } catch (error) {
-      if (error?.message === 'directory-picker-unavailable') {
+      if (String(error?.message || '').includes('directory-picker-unavailable')) {
         setPickerError('directory-picker-unavailable')
       }
     }
@@ -257,8 +257,6 @@ export function App() {
   let main = null
   if (!online) {
     main = <OfflineState connection={connection} diagnosis={diagnosis} onDiagnose={runDiagnose} />
-  } else if (!composeOk) {
-    main = <WorkspaceEmpty onAdd={addWorkspace} pickerError={pickerError} />
   } else if (activePage === 'settings') {
     const SettingsPage = page?.render
     main = SettingsPage ? (
@@ -266,6 +264,8 @@ export function App() {
     ) : (
       <div className="dsh-empty" aria-hidden="true" />
     )
+  } else if (!composeOk) {
+    main = <WorkspaceEmpty onAdd={addWorkspace} pickerError={pickerError} />
   } else if (!selected) {
     main = (
       <div className="flex-1 min-h-0 flex flex-col">
