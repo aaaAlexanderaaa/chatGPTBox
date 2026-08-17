@@ -61,6 +61,11 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         import: './src/modules/dsh/ui/index.jsx',
         dependOn: 'shared',
       },
+      // Self-contained on purpose (no dependOn): it is injected as a lone
+      // file into harness-origin tabs by downlink-bridge.mjs.
+      'dsh-downlink': {
+        import: './src/modules/dsh/content/downlink.mjs',
+      },
       shared: shared,
     },
     output: {
@@ -340,6 +345,8 @@ async function finishOutput(outputDirSuffix) {
     { src: 'build/dsh.js', dst: 'dsh.js' },
     { src: 'build/dsh.css', dst: 'dsh.css' },
     { src: 'src/modules/dsh/ui/index.html', dst: 'dsh.html' },
+
+    { src: 'build/dsh-downlink.js', dst: 'dsh-downlink.js' },
   ]
 
   // chromium

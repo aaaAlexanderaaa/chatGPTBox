@@ -126,6 +126,10 @@ review 后由产品负责人执行。
   session/jobs、session/projection、stream/error）与 `/api/events.host`
   （session-added/removed/status、workspace 变化、agent 错误）。
   纯下行，客户端发帧即 1008 断开。所有帧广播给所有订阅者。
+  浏览器侧**必须**由 harness origin 上的内容脚本发起（D-22）：扩展上下文
+  的 WS 握手恒带 `Origin: chrome-extension://…`，被 trust fence 拒绝，且
+  Chromium DNR 无法改写 WS 握手头（remove/set 均无效，Chrome for Testing
+  151 实测）。下行走 downlink-bridge 的 carrier tab 桥接。
 - **RPC**：`POST /api/<method>`，`{type:'client-request',rpcId,method,payload}`
   → `{type:'server-response',rpcId,result:{ok,value|error}}`；业务错误
   HTTP 200。**应答审批/问答**：`POST /api/respond`

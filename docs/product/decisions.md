@@ -140,6 +140,28 @@
   纯搬运约束（C）与两轮 review 足以兜底。顺序变更按 roadmap 自身规矩
   先改文档再动手。
 
+### D-22 · 下行流走 carrier tab 桥：扩展上下文开不了能过 fence 的 WebSocket
+- 背景（2026-08-16 实测定案）：终验时 `dsh web`（0.1.0-rc.6，npm latest）连不上，
+  诊断卡在 mux WebSocket。逐层排查：harness 的 `/api/events.mux` WS 升级本身正常；
+  trust fence（`isTrustedApiRequest`）只拒绝字面量 `sec-fetch-site: cross-site`
+  与不同源 `Origin`；扩展的 RPC（fetch）过 DNR 头部重写后通行无阻。真正的墙：
+  扩展上下文发起的 WebSocket 握手恒带 `Origin: chrome-extension://…`，而
+  **Chromium DNR 的 modifyHeaders 完全不作用于 WS 握手头**（`|http://`/`|ws://`
+  锚定、regexFilter 双协议、remove/set 两种操作均实测无效；Chrome for Testing
+  151 + 录头服务器验证）。此前 fence.mjs 注释与"旧 harness"报错文案均为误判。
+- 决策：mux/host 两条下行流改由**动态注册在 harness origin 上的内容脚本**
+  （`dsh-downlink.js`，仅匹配所配 endpoint）发起——页面同源握手天然过 fence；
+  优先复用用户已打开的 dsh web tab，没有则开一个安静的
+  `${origin}/favicon.svg` carrier tab（模块关闭即关）。后台 downlink-bridge
+  以会话（sid）多路复用：网关流与诊断探针互不抢占；Ping/Pong 心跳发现
+  carrier 死亡（含页面被导航走）；内容脚本 60s 无 ping 即回收孤儿 socket
+  （SW 重启不再泄漏连接）。RPC/上行不变（fetch + DNR 重写，已验证可用）。
+  diagnose 的 WS 阶段改走同一桥，报错文案如实描述桥路径。
+- 理由：这是"两侧代码都不改"前提下唯一被实测验证可行的传输形状；socket 由
+  页面持有还顺带躲开 MV3 SW 生命周期（SW 重启期间不断流，重连后重放兜底）。
+  代价（一个后台 tab、一层消息桥）被"优先复用用户自己的 tab"与
+  favicon.svg 轻页面压到最低。
+
 ## 待定
 
 （当前无待定项。新争议出现时在此立项，编号顺延。）

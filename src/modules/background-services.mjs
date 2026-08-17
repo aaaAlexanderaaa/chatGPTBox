@@ -23,6 +23,11 @@ import {
   syncDshHeaderRules,
 } from './dsh/background/fence.mjs'
 import { createDshGateway } from './dsh/background/gateway.mjs'
+import {
+  getDownlinkBridge,
+  stopDownlinkBridge,
+  syncDownlinkContentScript,
+} from './dsh/background/downlink-bridge.mjs'
 import { cockpitUrlForSession } from './dsh/session-pick.mjs'
 
 const DSH_PORT_NAME = 'dsh-gateway'
@@ -75,6 +80,9 @@ function createDshGatewayFor(endpoint) {
   return createDshGateway({
     endpoint,
     storage: Browser.storage,
+    // The event downlinks ride the carrier-tab bridge: extension-origin
+    // WebSocket handshakes cannot pass the harness trust fence (D-22).
+    downlink: getDownlinkBridge(endpoint),
     host: {
       notifyWaiting: notifyDshWaiting,
       clearWaiting: clearDshWaiting,
@@ -114,9 +122,11 @@ async function applyDshModuleState(config, previousEndpoint) {
     })
     dshGateway?.stop({ reason: portHoldReason })
     dshGateway = null
+    stopDownlinkBridge()
     setDshBadge(0)
     clearDshWaiting()
     await syncDshHeaderRules('')
+    await syncDownlinkContentScript('')
     return
   }
   const endpointChanged = shouldRecreateDshGateway(previousEndpoint, endpoint, Boolean(dshGateway))
@@ -125,6 +135,7 @@ async function applyDshModuleState(config, previousEndpoint) {
     dshGateway = createDshGatewayFor(endpoint)
   }
   await syncDshHeaderRules(endpoint)
+  await syncDownlinkContentScript(endpoint)
   await dshGateway.start()
   drainHeldGatewayPorts()
 }
@@ -156,11 +167,20 @@ export async function startModuleBackgrounds() {
     dshGateway.attachPort(port)
   })
 
-  // Settings-card diagnose: exercises the real path (RPC + WS through the
-  // fence rewrite) and reports which stage failed.
+  // Settings-card diagnose: exercises the real path (RPC over the header
+  // rewrite + the mux downlink through the carrier-tab bridge) and reports
+  // which stage failed.
   Browser.runtime.onMessage.addListener((message) => {
     if (message?.type === RuntimeMessage.DshModuleDiagnose) {
-      return readConfig().then((config) => diagnoseDsh(config.dshEndpoint))
+      return readConfig().then((config) => {
+        const bridge = getDownlinkBridge(config.dshEndpoint)
+        return diagnoseDsh(config.dshEndpoint, {
+          probeDownlink: () =>
+            bridge
+              ? bridge.probe(5_000)
+              : Promise.resolve({ ok: false, detail: 'endpoint is not a loopback origin' }),
+        })
+      })
     }
     if (message?.type === RuntimeMessage.DshModuleRespond) {
       // Approval/question answers from surfaces that are not gateway ports
