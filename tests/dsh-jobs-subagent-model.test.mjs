@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { jobsForPopover } from '../src/modules/dsh/ui/models/jobs-model.mjs'
 import { childSessions } from '../src/modules/dsh/ui/models/subagent-model.mjs'
+import { feedbackSubmitListed } from '../src/modules/dsh/ui/models/feedback-model.mjs'
 
 describe('jobsForPopover', () => {
   it('badges live jobs and sorts settled newest finished first', () => {
@@ -28,5 +29,21 @@ describe('childSessions', () => {
       { sessionId: 'fork', origin: 'fork', parentSessionId: 'p' },
     ])
     expect(rows.map((s) => s.sessionId)).toEqual(['c1'])
+  })
+})
+
+describe('feedbackSubmitListed', () => {
+  it('detects feedback.submit from name, line, or id (with optional slash)', () => {
+    expect(feedbackSubmitListed([{ name: 'feedback.submit' }])).toBe(true)
+    expect(feedbackSubmitListed([{ line: '/feedback.submit' }])).toBe(true)
+    expect(feedbackSubmitListed([{ id: 'feedback.submit' }])).toBe(true)
+    expect(feedbackSubmitListed(['/feedback.submit'])).toBe(true)
+  })
+
+  it('returns false when the command is absent or list is empty', () => {
+    expect(feedbackSubmitListed([])).toBe(false)
+    expect(feedbackSubmitListed([{ name: 'other' }])).toBe(false)
+    expect(feedbackSubmitListed(null)).toBe(false)
+    expect(feedbackSubmitListed(undefined)).toBe(false)
   })
 })

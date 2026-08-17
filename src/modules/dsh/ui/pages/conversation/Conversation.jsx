@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { previewToolArgs } from '../../../turn-fold.mjs'
+import { feedbackSubmitListed } from '../../models/feedback-model.mjs'
 
 // Conversation flow on fold blocks: assistant prose, expandable tool rows,
 // and decision cards (approval/question — the loudest element).
@@ -321,20 +322,7 @@ function WorkflowRun({ block }) {
   )
 }
 
-function feedbackEnabled(session) {
-  if (session?.projections?.feedback) return true
-  const commands = session?.commands
-  if (!Array.isArray(commands)) return false
-  return commands.some(
-    (entry) =>
-      entry === 'feedback.submit' ||
-      entry?.name === 'feedback.submit' ||
-      entry?.id === 'feedback.submit',
-  )
-}
-
-function AssistantText({ block, session, rpc }) {
-  const showFeedback = feedbackEnabled(session)
+function AssistantText({ block, session, rpc, showFeedback }) {
   return (
     <div className="dsh-prose my-3">
       <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{block.text}</Markdown>
@@ -377,6 +365,30 @@ function AssistantText({ block, session, rpc }) {
 export function Conversation({ session, blocks, onRespond, rpc, onInspectTool }) {
   const scrollRef = useRef(null)
   const [atBottom, setAtBottom] = useState(true)
+  const [listedCommands, setListedCommands] = useState([])
+
+  useEffect(() => {
+    const sessionId = session?.sessionId
+    if (!sessionId || !rpc) {
+      setListedCommands([])
+      return
+    }
+    let cancelled = false
+    void rpc('command.list', { sessionId })
+      .then((result) => {
+        if (cancelled) return
+        setListedCommands(result?.commands || result?.items || [])
+      })
+      .catch(() => {
+        if (!cancelled) setListedCommands([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session?.sessionId, rpc])
+
+  const showFeedback =
+    Boolean(session?.projections?.feedback) || feedbackSubmitListed(listedCommands)
 
   const toolCalls = useMemo(() => {
     const map = new Map()
@@ -429,7 +441,15 @@ export function Conversation({ session, blocks, onRespond, rpc, onInspectTool })
           }
           switch (block.kind) {
             case 'text':
-              return <AssistantText key={key} block={block} session={session} rpc={rpc} />
+              return (
+                <AssistantText
+                  key={key}
+                  block={block}
+                  session={session}
+                  rpc={rpc}
+                  showFeedback={showFeedback}
+                />
+              )
             case 'tool':
               return <ToolRow key={key} block={block} onInspect={onInspectTool} />
             case 'approval':
