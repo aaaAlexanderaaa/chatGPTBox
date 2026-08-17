@@ -199,7 +199,7 @@ export function Cockpit() {
         )}
         <button
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-          title="Open this cockpit in the browser side panel (narrow layout)"
+          title="Open this page in the browser side panel (narrow layout)"
           onClick={() => {
             void Browser.runtime
               .sendMessage({

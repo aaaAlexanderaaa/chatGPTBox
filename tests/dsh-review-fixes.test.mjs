@@ -300,6 +300,31 @@ describe('en locale covers dsh surface copy', () => {
   })
 })
 
+const COCKPIT_IDENTIFIER_RE =
+  /\b(cockpitHref|cockpitUrl|Cockpit\.jsx|resolveCockpitSelection|pickCockpitSessionId|canSelectCockpitSession|cockpitHrefForSession)\b/g
+
+function stripCommentLines(src) {
+  return src
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim()
+      return !trimmed.startsWith('//') && !trimmed.startsWith('*')
+    })
+    .join('\n')
+}
+
+function userVisibleCopyFromSource(src) {
+  const cleaned = stripCommentLines(src).replace(COCKPIT_IDENTIFIER_RE, '')
+  const strings = []
+  for (const match of cleaned.matchAll(/title="([^"]*)"/g)) strings.push(match[1])
+  for (const match of cleaned.matchAll(/t\(['"]([^'"]*)['"]\)/g)) strings.push(match[1])
+  for (const match of cleaned.matchAll(/>\s*([^<{}\n]+?)\s*</g)) {
+    const text = match[1].trim()
+    if (text && !/[=({]/.test(text)) strings.push(text)
+  }
+  return strings.filter(Boolean)
+}
+
 describe('no cockpit product copy', () => {
   it('en and zh-hans user strings do not say cockpit or 驾驶舱', () => {
     for (const rel of ['src/_locales/en/main.json', 'src/_locales/zh-hans/main.json']) {
@@ -308,6 +333,33 @@ describe('no cockpit product copy', () => {
         const blob = `${key}\n${value}`
         expect(blob).not.toMatch(/cockpit/i)
         expect(blob).not.toMatch(/驾驶舱/)
+      }
+    }
+  })
+
+  it('full-page tooltips do not say cockpit', () => {
+    for (const rel of ['src/modules/dsh/ui/Cockpit.jsx', 'src/modules/dsh/ui/Sidebar.jsx']) {
+      const src = readFileSync(path.resolve(process.cwd(), rel), 'utf8')
+      const titles = [...src.matchAll(/title="([^"]*)"/g)].map((m) => m[1])
+      for (const title of titles) {
+        expect(title).not.toMatch(/cockpit/i)
+        expect(title).not.toMatch(/驾驶舱/)
+      }
+    }
+  })
+
+  it('dsh UI sources do not expose cockpit or 驾驶舱 in user-visible copy', () => {
+    for (const rel of [
+      'src/modules/dsh/ui/Cockpit.jsx',
+      'src/modules/dsh/ui/Sidebar.jsx',
+      'src/popup/ChatPanel.jsx',
+      'src/modules/dsh/ui/SettingsCard.jsx',
+      'src/components/ConversationCard/index.jsx',
+    ]) {
+      const src = readFileSync(path.resolve(process.cwd(), rel), 'utf8')
+      for (const copy of userVisibleCopyFromSource(src)) {
+        expect(copy).not.toMatch(/cockpit/i)
+        expect(copy).not.toMatch(/驾驶舱/)
       }
     }
   })
