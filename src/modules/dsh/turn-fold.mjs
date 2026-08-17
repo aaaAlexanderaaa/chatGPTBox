@@ -62,6 +62,7 @@ export function createDshLedgerFold({ strings = {} } = {}) {
   const toolByCallId = new Map()
   const approvalByApprovalId = new Map()
   const questionByRpcId = new Map()
+  const workflowByRunId = new Map()
   const turnBounds = new Map() // turn -> {startedAt, endedAt, steps:Set, toolCallIds}
 
   let lastSeq = -1
@@ -137,7 +138,7 @@ export function createDshLedgerFold({ strings = {} } = {}) {
         const bounds = turnBoundsFor(data.turn, time)
         bounds.endedAt = time ?? null
         const { reasonKind, note } = describeTurnEnd(data)
-        blocks.push({
+        const endBlock = {
           kind: 'turn-end',
           seq,
           turn: data.turn,
@@ -147,7 +148,9 @@ export function createDshLedgerFold({ strings = {} } = {}) {
           tools: bounds.toolCallIds.length,
           startedAt: bounds.startedAt,
           endedAt: bounds.endedAt,
-        })
+        }
+        if (Array.isArray(data.locations)) endBlock.locations = data.locations
+        blocks.push(endBlock)
         break
       }
       case 'step/start':
@@ -220,6 +223,56 @@ export function createDshLedgerFold({ strings = {} } = {}) {
             .filter(Boolean)
             .join('\n')
         }
+        break
+      }
+      case 'tool-workflow/run-start': {
+        if (!data.runId) break
+        const existing = workflowByRunId.get(data.runId)
+        if (existing) break
+        const block = {
+          kind: 'workflow-run',
+          seq,
+          runId: data.runId,
+          status: 'running',
+          phase: data.phase,
+          members: Array.isArray(data.members) ? data.members.map((m) => ({ ...m })) : [],
+        }
+        blocks.push(block)
+        workflowByRunId.set(data.runId, block)
+        break
+      }
+      case 'tool-workflow/member-start': {
+        const block = data.runId ? workflowByRunId.get(data.runId) : null
+        if (!block) break
+        const memberId = data.memberId ?? data.id
+        if (memberId == null) break
+        let member = block.members.find((m) => (m.id ?? m.memberId) === memberId)
+        if (!member) {
+          member = { id: memberId, name: data.name }
+          block.members.push(member)
+        }
+        if (data.name != null) member.name = data.name
+        member.status = 'running'
+        if (data.phase != null) block.phase = data.phase
+        break
+      }
+      case 'tool-workflow/member-end': {
+        const block = data.runId ? workflowByRunId.get(data.runId) : null
+        if (!block) break
+        const memberId = data.memberId ?? data.id
+        if (memberId == null) break
+        const member = block.members.find((m) => (m.id ?? m.memberId) === memberId)
+        if (!member) break
+        if (data.status != null) member.status = data.status
+        else member.status = 'done'
+        break
+      }
+      case 'tool-workflow/run-end': {
+        const block = data.runId ? workflowByRunId.get(data.runId) : null
+        if (!block) break
+        if (data.status != null) block.status = data.status
+        else block.status = 'done'
+        if (data.phase != null) block.phase = data.phase
         break
       }
       case 'todo/write':

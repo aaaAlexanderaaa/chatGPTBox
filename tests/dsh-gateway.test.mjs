@@ -276,6 +276,13 @@ describe('dsh gateway (against a fake harness)', () => {
     const summaries = gateway.getSessionSummaries()
     expect(summaries).toHaveLength(1)
     expect(summaries[0]).toMatchObject({ sessionId: 's1', title: 'Fix the build' })
+    expect(summaries[0].projections).toEqual({
+      todos: null,
+      goal: null,
+      trajectory: null,
+      tokenUsage: null,
+      feedback: null,
+    })
     const fold = gateway._internals.sessions.get('s1').fold
     expect(fold.getLastSeq()).toBe(2)
     expect(fold.getBlocks()[0].text).toBe('Hello')

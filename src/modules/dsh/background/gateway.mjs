@@ -165,6 +165,13 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         }),
       jobs: session.jobs,
       waiting: session.fold.getPendingDecisions().length,
+      projections: {
+        todos: projectionValue(session, 'todos'),
+        goal: projectionValue(session, 'goal'),
+        trajectory: projectionValue(session, 'trajectory'),
+        tokenUsage: projectionValue(session, 'tokenUsage'),
+        feedback: projectionValue(session, 'feedback'),
+      },
       // Compact pending-decision payloads so waiting surfaces that are not
       // subscribed to the ledger (popup pinned cards, notification jumps)
       // can render the actual ask, not just a count. Approval arguments
@@ -892,6 +899,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     'subagent.list',
     'subagent.prompt',
     'subagent.interrupt',
+    'feedback.submit',
   ]
   for (const method of PASSTHROUGH_METHODS) {
     rpcHandlers[method] = (args = {}) => api.rpc(method, args)

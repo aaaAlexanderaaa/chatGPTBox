@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { GitBranch, Pencil } from 'lucide-react'
 import { modelsFromCatalog, modelChipLabel, selectModelArgs } from '../select-model.mjs'
+import { JobsPopover } from '../chrome/JobsPopover.jsx'
+import { SubagentCatalog } from '../chrome/SubagentCatalog.jsx'
 
 // Session chrome: title (rename), model chip, auto-approve switch, fork.
 
-export function SessionHeader({ session, rpc, onSelect }) {
+export function SessionHeader({ session, rpc, onSelect, sessions }) {
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [models, setModels] = useState(null)
@@ -99,6 +101,13 @@ export function SessionHeader({ session, rpc, onSelect }) {
           </div>
         )}
       </div>
+
+      <JobsPopover jobs={session.jobs} />
+      <SubagentCatalog
+        parentSessionId={session.sessionId}
+        sessions={sessions || []}
+        onOpen={onSelect}
+      />
 
       <label
         className="ml-auto flex items-center gap-2 text-xs cursor-pointer select-none"

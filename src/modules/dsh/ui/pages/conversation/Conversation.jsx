@@ -27,7 +27,7 @@ function formatDuration(ms) {
   return `${Math.floor(seconds / 60)}m${seconds % 60}s`
 }
 
-function ToolRow({ block }) {
+function ToolRow({ block, onInspect }) {
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
@@ -61,6 +61,18 @@ function ToolRow({ block }) {
         <span className="dsh-args-preview">{previewToolArgs(block.args)}</span>
         {duration && <span className="shrink-0 text-muted-foreground">{duration}</span>}
         <span className="shrink-0">{statusSymbol(block.status)}</span>
+        {onInspect && (
+          <button
+            type="button"
+            className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground px-1"
+            onClick={(event) => {
+              event.stopPropagation()
+              onInspect(block)
+            }}
+          >
+            Inspect
+          </button>
+        )}
       </div>
       {expanded && (
         <div className="dsh-machine-detail my-1">
@@ -267,11 +279,102 @@ function TurnEnd({ block }) {
           ? ` · ${formatDuration(block.endedAt - block.startedAt)}`
           : ''}
       </span>
+      {Array.isArray(block.locations) && block.locations.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {block.locations.map((location, index) => (
+            <span
+              key={`${location?.path || index}`}
+              className="text-[11px] px-1.5 py-0.5 rounded border border-border bg-secondary font-mono"
+              title={location?.path}
+            >
+              {location?.path || 'file'}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-export function Conversation({ session, blocks, onRespond, rpc }) {
+function WorkflowRun({ block }) {
+  return (
+    <div
+      className="my-2 rounded-md border border-border px-3 py-2 text-xs"
+      data-kind="workflow-run"
+    >
+      <div className="flex items-center gap-2 font-medium">
+        <span>Workflow {block.runId || ''}</span>
+        {block.phase != null && <span className="text-muted-foreground">· {block.phase}</span>}
+        <span className="ml-auto text-muted-foreground">{block.status}</span>
+      </div>
+      {Array.isArray(block.members) && block.members.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-muted-foreground">
+          {block.members.map((member, index) => (
+            <li key={member.id ?? member.memberId ?? index}>
+              {member.name || member.id || member.memberId || 'member'}
+              {member.status ? ` · ${member.status}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function feedbackEnabled(session) {
+  if (session?.projections?.feedback) return true
+  const commands = session?.commands
+  if (!Array.isArray(commands)) return false
+  return commands.some(
+    (entry) =>
+      entry === 'feedback.submit' ||
+      entry?.name === 'feedback.submit' ||
+      entry?.id === 'feedback.submit',
+  )
+}
+
+function AssistantText({ block, session, rpc }) {
+  const showFeedback = feedbackEnabled(session)
+  return (
+    <div className="dsh-prose my-3">
+      <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{block.text}</Markdown>
+      {showFeedback && (
+        <div className="flex items-center gap-1 mt-1">
+          <button
+            type="button"
+            className="text-xs px-1.5 py-0.5 rounded border border-border hover:bg-secondary"
+            title="Helpful"
+            onClick={() =>
+              void rpc('feedback.submit', {
+                sessionId: session.sessionId,
+                seq: block.seq,
+                rating: 'up',
+              })
+            }
+          >
+            👍
+          </button>
+          <button
+            type="button"
+            className="text-xs px-1.5 py-0.5 rounded border border-border hover:bg-secondary"
+            title="Not helpful"
+            onClick={() =>
+              void rpc('feedback.submit', {
+                sessionId: session.sessionId,
+                seq: block.seq,
+                rating: 'down',
+              })
+            }
+          >
+            👎
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function Conversation({ session, blocks, onRespond, rpc, onInspectTool }) {
   const scrollRef = useRef(null)
   const [atBottom, setAtBottom] = useState(true)
 
@@ -326,13 +429,9 @@ export function Conversation({ session, blocks, onRespond, rpc }) {
           }
           switch (block.kind) {
             case 'text':
-              return (
-                <div key={key} className="dsh-prose my-3">
-                  <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{block.text}</Markdown>
-                </div>
-              )
+              return <AssistantText key={key} block={block} session={session} rpc={rpc} />
             case 'tool':
-              return <ToolRow key={key} block={block} />
+              return <ToolRow key={key} block={block} onInspect={onInspectTool} />
             case 'approval':
               return (
                 <ApprovalCard
@@ -363,6 +462,8 @@ export function Conversation({ session, blocks, onRespond, rpc }) {
                   }
                 />
               )
+            case 'workflow-run':
+              return <WorkflowRun key={key} block={block} />
             case 'turn-end':
               return <TurnEnd key={key} block={block} />
             default:

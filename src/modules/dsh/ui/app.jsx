@@ -15,6 +15,7 @@ import { getPage } from './pages/registry.mjs'
 import { newestPendingDecision } from '../turn-fold.mjs'
 import './pages/conversation/index.mjs'
 import './pages/settings/index.mjs'
+import './pages/trajectory/index.mjs'
 
 function useNarrowLayout(breakpoint = 520) {
   const [narrow, setNarrow] = useState(() =>
@@ -96,6 +97,8 @@ export function App() {
   const [pickerError, setPickerError] = useState(null)
   const [ledger, setLedger] = useState({ blocks: [], lastSeq: -1 })
   const [diagnosis, setDiagnosis] = useState(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [detailsChild, setDetailsChild] = useState(null)
   const searchRef = useRef(null)
   const composerRef = useRef(null)
   const userPickedRef = useRef(false)
@@ -105,6 +108,34 @@ export function App() {
     userPickedRef.current = true
     setSelectedId(sessionId)
     setActivePage('conversation')
+    setDetailsOpen(false)
+    setDetailsChild(null)
+  }, [])
+
+  const inspectTool = useCallback((block) => {
+    setDetailsChild(
+      <div className="space-y-2 font-mono whitespace-pre-wrap break-all">
+        <div>
+          <span className="text-muted-foreground">tool </span>
+          {block.name}
+        </div>
+        <div>
+          <span className="text-muted-foreground">status </span>
+          {block.status}
+        </div>
+        <div>
+          <span className="text-muted-foreground">args </span>
+          {block.args}
+        </div>
+        {block.resultText != null && (
+          <div>
+            <span className="text-muted-foreground">result </span>
+            {block.resultText || '(empty)'}
+          </div>
+        )}
+      </div>,
+    )
+    setDetailsOpen(true)
   }, [])
 
   useEffect(() => {
@@ -254,6 +285,10 @@ export function App() {
 
   const page = getPage(activePage)
   const ConversationPage = getPage('conversation')?.render
+  const TrajectoryPage = getPage('trajectory')?.render
+  const showTrajectoryTab = Boolean(
+    selected?.projections?.trajectory || selected?.projections?.tokenUsage,
+  )
 
   let main = null
   if (!online) {
@@ -287,6 +322,8 @@ export function App() {
       </div>
     )
   } else {
+    const viewPage =
+      activePage === 'trajectory' && showTrajectoryTab ? 'trajectory' : 'conversation'
     main = (
       <>
         <div className="px-4 py-2 border-b border-border shrink-0 flex items-center gap-3">
@@ -297,13 +334,42 @@ export function App() {
             onChange={setPresetId}
           />
         </div>
-        <SessionHeader session={selected} rpc={rpc} onSelect={selectSession} />
-        {ConversationPage ? (
+        <SessionHeader session={selected} rpc={rpc} onSelect={selectSession} sessions={merged} />
+        {showTrajectoryTab && (
+          <div className="px-4 py-1.5 border-b border-border shrink-0 flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              className={
+                viewPage === 'conversation'
+                  ? 'font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }
+              onClick={() => setActivePage('conversation')}
+            >
+              Conversation
+            </button>
+            <button
+              type="button"
+              className={
+                viewPage === 'trajectory'
+                  ? 'font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }
+              onClick={() => setActivePage('trajectory')}
+            >
+              Trajectory
+            </button>
+          </div>
+        )}
+        {viewPage === 'trajectory' && TrajectoryPage ? (
+          <TrajectoryPage session={selected} />
+        ) : ConversationPage ? (
           <ConversationPage
             session={selected}
             blocks={ledger.blocks}
             onRespond={respondDecision}
             rpc={rpc}
+            onInspectTool={inspectTool}
           />
         ) : null}
         <Composer apiRef={composerRef} session={selected} rpc={rpc} />
@@ -340,6 +406,12 @@ export function App() {
           />
         )
       }
+      detailsOpen={detailsOpen}
+      detailsChild={detailsChild}
+      onCloseDetails={() => {
+        setDetailsOpen(false)
+        setDetailsChild(null)
+      }}
     >
       {narrow && composeOk && (
         <div className="px-3 py-2 border-b border-border shrink-0">

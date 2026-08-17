@@ -251,4 +251,53 @@ describe('dsh ledger fold', () => {
     expect(previewToolArgs('a'.repeat(100), 60)).toHaveLength(61)
     expect(previewToolArgs('a b\n c', 60)).toBe('a b c')
   })
+
+  it('folds tool-workflow run-start through run-end into a workflow-run block', () => {
+    const fold = createDshLedgerFold()
+    fold.pushEvent(
+      event(
+        'tool-workflow/run-start',
+        { runId: 'r1', phase: 'plan', members: [{ id: 'm1', name: 'researcher' }] },
+        1,
+        1000,
+      ),
+    )
+    fold.pushEvent(
+      event(
+        'tool-workflow/member-start',
+        { runId: 'r1', memberId: 'm1', name: 'researcher' },
+        2,
+        1100,
+      ),
+    )
+    fold.pushEvent(
+      event('tool-workflow/member-end', { runId: 'r1', memberId: 'm1', status: 'ok' }, 3, 1200),
+    )
+    fold.pushEvent(event('tool-workflow/run-end', { runId: 'r1', status: 'ok' }, 4, 1300))
+    const block = fold.getBlocks().find((b) => b.kind === 'workflow-run')
+    expect(block).toMatchObject({
+      kind: 'workflow-run',
+      runId: 'r1',
+      status: 'ok',
+    })
+    expect(Array.isArray(block.members)).toBe(true)
+  })
+
+  it('copies deliverable locations onto turn-end when present', () => {
+    const fold = createDshLedgerFold()
+    fold.pushEvent(event('turn/start', { turn: 1 }, 0, 1000))
+    fold.pushEvent(
+      event(
+        'turn/end',
+        {
+          turn: 1,
+          reason: { kind: 'completed' },
+          locations: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }],
+        },
+        1,
+        2000,
+      ),
+    )
+    expect(fold.getBlocks().at(-1).locations).toEqual([{ path: 'src/a.ts' }, { path: 'src/b.ts' }])
+  })
 })
