@@ -14,6 +14,7 @@ import { Composer } from './Composer.jsx'
 import { getPage } from './pages/registry.mjs'
 import { newestPendingDecision } from '../turn-fold.mjs'
 import './pages/conversation/index.mjs'
+import './pages/settings/index.mjs'
 
 function useNarrowLayout(breakpoint = 520) {
   const [narrow, setNarrow] = useState(() =>

@@ -25,6 +25,11 @@ describe('settings-write', () => {
     expect(isSettingsConflict({ code: 'settings-rejected' })).toBe(false)
     expect(isSettingsConflict(null)).toBe(false)
   })
+
+  it('detects settings-conflict from a port-thrown Error message', () => {
+    expect(isSettingsConflict(new Error('[dsh settings-conflict] revision mismatch'))).toBe(true)
+    expect(isSettingsConflict(new Error('[dsh settings-rejected] bad value'))).toBe(false)
+  })
 })
 
 describe('schema-fields', () => {
@@ -43,6 +48,24 @@ describe('schema-fields', () => {
     expect(fields).toEqual([
       { path: 'apiKey', type: 'string', title: 'API Key', secret: true },
       { path: 'baseUrl', type: 'string', title: 'Base URL', secret: false },
+    ])
+  })
+
+  it('walks schema.dict the same way as properties', () => {
+    const fields = fieldsFromDescribe({
+      namespace: 'locale',
+      secrets: ['token'],
+      schema: {
+        type: 'object',
+        dict: {
+          token: { type: 'string', title: 'Token' },
+          language: { type: 'string', title: 'Language' },
+        },
+      },
+    })
+    expect(fields).toEqual([
+      { path: 'token', type: 'string', title: 'Token', secret: true },
+      { path: 'language', type: 'string', title: 'Language', secret: false },
     ])
   })
 
