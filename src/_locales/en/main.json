@@ -227,6 +227,7 @@
   "Failed at \"{{stage}}\": {{message}}": "Failed at \"{{stage}}\": {{message}}",
   "Engines": "Engines",
   "ChatGPT Web keeps the conversation server-side": "ChatGPT Web keeps the conversation server-side",
+  "Grok Web keeps the conversation server-side": "Grok Web keeps the conversation server-side",
   "Kimi Web keeps the conversation server-side": "Kimi Web keeps the conversation server-side",
   "The agent keeps the conversation engine-side": "The agent keeps the conversation engine-side",
   "History lives in this window and is re-sent": "History lives in this window and is re-sent",

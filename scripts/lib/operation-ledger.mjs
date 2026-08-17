@@ -120,6 +120,13 @@ export class OperationLedger {
     return this.update(record, { state: 'completed', result, error: null })
   }
 
+  abort(record) {
+    if (!record?.key) return record
+    this.records.delete(record.key)
+    this.persist()
+    return record
+  }
+
   ambiguous(record, error) {
     return this.update(record, {
       state: 'ambiguous',

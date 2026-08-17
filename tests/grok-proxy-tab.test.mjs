@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { isDedicatedGrokProxyTabUrl, isLikelyGrokTabUrl } from '../src/utils/grok-proxy-tab.mjs'
+import {
+  isDedicatedGrokProxyTabUrl,
+  isGrokProxyPageHost,
+  isLikelyGrokTabUrl,
+} from '../src/utils/grok-proxy-tab.mjs'
 import { GrokProxyControlAction, RuntimeMessage } from '../src/protocol/messages.mjs'
 
 describe('grok proxy tab url', () => {
   it('accepts grok.com', () => {
     expect(isLikelyGrokTabUrl('https://grok.com/')).toBe(true)
     expect(isLikelyGrokTabUrl('https://chatgpt.com/')).toBe(false)
+    expect(isGrokProxyPageHost('grok.com')).toBe(true)
+    expect(isGrokProxyPageHost('example.com')).toBe(false)
   })
 
   it('requires the proxy query and rejects login', () => {

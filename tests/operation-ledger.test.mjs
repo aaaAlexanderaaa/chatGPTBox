@@ -68,6 +68,17 @@ describe('gateway operation ledger', () => {
     })
   })
 
+  it('aborts a dispatching record so the same key can be reused', () => {
+    const ledger = createLedger()
+    const fingerprint = fingerprintOperation('/grok/conversations', { query: 'hi' })
+    const first = ledger.begin({ key: 'request-1', fingerprint })
+    expect(first.kind).toBe('new')
+    ledger.abort(first.record)
+    const second = ledger.begin({ key: 'request-1', fingerprint })
+    expect(second.kind).toBe('new')
+    expect(second.record.operationId).not.toBe(first.record.operationId)
+  })
+
   it('rejects reuse of a key for a different request', () => {
     const ledger = createLedger()
     ledger.begin({ key: 'request-1', fingerprint: 'a' })

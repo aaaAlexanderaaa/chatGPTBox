@@ -255,6 +255,7 @@
   "Site rules moved to full settings": "站点规矩已移至完整设置",
   "The popup keeps the on/off switches for supported sites. Per-site engine assignment, extractor templates, and site matching live in the full settings page.": "弹窗仅保留各站点的开关。按站点指定引擎、抽取模板与站点匹配在完整设置页。",
   "ChatGPT Web keeps the conversation server-side": "ChatGPT Web 在服务端保留对话记忆",
+  "Grok Web keeps the conversation server-side": "Grok Web 在服务端保留对话记忆",
   "Kimi Web keeps the conversation server-side": "Kimi Web 在服务端保留对话记忆",
   "The agent keeps the conversation engine-side": "agent 引擎在服务端保留会话记忆",
   "History lives in this window and is re-sent": "历史记在本窗口内，发送时整体重发",

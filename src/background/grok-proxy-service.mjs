@@ -1,12 +1,13 @@
 // Grok Web proxy service.
 //
-// Owns the dedicated grok.com proxy-tab lifecycle, the per-session request
-// serialization lock, and the proxy request send/response port bridge.
+// Owns the dedicated grok.com proxy-tab lifecycle, the process-wide write
+// lock, and the proxy request send/response port bridge.
 // Mirrors chatgpt-proxy-service for the L2 text path; probe never calls
 // ensureGrokProxyTab.
 
 import Browser from 'webextension-polyfill'
-import { RuntimeMessage } from '../protocol/messages.mjs'
+import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
+import { isGrokWebPrePostControlError } from '../services/clients/grok-web/pre-post-errors.mjs'
 import {
   GROK_PROXY_QUERY_PARAM,
   GROK_PROXY_QUERY_VALUE,
@@ -14,35 +15,35 @@ import {
 } from '../utils/grok-proxy-tab.mjs'
 
 const GROK_PROXY_URL = `https://grok.com/?${GROK_PROXY_QUERY_PARAM}=${GROK_PROXY_QUERY_VALUE}`
+export const GROK_PROXY_CONNECT_TIMEOUT_MS = 60_000
 
 // requestId -> { uiPort, resolve, reject }
 const pendingGrokProxyRequests = new Map()
 
-// sessionId -> { port, startedAt }
-const activeGrokWebSessionRequests = new Map()
+// One in-flight Grok write at a time (any session / Bridge control).
+let activeGrokWebWrite = null
 
 export function acquireGrokWebSessionLock(session, port) {
   const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : ''
-  if (!sessionId) return () => {}
 
-  if (activeGrokWebSessionRequests.has(sessionId)) {
+  if (activeGrokWebWrite) {
     try {
-      port.postMessage({ error: 'Grok Web request already in progress' })
+      port?.postMessage?.({ error: 'Grok Web request already in progress' })
     } catch {
       /* ignore */
     }
     return null
   }
 
-  activeGrokWebSessionRequests.set(sessionId, {
+  activeGrokWebWrite = {
     port,
+    sessionId,
     startedAt: Date.now(),
-  })
+  }
 
   return () => {
-    const current = activeGrokWebSessionRequests.get(sessionId)
-    if (current?.port === port) {
-      activeGrokWebSessionRequests.delete(sessionId)
+    if (activeGrokWebWrite?.port === port) {
+      activeGrokWebWrite = null
     }
   }
 }
@@ -90,27 +91,50 @@ async function injectContentScript(tabId) {
   })
 }
 
-export async function sendGrokProxyRequest(tabId, session, uiPort) {
+function clearPendingGrokProxyRequest(requestId) {
+  const entry = pendingGrokProxyRequests.get(requestId)
+  if (entry?.timer) clearTimeout(entry.timer)
+  pendingGrokProxyRequests.delete(requestId)
+  return entry
+}
+
+export async function sendGrokProxyRequest(tabId, session, uiPort, deps = {}) {
   const requestId = crypto.randomUUID()
+  const send = deps.sendMessage || ((id, message) => Browser.tabs.sendMessage(id, message))
+  const timeoutMs = deps.connectTimeoutMs ?? GROK_PROXY_CONNECT_TIMEOUT_MS
 
   return new Promise((resolve, reject) => {
-    pendingGrokProxyRequests.set(requestId, { uiPort, resolve, reject })
+    const timer = setTimeout(() => {
+      const entry = pendingGrokProxyRequests.get(requestId)
+      if (!entry || entry.connected) return
+      clearPendingGrokProxyRequest(requestId)
+      reject(
+        new Error(
+          'Grok proxy tab did not accept the request in time. It will not be submitted again automatically.',
+        ),
+      )
+    }, timeoutMs)
+
+    pendingGrokProxyRequests.set(requestId, { uiPort, resolve, reject, timer, connected: false })
 
     const doSend = () =>
-      Browser.tabs.sendMessage(tabId, {
+      send(tabId, {
         type: RuntimeMessage.GrokProxyRequest,
         data: { requestId, session },
       })
 
     doSend().catch(async (firstErr) => {
+      if (!pendingGrokProxyRequests.has(requestId)) return
       if (/receiving end does not exist/i.test(firstErr?.message)) {
         try {
           await injectContentScript(tabId)
           await new Promise((r) => setTimeout(r, 500))
+          if (!pendingGrokProxyRequests.has(requestId)) return
           await doSend()
           return
-        } catch (retryErr) {
-          pendingGrokProxyRequests.delete(requestId)
+        } catch {
+          if (!pendingGrokProxyRequests.has(requestId)) return
+          clearPendingGrokProxyRequest(requestId)
           reject(
             new Error(
               'Content script could not be loaded in the Grok tab. ' +
@@ -121,7 +145,7 @@ export async function sendGrokProxyRequest(tabId, session, uiPort) {
           return
         }
       }
-      pendingGrokProxyRequests.delete(requestId)
+      clearPendingGrokProxyRequest(requestId)
       reject(firstErr)
     })
   })
@@ -131,12 +155,7 @@ export async function sendGrokProxyRequest(tabId, session, uiPort) {
  * Send a Grok proxy control action through an existing proxy tab.
  * Injectable `{ tabs, createTab, sendMessage }` for tests — never open a real tab from unit tests.
  */
-export async function sendGrokProxyControlRequest(
-  tabId,
-  action,
-  payload,
-  { sendMessage } = {},
-) {
+export async function sendGrokProxyControlRequest(tabId, action, payload, { sendMessage } = {}) {
   const send = sendMessage || ((id, message) => Browser.tabs.sendMessage(id, message))
 
   const doSend = async () => {
@@ -175,14 +194,45 @@ export async function sendGrokProxyControlRequest(
  * Allowed for Bridge conversation API only — never from probe.
  * Injectable deps for tests.
  */
+const GROK_WEB_WRITE_CONTROL_ACTIONS = new Set([
+  GrokProxyControlAction.CreateConversation,
+  GrokProxyControlAction.SendConversationMessage,
+])
+
+function notDispatchedControlError(error) {
+  return { dispatched: false, error: error?.message || String(error) }
+}
+
 export async function executeGrokWebControlRequest(action, payload = {}, deps = {}) {
-  const tab = await ensureGrokProxyTab(deps)
-  if (!tab?.id) {
-    throw new Error(
-      'Grok proxy tab is unavailable. Open https://grok.com in this browser and sign in, then retry.',
-    )
+  const needsLock = GROK_WEB_WRITE_CONTROL_ACTIONS.has(action)
+  let release = () => {}
+  if (needsLock) {
+    const lockPort = {
+      postMessage() {},
+    }
+    release = acquireGrokWebSessionLock({ sessionId: `grok-web-control:${action}` }, lockPort)
+    if (release === null) {
+      return notDispatchedControlError(new Error('Grok Web request already in progress'))
+    }
   }
-  return await sendGrokProxyControlRequest(tab.id, action, payload, deps)
+  try {
+    const tab = await ensureGrokProxyTab(deps)
+    if (!tab?.id) {
+      const error = new Error(
+        'Grok proxy tab is unavailable. Open https://grok.com in this browser and sign in, then retry.',
+      )
+      if (needsLock) return notDispatchedControlError(error)
+      throw error
+    }
+    return await sendGrokProxyControlRequest(tab.id, action, payload, deps)
+  } catch (error) {
+    if (needsLock && isGrokWebPrePostControlError(error)) {
+      return notDispatchedControlError(error)
+    }
+    throw error
+  } finally {
+    release()
+  }
 }
 
 export function handleGrokProxyResponsePort(port) {
@@ -193,6 +243,8 @@ export function handleGrokProxyResponsePort(port) {
     port.disconnect()
     return true
   }
+  if (entry.timer) clearTimeout(entry.timer)
+  entry.connected = true
   pendingGrokProxyRequests.delete(requestId)
   const { uiPort, resolve, reject } = entry
   let settled = false
@@ -245,12 +297,17 @@ export function handleGrokProxyResponsePort(port) {
   })
   uiPort.onDisconnect?.addListener?.(() => {
     uiPort._isClosed = true
-    settle(resolve)
+    try {
+      port.postMessage({ stop: true })
+    } catch {
+      /* ignore */
+    }
     try {
       port.disconnect()
     } catch {
       /* ignore */
     }
+    settle(resolve)
   })
   return true
 }

@@ -34,8 +34,10 @@ import { visibleApiModesForConfig } from '../../popup/components/engine-options.
 import {
   isUsingChatgptWebModel,
   isUsingDshHarnessModel,
+  isUsingGrokWebModel,
   isUsingMoonshotWebModel,
 } from '../../config/predicates.mjs'
+import { grokWebConversationUrl } from '../../config/grok-web.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -48,6 +50,11 @@ import {
   restoreChatgptWebSessionSnapshot,
   saveChatgptWebSessionSnapshot,
 } from '../../services/clients/chatgpt-web/thread-state.mjs'
+import {
+  deleteGrokWebSessionSnapshot,
+  restoreGrokWebSessionOnto,
+  saveGrokWebSessionSnapshot,
+} from '../../services/clients/grok-web/thread-state.mjs'
 import { RuntimeMessage } from '../../protocol/messages.mjs'
 import {
   cockpitHrefForSession,
@@ -126,16 +133,24 @@ function ConversationCard(props) {
     let cancelled = false
 
     if (!session?.sessionId) return () => {}
-    if (session.conversationId || session.parentMessageId || session.wsRequestId) return () => {}
+    if (isUsingGrokWebModel(session)) {
+      if (session.conversationId && session.previousResponseID) return () => {}
+    } else if (session.conversationId || session.parentMessageId || session.wsRequestId) {
+      return () => {}
+    }
 
-    void restoreChatgptWebSessionSnapshot(session)
+    const restore = isUsingGrokWebModel(session)
+      ? restoreGrokWebSessionOnto(session)
+      : restoreChatgptWebSessionSnapshot(session)
+    void restore
       .then((restoredSession) => {
         if (cancelled || !restoredSession || restoredSession === session) return
         if (
           restoredSession.conversationId === session.conversationId &&
           restoredSession.parentMessageId === session.parentMessageId &&
           restoredSession.messageId === session.messageId &&
-          restoredSession.wsRequestId === session.wsRequestId
+          restoredSession.wsRequestId === session.wsRequestId &&
+          restoredSession.previousResponseID === session.previousResponseID
         ) {
           return
         }
@@ -154,6 +169,11 @@ function ConversationCard(props) {
 
   useEffect(() => {
     if (!session?.sessionId) return
+    if (isUsingGrokWebModel(session)) {
+      if (!session.conversationId || !session.previousResponseID) return
+      void saveGrokWebSessionSnapshot(session).catch(() => {})
+      return
+    }
     if (!session.conversationId && !session.parentMessageId && !session.wsRequestId) return
     void saveChatgptWebSessionSnapshot(session, {
       source: props.pageMode
@@ -170,6 +190,7 @@ function ConversationCard(props) {
     session?.parentMessageId,
     session?.messageId,
     session?.wsRequestId,
+    session?.previousResponseID,
     session?.modelName,
     session?.question,
   ])
@@ -198,7 +219,10 @@ function ConversationCard(props) {
 
     let cancelled = false
     ;(async () => {
-      const restoredSession = await restoreChatgptWebSessionSnapshot(session).catch(() => session)
+      const restoredSession = await (isUsingGrokWebModel(session)
+        ? restoreGrokWebSessionOnto(session)
+        : restoreChatgptWebSessionSnapshot(session)
+      ).catch(() => session)
       if (cancelled) return
       const newSession = {
         ...(restoredSession && typeof restoredSession === 'object' ? restoredSession : session),
@@ -414,6 +438,8 @@ function ConversationCard(props) {
   const showMemoryNote = (nextModelName) => {
     if (isUsingChatgptWebModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('ChatGPT Web keeps the conversation server-side'))
+    else if (isUsingGrokWebModel({ modelName: nextModelName }))
+      setEngineMemoryNote(t('Grok Web keeps the conversation server-side'))
     else if (isUsingMoonshotWebModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('Kimi Web keeps the conversation server-side'))
     else if (isUsingDshHarnessModel({ modelName: nextModelName }))
@@ -665,18 +691,36 @@ function ConversationCard(props) {
             flexGrow: props.draggable && !completeDraggable ? 0 : 1,
           }}
         >
-          {!config.disableWebModeHistory && session && session.conversationId && (
-            <a
-              title={t('Continue on official website')}
-              href={'https://chatgpt.com/chat/' + session.conversationId}
-              target="_blank"
-              rel="nofollow noopener noreferrer"
-              className="gpt-util-icon"
-              style="color: inherit;"
-            >
-              <ExternalLink size={16} />
-            </a>
-          )}
+          {!config.disableWebModeHistory &&
+            session &&
+            session.conversationId &&
+            isUsingChatgptWebModel(session) && (
+              <a
+                title={t('Continue on official website')}
+                href={'https://chatgpt.com/chat/' + session.conversationId}
+                target="_blank"
+                rel="nofollow noopener noreferrer"
+                className="gpt-util-icon"
+                style="color: inherit;"
+              >
+                <ExternalLink size={16} />
+              </a>
+            )}
+          {!config.disableWebModeHistory &&
+            session &&
+            session.conversationId &&
+            isUsingGrokWebModel(session) && (
+              <a
+                title={t('Continue on official website')}
+                href={grokWebConversationUrl(session.conversationId)}
+                target="_blank"
+                rel="nofollow noopener noreferrer"
+                className="gpt-util-icon"
+                style="color: inherit;"
+              >
+                <ExternalLink size={16} />
+              </a>
+            )}
           <span
             className="gpt-util-icon"
             title={t('Float the Window')}
@@ -703,13 +747,16 @@ function ConversationCard(props) {
             text={t('Clear Conversation')}
             onConfirm={async () => {
               await postMessage({ stop: true })
-              Browser.runtime.sendMessage({
-                type: RuntimeMessage.DeleteConversation,
-                data: {
-                  conversationId: session.conversationId,
-                },
-              })
+              if (isUsingChatgptWebModel(session) && session.conversationId) {
+                Browser.runtime.sendMessage({
+                  type: RuntimeMessage.DeleteConversation,
+                  data: {
+                    conversationId: session.conversationId,
+                  },
+                })
+              }
               await deleteChatgptWebSessionSnapshot(session.sessionId).catch(() => {})
+              await deleteGrokWebSessionSnapshot(session.sessionId).catch(() => {})
               setConversationItemData([])
               const newSession = initSession({
                 ...session,

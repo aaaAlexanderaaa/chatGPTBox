@@ -76,7 +76,9 @@ export {
 // grok-web.mjs
 export {
   GROK_WEB_SLUGS,
+  grokSlugToModeId,
   grokSlugToModelKey,
+  grokWebConversationUrl,
   grokWebApiModesForAccount,
   isGrokChatSlug,
   pickDefaultGrokWebKey,

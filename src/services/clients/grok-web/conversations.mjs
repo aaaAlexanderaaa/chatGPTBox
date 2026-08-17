@@ -24,21 +24,30 @@ export function normalizeGrokConversationSnapshot(payload, conversationId) {
     typeof payload?.title === 'string'
       ? payload.title
       : typeof payload?.conversation?.title === 'string'
-        ? payload.conversation.title
-        : ''
+      ? payload.conversation.title
+      : ''
 
   const defaultModel =
     typeof payload?.modelName === 'string'
       ? payload.modelName
       : typeof payload?.defaultModel === 'string'
-        ? payload.defaultModel
-        : ''
+      ? payload.defaultModel
+      : ''
+
+  let previousResponseID = ''
+  for (const node of responseNodes) {
+    if (node?.sender !== 'human') continue
+    if (typeof node?.responseId === 'string' && node.responseId) {
+      previousResponseID = node.responseId
+    }
+  }
 
   return {
     conversationId,
     title,
     messages,
     defaultModel,
+    previousResponseID,
     pending: false,
   }
 }
@@ -58,7 +67,9 @@ export async function listGrokConversations({ fetch, pageSize }) {
 }
 
 export async function getGrokConversation({ fetch, conversationId }) {
-  const url = `https://grok.com/rest/app-chat/conversations/${encodeURIComponent(conversationId)}/response-node?includeThreads=true`
+  const url = `https://grok.com/rest/app-chat/conversations/${encodeURIComponent(
+    conversationId,
+  )}/response-node?includeThreads=true`
   const response = await fetch(url, { method: 'GET' })
   return parseGrokJsonResponse(response)
 }

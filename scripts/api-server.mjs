@@ -17,6 +17,11 @@ import {
   grokWriteOperationPath,
   matchGrokConversationRoute,
 } from './lib/grok-conversation-routes.mjs'
+import {
+  grokPrePostRetryable,
+  grokPrePostStatus,
+  isGrokWebPrePostControlError,
+} from '../src/services/clients/grok-web/pre-post-errors.mjs'
 
 // ---------------------------------------------------------------------------
 // Configuration: CLI args > env vars > defaults
@@ -265,7 +270,7 @@ function beginWriteOperation(req, route, body, { requireIdempotencyKey = false }
       kind: 'missing',
       error: {
         error: {
-          message: 'Idempotency-Key is required for ChatGPT conversation write operations.',
+          message: 'Idempotency-Key is required for conversation write operations.',
           type: 'invalid_request_error',
           code: 'idempotency_key_required',
           retryable: false,
@@ -282,18 +287,33 @@ function beginWriteOperation(req, route, body, { requireIdempotencyKey = false }
   })
 }
 
-function makeAmbiguousDispatchError(record, message) {
+function makeAmbiguousDispatchError(record, message, product = 'ChatGPT Web') {
   return {
     error: {
       message:
         message ||
-        'The write may have been accepted by ChatGPT Web. It will not be submitted again automatically.',
+        `The write may have been accepted by ${product}. It will not be submitted again automatically.`,
       type: 'server_error',
       code: 'ambiguous_dispatch',
       retryable: false,
       operation_id: record?.operationId || null,
     },
   }
+}
+
+function respondGrokNotDispatched(res, operation, result) {
+  operationLedger.abort(operation)
+  const message = result?.error || 'Grok Web write was not dispatched'
+  res.writeHead(grokPrePostStatus(message), { 'Content-Type': 'application/json' })
+  res.end(
+    JSON.stringify({
+      error: {
+        message,
+        type: 'invalid_request_error',
+        retryable: grokPrePostRetryable(message),
+      },
+    }),
+  )
 }
 
 function markOperationAmbiguous(record, error) {
@@ -928,7 +948,7 @@ async function handleModels(res) {
     id,
     object: 'model',
     created: 1700000000,
-    owned_by: 'chatgpt-web',
+    owned_by: String(id).startsWith('grok-chat-') ? 'grok-web' : 'chatgpt-web',
   }))
   res.writeHead(200, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ object: 'list', data }))
@@ -1325,6 +1345,20 @@ async function handleGrokConversationCreate(req, res) {
   }
 
   const body = await readBodyObject(req)
+  const query =
+    (typeof body.query === 'string' && body.query.trim()) ||
+    (typeof body.message === 'string' && body.message.trim()) ||
+    (typeof body.raw === 'string' && body.raw.trim()) ||
+    ''
+  if (!query) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: 'query is required', type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
   const operationBegin = beginWriteOperation(req, grokWriteOperationPath('create'), body, {
     requireIdempotencyKey: true,
   })
@@ -1333,11 +1367,6 @@ async function handleGrokConversationCreate(req, res) {
   res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
-    const query =
-      (typeof body.query === 'string' && body.query.trim()) ||
-      (typeof body.message === 'string' && body.message.trim()) ||
-      (typeof body.raw === 'string' && body.raw.trim()) ||
-      ''
     const result = await sendControlRequestToBridge(
       'grok_web_create_conversation',
       {
@@ -1347,6 +1376,10 @@ async function handleGrokConversationCreate(req, res) {
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (result?.dispatched === false) {
+      respondGrokNotDispatched(res, operation, result)
+      return
+    }
     if (result == null || typeof result?.conversationId !== 'string' || !result.conversationId) {
       throw new Error('Conversation creation returned no conversation ID')
     }
@@ -1354,10 +1387,14 @@ async function handleGrokConversationCreate(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
+    if (isGrokWebPrePostControlError(error)) {
+      respondGrokNotDispatched(res, operation, { error: error.message })
+      return
+    }
     // After dispatch: never auto-retry create; mark ambiguous like ChatGPT.
     markOperationAmbiguous(operation, error)
     res.writeHead(409, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message, 'Grok Web')))
   }
 }
 
@@ -1377,6 +1414,35 @@ async function handleGrokConversationMessage(req, res, conversationId) {
   }
 
   const body = await readBodyObject(req)
+  const query =
+    (typeof body.query === 'string' && body.query.trim()) ||
+    (typeof body.message === 'string' && body.message.trim()) ||
+    (typeof body.raw === 'string' && body.raw.trim()) ||
+    ''
+  if (!query) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: 'query is required', type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
+  const previousResponseID =
+    typeof body.previousResponseID === 'string' ? body.previousResponseID.trim() : ''
+  if (!previousResponseID) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message: 'previousResponseID is required to continue a Grok conversation',
+          type: 'invalid_request_error',
+          retryable: false,
+        },
+      }),
+    )
+    return
+  }
   const route = grokWriteOperationPath('messages', conversationId)
   const operationBegin = beginWriteOperation(req, route, body, {
     requireIdempotencyKey: true,
@@ -1386,31 +1452,34 @@ async function handleGrokConversationMessage(req, res, conversationId) {
   res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
-    const query =
-      (typeof body.query === 'string' && body.query.trim()) ||
-      (typeof body.message === 'string' && body.message.trim()) ||
-      (typeof body.raw === 'string' && body.raw.trim()) ||
-      ''
     const result = await sendControlRequestToBridge(
       'grok_web_send_conversation_message',
       {
         conversationId,
         query,
         model: body.model,
-        previousResponseID: body.previousResponseID,
+        previousResponseID,
         operationId: operation.operationId,
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (result?.dispatched === false) {
+      respondGrokNotDispatched(res, operation, result)
+      return
+    }
     if (result == null) throw new Error('Conversation message returned no acknowledgement')
     operationLedger.complete(operation, result)
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
+    if (isGrokWebPrePostControlError(error)) {
+      respondGrokNotDispatched(res, operation, { error: error.message })
+      return
+    }
     // After dispatch: never auto-retry send; mark ambiguous like ChatGPT.
     markOperationAmbiguous(operation, error)
     res.writeHead(409, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
+    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message, 'Grok Web')))
   }
 }
 

@@ -416,7 +416,7 @@ JSON body:
 
 - `query` or `message`
 - `model` (optional)
-- `previousResponseID` (optional parent response id)
+- `previousResponseID` (required parent response id from create, GET, or the previous send)
 
 Example:
 
@@ -424,7 +424,7 @@ Example:
 curl -X POST http://127.0.0.1:18080/grok/conversations/<conversation-id>/messages \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"query":"Follow up"}'
+  -d '{"query":"Follow up","previousResponseID":"<parent-response-id>"}'
 ```
 
 ### `POST /grok/conversations/:id/refresh`

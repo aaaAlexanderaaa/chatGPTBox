@@ -145,6 +145,40 @@ describe('registerGrokProbe', () => {
     })
     await vi.waitFor(() => expect(setUserConfig).toHaveBeenCalled())
     expect(fetchOnTab).not.toHaveBeenCalled()
-    expect(setUserConfig).toHaveBeenCalledWith({ grokWebSignedIn: true })
+    expect(setUserConfig).toHaveBeenCalledWith({
+      grokWebSignedIn: true,
+      grokWebAccountTier: '',
+      grokWebAccountModels: [],
+    })
+  })
+
+  it('stays optimistic when a grok tab exists but fetchOnTab throws', async () => {
+    const { setUserConfig } = createProbeHarness({
+      cookies: [{ name: 'sso', value: 'x' }],
+      tabs: [{ id: 7, url: 'https://grok.com/?chatgptbox_proxy=1' }],
+      fetchOnTab: async () => {
+        throw new Error('tab not ready')
+      },
+    })
+    await vi.waitFor(() => expect(setUserConfig).toHaveBeenCalled())
+    expect(setUserConfig).toHaveBeenCalledWith({
+      grokWebSignedIn: true,
+      grokWebAccountTier: '',
+      grokWebAccountModels: [],
+    })
+  })
+
+  it('stays optimistic when a grok tab exists but session JSON is null', async () => {
+    const { setUserConfig } = createProbeHarness({
+      cookies: [{ name: 'sso', value: 'x' }],
+      tabs: [{ id: 7, url: 'https://grok.com/chat' }],
+      fetchOnTab: async () => ({ sessionJson: null, rateLimitJson: null }),
+    })
+    await vi.waitFor(() => expect(setUserConfig).toHaveBeenCalled())
+    expect(setUserConfig).toHaveBeenCalledWith({
+      grokWebSignedIn: true,
+      grokWebAccountTier: '',
+      grokWebAccountModels: [],
+    })
   })
 })

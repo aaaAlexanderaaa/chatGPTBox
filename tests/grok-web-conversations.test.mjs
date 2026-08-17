@@ -32,6 +32,22 @@ describe('normalizeGrokConversationSnapshot', () => {
       { role: 'user', content: 'q' },
       { role: 'assistant', content: 'a' },
     ])
+    expect(out.previousResponseID).toBe('u1')
+  })
+
+  it('uses the last human responseId as the chat/SSE parent, not the assistant id', () => {
+    const out = normalizeGrokConversationSnapshot(
+      {
+        responseNodes: [
+          { sender: 'human', message: 'q1', responseId: 'u1' },
+          { sender: 'assistant', message: 'a1', responseId: 'a1' },
+          { sender: 'human', message: 'q2', responseId: 'u2' },
+          { sender: 'assistant', message: 'a2', responseId: 'a2' },
+        ],
+      },
+      'c1',
+    )
+    expect(out.previousResponseID).toBe('u2')
   })
 })
 

@@ -69,6 +69,32 @@ describe('API gateway compatibility contract', () => {
     expect(retryableActions).not.toContain('SyncConversations')
   })
 
+  it('does not mark Grok pre-POST failures as ambiguous_dispatch', () => {
+    const createHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationCreate',
+      'async function handleGrokConversationMessage',
+    )
+    const messageHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationMessage',
+      '// ---------------------------------------------------------------------------\n// HTTP polling bridge endpoints',
+    )
+    expect(createHandler).toContain('result?.dispatched === false')
+    expect(createHandler).toContain('respondGrokNotDispatched')
+    expect(createHandler).toContain('isGrokWebPrePostControlError')
+    expect(messageHandler).toContain('result?.dispatched === false')
+    expect(messageHandler).toContain('respondGrokNotDispatched')
+    expect(messageHandler).toContain('isGrokWebPrePostControlError')
+    expect(messageHandler.indexOf('previousResponseID is required')).toBeGreaterThan(-1)
+    expect(messageHandler.indexOf('previousResponseID is required')).toBeLessThan(
+      messageHandler.indexOf('beginWriteOperation'),
+    )
+    expect(gatewaySource).toContain('function respondGrokNotDispatched')
+    expect(gatewaySource).toContain('operationLedger.abort')
+    expect(gatewaySource).toContain('grokPrePostRetryable')
+  })
+
   it('caches live /v1/models lists only (not AVAILABLE_MODELS fallback)', () => {
     const handleModels = sourceBetween(
       gatewaySource,

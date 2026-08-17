@@ -1,11 +1,15 @@
 export const GROK_PROXY_QUERY_PARAM = 'chatgptbox_proxy'
 export const GROK_PROXY_QUERY_VALUE = '1'
 
+export function isGrokProxyPageHost(hostname) {
+  return hostname === 'grok.com' || (typeof hostname === 'string' && hostname.endsWith('.grok.com'))
+}
+
 export function isLikelyGrokTabUrl(url) {
   if (typeof url !== 'string' || !url) return false
   try {
     const parsed = new URL(url)
-    return parsed.hostname === 'grok.com' || parsed.hostname.endsWith('.grok.com')
+    return isGrokProxyPageHost(parsed.hostname)
   } catch {
     return false
   }

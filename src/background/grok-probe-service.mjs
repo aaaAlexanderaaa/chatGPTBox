@@ -96,19 +96,24 @@ export function registerGrokProbe(deps = {}) {
 
       const tab = await findExistingGrokTab(tabsApi)
       if (!tab?.id) {
-        await setUserConfig({ grokWebSignedIn: true })
+        await setUserConfig(applyGrokProbeFromParts({ cookies }))
         return
       }
 
-      let sessionJson = null
-      let rateLimitJson = null
+      let sessionJson
+      let rateLimitJson
       try {
         const result = await fetchOnTab(tab.id)
-        sessionJson = result?.sessionJson ?? null
-        rateLimitJson = result?.rateLimitJson ?? null
+        sessionJson = result?.sessionJson
+        rateLimitJson = result?.rateLimitJson
       } catch {
-        sessionJson = null
-        rateLimitJson = null
+        // Tab was not ready / inject failed. Cookies still exist — stay
+        // optimistic instead of treating a missed GET as a confirmed logout.
+      }
+
+      if (sessionJson == null) {
+        await setUserConfig(applyGrokProbeFromParts({ cookies }))
+        return
       }
 
       await setUserConfig(applyGrokProbeFromParts({ cookies, sessionJson, rateLimitJson }))

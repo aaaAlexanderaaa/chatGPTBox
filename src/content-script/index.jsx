@@ -602,10 +602,10 @@ async function run() {
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isGrokProxyMessage(message)) {
       if (message.type === RuntimeMessage.GrokProxyRequest) {
-        void handleGrokProxyMessage(message)
+        void handleGrokProxyMessage(message, { hostname: location.hostname })
         return false
       }
-      void handleGrokProxyMessage(message)
+      void handleGrokProxyMessage(message, { hostname: location.hostname })
         .then((result) =>
           sendResponse(
             result?.handled ? { ok: true, data: result.data } : { error: 'not implemented' },

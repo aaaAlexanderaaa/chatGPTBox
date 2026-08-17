@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  grokSlugToModeId,
   grokSlugToModelKey,
   grokWebApiModesForAccount,
+  grokWebConversationUrl,
   grokWebModelKeys,
   isGrokChatSlug,
   pickDefaultGrokWebKey,
@@ -65,5 +67,18 @@ describe('grok web catalog', () => {
     expect(isGrokChatSlug('gpt-5-6-thinking')).toBe(false)
     expect(grokSlugToModelKey('grok-chat-heavy')).toBe('grokWebHeavy')
     expect(grokSlugToModelKey('nope')).toBeNull()
+  })
+
+  it('maps public slugs to grok2api modeId', () => {
+    expect(grokSlugToModeId('grok-chat-fast')).toBe('fast')
+    expect(grokSlugToModeId('grok-chat-auto')).toBe('auto')
+    expect(grokSlugToModeId('grok-chat-expert')).toBe('expert')
+    expect(grokSlugToModeId('grok-chat-heavy')).toBe('heavy')
+    expect(grokSlugToModeId('nope')).toBeNull()
+  })
+
+  it('builds a grok.com thread URL', () => {
+    expect(grokWebConversationUrl('abc/def')).toBe('https://grok.com/c/abc%2Fdef')
+    expect(grokWebConversationUrl('')).toBe('https://grok.com/')
   })
 })

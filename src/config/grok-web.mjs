@@ -59,6 +59,23 @@ export function grokSlugToModelKey(slug) {
   return slugToKey[slug] ?? null
 }
 
+const SLUG_TO_MODE_ID = Object.freeze({
+  'grok-chat-fast': 'fast',
+  'grok-chat-auto': 'auto',
+  'grok-chat-expert': 'expert',
+  'grok-chat-heavy': 'heavy',
+})
+
+export function grokSlugToModeId(slug) {
+  return SLUG_TO_MODE_ID[slug] ?? null
+}
+
+export function grokWebConversationUrl(conversationId) {
+  const id = typeof conversationId === 'string' ? conversationId.trim() : ''
+  if (!id) return 'https://grok.com/'
+  return `https://grok.com/c/${encodeURIComponent(id)}`
+}
+
 export function grokWebApiModesForAccount({
   signedIn,
   tier,
