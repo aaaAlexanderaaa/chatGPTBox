@@ -121,7 +121,10 @@ function createFakeHarness() {
       }),
       'session.prompt': async () => ({ accepted: true }),
       'session.cancel': async () => ({ accepted: true }),
-      'session.updateQueue': async () => ({ accepted: true }),
+      'session.updateQueue': async (payload) => {
+        harness.lastUpdateQueue = payload
+        return { accepted: true }
+      },
       'session.rename': async (payload) => ({ title: payload.title }),
       'session.fork': async () => ({ sessionId: 'forked' }),
       'session.models': async () => ({
@@ -660,6 +663,23 @@ describe('dsh gateway workspace / preset / settings RPCs', () => {
     expect(harness.lastCreate.workspaceId).toBe('w1')
     expect(harness.lastCreate.agentPreset).toBe('standard')
     expect(harness.lastCreate.sessionId).toBe(value.sessionId)
+  })
+
+  it('forwards session.queue-replace as session.updateQueue replace', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    const content = [{ type: 'text', text: 'edited' }]
+    await gateway.rpc('session.queue-replace', {
+      sessionId: 's1',
+      itemId: 'q1',
+      content,
+    })
+    expect(harness.lastUpdateQueue).toEqual({
+      sessionId: 's1',
+      itemId: 'q1',
+      action: { kind: 'replace', content },
+    })
   })
 
   it('passes privileged workspace.create through', async () => {

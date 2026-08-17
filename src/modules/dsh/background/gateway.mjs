@@ -824,6 +824,12 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       }),
     'session.queue-remove': ({ sessionId, itemId }) =>
       api.rpc('session.updateQueue', { sessionId, itemId, action: { kind: 'remove' } }),
+    'session.queue-replace': ({ sessionId, itemId, content }) =>
+      api.rpc('session.updateQueue', {
+        sessionId,
+        itemId,
+        action: { kind: 'replace', content },
+      }),
     'approval.respond': ({ rpcId, sessionId, approvalId, outcome }) =>
       answerApproval(
         rpcId,
