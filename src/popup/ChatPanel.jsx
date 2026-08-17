@@ -145,7 +145,7 @@ function WaitingCard({ decision, sessionTitle }) {
             rel="noopener noreferrer"
             className="text-[11px] text-muted-foreground hover:text-foreground self-center ml-auto inline-flex items-center gap-1"
           >
-            <ExternalLink size={11} /> {t('Cockpit')}
+            <ExternalLink size={11} /> {t('Open DeepSeek Harness')}
           </a>
         </div>
       ) : (
