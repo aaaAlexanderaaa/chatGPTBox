@@ -203,7 +203,7 @@ export function Composer({ session, rpc, apiRef }) {
               ) : (
                 <>
                   <span className="truncate">{item.text || 'queued prompt'}</span>
-                  {item.text ? (
+                  {item.textOnly ? (
                     <button
                       type="button"
                       title="Edit"

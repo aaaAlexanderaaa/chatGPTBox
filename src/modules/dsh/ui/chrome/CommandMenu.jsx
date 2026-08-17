@@ -1,10 +1,27 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 
 export function CommandMenu({ sessionId, rpc, onInsert }) {
   const [open, setOpen] = useState(false)
   const [commands, setCommands] = useState([])
   const [skills, setSkills] = useState([])
   const [loading, setLoading] = useState(false)
+  const rootRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    const onMouseDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('mousedown', onMouseDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('mousedown', onMouseDown)
+    }
+  }, [open])
 
   const toggle = async () => {
     if (open) {
@@ -40,7 +57,7 @@ export function CommandMenu({ sessionId, rpc, onInsert }) {
   }
 
   return (
-    <span className="relative mb-1.5">
+    <span ref={rootRef} className="relative mb-1.5">
       <button
         type="button"
         className="text-xs w-7 h-7 rounded-md border border-border hover:bg-secondary"

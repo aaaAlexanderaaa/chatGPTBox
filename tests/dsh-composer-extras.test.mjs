@@ -58,6 +58,17 @@ describe('composer extras source scans', () => {
     expect(src).toMatch(/onInsert/)
   })
 
+  it('CommandMenu dismisses on Escape and outside click', () => {
+    const src = read('src/modules/dsh/ui/chrome/CommandMenu.jsx')
+    expect(src).toMatch(/Escape/)
+    expect(src).toMatch(/mousedown|click/)
+  })
+
+  it('Composer gates queue Edit on textOnly', () => {
+    const src = read('src/modules/dsh/ui/Composer.jsx')
+    expect(src).toMatch(/item\.textOnly/)
+  })
+
   it('Composer wires extras, queue replace, and empty-draft steer', () => {
     const src = read('src/modules/dsh/ui/Composer.jsx')
     expect(src).toMatch(/CommandMenu/)

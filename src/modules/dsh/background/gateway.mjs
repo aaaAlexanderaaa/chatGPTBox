@@ -148,13 +148,21 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       queueCount: session.queue.filter((item) => item?.placement === 'queued').length,
       queueItems: session.queue
         .filter((item) => item?.placement === 'queued')
-        .map((item) => ({
-          id: item.id,
-          text: (item.message?.content || [])
-            .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-            .map((block) => block.text)
-            .join(' '),
-        })),
+        .map((item) => {
+          const content = item.message?.content || []
+          const textBlocks = content.filter(
+            (block) => block?.type === 'text' && typeof block.text === 'string',
+          )
+          const textOnly =
+            content.length === 1 &&
+            content[0]?.type === 'text' &&
+            typeof content[0].text === 'string'
+          return {
+            id: item.id,
+            text: textBlocks.map((block) => block.text).join(' '),
+            textOnly,
+          }
+        }),
       jobs: session.jobs,
       waiting: session.fold.getPendingDecisions().length,
       // Compact pending-decision payloads so waiting surfaces that are not

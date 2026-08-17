@@ -682,6 +682,57 @@ describe('dsh gateway workspace / preset / settings RPCs', () => {
     })
   })
 
+  it('marks queueItems textOnly only for a single text block', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    harness.broadcast({
+      type: 'session/queue',
+      sessionId: 's1',
+      items: [
+        {
+          id: 'q-text',
+          placement: 'queued',
+          message: { content: [{ type: 'text', text: 'only text' }] },
+        },
+        {
+          id: 'q-multi',
+          placement: 'queued',
+          message: {
+            content: [
+              { type: 'text', text: 'a' },
+              { type: 'text', text: 'b' },
+            ],
+          },
+        },
+        {
+          id: 'q-image',
+          placement: 'queued',
+          message: {
+            content: [
+              { type: 'text', text: 'caption' },
+              { type: 'image', mimeType: 'image/png', data: 'abc' },
+            ],
+          },
+        },
+      ],
+    })
+    await sleep(30)
+    const items = gateway.getSessionSummaries()[0].queueItems
+    expect(items.find((item) => item.id === 'q-text')).toMatchObject({
+      text: 'only text',
+      textOnly: true,
+    })
+    expect(items.find((item) => item.id === 'q-multi')).toMatchObject({
+      text: 'a b',
+      textOnly: false,
+    })
+    expect(items.find((item) => item.id === 'q-image')).toMatchObject({
+      text: 'caption',
+      textOnly: false,
+    })
+  })
+
   it('passes privileged workspace.create through', async () => {
     const started = await startGateway()
     gateway = started.gateway
