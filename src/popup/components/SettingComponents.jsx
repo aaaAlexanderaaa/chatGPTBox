@@ -1,6 +1,7 @@
-import { useState } from 'react'
 import PropTypes from 'prop-types'
 import { cn } from '../../utils/cn.mjs'
+import { Toggle } from '../../components/ui/Toggle.jsx'
+import { Input } from '../../components/ui/Input.jsx'
 
 /**
  * SettingRow - A row in the settings panel
@@ -8,15 +9,15 @@ import { cn } from '../../utils/cn.mjs'
  */
 export function SettingRow({ label, hint, action, children, className }) {
   return (
-    <div className={cn('flex items-center justify-between py-1', className)}>
-      <div className="flex items-center gap-2">
-        <div>
+    <div className={cn('flex items-center justify-between gap-4 py-2', className)}>
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">{label}</p>
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </div>
         {action}
       </div>
-      {children}
+      <div className="shrink-0">{children}</div>
     </div>
   )
 }
@@ -30,15 +31,20 @@ SettingRow.propTypes = {
 }
 
 /**
- * SettingSection - A group of settings with a title
+ * SettingSection - A group of settings with a title and optional description
  */
-export function SettingSection({ title, children, className }) {
+export function SettingSection({ title, description, children, className }) {
   return (
     <div className={cn('space-y-4', className)}>
-      {title && (
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          {title}
-        </h3>
+      {(title || description) && (
+        <div className="mb-3">
+          {title && (
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {title}
+            </h3>
+          )}
+          {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
+        </div>
       )}
       <div className="space-y-3">{children}</div>
     </div>
@@ -47,6 +53,7 @@ export function SettingSection({ title, children, className }) {
 
 SettingSection.propTypes = {
   title: PropTypes.string,
+  description: PropTypes.string,
   children: PropTypes.node,
   className: PropTypes.string,
 }
@@ -54,17 +61,21 @@ SettingSection.propTypes = {
 /**
  * ToggleRow - A setting row with a toggle switch
  */
-export function ToggleRow({ label, checked, defaultChecked, onChange, className }) {
+export function ToggleRow({ label, hint, checked, defaultChecked, onChange, className }) {
   return (
-    <div className={cn('flex items-center justify-between py-2', className)}>
-      <span className="text-sm text-foreground">{label}</span>
-      <ToggleSwitch checked={checked} defaultChecked={defaultChecked} onChange={onChange} />
+    <div className={cn('flex items-center justify-between gap-4 py-2', className)}>
+      <div className="min-w-0">
+        <span className="text-sm text-foreground">{label}</span>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <Toggle checked={checked} defaultChecked={defaultChecked} onChange={onChange} />
     </div>
   )
 }
 
 ToggleRow.propTypes = {
   label: PropTypes.string.isRequired,
+  hint: PropTypes.string,
   checked: PropTypes.bool,
   defaultChecked: PropTypes.bool,
   onChange: PropTypes.func,
@@ -72,50 +83,40 @@ ToggleRow.propTypes = {
 }
 
 /**
- * ToggleSwitch - A simple toggle switch
- * Supports both controlled (checked prop) and uncontrolled (defaultChecked) modes
+ * NumberRow - A setting row with a clamped numeric input
  */
-export function ToggleSwitch({ checked: controlledChecked, defaultChecked = false, onChange }) {
-  const [internalChecked, setInternalChecked] = useState(defaultChecked)
-  const isControlled = controlledChecked !== undefined
-  const checked = isControlled ? controlledChecked : internalChecked
-
-  const handleClick = () => {
-    const newValue = !checked
-    if (!isControlled) {
-      setInternalChecked(newValue)
-    }
-    if (onChange) {
-      onChange(newValue)
-    }
-  }
-
+export function NumberRow({ label, hint, value, min, max, step, onChange, className }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={handleClick}
-      className={cn(
-        'relative w-10 h-6 rounded-full transition-colors',
-        checked ? 'bg-primary' : 'bg-secondary',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all',
-          checked ? 'left-5' : 'left-1',
-        )}
+    <SettingRow label={label} hint={hint} className={className}>
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-24 text-right"
       />
-    </button>
+    </SettingRow>
   )
 }
 
-ToggleSwitch.propTypes = {
-  checked: PropTypes.bool,
-  defaultChecked: PropTypes.bool,
-  onChange: PropTypes.func,
+NumberRow.propTypes = {
+  label: PropTypes.string.isRequired,
+  hint: PropTypes.string,
+  value: PropTypes.number.isRequired,
+  min: PropTypes.number,
+  max: PropTypes.number,
+  step: PropTypes.number,
+  onChange: PropTypes.func.isRequired,
+  className: PropTypes.string,
 }
+
+/**
+ * ToggleSwitch - re-exported kit toggle under the legacy name so existing
+ * tab code keeps working.
+ */
+export { Toggle as ToggleSwitch }
 
 /**
  * Divider - A horizontal line separator

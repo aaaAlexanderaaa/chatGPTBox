@@ -6,7 +6,7 @@ import {
   isApiModeSelected,
   modelNameToDesc,
 } from '../../utils/index.mjs'
-import { CopyIcon, PencilIcon, TrashIcon } from '@primer/octicons-react'
+import { Copy, Pencil, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useState } from 'react'
 import { SearchableSelect } from '../components/SearchableSelect.jsx'
 import {
@@ -262,7 +262,7 @@ export function ApiModes({ config, updateConfig }) {
                   setEditingIndex(index + 1)
                 }}
               >
-                <CopyIcon />
+                <Copy className="w-4 h-4" />
               </div>
               <div
                 style={{ cursor: 'pointer' }}
@@ -273,7 +273,7 @@ export function ApiModes({ config, updateConfig }) {
                   setEditingIndex(index)
                 }}
               >
-                <PencilIcon />
+                <Pencil className="w-4 h-4" />
               </div>
               <div
                 style={{ cursor: 'pointer' }}
@@ -285,7 +285,7 @@ export function ApiModes({ config, updateConfig }) {
                   updateConfig({ activeApiModes: [], customApiModes })
                 }}
               >
-                <TrashIcon />
+                <Trash2 className="w-4 h-4" />
               </div>
             </div>
           </label>

@@ -2,14 +2,11 @@ import PropTypes from 'prop-types'
 import { Globe, MapPin } from 'lucide-react'
 import { useMemo } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
-import Browser from 'webextension-polyfill'
 import { ToggleSwitch, SettingRow, SettingSection, ToggleRow } from './SettingComponents.jsx'
-import { QuickLinkCard } from './QuickLinkCard.jsx'
 import { SearchableSelect } from './SearchableSelect.jsx'
 import { ContentExtractor } from '../sections/ContentExtractor.jsx'
 import { buildEngineOptions } from './engine-options.mjs'
 import { apiModeToModelName, modelNameToDesc } from '../../utils/index.mjs'
-import { RuntimeMessage } from '../../protocol/messages.mjs'
 
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
@@ -32,14 +29,14 @@ const SITE_DISPLAY_NAMES = {
 }
 
 /**
- * FeaturesTab - the Sites tab: where the product integrates (集成).
+ * FeaturesTab - the Sites section: where the product integrates (集成).
  *
  * Per-site rules live here as one row per site: adapter on/off and — D-14 —
  * the site's engine assignment ("on GitHub, answer with Claude"). Page
  * context extraction and site matching complete the "on this site,
  * behave like this" roof.
  */
-export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSettings }) {
+export function FeaturesTab({ config, updateConfig }) {
   const { t } = useTranslation()
 
   const siteKeys = useMemo(() => {
@@ -108,93 +105,56 @@ export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSetting
                 onChange={(enabled) => toggleSiteAdapter(key, enabled)}
               />
             </div>
-            {!isPopupMode && (
-              <div className="flex items-center justify-between gap-3 pl-11">
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {t('Engine on this site')}
-                </span>
-                <SearchableSelect
-                  value={siteEngineValue(key)}
-                  onChange={(value) =>
-                    setSiteEngine(
-                      key,
-                      engineOptions.find((opt) => opt.value === value),
-                    )
-                  }
-                  options={[
-                    {
-                      value: '',
-                      label: `${t('Follow default')} (${defaultEngineLabel})`,
-                    },
-                    ...engineOptions,
-                  ]}
-                  minWidth="220px"
-                  searchPlaceholder={t('Search…')}
-                />
-              </div>
-            )}
+            <div className="flex items-center justify-between gap-3 pl-11">
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <MapPin className="w-3 h-3" /> {t('Engine on this site')}
+              </span>
+              <SearchableSelect
+                value={siteEngineValue(key)}
+                onChange={(value) =>
+                  setSiteEngine(
+                    key,
+                    engineOptions.find((opt) => opt.value === value),
+                  )
+                }
+                options={[
+                  {
+                    value: '',
+                    label: `${t('Follow default')} (${defaultEngineLabel})`,
+                  },
+                  ...engineOptions,
+                ]}
+                minWidth="220px"
+                searchPlaceholder={t('Search…')}
+              />
+            </div>
           </div>
         ))}
       </div>
 
-      {!isPopupMode && (
-        <>
-          <SettingSection title={t('Site Matching')}>
-            <SettingRow
-              label={t('Hide context menu of this extension')}
-              hint={t('Removes the ChatGPTBox entries from the browser right-click menu')}
-            >
-              <ToggleSwitch
-                checked={config.hideContextMenu === true}
-                onChange={async (value) => {
-                  await updateConfig({ hideContextMenu: value })
-                  Browser.runtime.sendMessage({ type: RuntimeMessage.RefreshMenu }).catch(() => {})
-                }}
-              />
-            </SettingRow>
+      <SettingSection title={t('Site Matching')}>
+        <SettingRow
+          label={t('Custom Site Regex')}
+          hint={t('Match extra sites where the search-engine panel is injected')}
+        >
+          <input
+            type="text"
+            value={config.siteRegex || ''}
+            onChange={(e) => updateConfig({ siteRegex: e.target.value })}
+            className={TEXT_INPUT_CLASS}
+          />
+        </SettingRow>
 
-            <SettingRow
-              label={t('Custom Site Regex')}
-              hint={t('Match extra sites where the search-engine panel is injected')}
-            >
-              <input
-                type="text"
-                value={config.siteRegex || ''}
-                onChange={(e) => updateConfig({ siteRegex: e.target.value })}
-                className={TEXT_INPUT_CLASS}
-              />
-            </SettingRow>
-
-            <ToggleRow
-              label={t(
-                'Exclusively use Custom Site Regex for website matching, ignoring built-in rules',
-              )}
-              checked={config.useSiteRegexOnly === true}
-              onChange={(value) => updateConfig({ useSiteRegexOnly: value })}
-            />
-          </SettingSection>
-
-          <ContentExtractor config={config} updateConfig={updateConfig} />
-        </>
-      )}
-
-      {isPopupMode && (
-        <QuickLinkCard
-          icon={Globe}
-          title={t('Site rules moved to full settings')}
-          description={t(
-            'The popup keeps the on/off switches for supported sites. Per-site engine assignment, extractor templates, and site matching live in the full settings page.',
+        <ToggleRow
+          label={t(
+            'Exclusively use Custom Site Regex for website matching, ignoring built-in rules',
           )}
-          stats={[
-            `${(config.activeSiteAdapters || []).length} ${t('active sites')}`,
-            Object.keys(config.siteEngineOverrides || {}).length
-              ? `${Object.keys(config.siteEngineOverrides).length} ${t('site engine rules')}`
-              : t('All sites follow the default engine'),
-          ]}
-          actionLabel={t('Open full settings')}
-          onAction={() => openFullSettings?.('features')}
+          checked={config.useSiteRegexOnly === true}
+          onChange={(value) => updateConfig({ useSiteRegexOnly: value })}
         />
-      )}
+      </SettingSection>
+
+      <ContentExtractor config={config} updateConfig={updateConfig} />
     </div>
   )
 }
@@ -202,6 +162,4 @@ export function FeaturesTab({ config, updateConfig, isPopupMode, openFullSetting
 FeaturesTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
-  isPopupMode: PropTypes.bool,
-  openFullSettings: PropTypes.func,
 }

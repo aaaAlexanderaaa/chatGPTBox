@@ -1,108 +1,175 @@
-html,
-body {
-  height: 100%;
-  margin: 0;
-}
+@import '../styles/globals.css';
 
-#app {
-  height: 100%;
-}
+/*
+ * Options page = the settings center. Layout: slim header on top, then a
+ * section nav on the left and the active section's content in a readable
+ * column. The chat preview is an optional right-hand pane (overlay on
+ * narrow windows).
+ */
 
 .options-shell {
+  height: 100vh;
   display: flex;
-  height: 100%;
-  width: 100%;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--foreground);
   overflow: hidden;
 }
 
-.options-shell--settings-only {
-  display: block;
+.options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 50%, transparent);
+  flex-shrink: 0;
+}
+
+.options-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---- Settings center ---- */
+
+.settings-center {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 40%, transparent);
+}
+
+.settings-nav-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--muted-foreground);
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+  text-align: left;
+}
+
+.settings-nav-item:hover {
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--secondary) 60%, transparent);
+}
+
+.settings-nav-item--active,
+.settings-nav-item--active:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+  font-weight: 500;
+}
+
+.settings-nav-item--active svg {
+  color: var(--primary);
+}
+
+.settings-nav-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.settings-content-inner {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+}
+
+.settings-content-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---- Chat preview pane ---- */
+
+.options-divider {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.options-divider:hover,
+.options-divider:active {
+  background: var(--primary);
+  opacity: 0.4;
 }
 
 .options-chat {
-  flex: 1 1 auto;
-  height: 100%;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: 360px;
+  max-width: 720px;
+  border-left: 1px solid var(--border);
+  background: var(--background);
 }
 
-.options-divider {
-  width: 8px;
-  cursor: col-resize;
-  background: var(--border);
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.options-divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 2px;
-  height: 48px;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
-}
-
-.options-divider:hover::after {
-  background: color-mix(in srgb, var(--primary) 70%, transparent);
-}
-
-.options-settings {
-  flex: 0 0 auto;
-  height: 100%;
-  min-width: 0;
-  overflow: auto;
-  position: relative;
-}
-
-.options-settings--standalone {
-  width: 100%;
-  flex: 1 1 auto;
-}
-
-.options-settings-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 50;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 80%, transparent);
-  color: var(--foreground);
-  cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.options-settings-close:hover {
-  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
-  background: color-mix(in srgb, var(--secondary) 70%, transparent);
-}
-
-@media (max-width: 900px) {
-  .options-shell {
-    flex-direction: column;
-  }
-
+/* Narrow windows: nav compresses to icon rail, chat preview floats */
+@media (max-width: 1000px) {
   .options-divider {
-    width: 100%;
-    height: 8px;
-    cursor: row-resize;
+    display: none;
   }
 
-  .options-divider::after {
-    width: 48px;
-    height: 2px;
+  .options-chat {
+    position: fixed;
+    top: 49px;
+    right: 0;
+    bottom: 0;
+    width: min(440px, 92vw) !important;
+    z-index: 40;
+    box-shadow: var(--shadow-xl);
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-nav {
+    width: 52px;
   }
 
-  .options-settings {
-    width: 100% !important;
+  .settings-nav-label,
+  .settings-nav-footer {
+    display: none;
+  }
+
+  .settings-nav-item {
+    justify-content: center;
+    padding: 10px 0;
+  }
+
+  .settings-content-inner {
+    padding: 20px 16px 56px;
   }
 }

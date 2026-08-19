@@ -29,12 +29,10 @@ import {
   Trash2,
   Settings,
   MessageSquare,
-  Sun,
-  Moon,
-  Monitor,
   Search,
   X,
 } from 'lucide-react'
+import { ThemeSwitcher } from '../../components/ThemeSwitcher.jsx'
 import PropTypes from 'prop-types'
 
 function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {}) {
@@ -235,7 +233,7 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
               type="text"
               value={sessionSearch}
               onInput={(e) => setSessionSearch(e.target.value)}
-              placeholder="Search chats…"
+              placeholder={t('Search chats…')}
               className="w-full pl-9 pr-9 py-2 text-sm bg-secondary rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-foreground placeholder:text-muted-foreground"
             />
             {!!sessionSearch.trim() && (
@@ -254,7 +252,7 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
         {/* Session List */}
         <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
           {filteredSessions.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">No matching chats</div>
+            <div className="p-4 text-sm text-muted-foreground">{t('No matching chats')}</div>
           ) : (
             filteredSessions.map((session, index) => (
               <div
@@ -342,53 +340,24 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
                 <PanelLeft className="w-5 h-5" />
               </button>
             )}
-            <h1 className="text-lg font-semibold text-foreground">
+            <h1 className="text-base font-semibold text-foreground truncate max-w-[40vw]">
               {currentSession?.sessionName || t('ChatGPTBox')}
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            {/* Theme Switcher */}
-            <div className="flex gap-1 p-1 bg-secondary rounded-lg">
-              <button
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  config.themeMode === 'light'
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => setUserConfig({ themeMode: 'light' })}
-              >
-                <Sun className="w-4 h-4" />
-              </button>
-              <button
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  config.themeMode === 'auto'
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => setUserConfig({ themeMode: 'auto' })}
-              >
-                <Monitor className="w-4 h-4" />
-              </button>
-              <button
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  config.themeMode === 'dark'
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => setUserConfig({ themeMode: 'dark' })}
-              >
-                <Moon className="w-4 h-4" />
-              </button>
-            </div>
+            <ThemeSwitcher
+              value={config.themeMode}
+              onChange={(value) => setUserConfig({ themeMode: value })}
+              showLabels={false}
+              size="sm"
+            />
             {showSettingsButton && (
               <button
                 onClick={() => {
                   if (onOpenSettings) onOpenSettings()
-                  else openUrl(Browser.runtime.getURL('popup.html'))
+                  else openUrl(Browser.runtime.getURL('options.html?settings_only=true'))
                 }}
+                title={t('Settings')}
                 className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Settings className="w-5 h-5" />

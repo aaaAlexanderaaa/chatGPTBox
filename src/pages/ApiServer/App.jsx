@@ -24,6 +24,9 @@ import {
   RuntimeMessage,
 } from '../../protocol/messages.mjs'
 import { isGrokEngineKey, slugToModelKey } from './model-slug.mjs'
+import { useConfig } from '../../hooks/use-config.mjs'
+import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
+import { applyDocumentAppearance } from '../../utils/appearance.mjs'
 import './styles.css'
 
 const RECONNECT_DELAY = 3000
@@ -107,6 +110,21 @@ function App() {
       setEnabled(config.apiServerEnabled === true)
     })
   }, [])
+
+  // Follow the extension theme like every other surface
+  const config = useConfig()
+  const windowTheme = useWindowTheme()
+  const resolvedTheme = config.themeMode === 'auto' ? windowTheme : config.themeMode
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme
+    applyDocumentAppearance(document.documentElement, config, resolvedTheme)
+  }, [
+    resolvedTheme,
+    config.accentColorLight,
+    config.accentStrengthLight,
+    config.accentColorDark,
+    config.accentStrengthDark,
+  ])
 
   // -----------------------------------------------------------------------
   // Build WebSocket URL from port

@@ -1,56 +1,51 @@
 import { render } from 'preact'
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import '../_locales/i18n-react'
 import Browser from 'webextension-polyfill'
 import { changeLanguage } from 'i18next'
+import { MessageSquare, X, ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { getPreferredLanguageKey } from '../config/storage.mjs'
 // Register the module settings cards for THIS bundle too: options.html is
-// where the Engines tab (and its module cards) renders, but this entry
-// imports PopupNew directly and never passes through popup/index.jsx.
+// where the Engines section (and its module cards) renders.
 import '../modules/settings-cards.mjs'
 import IndependentPanelApp from '../pages/IndependentPanel/App.jsx'
-import Popup from '../popup/PopupNew.jsx'
+import SettingsCenter from './SettingsCenter.jsx'
 import { RuntimeMessage } from '../protocol/messages.mjs'
+import { Button } from '../components/ui/Button.jsx'
 import './styles.css'
 
-const STORAGE_KEY_SETTINGS_WIDTH = 'chatgptbox:options:settingsWidth'
-const STORAGE_KEY_SETTINGS_OPEN = 'chatgptbox:options:settingsOpen'
-const DEFAULT_SETTINGS_WIDTH = 460
-const MIN_SETTINGS_WIDTH = 360
-const MAX_SETTINGS_WIDTH = 720
+const STORAGE_KEY_CHAT_WIDTH = 'chatgptbox:options:chatWidth'
+const STORAGE_KEY_CHAT_OPEN = 'chatgptbox:options:chatOpen'
+const DEFAULT_CHAT_WIDTH = 440
+const MIN_CHAT_WIDTH = 360
+const MAX_CHAT_WIDTH = 720
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
 function OptionsApp() {
+  const { t } = useTranslation()
   const search = new URLSearchParams(window.location.search)
   const settingsOnly = search.get('settings_only') === 'true'
   const rootRef = useRef(null)
-  const settingsRef = useRef(null)
 
-  const [settingsOpen, setSettingsOpen] = useState(() => {
-    if (settingsOnly) return true
-    const saved = localStorage.getItem(STORAGE_KEY_SETTINGS_OPEN)
-    return saved !== 'false'
+  const [chatOpen, setChatOpen] = useState(() => {
+    if (settingsOnly) return false
+    return localStorage.getItem(STORAGE_KEY_CHAT_OPEN) === 'true'
   })
-  const [settingsWidth, setSettingsWidth] = useState(() => {
-    const saved = Number.parseInt(localStorage.getItem(STORAGE_KEY_SETTINGS_WIDTH) || '', 10)
+  const [chatWidth, setChatWidth] = useState(() => {
+    const saved = Number.parseInt(localStorage.getItem(STORAGE_KEY_CHAT_WIDTH) || '', 10)
     return Number.isFinite(saved)
-      ? clamp(saved, MIN_SETTINGS_WIDTH, MAX_SETTINGS_WIDTH)
-      : DEFAULT_SETTINGS_WIDTH
+      ? clamp(saved, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH)
+      : DEFAULT_CHAT_WIDTH
   })
-  const settingsWidthRef = useRef(settingsWidth)
-
+  const chatWidthRef = useRef(chatWidth)
   const dragState = useRef({ active: false, pointerId: null })
 
-  const setLanguage = async () => {
-    const lang = await getPreferredLanguageKey()
-    changeLanguage(lang)
-  }
-
   useEffect(() => {
-    setLanguage()
+    getPreferredLanguageKey().then((lang) => changeLanguage(lang))
     document.body.style.margin = '0'
     document.body.style.overflow = 'hidden'
     document.documentElement.classList.add('chatgptbox-extension-page')
@@ -67,15 +62,19 @@ function OptionsApp() {
   }, [])
 
   useEffect(() => {
-    settingsWidthRef.current = settingsWidth
-  }, [settingsWidth])
+    chatWidthRef.current = chatWidth
+  }, [chatWidth])
+
+  const toggleChat = () => {
+    setChatOpen((open) => {
+      const next = !open
+      localStorage.setItem(STORAGE_KEY_CHAT_OPEN, String(next))
+      return next
+    })
+  }
 
   const handleResizePointerDown = (e) => {
-    if (settingsOnly) return
-    // Only allow drag on desktop-like layouts
-    if (window.matchMedia('(max-width: 900px)').matches) return
-    if (!settingsOpen) return
-
+    if (window.matchMedia('(max-width: 1000px)').matches) return
     dragState.current = { active: true, pointerId: e.pointerId }
     e.currentTarget.setPointerCapture(e.pointerId)
     e.preventDefault()
@@ -85,15 +84,10 @@ function OptionsApp() {
     if (!dragState.current.active) return
     const root = rootRef.current
     if (!root) return
-
     const rect = root.getBoundingClientRect()
-    const newWidth = clamp(
-      Math.round(rect.right - e.clientX),
-      MIN_SETTINGS_WIDTH,
-      MAX_SETTINGS_WIDTH,
-    )
-    settingsWidthRef.current = newWidth
-    setSettingsWidth(newWidth)
+    const newWidth = clamp(Math.round(rect.right - e.clientX), MIN_CHAT_WIDTH, MAX_CHAT_WIDTH)
+    chatWidthRef.current = newWidth
+    setChatWidth(newWidth)
   }
 
   const handleResizePointerUp = (e) => {
@@ -104,81 +98,63 @@ function OptionsApp() {
     } catch (err) {
       // ignore
     }
-    localStorage.setItem(STORAGE_KEY_SETTINGS_WIDTH, String(settingsWidthRef.current))
+    localStorage.setItem(STORAGE_KEY_CHAT_WIDTH, String(chatWidthRef.current))
   }
-
-  const openSettings = () => {
-    if (settingsOnly) return
-    setSettingsOpen(true)
-    localStorage.setItem(STORAGE_KEY_SETTINGS_OPEN, 'true')
-    setTimeout(
-      () => settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
-      0,
-    )
-  }
-
-  const closeSettings = () => {
-    if (settingsOnly) return
-    setSettingsOpen(false)
-    localStorage.setItem(STORAGE_KEY_SETTINGS_OPEN, 'false')
-  }
-
-  const chatProps = useMemo(
-    () => ({
-      embedded: true,
-      showSettingsButton: true,
-      onOpenSettings: openSettings,
-    }),
-    [],
-  )
 
   return (
-    <div
-      ref={rootRef}
-      className={`options-shell${settingsOnly ? ' options-shell--settings-only' : ''}`}
-    >
-      {!settingsOnly && (
-        <div className="options-chat" aria-label="Chat">
-          <IndependentPanelApp {...chatProps} />
+    <div ref={rootRef} className="options-shell">
+      <header className="options-header">
+        <div className="flex items-center gap-3 min-w-0">
+          <img src="logo.png" alt="" className="w-7 h-7 rounded-lg" />
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold text-foreground leading-tight">ChatGPTBox</h1>
+            <p className="text-xs text-muted-foreground leading-tight">{t('Settings')}</p>
+          </div>
         </div>
-      )}
-
-      {settingsOpen && (
-        <>
+        <div className="flex items-center gap-2">
+          <a
+            href="https://github.com/aaaAlexanderaaa/chatGPTBox"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            {t('Documentation')}
+          </a>
           {!settingsOnly && (
+            <Button variant={chatOpen ? 'secondary' : 'outline'} size="sm" onClick={toggleChat}>
+              {chatOpen ? <X className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />}
+              {chatOpen ? t('Close chat preview') : t('Preview chat')}
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <div className="options-body">
+        <SettingsCenter />
+
+        {!settingsOnly && chatOpen && (
+          <>
             <div
               className="options-divider"
               role="separator"
               aria-orientation="vertical"
-              aria-label="Resize settings panel"
+              aria-label="Resize chat preview"
               tabIndex={0}
               onPointerDown={handleResizePointerDown}
               onPointerMove={handleResizePointerMove}
               onPointerUp={handleResizePointerUp}
             />
-          )}
-
-          <div
-            ref={settingsRef}
-            className={`options-settings${settingsOnly ? ' options-settings--standalone' : ''}`}
-            style={settingsOnly ? undefined : { width: `${settingsWidth}px` }}
-            aria-label="Settings"
-          >
-            {!settingsOnly && (
-              <button
-                type="button"
-                className="options-settings-close"
-                aria-label="Close settings panel"
-                title="Close"
-                onClick={closeSettings}
-              >
-                ×
-              </button>
-            )}
-            <Popup />
-          </div>
-        </>
-      )}
+            <aside
+              className="options-chat"
+              style={{ width: `${chatWidth}px` }}
+              aria-label={t('Chat preview')}
+            >
+              <IndependentPanelApp embedded={true} showSettingsButton={false} />
+            </aside>
+          </>
+        )}
+      </div>
     </div>
   )
 }

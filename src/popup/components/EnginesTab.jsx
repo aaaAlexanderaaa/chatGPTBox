@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types'
 import { ExternalLink, CircleDot } from 'lucide-react'
-import { useMemo } from 'preact/hooks'
+import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import {
   SettingRow,
@@ -9,8 +9,10 @@ import {
   ToggleSwitch,
   Divider,
 } from './SettingComponents.jsx'
+import { SearchableSelect } from './SearchableSelect.jsx'
 import { ApiModes } from '../sections/ApiModes.jsx'
 import { buildModuleKit } from './module-kit.mjs'
+import { buildEngineOptions } from './engine-options.mjs'
 import { cn } from '../../utils/cn.mjs'
 import { apiModeToModelName, getApiModesFromConfig } from '../../utils/index.mjs'
 import {
@@ -19,6 +21,7 @@ import {
   isModelDeprecated,
 } from '../../config/models.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
+import { isUsingChatgptWebModel, isUsingOpenAiApiModel } from '../../config/predicates.mjs'
 import { getSettingsCards } from '../../modules/api.mjs'
 
 const inputClassName =
@@ -419,6 +422,11 @@ EngineCard.propTypes = {
 export function EnginesTab({ config, updateConfig }) {
   const { t } = useTranslation()
   const moduleKit = useMemo(() => buildModuleKit(), [])
+  const [manualModelId, setManualModelId] = useState('')
+
+  const engineOptions = useMemo(() => buildEngineOptions(config, t), [config, t])
+
+  const selectedModelName = config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName
 
   const selectedGroup = useMemo(() => {
     if (config.apiMode?.groupName) return config.apiMode.groupName
@@ -428,14 +436,72 @@ export function EnginesTab({ config, updateConfig }) {
     return null
   }, [config.apiMode, config.modelName])
 
+  const usingOpenAiApi = isUsingOpenAiApiModel(config)
+  const usingChatGptWeb = isUsingChatgptWebModel(config)
+
+  const handleModelChange = (modelName) => {
+    if (modelName === 'customModel') {
+      updateConfig({ modelName: 'customModel', apiMode: null })
+      return
+    }
+    const found = engineOptions.find((o) => o.value === modelName)
+    if (found?.apiMode) updateConfig({ apiMode: found.apiMode })
+    else updateConfig({ modelName, apiMode: null })
+  }
+
   return (
     <div className="space-y-4">
-      <SettingSection title={t('Engines')}>
-        <p className="text-xs text-muted-foreground pb-1">
-          {t(
-            'Every engine in one anatomy: capability level, credentials, and diagnostics. The default engine is chosen in General.',
-          )}
-        </p>
+      <SettingSection
+        title={t('Default Engine')}
+        description={t('Answers everything unless a site overrides it')}
+      >
+        <SettingRow label={t('API Mode')} hint={t('Select provider / model')}>
+          <SearchableSelect
+            value={selectedModelName || 'customModel'}
+            onChange={handleModelChange}
+            options={engineOptions}
+            placeholder={t('Select…')}
+            searchPlaceholder={t('Search…')}
+            minWidth="260px"
+          />
+        </SettingRow>
+
+        {(usingChatGptWeb || usingOpenAiApi) && (
+          <SettingRow label={t('Manual Model ID')} hint={t('Use when model list refresh fails')}>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualModelId}
+                onChange={(e) => setManualModelId(e.target.value)}
+                placeholder={usingChatGptWeb ? 'gpt-5-6-thinking' : 'gpt-5'}
+                className={cn(inputClassName, 'w-[260px]')}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const value = manualModelId.trim()
+                  if (!value) return
+                  const groupName = usingChatGptWeb ? 'chatgptWebModelKeys' : 'chatgptApiModelKeys'
+                  updateConfig({ modelName: `${groupName}-${value}`, apiMode: null })
+                  setManualModelId('')
+                }}
+                className="h-9 px-3 inline-flex items-center text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
+              >
+                {t('Use')}
+              </button>
+            </div>
+          </SettingRow>
+        )}
+      </SettingSection>
+
+      <Divider />
+
+      <SettingSection
+        title={t('Engines')}
+        description={t(
+          'Every engine in one anatomy: capability level, credentials, and diagnostics.',
+        )}
+      >
         <div className="space-y-3">
           {ENGINE_CARDS.map((engine) => (
             <EngineCard
@@ -460,18 +526,17 @@ export function EnginesTab({ config, updateConfig }) {
 
       <Divider />
 
-      <div className="tools-section">
-        <h3 className="section-title">{t('Model Directory')}</h3>
-        <p className="text-xs text-muted-foreground pb-1">
-          {t('Which modes appear in pickers, and under what display name.')}
-        </p>
+      <SettingSection
+        title={t('Model Directory')}
+        description={t('Which modes appear in pickers, and under what display name.')}
+      >
         <ToggleRow
           label={t('Show deprecated models')}
           checked={config.showDeprecatedModels === true}
           onChange={(value) => updateConfig({ showDeprecatedModels: value })}
         />
         <ApiModes config={config} updateConfig={updateConfig} />
-      </div>
+      </SettingSection>
     </div>
   )
 }
