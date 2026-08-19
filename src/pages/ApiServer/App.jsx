@@ -19,6 +19,7 @@ import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
 import {
   ChatgptProxyControlAction,
+  GROK_PROXY_CONTROL_ACTIONS,
   GrokProxyControlAction,
   RuntimeMessage,
 } from '../../protocol/messages.mjs'
@@ -380,10 +381,11 @@ function App() {
             `Control ${action}: background returned no response${canRetry ? ' after retry' : ''}`,
             'error',
           )
+          const site = GROK_PROXY_CONTROL_ACTIONS.has(action) ? 'grok.com' : 'chatgpt.com'
           sendWs({
             type: 'control_error',
             id,
-            error: `Background returned no response for ${action}. The service worker may have been terminated. Check that chatgpt.com is open and you are logged in.`,
+            error: `Background returned no response for ${action}. The service worker may have been terminated. Check that ${site} is open and you are logged in.`,
           })
         } else {
           sendWs({ type: 'control_response', id, data: response })

@@ -113,4 +113,23 @@ describe('API gateway compatibility contract', () => {
     expect(cacheGuardIdx).toBeGreaterThan(fallbackIdx)
     expect(cacheAssignIdx).toBeGreaterThan(cacheGuardIdx)
   })
+
+  it('maps a null Grok conversation refresh to 502 like GET and list', () => {
+    const refreshHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationRefresh',
+      'async function handleGrokConversationCreate',
+    )
+    expect(refreshHandler).toContain('if (result == null)')
+    expect(refreshHandler).toContain("res.writeHead(502, { 'Content-Type': 'application/json' })")
+    expect(refreshHandler).toContain('Grok conversation refresh returned null')
+    expect(refreshHandler.indexOf('if (result == null)')).toBeLessThan(
+      refreshHandler.indexOf('writeHead(200'),
+    )
+  })
+
+  it('points Grok control no-response errors at grok.com', () => {
+    expect(bridgePageSource).toContain('GROK_PROXY_CONTROL_ACTIONS.has(action)')
+    expect(bridgePageSource).toContain("? 'grok.com' : 'chatgpt.com'")
+  })
 })

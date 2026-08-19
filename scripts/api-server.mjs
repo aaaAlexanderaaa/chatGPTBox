@@ -1321,6 +1321,19 @@ async function handleGrokConversationRefresh(conversationId, res) {
     const result = await sendControlRequestToBridge('grok_web_refresh_conversation', {
       conversationId,
     })
+    if (result == null) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              'Grok conversation refresh returned null from the extension bridge. Restart the local API server, rebuild/reload the extension, and retry.',
+            type: 'server_error',
+          },
+        }),
+      )
+      return
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
