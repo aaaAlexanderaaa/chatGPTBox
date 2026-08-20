@@ -245,20 +245,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
           : {},
         minimal
           ? {
-              test: /styles\.scss$/,
-              loader: 'string-replace-loader',
-              options: {
-                multiple: [
-                  {
-                    search: "@import '../fonts/styles.css';",
-                    replace: '',
-                  },
-                ],
-              },
-            }
-          : {},
-        minimal
-          ? {
               test: /index\.mjs$/,
               loader: 'string-replace-loader',
               options: {
