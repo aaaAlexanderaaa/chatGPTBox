@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Send, Square } from 'lucide-react'
-import { isFirefox, isMobile, isSafari, updateRefHeight } from '../../utils'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/storage.mjs'
@@ -13,7 +12,17 @@ import { cn } from '../../utils/cn.mjs'
 // the site and its third-party scripts.
 const draftStorageKey = (draftKey) => `inputbox-draft:${draftKey}`
 
-export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, draftKey }) {
+const MIN_INPUT_HEIGHT = 40
+const AUTO_MAX_INPUT_HEIGHT = 180
+const MANUAL_MAX_INPUT_HEIGHT = 320
+
+function autoGrow(el) {
+  // border-box: height and scrollHeight both include padding, so this is exact
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, AUTO_MAX_INPUT_HEIGHT)}px`
+}
+
+export function InputBox({ onSubmit, enabled, postMessage, draftKey }) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
 
@@ -48,45 +57,20 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
     }, 250)
     return () => clearTimeout(timer)
   }, [draftKey, value])
+
   const [isFocused, setIsFocused] = useState(false)
-  const reverseDivRef = useRef(null)
   const inputRef = useRef(null)
-  const resizedRef = useRef(false)
-  const [internalReverseResizeDir, setInternalReverseResizeDir] = useState(reverseResizeDir)
-
-  useEffect(() => {
-    setInternalReverseResizeDir(
-      !isSafari() && !isFirefox() && !isMobile() ? internalReverseResizeDir : false,
-    )
-  }, [])
-
-  const virtualInputRef = internalReverseResizeDir ? reverseDivRef : inputRef
+  // Once the user drags the handle, their explicit height wins over auto-grow
+  const manuallyResizedRef = useRef(false)
+  const dragState = useRef(null)
 
   useEffect(() => {
     inputRef.current.focus()
-
-    const onResizeY = () => {
-      if (virtualInputRef.current.h !== virtualInputRef.current.offsetHeight) {
-        virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-        if (!resizedRef.current) {
-          resizedRef.current = true
-          virtualInputRef.current.style.maxHeight = ''
-        }
-      }
-    }
-    virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-    virtualInputRef.current.addEventListener('mousemove', onResizeY)
   }, [])
 
   useEffect(() => {
-    if (!resizedRef.current) {
-      if (!internalReverseResizeDir) {
-        updateRefHeight(inputRef)
-        virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-        virtualInputRef.current.style.maxHeight = '160px'
-      }
-    }
-  }, [value, internalReverseResizeDir])
+    if (!manuallyResizedRef.current) autoGrow(inputRef.current)
+  }, [value])
 
   useEffect(() => {
     if (enabled)
@@ -113,44 +97,66 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
     }
   }
 
+  // Top-edge drag handle: pull up to grow the input into the conversation
+  // area. Replaces the old rotateX(180deg) reverse-resize hack and its 160px
+  // of dead space.
+  const onHandlePointerDown = (e) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragState.current = {
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      startHeight: inputRef.current.offsetHeight,
+    }
+  }
+
+  const onHandlePointerMove = (e) => {
+    const drag = dragState.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    const next = Math.min(
+      MANUAL_MAX_INPUT_HEIGHT,
+      Math.max(MIN_INPUT_HEIGHT, Math.round(drag.startHeight + (drag.startY - e.clientY))),
+    )
+    manuallyResizedRef.current = true
+    inputRef.current.style.height = `${next}px`
+  }
+
+  const onHandlePointerUp = (e) => {
+    if (dragState.current?.pointerId !== e.pointerId) return
+    dragState.current = null
+  }
+
   return (
     <div className={cn('input-box', isFocused && 'input-box--focused')}>
       <div
-        ref={reverseDivRef}
-        style={
-          internalReverseResizeDir
-            ? {
-                transform: 'rotateX(180deg)',
-                resize: 'vertical',
-                overflow: 'hidden',
-                minHeight: '160px',
-              }
-            : undefined
-        }
+        className="input-box-resize-handle"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label={t('Resize input')}
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
       >
-        <textarea
-          dir="auto"
-          ref={inputRef}
-          disabled={false}
-          className="interact-input"
-          style={
-            internalReverseResizeDir
-              ? { transform: 'rotateX(180deg)', resize: 'none' }
-              : { resize: 'vertical', minHeight: '48px' }
-          }
-          placeholder={
-            enabled ? t('Type your question here') : t('Generating... Press Enter to stop')
-          }
-          value={value}
-          onChange={(e) => {
-            draftSavedRef.current = false
-            setValue(e.target.value)
-          }}
-          onKeyDown={handleKeyDownOrClick}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-        />
+        <span className="input-box-resize-grip" />
       </div>
+      <textarea
+        dir="auto"
+        ref={inputRef}
+        rows={1}
+        disabled={false}
+        className="interact-input"
+        placeholder={
+          enabled ? t('Type your question here') : t('Generating... Press Enter to stop')
+        }
+        value={value}
+        onChange={(e) => {
+          draftSavedRef.current = false
+          setValue(e.target.value)
+        }}
+        onKeyDown={handleKeyDownOrClick}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+      />
 
       {/* Submit/Stop Button */}
       <button
@@ -158,7 +164,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
         onClick={handleKeyDownOrClick}
         aria-label={enabled ? t('Send') : t('Stop')}
       >
-        {enabled ? <Send size={16} /> : <Square size={16} />}
+        {enabled ? <Send size={15} /> : <Square size={15} />}
       </button>
     </div>
   )
@@ -167,7 +173,6 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir, dra
 InputBox.propTypes = {
   onSubmit: PropTypes.func.isRequired,
   enabled: PropTypes.bool.isRequired,
-  reverseResizeDir: PropTypes.bool,
   postMessage: PropTypes.func.isRequired,
   draftKey: PropTypes.string,
 }

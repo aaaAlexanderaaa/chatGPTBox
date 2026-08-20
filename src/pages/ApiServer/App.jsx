@@ -791,14 +791,14 @@ function App() {
   // Render
   // -----------------------------------------------------------------------
 
-  const statusColor =
+  const statusClass =
     status === 'connected'
-      ? '#22c55e'
+      ? 'status-dot--connected'
       : status === 'connecting'
-      ? '#eab308'
+      ? 'status-dot--connecting'
       : status === 'disabled'
-      ? '#6b7280'
-      : '#ef4444'
+      ? 'status-dot--disabled'
+      : 'status-dot--error'
 
   const showPort = port !== 18080
   const selectedConversationId = conversationIdInput.trim()
@@ -806,15 +806,20 @@ function App() {
   return (
     <div className="api-server-container">
       <header className="api-server-header">
-        <h1>ChatGPTBox API Server Bridge</h1>
-        <p className="subtitle">
-          Bridges the local API server to the ChatGPT Web backend via this extension.
-        </p>
+        <div className="api-server-brand">
+          <img src="logo.png" alt="" className="api-server-logo" />
+          <div>
+            <h1>API Server Bridge</h1>
+            <p className="subtitle">
+              Bridges the local API server to the ChatGPT Web backend via this extension.
+            </p>
+          </div>
+        </div>
       </header>
 
       <section className="api-server-status">
         <div className="status-row">
-          <span className="status-dot" style={{ backgroundColor: statusColor }} />
+          <span className={`status-dot ${statusClass}`} />
           <span className="status-text">{status}</span>
           <span className="request-count">{requestCount} requests served</span>
         </div>

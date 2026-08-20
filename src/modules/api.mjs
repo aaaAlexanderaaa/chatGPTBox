@@ -122,3 +122,9 @@ export function getModuleConfigDefaults() {
 export function getModule(id) {
   return registeredModules.find((m) => m.id === id) || null
 }
+
+// Appearance seam: a module's full-page surface (dsh.html) applies the
+// user's theme/accent choice without importing core config code — that
+// would cycle config/storage.mjs → modules/index.mjs → this file.
+// appearance.mjs is import-free, so re-exporting it keeps the seam pure.
+export { applyDocumentAppearance } from '../utils/appearance.mjs'

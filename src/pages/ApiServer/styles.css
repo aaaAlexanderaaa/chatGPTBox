@@ -13,9 +13,21 @@
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+.api-server-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.api-server-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
 .api-server-header h1 {
   margin: 0 0 4px;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -23,6 +35,30 @@
   margin: 0 0 20px;
   color: var(--muted-foreground);
   font-size: 14px;
+}
+
+.api-server-header .api-server-brand .subtitle {
+  margin: 0;
+}
+
+.api-server-header {
+  margin-bottom: 20px;
+}
+
+.status-dot--connected {
+  background: oklch(0.7 0.17 155);
+}
+
+.status-dot--connecting {
+  background: oklch(0.78 0.15 75);
+}
+
+.status-dot--disabled {
+  background: var(--muted-foreground);
+}
+
+.status-dot--error {
+  background: var(--destructive);
 }
 
 .api-server-status {

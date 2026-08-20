@@ -518,7 +518,7 @@ function ConversationCard(props) {
         <span
           className="gpt-util-group"
           style={{
-            padding: '15px 0 15px 15px',
+            padding: '0 0 0 4px',
             ...(props.notClampSize ? {} : { flexGrow: isSafari() ? 0 : 1 }),
             ...(isSafari() ? { maxWidth: '200px' } : {}),
           }}
@@ -681,12 +681,12 @@ function ConversationCard(props) {
           </div>
         </span>
         {props.draggable && !completeDraggable && (
-          <div className="draggable" style={{ flexGrow: 2, cursor: 'move', height: '55px' }} />
+          <div className="draggable" style={{ flexGrow: 2, cursor: 'move' }} />
         )}
         <span
           className="gpt-util-group"
           style={{
-            padding: '15px 15px 15px 0',
+            padding: '0 4px 0 0',
             justifyContent: 'flex-end',
             flexGrow: props.draggable && !completeDraggable ? 0 : 1,
           }}
@@ -933,7 +933,6 @@ function ConversationCard(props) {
             draftKey={props.draftKey}
             enabled={isReady}
             postMessage={postMessage}
-            reverseResizeDir={props.pageMode}
             onSubmit={async (question) => {
               const newQuestion = new ConversationItemData('question', question)
               const newAnswer = new ConversationItemData(

@@ -345,12 +345,14 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <ThemeSwitcher
-              value={config.themeMode}
-              onChange={(value) => setUserConfig({ themeMode: value })}
-              showLabels={false}
-              size="sm"
-            />
+            <div className="panel-header-theme">
+              <ThemeSwitcher
+                value={config.themeMode}
+                onChange={(value) => setUserConfig({ themeMode: value })}
+                showLabels={false}
+                size="sm"
+              />
+            </div>
             {showSettingsButton && (
               <button
                 onClick={() => {
