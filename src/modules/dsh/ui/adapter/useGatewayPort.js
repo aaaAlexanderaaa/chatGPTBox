@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
 import { createPortReconnect } from '../port-reconnect.mjs'
 import { applyPortMessage, emptyPortState } from './port-state.mjs'
+import { rpcDeadlineMs } from '../models/rpc-deadline.mjs'
 
 // The full-page UI's single link to the background gateway: one runtime port
 // ('dsh-gateway'), message-driven. Everything the UI knows arrives here —
@@ -94,12 +95,15 @@ export function useGatewayPort() {
         const id = `ui-${++requestId.current}`
         pendingRpc.current.set(id, { resolve, reject })
         send({ type: 'req', id, method, args })
-        setTimeout(() => {
-          if (pendingRpc.current.has(id)) {
-            pendingRpc.current.delete(id)
-            reject(new Error(`dsh gateway rpc "${method}" timed out`))
-          }
-        }, 30_000)
+        const deadline = rpcDeadlineMs(method)
+        if (deadline > 0) {
+          setTimeout(() => {
+            if (pendingRpc.current.has(id)) {
+              pendingRpc.current.delete(id)
+              reject(new Error(`dsh gateway rpc "${method}" timed out`))
+            }
+          }, deadline)
+        }
       }),
     [send],
   )

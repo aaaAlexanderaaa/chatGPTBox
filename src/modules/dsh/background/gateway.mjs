@@ -36,6 +36,7 @@ import { createDshClient } from '../client.mjs'
 import { createDshLedgerFold } from '../turn-fold.mjs'
 import { diagnoseDsh, helloForGatewayHold } from './fence.mjs'
 import { waitingNotificationAction } from './waiting-inbox.mjs'
+import { shouldPullWorkspaces } from './workspace-frames.mjs'
 
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
@@ -101,6 +102,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     status: 'offline', // offline | connecting | online
     lastError: null,
     version: null,
+    home: null,
     startedAt: null,
   }
 
@@ -523,13 +525,8 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         broadcast({ type: 'connection', ...connectionMessage() })
         break
       }
-      case 'workspace-added':
-      case 'workspace-removed':
-      case 'workspace-changed':
-      case 'host/archived-sessions-changed':
-        void pullWorkspaces()
-        break
       default:
+        if (shouldPullWorkspaces(frame?.type)) void pullWorkspaces()
         break
     }
   }
@@ -565,6 +562,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       endpoint: state.endpoint,
       version: state.version,
       lastError: state.lastError,
+      home: state.home,
     }
   }
 
@@ -604,6 +602,9 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     try {
       const value = await api.rpc('host.describe', {})
       state.version = value?.version ?? null
+      // rc.8+ reports the host home directory; the sidebar abbreviates paths
+      // with it. Older hosts omit the field and paths render in full.
+      state.home = typeof value?.home === 'string' ? value.home : null
     } catch {
       // version is best-effort decoration
     }
@@ -750,8 +751,14 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     state.lastError = null
     state.startedAt = Date.now()
     broadcast({ type: 'connection', ...connectionMessage() })
+    const homeBeforeDescribe = state.home
     await refreshVersion()
     if (stopped || generation !== connectGeneration) return
+    // host.describe lands after the online broadcast; ports attached already
+    // still hold home: null, so re-fan-out when the describe changed it.
+    if (state.home !== homeBeforeDescribe) {
+      broadcast({ type: 'connection', ...connectionMessage() })
+    }
     await syncRegistry().catch((error) => {
       state.lastError = error?.message || String(error)
       broadcast({ type: 'connection', ...connectionMessage() })
@@ -897,8 +904,6 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     'llm.providers',
     'llm.models',
     'llm.discoverModels',
-    'command.list',
-    'command.execute',
     'skill.list',
     'subagent.list',
     'subagent.prompt',
@@ -907,6 +912,25 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
   ]
   for (const method of PASSTHROUGH_METHODS) {
     rpcHandlers[method] = (args = {}) => api.rpc(method, args)
+  }
+
+  // The command plane lives on the Typert remotes side of /api: slash paths,
+  // { args: { agentId, ... } } payloads, and (since rc.8) a required images
+  // list on execute. The UI keeps the dotted names; the translation stays in
+  // this seam.
+  rpcHandlers['command.list'] = async ({ sessionId } = {}) => {
+    const value = await api.rpc('commands/list', { args: { agentId: sessionId } })
+    return { commands: Array.isArray(value) ? value : [] }
+  }
+  rpcHandlers['command.execute'] = async ({ sessionId, line, images } = {}) =>
+    api.rpc('commands/execute', {
+      args: { agentId: sessionId, line, images: Array.isArray(images) ? images : [] },
+    })
+  const passWorkspaceCreate = rpcHandlers['workspace.create']
+  rpcHandlers['workspace.create'] = async (args = {}) => {
+    const value = await passWorkspaceCreate(args)
+    await pullWorkspaces()
+    return value
   }
 
   async function handleRequest(port, message) {

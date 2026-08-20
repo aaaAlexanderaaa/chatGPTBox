@@ -49,4 +49,14 @@ describe('shell', () => {
     expect(sidebar).toMatch(/onAddWorkspace/)
     expect(sidebar).toMatch(/Add workspace/)
   })
+
+  it('unwraps host.pickDirectory { path } before workspace.create', () => {
+    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
+    expect(src).toMatch(/pickedDirectoryPath/)
+  })
+
+  it('surfaces add-workspace failures instead of swallowing them', () => {
+    const src = readFileSync(path.resolve(process.cwd(), 'src/modules/dsh/ui/app.jsx'), 'utf8')
+    expect(src).toMatch(/setPickerError\(detail\)/)
+  })
 })

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { presetLabel } from '../../models/preset-model.mjs'
 import { fieldsFromDescribe } from '../../models/schema-fields.mjs'
 import { isSettingsConflict, settingsMutatePayload } from '../../models/settings-write.mjs'
-import { sectionsFromDescribeResult } from './load-sections.mjs'
+import { sectionNamespace, sectionsFromDescribeResult } from './load-sections.mjs'
 
 export function PresetRoster({ rpc }) {
   const [list, setList] = useState({ presets: [], hasDocument: true })
@@ -99,7 +99,7 @@ export function PresetRoster({ rpc }) {
     try {
       const described = await rpc('settings.describe', {})
       const sections = sectionsFromDescribeResult(described)
-      const section = sections.find((entry) => (entry.namespace || '') === 'agent-presets')
+      const section = sections.find((entry) => sectionNamespace(entry) === 'agent-presets')
       if (!section) {
         setError('agent-presets settings are not available')
         return
@@ -112,7 +112,7 @@ export function PresetRoster({ rpc }) {
       await rpc(
         'settings.mutate',
         settingsMutatePayload({
-          namespace: section.namespace,
+          namespace: sectionNamespace(section),
           ops: [{ kind: 'set', path, value: agentPreset }],
           expectedRevision: section.revision,
         }),

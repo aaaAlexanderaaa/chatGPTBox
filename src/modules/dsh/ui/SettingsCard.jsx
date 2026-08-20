@@ -62,7 +62,7 @@ export function DshSettingsCard({ config, updateConfig }) {
       </div>
       <p className="text-xs text-muted-foreground">
         {t(
-          'A locally running `dsh web` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.',
+          'A locally running `dsh web --no-open` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.',
         )}
       </p>
       {enabled && (

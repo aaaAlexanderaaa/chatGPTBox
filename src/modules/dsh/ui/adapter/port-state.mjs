@@ -1,6 +1,6 @@
 export function emptyPortState() {
   return {
-    connection: { status: 'connecting', endpoint: '', version: null, lastError: null },
+    connection: { status: 'connecting', endpoint: '', version: null, lastError: null, home: null },
     sessions: [],
     sessionUpdates: {},
     workspaces: { items: [], archivedSessionIds: [] },
@@ -19,6 +19,7 @@ export function applyPortMessage(state, message) {
           endpoint: message.endpoint,
           version: message.version,
           lastError: message.lastError,
+          home: message.home ?? null,
         },
       }
     case 'sessions':

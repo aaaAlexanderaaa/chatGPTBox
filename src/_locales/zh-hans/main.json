@@ -224,7 +224,7 @@
   "local agent engine — off by default": "本机 agent 引擎——默认关闭",
   "Enabled": "已启用",
   "Disabled": "已关闭",
-  "A locally running `dsh web` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.": "本机运行的 `dsh web` 实例成为一个 agent 引擎：扩展内的 DeepSeek Harness、审批通知、每会话自动审批。一切都在你的机器上。",
+  "A locally running `dsh web --no-open` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.": "本机运行的 `dsh web --no-open` 实例成为一个 agent 引擎：扩展内的 DeepSeek Harness、审批通知、每会话自动审批。一切都在你的机器上。",
   "Harness endpoint": "Harness 端点",
   "Testing…": "检测中…",
   "Diagnose": "诊断",

@@ -218,7 +218,7 @@
   "local agent engine — off by default": "local agent engine — off by default",
   "Enabled": "Enabled",
   "Disabled": "Disabled",
-  "A locally running `dsh web` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.": "A locally running `dsh web` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.",
+  "A locally running `dsh web --no-open` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.": "A locally running `dsh web --no-open` instance becomes an agent engine: DeepSeek Harness in this extension, approval notifications, and per-session auto-approve. Everything stays on your machine.",
   "Harness endpoint": "Harness endpoint",
   "Testing…": "Testing…",
   "Diagnose": "Diagnose",

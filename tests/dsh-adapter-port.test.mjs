@@ -19,4 +19,28 @@ describe('applyPortMessage', () => {
       archivedSessionIds: ['s9'],
     })
   })
+
+  it('carries the host home directory through the connection frame', () => {
+    const prev = {
+      connection: {
+        status: 'connecting',
+        endpoint: '',
+        version: null,
+        lastError: null,
+        home: null,
+      },
+      sessions: [],
+      sessionUpdates: {},
+      workspaces: { items: [], archivedSessionIds: [] },
+    }
+    const next = applyPortMessage(prev, {
+      type: 'connection',
+      status: 'online',
+      endpoint: 'http://127.0.0.1:3080',
+      version: '0.1.0-rc.8',
+      lastError: null,
+      home: '/Users/alex',
+    })
+    expect(next.connection.home).toBe('/Users/alex')
+  })
 })

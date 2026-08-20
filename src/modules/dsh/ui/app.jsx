@@ -4,6 +4,7 @@ import { useGatewayPort } from './adapter/useGatewayPort.js'
 import { canCompose, groupSessionsForSidebar } from './models/sidebar-model.mjs'
 import { defaultPresetId, pickerPresets } from './models/preset-model.mjs'
 import { resolveCockpitSelection } from '../session-pick.mjs'
+import { pickedDirectoryPath } from './models/pick-directory.mjs'
 import { PresetSelect } from './chrome/PresetSelect.jsx'
 import { WorkspaceEmpty } from './chrome/WorkspaceEmpty.jsx'
 import { Header } from './shell/Header.jsx'
@@ -188,12 +189,15 @@ export function App() {
   const addWorkspace = useCallback(async () => {
     setPickerError(null)
     try {
-      const path = await rpc('host.pickDirectory')
+      const path = pickedDirectoryPath(await rpc('host.pickDirectory'))
       if (path) await rpc('workspace.create', { path })
     } catch (error) {
-      if (String(error?.message || '').includes('directory-picker-unavailable')) {
+      const detail = String(error?.message || error)
+      if (detail.includes('directory-picker-unavailable')) {
         setPickerError('directory-picker-unavailable')
+        return
       }
+      setPickerError(detail)
     }
   }, [rpc])
 
@@ -416,6 +420,7 @@ export function App() {
             onAddWorkspace={addWorkspace}
             searchRef={searchRef}
             rpc={rpc}
+            home={connection.home}
           />
         )
       }

@@ -133,6 +133,14 @@ function createFakeHarness() {
         groups: [],
       }),
       'session.selectModel': async () => ({ selected: {} }),
+      'commands/list': async (payload) => {
+        harness.lastCommandsList = payload
+        return [{ name: 'plan', description: 'Toggle plan mode' }]
+      },
+      'commands/execute': async (payload) => {
+        harness.lastCommandsExecute = payload
+        return { commandId: 'cmd-1', result: { kind: 'success' } }
+      },
     },
     /** Broadcast a mux frame (server-request envelope) to every subscriber. */
     broadcast(frame) {
@@ -434,6 +442,19 @@ describe('dsh gateway (against a fake harness)', () => {
     harness.broadcastHost({ type: 'host/session-removed', sessionId: 's2' })
     await sleep(30)
     expect(gateway.getSessionSummaries().map((s) => s.sessionId)).toEqual(['s1'])
+  })
+
+  it('pulls workspaces on host/workspace-changed', async () => {
+    const port = createTestPort()
+    gateway.attachPort(port)
+    harness.workspaces = [{ workspaceId: 'w1', path: '/tmp/proj', title: 'proj', sessionIds: [] }]
+    harness.broadcastHost({
+      type: 'host/workspace-changed',
+      workspace: harness.workspaces[0],
+    })
+    await sleep(50)
+    const snaps = port.received.filter((message) => message.type === 'workspaces')
+    expect(snaps.at(-1)?.items).toEqual(harness.workspaces)
   })
 
   it('adopts a question for a session not yet in the registry', async () => {
@@ -759,6 +780,52 @@ describe('dsh gateway workspace / preset / settings RPCs', () => {
     harness = started.harness
     await gateway.rpc('workspace.create', { path: '/tmp/proj' })
     expect(harness.lastWorkspaceCreate).toEqual({ path: '/tmp/proj' })
+  })
+
+  it('translates command.list to the commands/list remote with agentId args', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    const value = await gateway.rpc('command.list', { sessionId: 's1' })
+    expect(harness.lastCommandsList).toEqual({ args: { agentId: 's1' } })
+    expect(value).toEqual({ commands: [{ name: 'plan', description: 'Toggle plan mode' }] })
+  })
+
+  it('translates command.execute to commands/execute with an explicit empty images list', async () => {
+    const started = await startGateway()
+    gateway = started.gateway
+    harness = started.harness
+    await gateway.rpc('command.execute', { sessionId: 's1', line: '/plan off' })
+    expect(harness.lastCommandsExecute).toEqual({
+      args: { agentId: 's1', line: '/plan off', images: [] },
+    })
+  })
+
+  it('broadcasts the host home to attached ports once describe lands', async () => {
+    harness = createFakeHarness()
+    harness.rpc['host.describe'] = async () => ({
+      version: '0.1.0-test',
+      cwd: '/tmp',
+      home: '/Users/test',
+    })
+    const endpoint = await harness.start()
+    gateway = createDshGateway({
+      endpoint,
+      storage: { local: { get: async () => ({}), set: async () => {} } },
+      client: createDshClient({
+        baseUrl: endpoint,
+        fetchImpl: (...args) => fetch(...args),
+        WebSocketImpl: WebSocket,
+      }),
+    })
+    const port = createTestPort()
+    gateway.attachPort(port)
+    // Attached before the first connect: hello still lacks the home.
+    expect(port.receivedOf('hello')[0].home ?? null).toBe(null)
+    await gateway.start()
+    await sleep(150)
+    const frames = port.received.filter((m) => m.type === 'connection' || m.type === 'hello')
+    expect(frames.at(-1).home).toBe('/Users/test')
   })
 
   it('still rejects unknown methods', async () => {

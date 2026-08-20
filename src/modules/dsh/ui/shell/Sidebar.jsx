@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { Plus, Search } from 'lucide-react'
 import { canSelectCockpitSession } from '../../session-pick.mjs'
 import { groupSessionsForSidebar } from '../models/sidebar-model.mjs'
+import { abbreviateHome } from '../models/home-path.mjs'
 
 function sessionDot(session) {
   if (session.waiting > 0) return { symbol: '◐', color: 'var(--dsh-waiting-approval)' }
@@ -21,6 +22,7 @@ export function Sidebar({
   onAddWorkspace,
   searchRef,
   rpc,
+  home = null,
 }) {
   const [query, setQuery] = useState('')
   const [remoteResults, setRemoteResults] = useState([])
@@ -112,7 +114,9 @@ export function Sidebar({
                     : 'text-muted-foreground hover:bg-secondary/60'
                 }`}
                 onClick={() => onSelectWorkspace?.(workspace.workspaceId)}
-                title={workspace.path || workspace.title || workspace.workspaceId}
+                title={
+                  abbreviateHome(workspace.path, home) || workspace.title || workspace.workspaceId
+                }
               >
                 {workspace.title || workspace.path || workspace.workspaceId}
               </summary>
