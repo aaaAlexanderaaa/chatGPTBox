@@ -352,6 +352,56 @@ async function fetchChatgptWebJson(
   return response.json()
 }
 
+function isChatgptWebConversationNotReadyError(error) {
+  if (error?.status === 404 && error?.code === 'conversation_not_found') return true
+  return /don[’']t have access to this conversation/i.test(error?.message || '')
+}
+
+function readErrorFromConversationFetch(error) {
+  return {
+    status: error?.status || null,
+    code: error?.code || null,
+    message: error?.message || String(error),
+    retryable: true,
+  }
+}
+
+async function getLocalCreatedConversationStub(conversationId) {
+  const index = await getChatgptWebConversationIndex()
+  const entry = index[conversationId]
+  if (entry?.localCreateAck !== true) return null
+  const cached = await getCachedChatgptWebConversationRecord(conversationId)
+  if (cached?.snapshot) return null
+  return entry
+}
+
+function formatLocalCreateStubConversation(conversationId, entry, options = {}) {
+  return formatChatgptWebConversationSnapshot(
+    {
+      conversation_id: conversationId,
+      title: entry?.title || '',
+      async_status: entry?.asyncStatus || 'in_progress',
+      mapping: {},
+    },
+    options,
+  )
+}
+
+function formatLocalCreateStubRefresh(conversationId, entry, error) {
+  const conversation = formatLocalCreateStubConversation(conversationId, entry)
+  return {
+    fetchedAt: new Date().toISOString(),
+    conversationId,
+    pending: true,
+    asyncStatus: conversation.asyncStatus,
+    source: 'local_create_stub',
+    conversation,
+    resume: null,
+    text: '',
+    readError: readErrorFromConversationFetch(error),
+  }
+}
+
 async function fetchChatgptWebConversationListPageFromNetwork({
   offset = 0,
   limit = 28,
@@ -741,7 +791,29 @@ export async function getChatgptWebConversation({
       cacheSource = 'network'
     } catch (error) {
       refreshError = error
-      if (!snapshot) throw error
+      if (!snapshot) {
+        const stub = await getLocalCreatedConversationStub(normalizedConversationId)
+        if (stub && isChatgptWebConversationNotReadyError(error)) {
+          return {
+            ...formatLocalCreateStubConversation(normalizedConversationId, stub, {
+              userMessageId,
+              assistantMessageId,
+              think,
+            }),
+            pending: true,
+            readError: readErrorFromConversationFetch(error),
+            cache: {
+              source: 'local_create_stub',
+              stale: true,
+              refreshAttempted: true,
+              refreshError: error?.message || null,
+              cachedAt: cachedRecord?.cachedAt || null,
+              listSyncedAt: meta?.lastSyncAt || null,
+            },
+          }
+        }
+        throw error
+      }
     }
   }
 
@@ -863,10 +935,19 @@ export async function refreshChatgptWebConversation({
 } = {}) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
-  const snapshot = await cacheChatgptWebConversationSnapshotById(
-    normalizedConversationId,
-    'explicit_refresh',
-  )
+  let snapshot
+  try {
+    snapshot = await cacheChatgptWebConversationSnapshotById(
+      normalizedConversationId,
+      'explicit_refresh',
+    )
+  } catch (error) {
+    const stub = await getLocalCreatedConversationStub(normalizedConversationId)
+    if (stub && isChatgptWebConversationNotReadyError(error)) {
+      return formatLocalCreateStubRefresh(normalizedConversationId, stub, error)
+    }
+    throw error
+  }
   const conversation = formatChatgptWebConversationSnapshot(snapshot, {
     userMessageId,
     assistantMessageId,

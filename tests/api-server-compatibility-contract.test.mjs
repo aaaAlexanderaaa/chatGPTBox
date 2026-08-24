@@ -114,6 +114,38 @@ describe('API gateway compatibility contract', () => {
     expect(cacheAssignIdx).toBeGreaterThan(cacheGuardIdx)
   })
 
+  it('retries Grok slugs after a ChatGPT model-list cache hit', () => {
+    const handleModels = sourceBetween(
+      gatewaySource,
+      'async function handleModels(res)',
+      'function handleStatus(res)',
+    )
+
+    expect(handleModels).toContain('cachedGrokModels')
+    expect(handleModels).toContain('grokModelsReady')
+    const cacheHitIdx = handleModels.indexOf('models = cachedModels')
+    const grokFetchIdx = handleModels.indexOf("sendControlRequestToBridge('grok_web_list_models'")
+    const uncachedChatgptIdx = handleModels.indexOf('if (!models)')
+    expect(cacheHitIdx).toBeGreaterThan(-1)
+    expect(grokFetchIdx).toBeGreaterThan(-1)
+    expect(uncachedChatgptIdx).toBeGreaterThan(-1)
+    expect(grokFetchIdx).toBeGreaterThan(uncachedChatgptIdx)
+  })
+
+  it('maps a null Grok conversation GET to 502 like list and refresh', () => {
+    const getHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationGet',
+      'async function handleGrokConversationRefresh',
+    )
+    expect(getHandler).toContain('if (result == null)')
+    expect(getHandler).toContain("res.writeHead(502, { 'Content-Type': 'application/json' })")
+    expect(getHandler).toContain('Grok conversation get returned null')
+    expect(getHandler.indexOf('if (result == null)')).toBeLessThan(
+      getHandler.indexOf('writeHead(200'),
+    )
+  })
+
   it('maps a null Grok conversation refresh to 502 like GET and list', () => {
     const refreshHandler = sourceBetween(
       gatewaySource,

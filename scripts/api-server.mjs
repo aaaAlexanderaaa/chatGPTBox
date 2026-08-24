@@ -891,13 +891,28 @@ async function handleChatCompletions(req, res) {
 
 let cachedModels = null
 let cachedModelsAt = 0
+let cachedGrokModels = null
+let cachedGrokModelsAt = 0
+let grokModelsReady = false
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000
+
+function mergeUniqueModelIds(models, incomingIds) {
+  const next = Array.isArray(models) ? models : []
+  const seen = new Set(next)
+  for (const id of Array.isArray(incomingIds) ? incomingIds : []) {
+    if (typeof id === 'string' && id && !seen.has(id)) {
+      seen.add(id)
+      next.push(id)
+    }
+  }
+  return next
+}
 
 async function handleModels(res) {
   let models = null
 
   if (cachedModels && Date.now() - cachedModelsAt < MODEL_CACHE_TTL_MS) {
-    models = cachedModels
+    models = cachedModels.slice()
   }
 
   if (!models) {
@@ -919,30 +934,29 @@ async function handleModels(res) {
       models = AVAILABLE_MODELS.map((m) => m.id)
     }
 
-    if (isBridgeConnected()) {
-      try {
-        const grokSlugs = await sendControlRequestToBridge('grok_web_list_models', {}, 10_000)
-        if (Array.isArray(grokSlugs) && grokSlugs.length > 0) {
-          const seen = new Set(models)
-          for (const id of grokSlugs) {
-            if (typeof id === 'string' && id && !seen.has(id)) {
-              seen.add(id)
-              models.push(id)
-            }
-          }
-        }
-      } catch (err) {
-        log(`Grok model list fetch failed, keeping ChatGPT list: ${err.message}`)
-      }
-    }
-
-    // Cache live ChatGPT lists only (including post-concat Grok slugs).
-    // Never cache AVAILABLE_MODELS-only fallback so clients recover after reconnect.
+    // Cache live ChatGPT lists only. Grok slugs are cached separately so a
+    // later successful Grok fetch can still merge into a fresh ChatGPT cache.
     if (fromLiveChatgpt) {
-      cachedModels = models
+      cachedModels = models.slice()
       cachedModelsAt = Date.now()
     }
   }
+
+  const grokCacheFresh =
+    grokModelsReady && cachedGrokModels && Date.now() - cachedGrokModelsAt < MODEL_CACHE_TTL_MS
+  if (isBridgeConnected() && !grokCacheFresh) {
+    try {
+      const grokSlugs = await sendControlRequestToBridge('grok_web_list_models', {}, 10_000)
+      if (Array.isArray(grokSlugs) && grokSlugs.length > 0) {
+        cachedGrokModels = grokSlugs.filter((id) => typeof id === 'string' && id)
+        cachedGrokModelsAt = Date.now()
+        grokModelsReady = true
+      }
+    } catch (err) {
+      log(`Grok model list fetch failed, keeping ChatGPT list: ${err.message}`)
+    }
+  }
+  models = mergeUniqueModelIds(models, cachedGrokModels)
 
   const data = models.map((id) => ({
     id,
@@ -1079,6 +1093,20 @@ async function handleChatgptConversationCreate(req, res) {
   }
 
   const body = await readBodyObject(req)
+  const query =
+    (typeof body.query === 'string' && body.query.trim()) ||
+    (typeof body.message === 'string' && body.message.trim()) ||
+    (typeof body.raw === 'string' && body.raw.trim()) ||
+    ''
+  if (!query) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: 'query is required', type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
   const operationBegin = beginWriteOperation(req, '/chatgpt/conversations', body, {
     requireIdempotencyKey: true,
   })
@@ -1087,11 +1115,6 @@ async function handleChatgptConversationCreate(req, res) {
   res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
-    const query =
-      (typeof body.query === 'string' && body.query.trim()) ||
-      (typeof body.message === 'string' && body.message.trim()) ||
-      (typeof body.raw === 'string' && body.raw.trim()) ||
-      ''
     const result = await sendControlRequestToBridge(
       'chatgpt_web_create_conversation',
       {
@@ -1197,6 +1220,20 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
   }
 
   const body = await readBodyObject(req)
+  const query =
+    (typeof body.query === 'string' && body.query.trim()) ||
+    (typeof body.message === 'string' && body.message.trim()) ||
+    (typeof body.raw === 'string' && body.raw.trim()) ||
+    ''
+  if (!query) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: 'query is required', type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
   const route = `/chatgpt/conversations/${conversationId}/messages`
   const operationBegin = beginWriteOperation(req, route, body, {
     requireIdempotencyKey: true,
@@ -1206,11 +1243,6 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
   res.setHeader('X-Operation-Id', operation.operationId)
 
   try {
-    const query =
-      (typeof body.query === 'string' && body.query.trim()) ||
-      (typeof body.message === 'string' && body.message.trim()) ||
-      (typeof body.raw === 'string' && body.raw.trim()) ||
-      ''
     const result = await sendControlRequestToBridge(
       'chatgpt_web_send_conversation_message',
       {
@@ -1293,6 +1325,19 @@ async function handleGrokConversationGet(conversationId, res) {
     const result = await sendControlRequestToBridge('grok_web_get_conversation', {
       conversationId,
     })
+    if (result == null) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              'Grok conversation get returned null from the extension bridge. Restart the local API server, rebuild/reload the extension, and retry.',
+            type: 'server_error',
+          },
+        }),
+      )
+      return
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {

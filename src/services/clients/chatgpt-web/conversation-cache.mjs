@@ -9,6 +9,7 @@ export const CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX = 'chatgptWebConversat
 export const CHATGPT_WEB_CONVERSATION_CACHE_VERSION = 1
 
 const invalidatedConversationIds = new Set()
+const localCreateAckEntries = new Map()
 let allInvalidated = false
 
 function cloneJson(value) {
@@ -229,6 +230,7 @@ export function clearInvalidation(conversationId) {
     invalidatedConversationIds.delete(normalizeConversationId(conversationId))
   } else {
     invalidatedConversationIds.clear()
+    localCreateAckEntries.clear()
     allInvalidated = false
   }
 }
@@ -331,11 +333,23 @@ export function overlayChatgptWebConversationStatus(conversation, indexEntry) {
   }
 }
 
-export async function getChatgptWebConversationIndex() {
+async function getStoredChatgptWebConversationIndex() {
   const storage = await getBrowserStorage()
-  const data = await storage.get({ [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: {} })
+  const data = (await storage.get({ [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: {} })) || {}
   const entries = data[CHATGPT_WEB_CONVERSATION_INDEX_KEY]
-  return entries && typeof entries === 'object' ? entries : {}
+  return entries && typeof entries === 'object' ? { ...entries } : {}
+}
+
+function overlayLocalCreateAckEntries(entries = {}) {
+  const next = entries && typeof entries === 'object' ? { ...entries } : {}
+  for (const [id, entry] of localCreateAckEntries) {
+    if (!next[id]) next[id] = entry
+  }
+  return next
+}
+
+export async function getChatgptWebConversationIndex() {
+  return overlayLocalCreateAckEntries(await getStoredChatgptWebConversationIndex())
 }
 
 export async function setChatgptWebConversationIndex(entries) {
@@ -369,7 +383,7 @@ export async function getChatgptWebConversationMeta() {
       },
     },
   })
-  const meta = data[CHATGPT_WEB_CONVERSATION_META_KEY]
+  const meta = data?.[CHATGPT_WEB_CONVERSATION_META_KEY]
   return meta && typeof meta === 'object' ? meta : {}
 }
 
@@ -383,7 +397,7 @@ export async function setChatgptWebConversationMeta(meta) {
 export async function getCachedChatgptWebConversationRecord(conversationId) {
   const key = makeChatgptWebConversationSnapshotStorageKey(conversationId)
   const storage = await getBrowserStorage()
-  const data = await storage.get({ [key]: null })
+  const data = (await storage.get({ [key]: null })) || {}
   return data[key] && typeof data[key] === 'object' ? data[key] : null
 }
 
@@ -391,6 +405,65 @@ export async function setCachedChatgptWebConversationRecord(record) {
   const key = makeChatgptWebConversationSnapshotStorageKey(record?.conversationId)
   const storage = await getBrowserStorage()
   await storage.set({ [key]: record })
+}
+
+function buildChatgptWebCreatedConversationIndexEntry(
+  conversationId,
+  { title = 'new chat', createdAt = new Date().toISOString() } = {},
+) {
+  const id = normalizeConversationId(conversationId)
+  if (!id) throw new Error('conversationId is required')
+  const createdAtUnix = timestampToSortableNumber(createdAt) || Date.now() / 1000
+  const unixSeconds = createdAtUnix > 1e12 ? createdAtUnix / 1000 : createdAtUnix
+  const normalized = normalizeChatgptWebConversationIndexEntry(
+    {
+      id,
+      title,
+      create_time: unixSeconds,
+      update_time: unixSeconds,
+      async_status: 'in_progress',
+    },
+    null,
+  )
+  if (!normalized) throw new Error('conversationId is required')
+  return {
+    ...normalized,
+    pending: true,
+    localCreateAck: true,
+    firstSeenAt: createdAt,
+    lastSeenAt: createdAt,
+  }
+}
+
+export async function rememberChatgptWebCreatedConversationIndexEntry(
+  conversationId,
+  options = {},
+) {
+  const id = normalizeConversationId(conversationId)
+  if (!id) throw new Error('conversationId is required')
+  const stored = await getStoredChatgptWebConversationIndex()
+  const existing = stored[id] || localCreateAckEntries.get(id) || null
+  if (existing) return existing
+  const entry = buildChatgptWebCreatedConversationIndexEntry(id, options)
+  localCreateAckEntries.set(id, entry)
+  return entry
+}
+
+export async function upsertChatgptWebCreatedConversationIndexEntry(
+  conversationId,
+  options = {},
+) {
+  const entry = await rememberChatgptWebCreatedConversationIndexEntry(conversationId, options)
+  const stored = await getStoredChatgptWebConversationIndex()
+  if (stored[entry.id]) {
+    localCreateAckEntries.delete(entry.id)
+    return stored[entry.id]
+  }
+  if (entry.localCreateAck !== true) return entry
+  stored[entry.id] = entry
+  await setChatgptWebConversationIndex(stored)
+  localCreateAckEntries.delete(entry.id)
+  return entry
 }
 
 export async function saveChatgptWebConversationSnapshot(conversation, options = {}) {
@@ -402,6 +475,9 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
   if (existingEntry) {
     index[record.conversationId] = {
       ...existingEntry,
+      pending: record.pending === true,
+      asyncStatus: record.asyncStatus,
+      updateTime: record.updateTime ?? existingEntry.updateTime,
       snapshotCachedAt: record.cachedAt,
       snapshotUpdateTime: record.updateTime,
       snapshotAsyncStatus: record.asyncStatus,

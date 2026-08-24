@@ -32,7 +32,11 @@ import {
   stopChatgptWebConversationCacheSync,
   unlockChatgptWebConversationSync,
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
-import { invalidateConversation } from '../services/clients/chatgpt-web/conversation-cache.mjs'
+import {
+  invalidateConversation,
+  rememberChatgptWebCreatedConversationIndexEntry,
+  upsertChatgptWebCreatedConversationIndexEntry,
+} from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
@@ -580,15 +584,19 @@ export async function createChatgptWebConversation(payload = {}) {
     }
     const resolvePromise = (value) => finish(resolveOriginal, value)
     const rejectPromise = (value) => finish(rejectOriginal, value)
-    const port = createMemoryPort((message) => {
+    const port = createMemoryPort(async (message) => {
       if (message?.session && typeof message.session === 'object') {
         latestSession = { ...latestSession, ...message.session }
         if (!acknowledged && latestSession.conversationId) {
           acknowledged = true
           invalidateConversation(latestSession.conversationId)
-          void saveChatgptWebSessionSnapshot(latestSession, {
-            source: 'conversation_create_ack',
-          }).catch(() => {})
+          try {
+            await rememberChatgptWebCreatedConversationIndexEntry(latestSession.conversationId, {
+              createdAt,
+            })
+          } catch {
+            // Create still returns the streamed id if the in-memory stub cannot be recorded.
+          }
           resolvePromise({
             conversationId: latestSession.conversationId,
             defaultModel: latestSession.chatgptWebModelSlugOverride || null,
@@ -596,6 +604,12 @@ export async function createChatgptWebConversation(payload = {}) {
             pending: true,
             query,
           })
+          void upsertChatgptWebCreatedConversationIndexEntry(latestSession.conversationId, {
+            createdAt,
+          }).catch(() => {})
+          void saveChatgptWebSessionSnapshot(latestSession, {
+            source: 'conversation_create_ack',
+          }).catch(() => {})
         }
       }
 
