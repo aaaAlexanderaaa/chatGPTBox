@@ -30,6 +30,22 @@ describe('API gateway compatibility contract', () => {
     expect(handler).not.toContain('requireIdempotencyKey: true')
   })
 
+  it('reports post-dispatch /v1 non-stream failures as ambiguous_dispatch and disables SDK retries', () => {
+    const handler = sourceBetween(
+      gatewaySource,
+      'async function handleChatCompletions',
+      'let cachedModels',
+    )
+
+    expect(handler).not.toContain('requireIdempotencyKey: true')
+    expect(handler).toContain("setHeader('x-should-retry', 'false')")
+
+    const catchBlock = handler.slice(handler.lastIndexOf('} catch (err) {'))
+    expect(catchBlock).toContain('makeAmbiguousDispatchError')
+    expect(catchBlock).toContain('writeHead(409')
+    expect(catchBlock).not.toContain('writeHead(500')
+  })
+
   it('requires idempotency keys only on custom conversation write endpoints', () => {
     const createHandler = sourceBetween(
       gatewaySource,
@@ -82,10 +98,11 @@ describe('API gateway compatibility contract', () => {
     )
     expect(createHandler).toContain('result?.dispatched === false')
     expect(createHandler).toContain('respondGrokNotDispatched')
-    expect(createHandler).toContain('isGrokWebPrePostControlError')
+    expect(createHandler).toContain('respondGrokWriteFailure')
     expect(messageHandler).toContain('result?.dispatched === false')
     expect(messageHandler).toContain('respondGrokNotDispatched')
-    expect(messageHandler).toContain('isGrokWebPrePostControlError')
+    expect(messageHandler).toContain('respondGrokWriteFailure')
+    expect(gatewaySource).toContain('isGrokWebPrePostControlError')
     expect(messageHandler.indexOf('previousResponseID is required')).toBeGreaterThan(-1)
     expect(messageHandler.indexOf('previousResponseID is required')).toBeLessThan(
       messageHandler.indexOf('beginWriteOperation'),
@@ -112,6 +129,47 @@ describe('API gateway compatibility contract', () => {
     expect(fallbackIdx).toBeGreaterThan(-1)
     expect(cacheGuardIdx).toBeGreaterThan(fallbackIdx)
     expect(cacheAssignIdx).toBeGreaterThan(cacheGuardIdx)
+  })
+
+  it('replaces cached Grok slugs when the live list is empty (signed out)', () => {
+    const handleModels = sourceBetween(
+      gatewaySource,
+      'async function handleModels(res)',
+      'function handleStatus(res)',
+    )
+
+    const emptyListIdx = handleModels.indexOf('if (Array.isArray(grokSlugs))')
+    const cacheAssignIdx = handleModels.indexOf('cachedGrokModels = grokSlugs.filter')
+    expect(emptyListIdx).toBeGreaterThan(-1)
+    expect(cacheAssignIdx).toBeGreaterThan(emptyListIdx)
+    expect(handleModels).not.toContain('grokSlugs.length > 0')
+  })
+
+  it('maps post-dispatch Grok 429 to HTTP 429 instead of ambiguous_dispatch', () => {
+    const createHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationCreate',
+      'async function handleGrokConversationMessage',
+    )
+    const messageHandler = sourceBetween(
+      gatewaySource,
+      'async function handleGrokConversationMessage',
+      '// ---------------------------------------------------------------------------\n// HTTP polling bridge endpoints',
+    )
+
+    expect(gatewaySource).toContain('function respondGrokWriteFailure')
+    expect(gatewaySource).toContain('isGrokWebRateLimitError')
+    expect(createHandler).toContain('respondGrokWriteFailure')
+    expect(messageHandler).toContain('respondGrokWriteFailure')
+
+    const helper = sourceBetween(
+      gatewaySource,
+      'function respondGrokWriteFailure',
+      'function markOperationAmbiguous',
+    )
+    expect(helper).toContain('writeHead(429')
+    expect(helper).toContain('isGrokWebRateLimitError')
+    expect(helper.indexOf('writeHead(429')).toBeLessThan(helper.indexOf('writeHead(409'))
   })
 
   it('retries Grok slugs after a ChatGPT model-list cache hit', () => {

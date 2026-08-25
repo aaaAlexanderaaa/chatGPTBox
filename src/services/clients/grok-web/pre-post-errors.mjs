@@ -16,3 +16,7 @@ export function grokPrePostStatus(message) {
 export function grokPrePostRetryable(message) {
   return grokPrePostStatus(message) === 401
 }
+
+export function isGrokWebRateLimitError(error) {
+  return grokPrePostStatus(error?.message || String(error || '')) === 429
+}

@@ -21,6 +21,7 @@ import {
   grokPrePostRetryable,
   grokPrePostStatus,
   isGrokWebPrePostControlError,
+  isGrokWebRateLimitError,
 } from '../src/services/clients/grok-web/pre-post-errors.mjs'
 
 // ---------------------------------------------------------------------------
@@ -316,6 +317,34 @@ function respondGrokNotDispatched(res, operation, result) {
   )
 }
 
+function respondGrokWriteFailure(res, operation, error) {
+  if (isGrokWebPrePostControlError(error)) {
+    respondGrokNotDispatched(res, operation, { error: error.message })
+    return
+  }
+  if (isGrokWebRateLimitError(error)) {
+    // POST already left the browser; do not replay. Surface 429 so clients
+    // back off instead of treating this as an ambiguous 409.
+    markOperationAmbiguous(operation, error)
+    const message = error?.message || String(error || '')
+    res.writeHead(429, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: {
+          message,
+          type: 'invalid_request_error',
+          retryable: false,
+          operation_id: operation?.operationId || null,
+        },
+      }),
+    )
+    return
+  }
+  markOperationAmbiguous(operation, error)
+  res.writeHead(409, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message, 'Grok Web')))
+}
+
 function markOperationAmbiguous(record, error) {
   if (record?.state === 'completed') return
   try {
@@ -333,6 +362,7 @@ function respondForExistingOperation(
   if (beginResult.kind === 'new') return false
   const { record } = beginResult
   res.setHeader('X-Operation-Id', record.operationId)
+  res.setHeader('x-should-retry', 'false')
   if (beginResult.kind === 'conflict') {
     res.writeHead(409, { 'Content-Type': 'application/json' })
     res.end(
@@ -659,6 +689,8 @@ async function handleChatCompletions(req, res) {
   if (respondForExistingOperation(res, operationBegin, { stream, completionId, model })) return
   const operation = operationBegin.record
   res.setHeader('X-Operation-Id', operation.operationId)
+  // Official OpenAI SDKs ignore JSON retryable and retry 409/5xx unless told not to.
+  res.setHeader('x-should-retry', 'false')
 
   if (stream) {
     res.writeHead(200, {
@@ -875,14 +907,11 @@ async function handleChatCompletions(req, res) {
       stats.totalErrors++
       markOperationAmbiguous(operation, err)
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.setHeader('x-should-retry', 'false')
+        res.writeHead(409, { 'Content-Type': 'application/json' })
       }
       if (!res.writableEnded) {
-        res.end(
-          JSON.stringify({
-            error: { message: err.message, type: 'server_error' },
-          }),
-        )
+        res.end(JSON.stringify(makeAmbiguousDispatchError(operation, err.message)))
       }
       log(`Request ${completionId}: error - ${err.message}`)
     }
@@ -943,11 +972,14 @@ async function handleModels(res) {
   }
 
   const grokCacheFresh =
-    grokModelsReady && cachedGrokModels && Date.now() - cachedGrokModelsAt < MODEL_CACHE_TTL_MS
+    grokModelsReady &&
+    cachedGrokModels != null &&
+    Date.now() - cachedGrokModelsAt < MODEL_CACHE_TTL_MS
   if (isBridgeConnected() && !grokCacheFresh) {
     try {
       const grokSlugs = await sendControlRequestToBridge('grok_web_list_models', {}, 10_000)
-      if (Array.isArray(grokSlugs) && grokSlugs.length > 0) {
+      // Empty array is a live signed-out catalog: replace stale grok-chat-* slugs.
+      if (Array.isArray(grokSlugs)) {
         cachedGrokModels = grokSlugs.filter((id) => typeof id === 'string' && id)
         cachedGrokModelsAt = Date.now()
         grokModelsReady = true
@@ -1445,14 +1477,7 @@ async function handleGrokConversationCreate(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
-    if (isGrokWebPrePostControlError(error)) {
-      respondGrokNotDispatched(res, operation, { error: error.message })
-      return
-    }
-    // After dispatch: never auto-retry create; mark ambiguous like ChatGPT.
-    markOperationAmbiguous(operation, error)
-    res.writeHead(409, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message, 'Grok Web')))
+    respondGrokWriteFailure(res, operation, error)
   }
 }
 
@@ -1530,14 +1555,7 @@ async function handleGrokConversationMessage(req, res, conversationId) {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
-    if (isGrokWebPrePostControlError(error)) {
-      respondGrokNotDispatched(res, operation, { error: error.message })
-      return
-    }
-    // After dispatch: never auto-retry send; mark ambiguous like ChatGPT.
-    markOperationAmbiguous(operation, error)
-    res.writeHead(409, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message, 'Grok Web')))
+    respondGrokWriteFailure(res, operation, error)
   }
 }
 
@@ -1652,7 +1670,10 @@ const server = http.createServer((req, res) => {
     'Access-Control-Allow-Headers',
     'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key',
   )
-  res.setHeader('Access-Control-Expose-Headers', 'X-Operation-Id, X-Idempotent-Replay')
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'X-Operation-Id, X-Idempotent-Replay, x-should-retry',
+  )
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)

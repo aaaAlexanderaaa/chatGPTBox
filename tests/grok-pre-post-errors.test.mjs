@@ -3,6 +3,7 @@ import {
   grokPrePostRetryable,
   grokPrePostStatus,
   isGrokWebPrePostControlError,
+  isGrokWebRateLimitError,
 } from '../src/services/clients/grok-web/pre-post-errors.mjs'
 
 describe('isGrokWebPrePostControlError', () => {
@@ -40,5 +41,15 @@ describe('grokPrePostRetryable', () => {
     expect(grokPrePostRetryable('Grok Web request failed (429): rate limited')).toBe(false)
     expect(grokPrePostStatus('previousResponseID is required')).toBe(400)
     expect(grokPrePostRetryable('previousResponseID is required')).toBe(false)
+  })
+})
+
+describe('isGrokWebRateLimitError', () => {
+  it('matches post-dispatch 429 messages, not other failures', () => {
+    expect(isGrokWebRateLimitError(new Error('Grok Web request failed (429): rate limited'))).toBe(
+      true,
+    )
+    expect(isGrokWebRateLimitError(new Error('Grok Web request failed (500): boom'))).toBe(false)
+    expect(isGrokWebRateLimitError(new Error('Grok proxy tab is unavailable'))).toBe(false)
   })
 })
