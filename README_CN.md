@@ -243,6 +243,13 @@ ChatGPTBox 在浏览器中本地运行。仅在您配置的提供商/端点上�
 
 ## 更新日志
 
+### v4.0.0
+
+- 扩展现为完整的 DeepSeek Harness Web 客户端：Harness shell、按 workspace 分组的会话、schema 驱动的设置与 preset roster、composer 上的 command/skill/permission/plan，以及 jobs、subagents、trajectory 与 workflow runs。
+- 新增 Grok Web 一等引擎，包括登录探测、对话 API，以及 API Server Bridge 的 `/grok/conversations` 路由。
+- 按功能域重做 popup / options，并在窄宽度表面收回输入区。
+- 加固 ChatGPT Web / API Server Bridge 生命周期：补齐 create-ack、conversation GET 与 model-cache 竞态；登出后不再残留 Grok 目录，429 / timeout 也不再被标成可盲目重试。
+
 ### v3.2.2
 
 - 为本地 API 服务桥接添加了缓存的 ChatGPT 对话 API，包括列表、详情、创建、后续消息和刷新端点。

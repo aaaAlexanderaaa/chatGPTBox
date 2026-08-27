@@ -246,6 +246,13 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.0.0
+
+- The extension is now the full DeepSeek Harness Web client: Harness shell, workspace-grouped sessions, schema-driven settings and preset roster, composer controls for command/skill/permission/plan, plus jobs, subagents, trajectory, and workflow runs.
+- Added Grok Web as a first-class engine, including a sign-in probe, conversation APIs, and API Server Bridge `/grok/conversations` routes.
+- Redesigned popup and options around feature domains, and reclaimed the chat input on constrained surfaces.
+- Hardened the ChatGPT Web / API Server Bridge lifecycle: create-ack, conversation GET, and model-cache races; signed-out Grok catalogs no longer linger, and 429/timeout responses are no longer advertised as blindly retryable.
+
 ### v3.2.2
 
 - Added cached ChatGPT conversation APIs to the local API Server Bridge, including list, detail, create, follow-up message, and refresh endpoints.

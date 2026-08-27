@@ -17,30 +17,22 @@ jobs:
     steps:
       - run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
       - uses: actions/checkout@v5
-        with:
-          ref: master
 
-      - name: Update manifest.json version
-        uses: jossef/action-set-json-field@v2.2
-        with:
-          file: src/manifest.json
-          field: version
-          value: ${{ env.VERSION }}
-
-      - name: Update manifest.v2.json version
-        uses: jossef/action-set-json-field@v2.2
-        with:
-          file: src/manifest.v2.json
-          field: version
-          value: ${{ env.VERSION }}
-
-      - name: Push files
-        continue-on-error: true
+      - name: Verify frozen release version
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git commit -am "release v${{ env.VERSION }}"
-          git push
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs"
+            const expected = process.env.VERSION
+            const files = ["package.json", "src/manifest.json", "src/manifest.v2.json"]
+            for (const file of files) {
+              const actual = JSON.parse(readFileSync(file, "utf8")).version
+              if (actual !== expected) {
+                console.error(file + " is " + actual + ", tag expects " + expected)
+                process.exit(1)
+              }
+            }
+            console.log("frozen version " + expected)
+          '
 
       - name: Extract release notes from README changelog
         run: |
