@@ -663,7 +663,10 @@ describe('ChatGPT Web client handoff integration', () => {
     let initialRequestCount = 0
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -756,7 +759,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -827,7 +833,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-4' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -878,7 +887,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-5-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -918,7 +930,7 @@ describe('ChatGPT Web client handoff integration', () => {
     const initialCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith('/backend-api/f/conversation'),
     )
-    expect(JSON.parse(initialCall[1].body).thinking_effort).toBe('extended')
+    expect(JSON.parse(initialCall[1].body).thinking_effort).toBe('max')
     expect(resumeCall).toBeTruthy()
     expect(resumeCall[1].headers['X-Conduit-Token']).toBe('header-conduit-token')
     expect(
@@ -935,7 +947,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -998,7 +1013,10 @@ describe('ChatGPT Web client handoff integration', () => {
     const messages = []
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {
@@ -1052,7 +1070,10 @@ describe('ChatGPT Web client handoff integration', () => {
     let pollCount = 0
     const fetchMock = vi.fn(async (input) => {
       const url = String(input)
-      if (url.endsWith('/backend-api/models')) {
+      if (url.includes('/backend-api/tpp/models')) {
+        return new Response('{}', { status: 404 })
+      }
+      if (url.includes('/backend-api/models')) {
         return new Response(JSON.stringify({ models: [{ slug: 'gpt-5-6-thinking' }] }))
       }
       if (url.endsWith('/backend-api/sentinel/chat-requirements')) {

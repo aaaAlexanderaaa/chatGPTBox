@@ -207,5 +207,9 @@ export function isUsingReasoningModel(configOrSession) {
     return true
   }
 
+  if (normalizedModelValue.startsWith('gpt-6')) {
+    return true
+  }
+
   return false
 }

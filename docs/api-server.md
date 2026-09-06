@@ -65,8 +65,8 @@ OpenAI-compatible chat completions endpoint.
 - Supports `stream: true` and `stream: false`
 - Works with standard OpenAI clients without custom headers
 - Requires a non-empty `messages` array
-- Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted
-- Accepts `reasoning_effort` or `thinking_effort` per request with `standard`, `extended`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
+- Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted. Chat GPT-6 Pro is `gpt-6-pro` (quota-limited); Work / TPP uses `gpt-6-astra-wm` and other `*-wm` slugs.
+- Accepts `reasoning_effort` or `thinking_effort` per request with `min`, `standard`, `extended`, `xhigh`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
 - Any model slug is passed through directly to ChatGPT's backend, including `auto` (which enables web search) and new model slugs not yet in the extension's local config
 
 Minimal request:

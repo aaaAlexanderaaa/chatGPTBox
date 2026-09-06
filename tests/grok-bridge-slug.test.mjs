@@ -9,6 +9,8 @@ describe('slugToModelKey', () => {
   })
 
   it('keeps ChatGPT slugs and unknown fallback', () => {
+    expect(slugToModelKey('gpt-6-pro')).toBe('chatgptWeb6Pro')
+    expect(slugToModelKey('gpt-6-astra-wm')).toBe('chatgptWeb6AstraWork')
     expect(slugToModelKey('gpt-5-6-thinking')).toBe('chatgptWeb56Thinking')
     expect(slugToModelKey('totally-new-slug')).toBe(CHATGPT_WEB_DEFAULT_MODEL_KEY)
     expect(isGrokEngineKey('chatgptWeb56Thinking')).toBe(false)

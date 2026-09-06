@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS,
+  clampChatgptWebThinkingEffort,
   isChatgptWebThinkingModelSlug,
+  isChatgptWebWorkModelSlug,
   needsChatgptWebThinkingEffort,
   requiresChatgptWebExtendedThinkingEffort,
 } from '../src/services/clients/chatgpt-web/thinking.mjs'
@@ -30,6 +32,21 @@ describe('chatgpt-web thinking predicates', () => {
     expect(isChatgptWebThinkingModelSlug('gpt-5-5-pro')).toBe(false)
   })
 
+  it('keeps Chat GPT-6 Pro distinct from Work Astra', () => {
+    expect(isChatgptWebWorkModelSlug('gpt-6-pro')).toBe(false)
+    expect(isChatgptWebWorkModelSlug('gpt-6-astra-wm')).toBe(true)
+    expect(needsChatgptWebThinkingEffort('gpt-6-pro')).toBe(true)
+    expect(needsChatgptWebThinkingEffort('gpt-5-6')).toBe(false)
+    expect(needsChatgptWebThinkingEffort('gpt-5-6-instant')).toBe(false)
+    expect(needsChatgptWebThinkingEffort('gpt-6-astra-wm')).toBe(true)
+  })
+
+  it('flags the Work catalog slugs', () => {
+    expect(isChatgptWebThinkingModelSlug('gpt-6-astra-wm')).toBe(true)
+    expect(isChatgptWebThinkingModelSlug('gpt-5.6-sol-wm')).toBe(true)
+    expect(isChatgptWebThinkingModelSlug('gpt-5.5-wm')).toBe(true)
+  })
+
   it('needsChatgptWebThinkingEffort includes -thinking AND the extra set', () => {
     expect(needsChatgptWebThinkingEffort('gpt-5-6-thinking')).toBe(true)
     expect(needsChatgptWebThinkingEffort('gpt-5-4-thinking')).toBe(true)
@@ -43,6 +60,15 @@ describe('chatgpt-web thinking predicates', () => {
     }
     // a plain -thinking model is NOT in the extended set
     expect(requiresChatgptWebExtendedThinkingEffort('gpt-5-4-thinking')).toBe(false)
+  })
+
+  it('clamps Chat Pro to its advertised efforts', () => {
+    expect(clampChatgptWebThinkingEffort('gpt-6-pro', 'max')).toBe('standard')
+    expect(clampChatgptWebThinkingEffort('gpt-5-6-pro', 'extended')).toBe('standard')
+    expect(clampChatgptWebThinkingEffort('gpt-5-6-thinking', 'xhigh')).toBe('max')
+    expect(clampChatgptWebThinkingEffort('gpt-6-astra-wm', 'xhigh')).toBe('xhigh')
+    expect(clampChatgptWebThinkingEffort('gpt-6-astra-wm', 'max')).toBe('max')
+    expect(clampChatgptWebThinkingEffort('gpt-6-astra-wm', 'min')).toBe('min')
   })
 
   it('handles non-string / empty input without throwing', () => {

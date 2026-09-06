@@ -135,7 +135,17 @@ function isBridgeRequestAuthorized(req, url) {
 // ---------------------------------------------------------------------------
 
 const AVAILABLE_MODELS = [
-  { id: 'gpt-5-6-thinking', name: 'GPT-5.6 Thinking' },
+  { id: 'gpt-5-6-thinking', name: 'GPT-5.6 Thinking (Chat)' },
+  { id: 'gpt-6-pro', name: 'GPT-6 Pro (Chat)' },
+  { id: 'gpt-5-6', name: 'GPT-5.6 (Chat)' },
+  { id: 'gpt-5-6-instant', name: 'GPT-5.6 Instant (Chat)' },
+  { id: 'gpt-5-6-pro', name: 'GPT-5.6 Pro (Chat)' },
+  { id: 'gpt-6-astra-wm', name: 'GPT-6 Astra (Work)' },
+  { id: 'gpt-5.6-sol-wm', name: 'GPT-5.6 Sol (Work)' },
+  { id: 'gpt-5.6-terra-wm', name: 'GPT-5.6 Terra (Work)' },
+  { id: 'gpt-5.6-luna-wm', name: 'GPT-5.6 Luna (Work)' },
+  { id: 'gpt-5.5-wm', name: 'GPT-5.5 (Work)' },
+  { id: 'gpt-6-astra', name: 'GPT-6 Astra (API)' },
   { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking' },
   { id: 'gpt-5-5-pro', name: 'GPT-5.5 Pro' },
   { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
@@ -161,7 +171,7 @@ const AVAILABLE_MODELS = [
 
 const DEFAULT_MODEL = 'gpt-5-6-thinking'
 const DEFAULT_THINKING_EFFORT = 'max'
-const SUPPORTED_THINKING_EFFORTS = new Set(['standard', 'extended', 'max'])
+const SUPPORTED_THINKING_EFFORTS = new Set(['min', 'standard', 'extended', 'xhigh', 'max'])
 
 // ---------------------------------------------------------------------------
 // Bridge state (WebSocket + HTTP polling)
@@ -654,7 +664,8 @@ async function handleChatCompletions(req, res) {
     res.end(
       JSON.stringify({
         error: {
-          message: 'reasoning_effort/thinking_effort must be one of: standard, extended, max',
+          message:
+            'reasoning_effort/thinking_effort must be one of: min, standard, extended, xhigh, max',
           type: 'invalid_request_error',
         },
       }),

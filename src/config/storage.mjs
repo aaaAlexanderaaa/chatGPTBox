@@ -15,6 +15,7 @@ import {
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
 } from './limits.mjs'
 import { DefaultActiveModelKeysByGroup, DefaultEnabledProviderGroups, Models } from './models.mjs'
+import { isChatgptWebThinkingEffort } from '../services/clients/chatgpt-web/thinking.mjs'
 import { migrateArrayField, normalizeStoredModelSelection } from './migrations.mjs'
 import { getModuleConfigDefaults } from '../modules/index.mjs'
 
@@ -302,7 +303,7 @@ export async function getUserConfig() {
     await Browser.storage.local.set({ chatgptWebHistoryAutoSyncMode: 'off' })
   }
 
-  const normalizedChatgptWebThinkingEffort = ['standard', 'max'].includes(
+  const normalizedChatgptWebThinkingEffort = isChatgptWebThinkingEffort(
     config.chatgptWebThinkingEffort,
   )
     ? config.chatgptWebThinkingEffort

@@ -4,19 +4,21 @@ import { getApiModesFromConfig, getModelNameGroup } from '../src/utils/model-nam
 
 describe('config model module boundaries', () => {
   it('initializes models and converters without a barrel-import cycle', () => {
-    expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb56Thinking')
-    expect(Models.chatgptWeb56Thinking).toMatchObject({ value: 'gpt-5-6-thinking' })
-    expect(getModelNameGroup('chatgptWeb56Thinking')).toContain('chatgptWebModelKeys')
+    expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb6Pro')
+    expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb6AstraWork')
+    expect(Models.chatgptWeb6Pro).toMatchObject({ value: 'gpt-6-pro' })
+    expect(Models.chatgptWeb6AstraWork).toMatchObject({ value: 'gpt-6-astra-wm' })
+    expect(getModelNameGroup('chatgptWeb6Pro')).toContain('chatgptWebModelKeys')
     expect(
       getApiModesFromConfig(
         {
           customApiModes: [],
-          activeApiModes: ['chatgptWeb56Thinking'],
+          activeApiModes: ['chatgptWeb6Pro'],
         },
         false,
       ),
     ).toMatchObject([
-      { groupName: 'chatgptWebModelKeys', itemName: 'chatgptWeb56Thinking', isCustom: false },
+      { groupName: 'chatgptWebModelKeys', itemName: 'chatgptWeb6Pro', isCustom: false },
     ])
   })
 

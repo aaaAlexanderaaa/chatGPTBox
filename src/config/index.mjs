@@ -11,7 +11,11 @@
 // still use '../config'.
 
 // From chatgpt-web thinking (re-export kept for backward compat).
-export { CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS } from '../services/clients/chatgpt-web/thinking.mjs'
+export {
+  CHATGPT_WEB_EXTRA_THINKING_EFFORT_MODEL_SLUGS,
+  CHATGPT_WEB_THINKING_EFFORTS,
+  isChatgptWebWorkModelSlug,
+} from '../services/clients/chatgpt-web/thinking.mjs'
 
 // constants.mjs
 export {
@@ -50,7 +54,10 @@ export {
   azureOpenAiApiModelKeys,
   chatglmApiModelKeys,
   chatgptApiModelKeys,
+  chatgptWebChatModelKeys,
+  chatgptWebLegacyModelKeys,
   chatgptWebModelKeys,
+  chatgptWebWorkModelKeys,
   claudeApiModelKeys,
   CustomApiKeyGroups,
   customApiModelKeys,

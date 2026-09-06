@@ -7,6 +7,7 @@ export {
   setConversationProperty,
   deleteConversation,
   sendModerations,
+  getChatgptWebModelCatalogs,
   getModels,
   getRequirements,
   getArkoseToken,

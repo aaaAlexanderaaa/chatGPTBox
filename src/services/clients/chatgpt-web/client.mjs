@@ -18,9 +18,16 @@ import { sha3_512 } from 'js-sha3'
 import randomInt from 'random-int'
 import { getModelValue } from '../../../utils/model-name-convert.mjs'
 import {
+  clampChatgptWebThinkingEffort,
+  isChatgptWebThinkingEffort,
   needsChatgptWebThinkingEffort,
   requiresChatgptWebExtendedThinkingEffort,
 } from './thinking.mjs'
+import {
+  CHATGPT_WEB_CHAT_MODELS_PATH,
+  CHATGPT_WEB_WORK_MODELS_PATH,
+  mergeChatgptWebModelCatalogs,
+} from './catalog.mjs'
 import {
   base64ToUint8Array,
   createChatgptWebWebsocketBodyParser,
@@ -293,42 +300,32 @@ export async function sendModerations(token, question, conversationId, messageId
   })
 }
 
+async function fetchChatgptWebModelsPayload(token, path) {
+  try {
+    const { response, responseText } = await request(token, 'GET', path)
+    if (!response?.ok) return null
+    return JSON.parse(responseText)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Official ChatGPT issues two catalog requests:
+ * Chat/Latest `GET /models` (GPT-6 is `gpt-6-pro`) and Work `GET /tpp/models/`
+ * (`*-wm`, `is_work_mode_model`). Keep both, but never treat Work as Chat.
+ */
+export async function getChatgptWebModelCatalogs(token) {
+  const [chatPayload, workPayload] = await Promise.all([
+    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_CHAT_MODELS_PATH),
+    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_WORK_MODELS_PATH),
+  ])
+  return mergeChatgptWebModelCatalogs(chatPayload, workPayload)
+}
+
 export async function getModels(token) {
-  const response = JSON.parse((await request(token, 'GET', '/models')).responseText)
-  const modelSlugs = new Set()
-
-  if (Array.isArray(response?.models)) {
-    response.models.forEach((model) => {
-      if (model?.slug) modelSlugs.add(model.slug)
-    })
-  }
-
-  if (Array.isArray(response?.categories)) {
-    response.categories.forEach((category) => {
-      if (category?.default_model) modelSlugs.add(category.default_model)
-      if (Array.isArray(category?.supported_models)) {
-        category.supported_models.forEach((slug) => {
-          if (slug) modelSlugs.add(slug)
-        })
-      }
-    })
-  }
-
-  if (Array.isArray(response?.versions)) {
-    response.versions.forEach((version) => {
-      if (Array.isArray(version?.slugs)) {
-        version.slugs.forEach((slug) => {
-          if (slug) modelSlugs.add(slug)
-        })
-      }
-    })
-  }
-
-  if (typeof response?.default_model_slug === 'string' && response.default_model_slug.trim()) {
-    modelSlugs.add(response.default_model_slug.trim())
-  }
-
-  return [...modelSlugs]
+  const catalog = await getChatgptWebModelCatalogs(token)
+  return catalog.slugs
 }
 
 function resolveChatgptWebModel({
@@ -412,12 +409,16 @@ function resolveChatgptWebModel({
 
 function resolveThinkingEffortForModel(modelSlug, config, override) {
   if (!needsChatgptWebThinkingEffort(modelSlug)) return null
-  if (['standard', 'extended', 'max'].includes(override)) return override
-  if (requiresChatgptWebExtendedThinkingEffort(modelSlug)) {
-    return 'extended'
+  if (isChatgptWebThinkingEffort(override)) {
+    return clampChatgptWebThinkingEffort(modelSlug, override)
   }
-  if (config?.chatgptWebThinkingEffort === 'standard') return 'standard'
-  return CHATGPT_WEB_DEFAULT_THINKING_EFFORT
+  if (requiresChatgptWebExtendedThinkingEffort(modelSlug)) {
+    return clampChatgptWebThinkingEffort(modelSlug, 'extended')
+  }
+  if (isChatgptWebThinkingEffort(config?.chatgptWebThinkingEffort)) {
+    return clampChatgptWebThinkingEffort(modelSlug, config.chatgptWebThinkingEffort)
+  }
+  return clampChatgptWebThinkingEffort(modelSlug, CHATGPT_WEB_DEFAULT_THINKING_EFFORT)
 }
 
 export async function getRequirements(accessToken) {
@@ -673,6 +674,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   const isExtendedThinkingRequest =
     requiresChatgptWebExtendedThinkingEffort(usedModel) ||
     thinkingEffort === 'extended' ||
+    thinkingEffort === 'xhigh' ||
     thinkingEffort === 'max'
   const useDispatchOnlyConversationObserver = shouldUseChatgptWebLegacyWebsocketDispatch({
     useWebsocket,

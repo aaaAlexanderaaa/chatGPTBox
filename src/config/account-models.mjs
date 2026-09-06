@@ -6,7 +6,7 @@
 // pickers: they map our model keys to account slugs and filter. `null`
 // always means "catalog unknown" — filtering is off, nothing is hidden.
 
-import { chatgptWebModelKeys, Models } from './models.mjs'
+import { chatgptWebChatModelKeys, chatgptWebModelKeys, Models } from './models.mjs'
 
 /** @returns {string|undefined} the account slug a model key stands for */
 export function slugForChatgptWebModelKey(modelKey) {
@@ -42,9 +42,9 @@ export function isChatgptWebKeyAvailableForAccount(modelKey, availableSlugs) {
 }
 
 /**
- * The default model key for a fresh install: the newest tier the account
- * can actually use (chatgptWebModelKeys is ordered newest-first), keeping
- * the current key when it is already usable. Pure best-effort — the
+ * The default model key for a fresh install: the newest Chat / Latest tier
+ * the account can use (never a Work `*-wm` slug when Chat is available),
+ * keeping the current key when it is already usable. Pure best-effort — the
  * runtime client still resolves the final slug with its own fallbacks.
  *
  * @param {{ currentKey?: string, availableSlugs?: string[]|null }} options
@@ -54,5 +54,6 @@ export function pickDefaultChatgptWebKey({ currentKey, availableSlugs }) {
   const availableKeys = filterChatgptWebKeysByAccount(availableSlugs)
   if (!availableKeys) return currentKey || null
   if (currentKey && availableKeys.includes(currentKey)) return currentKey
-  return availableKeys[0]
+  const chatKeys = availableKeys.filter((key) => chatgptWebChatModelKeys.includes(key))
+  return chatKeys[0] || availableKeys[0]
 }

@@ -71,6 +71,13 @@ describe('getUserConfig migrations', () => {
     })
   })
 
+  it('migrates a guessed Work GPT-6 key to Chat GPT-6 Pro', async () => {
+    store.set('modelName', 'chatgptWeb6Astra')
+    const config = await getUserConfig()
+    expect(config.modelName).toBe('chatgptWeb56Thinking')
+    expect(store.get('modelName')).toBe('chatgptWeb56Thinking')
+  })
+
   it('migrates a legacy chatgptWeb model key to the current default', async () => {
     store.set('modelName', 'chatgptFree35')
     const config = await getUserConfig()
@@ -144,11 +151,11 @@ describe('getUserConfig migrations', () => {
     expect(config.chatgptWebThinkingEffort).toBe('max')
   })
 
-  it('migrates the previous extended effort default to max', async () => {
-    store.set('chatgptWebThinkingEffort', 'extended')
+  it('keeps official ChatGPT Web thinking efforts', async () => {
+    store.set('chatgptWebThinkingEffort', 'xhigh')
     const config = await getUserConfig()
-    expect(config.chatgptWebThinkingEffort).toBe('max')
-    expect(store.get('chatgptWebThinkingEffort')).toBe('max')
+    expect(config.chatgptWebThinkingEffort).toBe('xhigh')
+    expect(store.get('chatgptWebThinkingEffort')).toBe('xhigh')
   })
 
   it('runs the one-shot custom-script extractor migration', async () => {

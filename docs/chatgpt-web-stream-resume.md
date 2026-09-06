@@ -24,29 +24,14 @@ swap, `ls resources/chatgpt-web/current` is authoritative.
 
 | File (see `current/`)                              | SHA-256                                                            | Role                                       |
 | -------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------ |
-| `8b34dbc2-kcpqu5058w4p0qpa.js`                     | `e79414f74728b7ddd7c02c24fc102bf03f9f6ec6132ce62bc06608dde71c2872` | Conversation page orchestration            |
-| `conversation-small-c1ziqs0jcp1f9pz2.js`           | `cf1ae55587c51b4a65e2417a91011fb7617b2741610e09277ec3f46d9bd1e411` | SSE transport, delta v1, poll, token store |
-| `4813494d-k5qf4d34uhzjqhsa.js`                     | `08944b2c038545754d222be8d67def253870e9d5c9d52c680671e648365bd778` | WebSocket connection and topic offset      |
+| `8b34dbc2-kjj15hg4y6iyx13p.js`                     | `9990fb9a8682917d0d790acf7b6aa78355e8520e4ffd2c5e0a183212d612d4b5` | Conversation page orchestration            |
+| `conversation-small-hiw4wce20lu6te81.js`           | `296ec15ad991764de750c55f3c85b1643c8f385236b9402168fa4348696e37d1` | SSE transport, delta v1, poll, token store |
+| `4813494d-hrplraurzfyvxb10.js`                     | `89c95d937bac1191e91d5ceb4872eb0c328d39a98ce05399093a663f18921aa0` | WebSocket connection and topic offset      |
 
-Source maps are referenced (`//# sourceMappingURL=…`) but were not published
-next to the scripts. Verification is by searching the strings in the table
-below.
-
-Import aliases in `8b34dbc2` (search `as Tbe` in that file's import list):
-
-| Page alias | Export from              | Local name in that chunk | Meaning                      |
-| ---------- | ------------------------ | ------------------------ | ---------------------------- |
-| `Tbe`      | conversation-small `Itn` | `ott`                    | HTTP-level SSE retry wrapper |
-| `Aje`      | conversation-small `Rtn` | `qet`                    | delta v1 decoder (`Met`)     |
-| `zIe`      | conversation-small `Vnn` | `z7e`                    | poll-on-error wrapper        |
-| `gde`      | conversation-small `Bnn` | `B7e`                    | conversation GET poll loop   |
-| `klt`      | conversation-small `ynn` | `B9e`                    | splice extra async iterator  |
-| `WO`       | conversation-small `mdn` | `mWe`                    | conduit token store          |
-| `cye`      | conversation-small `Htn` | `Aet`                    | async-iterator adapter       |
-| `Lte`      | 4813494d `gD`            | `VF`                     | WebSocket manager factory    |
-| `df`       | 4813494d `_D`            | `L7e`                    | `getTopic(topicId)`          |
-| `Jh`       | 4813494d `p5`            | `ur`                     | HTTP error class             |
-| `sh`       | 4813494d `l5`            | `gr`                     | network-error message string |
+Previous hashes (2026-08) are in `resources/chatgpt-web/archive/`. Source maps are
+referenced (`//# sourceMappingURL=…`) but were not published next to the
+scripts. Verification is by searching the protocol strings below, not a
+minified local — those names change every deploy.
 
 ## How to verify a claim
 
@@ -54,62 +39,63 @@ From the repo root:
 
 ```bash
 rg -n "resume stream retry" resources/chatgpt-web/current/*.js
-rg -n "function kTt" resources/chatgpt-web/current/*.js
-rg -n "Wet=class" resources/chatgpt-web/current/*.js
+rg -n "resume_sse_endpoint" resources/chatgpt-web/current/*.js
+rg -n "conversation-turn-handoff-control" resources/chatgpt-web/current/*.js
 rg -n "No done event received" resources/chatgpt-web/current/*.js
 rg -n "includeAllHistory" resources/chatgpt-web/current/*.js
 ```
 
-There is **no** `resume_sse_endpoint` string in this build. Confirm with:
-
-```bash
-rg "resume_sse_endpoint" resources/chatgpt-web/current/*.js
-```
+This build **does** contain `resume_sse_endpoint`. Search `function LJt` in
+`8b34dbc2`: when a statsig flag (`tv`) is on and a `stream_handoff` option has
+that type, the page starts HTTP resume at offset 0 instead of
+`subscribe_ws_topic`. Early control can also arrive out-of-band on
+`conversation-turn-handoff-control` before the root SSE yields bytes.
 
 ## Layered reconnect
 
-The live completion pipeline in `8b34dbc2` (`xTt`) is:
+The live completion pipeline in `8b34dbc2` (`LJt` / `UB` / `KJt`) is:
 
 ```text
-Tbe/_S  (SSE POST /f/conversation)
-  → kTt  (on failure: POST /f/conversation/resume with offset)
-    → CTt  (on stream_handoff.subscribe_ws_topic: splice WebSocket topic)
-      → NTt → Aje/Met (delta v1) → wTt (parse events) → zIe/B7e (poll)
+root SSE POST /f/conversation
+  → UB  (on failure: POST /f/conversation/resume with offset)
+    → LJt  (stream_handoff: resume_sse_endpoint and/or subscribe_ws_topic)
+      → delta v1 decode → parse events → poll-on-error
 ```
 
-`CTt` sits **outside** `kTt`. HTTP resume-on-failure wraps the SSE. The
-WebSocket follow is an extra iterator spliced in by `klt`/`B9e`. That WebSocket
-iterator is itself wrapped in another `kTt`, so a WS drop also falls back to
-HTTP resume.
+`LJt` sits **outside** the nested resume wrapper. HTTP resume-on-failure wraps
+the SSE. A `subscribe_ws_topic` follow is an extra iterator spliced in; that
+iterator is itself wrapped in another `UB`, so a WS drop also falls back to
+HTTP resume. When `tv()` is true, `resume_sse_endpoint` takes the same
+`KJt` HTTP-resume kernel at offset 0 (`root_sse`).
 
-Explicit page-reload resume is `mTt` → `sendResumeRequest`. Same kernel:
-`MTt` then `kTt`. If no token: `WEt` → `resumeWithPolling`.
+Explicit page-reload resume is `yJt` → `KJt` then `UB`. If no token, poll.
 
 ```text
-                    ┌─ Tbe retry (only before first byte; statsig default OFF)
+                    ┌─ first-byte same-request retry (retry_stream_requests, default OFF)
 POST /f/conversation ┤
                     └─ bytes flowing
                          │
                          ├─ idle 60s / socket close / no [DONE]
-                         │     → kTt: POST resume {conversation_id, offset}
+                         │     → UB/KJt: POST resume {conversation_id, offset}
                          │         offset = counted SSE events so far
                          │         max 12, backoff 300ms → 5s, jitter 0.5–1.0
                          │         refresh X-Conduit-Token from events
-                         │         resume dies → same kTt, offset keeps rising
+                         │         resume dies → same UB/KJt, offset keeps rising
                          │
                          ├─ stream_handoff.options contains subscribe_ws_topic
                          │     → WS subscribe(topic_id, includeAllHistory)
                          │         WS has its own last_offset / catchups
-                         │         WS dies → kTt HTTP resume
+                         │         WS dies → UB/KJt HTTP resume
                          │
                          └─ cannot resume (no token, 404 after a retry, 12 used)
                                → GET /backend-api/conversation/{id}
                                  + GET /conversation/{id}/stream_status
 ```
 
-### `kTt` (nested resume)
+### Nested resume (`UB` / `KJt`)
 
-Search `async function*kTt` in `8b34dbc2`.
+Search `function KJt({conversationId` and `function GB(e)` in `8b34dbc2`.
+`KJt` is the resume POST; `UB` is the retry wrapper around it.
 
 Conditions before a reconnect POST:
 
@@ -124,7 +110,7 @@ On each yielded item that is not the `{response}` wrapper, `h++`. Token events
 update `p`/`f` and **are counted** but not yielded to the UI. Then:
 
 ```text
-m = MTt({ resumeToken, conversationId, offset: h })
+KJt({ conversationId, resumeToken, offset: h, ... })
 ```
 
 That is secondary and tertiary resume.
@@ -136,30 +122,30 @@ That is secondary and tertiary resume.
 - `RETRY_FACTOR` 1.5
 - `MAX_RETRY_COUNT` 12
 
-### `MTt` (the resume POST)
+### `KJt` (the resume POST)
 
-Search `function MTt({conversationId` in `8b34dbc2`.
+Search `function KJt({conversationId` in `8b34dbc2`.
 
 - URL: `{backend-api|backend-alt}/f/conversation/resume`
 - Method: POST
 - Headers: `x-conduit-token: token ?? "no-token"`, plus `x-oai-turn-trace-id`
 - Body: `{ conversation_id, offset }`
 
-### `Tbe` / `ott` (not nested resume)
+### First-byte same-request retry (not nested resume)
 
-Search `async function*ott` in `conversation-small`. This retries the **same**
-HTTP request only until the first `{response}` item. After the stream has
-opened, reconnect is `kTt`, not `ott`. Gated by statsig
-`retry_stream_requests` default `false`.
+`retry_stream_requests` (statsig `603105008`, default `false`) retries the
+**same** HTTP request only until the first `{response}` item. After the stream
+has opened, reconnect is `UB` / `KJt`, not another POST of the original
+conversation body.
 
 ### Missing `[DONE]` is an error
 
 Search `No done event received` in `conversation-small` (`_S` / `L()`). For
 URLs containing `/backend-api/f/conversation` or `/conversation/resume`, if
 fetch resolves without a done event, the client throws. That throw is what
-feeds `kTt`. A clean EOF is **not** “incomplete, go poll”.
+feeds `UB` / `KJt`. A clean EOF is **not** “incomplete, go poll”.
 
-Pings and empty `data` are dropped in `_S.onmessage` and never reach `kTt`, so
+Pings and empty `data` are dropped in the SSE `onmessage` path and never reach `UB` / `KJt`, so
 they do not increment `offset`. `[DONE]` closes the stream and is also not
 counted.
 
@@ -177,25 +163,33 @@ Search `Zet({initialOpenTimeoutMs` and `sse_between_bytes_timeout_ms` /
 | WS idle                    | 30s     |
 
 GPT-5.6 max thinking commonly exceeds 60s of silence, so idle-timeout →
-`kTt` resume is the normal path, not an edge case.
+`UB` / `KJt` resume is the normal path, not an edge case.
 
 ## `stream_handoff` vs HTTP resume
 
-Search `function CTt` and `` r.type===`subscribe_ws_topic`  `` in `8b34dbc2`.
+Search `function LJt` and `` o.type===`resume_sse_endpoint` `` in `8b34dbc2`.
 
-This build's live follow option is **`subscribe_ws_topic`**. HTTP resume is
-**not** advertised as a handoff option. `CTt` only splices a WebSocket. HTTP
-resume is the reconnect/reload transport (`kTt` / `mTt`).
+This build advertises **both** live-follow options:
 
-Page reload (`UEt` / `WEt` in `8b34dbc2`):
+- `resume_sse_endpoint` — HTTP resume at offset 0 (`KJt` + `UB`), used when
+  the `tv` flag is on and a conversation id is already known.
+- `subscribe_ws_topic` — splice a WebSocket topic. Still the path when `tv`
+  is off, or when the handoff has no SSE option.
 
-- Token present → `sendResumeRequest` → `mTt` (HTTP resume from offset 0, then
-  `kTt` for nested reconnects).
-- Token missing → log `Resume token unavailable; starting polling`.
+Out-of-band early handoff: `conversation-turn-handoff-control` with
+`handoff_attempt_id` and topic ids `conversation-…` or `conv-turn-low-ttl-…`.
+Header `x-oai-stream-handoff-attempt-id` is set on that attempt.
+
+Page reload (`yJt` in `8b34dbc2`):
+
+- Token present → HTTP resume from offset 0, then `UB` for nested reconnects.
+- Websocket topic present and `tv()` off → subscribe that topic instead.
+- Token missing → poll.
 
 The local gateway does not implement the ChatGPT WebSocket topic. It uses HTTP
-resume both as reconnect **and** as the live follow after a handoff, which is a
-deliberate substitute for `subscribe_ws_topic`.
+resume both as reconnect **and** as the live follow after a handoff. That now
+matches the official `resume_sse_endpoint` path when the flag is on; it remains
+a substitute for `subscribe_ws_topic`.
 
 ## Delta encoding v1
 
@@ -244,7 +238,7 @@ Search `mWe={set:cWe` and `resume_token_ttl_ms` in `conversation-small`.
 - Default TTL `4 * 3600_000` ms (4 hours), overridable by statsig
   `1409565123` / `resume_token_ttl_ms`.
 - Expired entries are dropped on read.
-- `kTt` also keeps the token in memory and updates it from
+- `UB` / `KJt` also keep the token in memory and update it from
   `resume_conversation_token` events (`token` + `conversation_id` required).
 - Response header `X-Conduit-Token` is read in `wTt` as
   `interruptConversationToken`.
@@ -259,7 +253,7 @@ Search `async function*z7e` and `async function*B7e` in `conversation-small`.
 a thread id exists. Origins logged by `B7e`:
 
 - `resume_token_missing`
-- `resume_error_fallback` (resume endpoint was in use, or `kTt` already tried)
+- `resume_error_fallback` (resume endpoint was in use, or `UB` / `KJt` already tried)
 - `stream_error_fallback`
 - `local_conversation_insert_failure`
 - `direct_polling`
@@ -306,11 +300,11 @@ Change:
 
 2. HTTP resume is reconnect: default max 12, same retryable statuses as `jTt`,
    body `{ conversation_id, offset }`, carry `X-Conduit-Token`.
-3. Count SSE events like `_S`+`kTt`: every event except ping, empty data, and
+3. Count SSE events like the official SSE + `UB`/`KJt` path: every event except ping, empty data, and
    `[DONE]`. Interrupted HTTP streams POST resume with that counted offset.
    After a completed HTTP stream that still needs a live follow (`stream_handoff`,
    including `subscribe_ws_topic`), this gateway's HTTP-resume substitute starts
-   at offset 0 — a new `kTt`, matching the inner WebSocket wrapper and `mTt`
+   at offset 0 — a new `KJt`, matching the inner WebSocket wrapper and `yJt`
    reload. Nested reconnects of that resume POST then use the consumed offset.
 4. Decode delta v1 with short-key carry-forward and the six operations above.
 5. Treat “stream ended without `[DONE]`” as a retryable resume error, then
@@ -331,8 +325,8 @@ HTTP resume is the substitute for live follow.
 
 | Official behavior                               | Local files                                                                                        |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `kTt` nested resume, offset, max 12             | `src/services/clients/chatgpt-web/resume-delta.mjs` (`consumeChatgptWebResumeDeltaStream`)         |
-| `Wet` / `Met` delta v1                          | `src/services/clients/chatgpt-web/resume-delta.mjs` (`createChatgptWebResumeDeltaAccumulator`)     |
-| `CTt` live follow / HTTP substitute             | `src/services/clients/chatgpt-web/stream-handoff.mjs`, `client.mjs` `followStreamHandoffViaResume` |
+| `UB` / `KJt` nested resume, offset, max 12      | `src/services/clients/chatgpt-web/resume-delta.mjs` (`consumeChatgptWebResumeDeltaStream`)         |
+| delta v1 (`delta_encoding` / `v1`)              | `src/services/clients/chatgpt-web/resume-delta.mjs` (`createChatgptWebResumeDeltaAccumulator`)     |
+| `LJt` live follow / HTTP substitute             | `src/services/clients/chatgpt-web/stream-handoff.mjs`, `client.mjs` `followStreamHandoffViaResume` |
 | `z7e` / `B7e` poll after resume cannot continue | `src/services/clients/chatgpt-web/client.mjs` `pollConversationResult`                             |
 | Public refresh / resume HTTP                    | `src/services/clients/chatgpt-web/conversation-api.mjs`, `docs/api-server.md`                      |

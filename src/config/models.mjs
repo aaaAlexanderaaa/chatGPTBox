@@ -5,10 +5,32 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from './limits.mjs'
 // Predicates (isUsing*Model) live in predicates.mjs and consume the arrays
 // exported here.
 
-export const chatgptWebModelKeys = [
+// Chat / Latest picker (`GET /models`). Default stays 5.6 Thinking; Pro is listed but not default.
+export const chatgptWebChatModelKeys = [
   'chatgptWeb56Thinking',
+  'chatgptWeb56Auto',
+  'chatgptWeb56Instant',
+  'chatgptWeb6Pro',
+  'chatgptWeb56Pro',
+  'chatgptWeb56TMini',
+  'chatgptWeb56Mini',
   'chatgptWeb55Thinking',
+  'chatgptWeb55Auto',
+  'chatgptWeb55Instant',
   'chatgptWeb55Pro',
+  'chatgptWeb55Mini',
+]
+
+// ChatGPT Work / TPP picker (`GET /tpp/models/`, is_work_mode_model, *-wm slugs).
+export const chatgptWebWorkModelKeys = [
+  'chatgptWeb6AstraWork',
+  'chatgptWeb56SolWork',
+  'chatgptWeb56TerraWork',
+  'chatgptWeb56LunaWork',
+  'chatgptWeb55Work',
+]
+
+export const chatgptWebLegacyModelKeys = [
   'chatgptWeb54Thinking',
   'chatgptWeb54Auto',
   'chatgptWeb54Instant',
@@ -33,6 +55,12 @@ export const chatgptWebModelKeys = [
   'chatgptFree35Mobile',
   'chatgptPlus4Browsing',
   'chatgptPlus4Mobile',
+]
+
+export const chatgptWebModelKeys = [
+  ...chatgptWebChatModelKeys,
+  ...chatgptWebWorkModelKeys,
+  ...chatgptWebLegacyModelKeys,
 ]
 export const moonshotWebModelKeys = [
   'moonshotWebFree',
@@ -76,6 +104,7 @@ export const chatgptApiModelKeys = [
   'chatgptApi5_2',
   'chatgptApi5_3Latest',
   'chatgptApi5_4',
+  'chatgptApiGpt6Astra',
 ]
 export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
@@ -248,6 +277,23 @@ export const DefaultActiveModelKeysByGroup = {
 }
 
 export const DeprecatedModelKeys = [
+  // Older ChatGPT Web chat lanes no longer in the Latest picker
+  'chatgptWeb54Thinking',
+  'chatgptWeb54Auto',
+  'chatgptWeb54Instant',
+  'chatgptWeb54Pro',
+  'chatgptWeb53Thinking',
+  'chatgptWeb53Auto',
+  'chatgptWeb53Instant',
+  'chatgptWeb52Thinking',
+  'chatgptWeb52Auto',
+  'chatgptWeb52Instant',
+  'chatgptWeb52Pro',
+  'chatgptWeb51Thinking',
+  'chatgptWeb51Auto',
+  'chatgptWeb51Instant',
+  'chatgptWeb51Pro',
+
   // ChatGPT Web legacy presets
   'chatgptFree35',
   'chatgptFree4o',
@@ -374,9 +420,23 @@ export const Models = {
   grokWebExpert: { value: 'grok-chat-expert', desc: 'Grok (Web, Expert)' },
   grokWebHeavy: { value: 'grok-chat-heavy', desc: 'Grok (Web, Heavy)' },
 
+  chatgptWeb6Pro: { value: 'gpt-6-pro', desc: 'ChatGPT (Web, GPT-6 Pro)' },
   chatgptWeb56Thinking: { value: 'gpt-5-6-thinking', desc: 'ChatGPT (Web, GPT-5.6 Thinking)' },
+  chatgptWeb56Auto: { value: 'gpt-5-6', desc: 'ChatGPT (Web, GPT-5.6)' },
+  chatgptWeb56Instant: { value: 'gpt-5-6-instant', desc: 'ChatGPT (Web, GPT-5.6 Instant)' },
+  chatgptWeb56Pro: { value: 'gpt-5-6-pro', desc: 'ChatGPT (Web, GPT-5.6 Pro)' },
+  chatgptWeb56TMini: { value: 'gpt-5-6-t-mini', desc: 'ChatGPT (Web, GPT-5.6 Thinking Mini)' },
+  chatgptWeb56Mini: { value: 'gpt-5-6-mini', desc: 'ChatGPT (Web, GPT-5.6 Mini)' },
   chatgptWeb55Thinking: { value: 'gpt-5-5-thinking', desc: 'ChatGPT (Web, GPT-5.5 Thinking)' },
+  chatgptWeb55Auto: { value: 'gpt-5-5', desc: 'ChatGPT (Web, GPT-5.5)' },
+  chatgptWeb55Instant: { value: 'gpt-5-5-instant', desc: 'ChatGPT (Web, GPT-5.5 Instant)' },
   chatgptWeb55Pro: { value: 'gpt-5-5-pro', desc: 'ChatGPT (Web, GPT-5.5 Pro)' },
+  chatgptWeb55Mini: { value: 'gpt-5-5-mini', desc: 'ChatGPT (Web, GPT-5.5 Mini)' },
+  chatgptWeb6AstraWork: { value: 'gpt-6-astra-wm', desc: 'ChatGPT (Web, Work, GPT-6 Astra)' },
+  chatgptWeb56SolWork: { value: 'gpt-5.6-sol-wm', desc: 'ChatGPT (Web, Work, GPT-5.6 Sol)' },
+  chatgptWeb56TerraWork: { value: 'gpt-5.6-terra-wm', desc: 'ChatGPT (Web, Work, GPT-5.6 Terra)' },
+  chatgptWeb56LunaWork: { value: 'gpt-5.6-luna-wm', desc: 'ChatGPT (Web, Work, GPT-5.6 Luna)' },
+  chatgptWeb55Work: { value: 'gpt-5.5-wm', desc: 'ChatGPT (Web, Work, GPT-5.5)' },
   chatgptWeb54Thinking: { value: 'gpt-5-4-thinking', desc: 'ChatGPT (Web, GPT-5.4 Thinking)' },
   chatgptWeb54Auto: { value: 'gpt-5-4', desc: 'ChatGPT (Web, GPT-5.4)' },
   chatgptWeb54Instant: { value: 'gpt-5-4-instant', desc: 'ChatGPT (Web, GPT-5.4 Instant)' },
@@ -439,6 +499,7 @@ export const Models = {
   chatgptApi5_2: { value: 'gpt-5.2', desc: 'ChatGPT (GPT-5.2)' },
   chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'ChatGPT (ChatGPT-5.3 latest)' },
   chatgptApi5_4: { value: 'gpt-5.4', desc: 'ChatGPT (GPT-5.4)' },
+  chatgptApiGpt6Astra: { value: 'gpt-6-astra', desc: 'ChatGPT (GPT-6 Astra)' },
 
   claude12Api: { value: 'claude-instant-1.2', desc: 'Claude.ai (API, Claude Instant 1.2)' },
   claude2Api: { value: 'claude-2.0', desc: 'Claude.ai (API, Claude 2)' },

@@ -60,6 +60,24 @@ describe('pickDefaultChatgptWebKey', () => {
         availableSlugs: [slug53, slug54],
       }),
     ).toBe('chatgptWeb54Auto')
+    expect(
+      pickDefaultChatgptWebKey({
+        currentKey: 'chatgptWeb54Auto',
+        availableSlugs: [Models.chatgptWeb6Pro.value, Models.chatgptWeb56Thinking.value],
+      }),
+    ).toBe('chatgptWeb56Thinking')
+    expect(
+      pickDefaultChatgptWebKey({
+        currentKey: 'chatgptWeb56Thinking',
+        availableSlugs: [Models.chatgptWeb56SolWork.value, Models.chatgptWeb6Pro.value],
+      }),
+    ).toBe('chatgptWeb6Pro')
+    expect(
+      pickDefaultChatgptWebKey({
+        currentKey: 'chatgptWeb56Thinking',
+        availableSlugs: [Models.chatgptWeb6AstraWork.value, Models.chatgptWeb56SolWork.value],
+      }),
+    ).toBe('chatgptWeb6AstraWork')
   })
 
   it('unknown catalog keeps the current key', () => {
