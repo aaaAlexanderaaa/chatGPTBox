@@ -368,6 +368,8 @@ function generateWebpackCallback(finishOutputFunc) {
 }
 
 async function build() {
+  const { syncProtocolReference } = await import('./scripts/sync-protocol-reference.mjs')
+  syncProtocolReference()
   await deleteOldDir()
   if (isProduction && !isAnalyzing) {
     // await runWebpack(

@@ -52,6 +52,7 @@ import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { handleGrokProxyMessage, isGrokProxyMessage } from './grok-proxy-handlers.mjs'
+import { collectProtocolProbeSnapshotPayload } from './protocol-probe.mjs'
 
 /**
  * The engine selection for conversations born on this page: the site's
@@ -624,6 +625,14 @@ async function run() {
         .then((data) => sendResponse({ ok: true, data }))
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }))
       return true
+    } else if (message.type === RuntimeMessage.ProtocolProbeCollect) {
+      const payload = collectProtocolProbeSnapshotPayload(
+        message.data?.trigger || 'collect_request',
+      )
+      sendResponse(
+        payload ? { ok: true, data: payload } : { ok: false, error: 'no spec for this host' },
+      )
+      return false
     } else if (message.type === RuntimeMessage.GetExtractedContent) {
       try {
         const customExtractors = message.data?.customExtractors || []

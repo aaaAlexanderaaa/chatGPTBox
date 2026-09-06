@@ -30,6 +30,7 @@ import {
 import { handleFetchMessage } from './fetch-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
+import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -213,6 +214,7 @@ export function createMessageRouter() {
         GrokProxyControlAction.SendConversationMessage,
         message.data || {},
       ),
+    [RuntimeMessage.ProtocolProbeRun]: () => runProtocolProbeOnOpenTabs({ trigger: 'manual' }),
   }
 
   return (message, sender) => {

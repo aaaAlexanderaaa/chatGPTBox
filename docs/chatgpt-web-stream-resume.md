@@ -1,9 +1,11 @@
 # ChatGPT Web stream, resume, and reconnect
 
 This note is a protocol reading of the ChatGPT Web production bundles in
-[`resources/`](../resources/README.md). Use it to re-open the minified sources
-and verify the claims. Function names below are **this build's** minified
-locals; they will change on the next ChatGPT deploy.
+[`resources/chatgpt-web/current/`](../resources/README.md). Use it to re-open
+the minified sources and verify the claims. Function names below are **this
+build's** minified locals; they will change on the next ChatGPT deploy.
+Filenames change too — grep `resources/chatgpt-web/current/*.js`, not a
+hardcoded hash.
 
 The local gateway should match these boundaries:
 
@@ -16,13 +18,15 @@ The local gateway should match these boundaries:
 
 ## Bundles to grep
 
-All three files are from one page load. Hashes:
+The live set is whatever is in `resources/chatgpt-web/current/` (one file per
+role). Hashes below are the set this note was first written against; after a
+swap, `ls resources/chatgpt-web/current` is authoritative.
 
-| File                                               | SHA-256                                                            | Role                                       |
+| File (see `current/`)                              | SHA-256                                                            | Role                                       |
 | -------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------ |
-| `resources/8b34dbc2-kcpqu5058w4p0qpa.js`           | `e79414f74728b7ddd7c02c24fc102bf03f9f6ec6132ce62bc06608dde71c2872` | Conversation page orchestration            |
-| `resources/conversation-small-c1ziqs0jcp1f9pz2.js` | `cf1ae55587c51b4a65e2417a91011fb7617b2741610e09277ec3f46d9bd1e411` | SSE transport, delta v1, poll, token store |
-| `resources/4813494d-k5qf4d34uhzjqhsa.js`           | `08944b2c038545754d222be8d67def253870e9d5c9d52c680671e648365bd778` | WebSocket connection and topic offset      |
+| `8b34dbc2-kcpqu5058w4p0qpa.js`                     | `e79414f74728b7ddd7c02c24fc102bf03f9f6ec6132ce62bc06608dde71c2872` | Conversation page orchestration            |
+| `conversation-small-c1ziqs0jcp1f9pz2.js`           | `cf1ae55587c51b4a65e2417a91011fb7617b2741610e09277ec3f46d9bd1e411` | SSE transport, delta v1, poll, token store |
+| `4813494d-k5qf4d34uhzjqhsa.js`                     | `08944b2c038545754d222be8d67def253870e9d5c9d52c680671e648365bd778` | WebSocket connection and topic offset      |
 
 Source maps are referenced (`//# sourceMappingURL=…`) but were not published
 next to the scripts. Verification is by searching the strings in the table
@@ -49,17 +53,17 @@ Import aliases in `8b34dbc2` (search `as Tbe` in that file's import list):
 From the repo root:
 
 ```bash
-rg -n "resume stream retry" resources/8b34dbc2-kcpqu5058w4p0qpa.js
-rg -n "function kTt" resources/8b34dbc2-kcpqu5058w4p0qpa.js
-rg -n "Wet=class" resources/conversation-small-c1ziqs0jcp1f9pz2.js
-rg -n "No done event received" resources/conversation-small-c1ziqs0jcp1f9pz2.js
-rg -n "includeAllHistory" resources/4813494d-k5qf4d34uhzjqhsa.js
+rg -n "resume stream retry" resources/chatgpt-web/current/*.js
+rg -n "function kTt" resources/chatgpt-web/current/*.js
+rg -n "Wet=class" resources/chatgpt-web/current/*.js
+rg -n "No done event received" resources/chatgpt-web/current/*.js
+rg -n "includeAllHistory" resources/chatgpt-web/current/*.js
 ```
 
 There is **no** `resume_sse_endpoint` string in this build. Confirm with:
 
 ```bash
-rg "resume_sse_endpoint" resources/*.js
+rg "resume_sse_endpoint" resources/chatgpt-web/current/*.js
 ```
 
 ## Layered reconnect

@@ -16,6 +16,7 @@
     "analyze": "node build.mjs --analyze",
     "lint": "eslint --ext .js,.mjs,.jsx .",
     "lint:fix": "eslint --ext .js,.mjs,.jsx . --fix",
+    "sync-protocol-reference": "node scripts/sync-protocol-reference.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "api-server": "node scripts/api-server.mjs",

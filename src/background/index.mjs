@@ -36,6 +36,7 @@ import {
 } from './chatgpt-proxy-service.mjs'
 import { handleGrokProxyResponsePort } from './grok-proxy-service.mjs'
 import { registerGrokProbe } from './grok-probe-service.mjs'
+import { registerProtocolProbe } from './protocol-probe-service.mjs'
 import { getChatgptWebConversationMeta } from '../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
   CHATGPT_WEB_HISTORY_SYNC_ALARM,
@@ -277,6 +278,17 @@ registerGrokProbe({
   fetchOnTab: fetchGrokProbeOnTab,
   setUserConfig,
   getUserConfig,
+})
+
+// Conversation-protocol fingerprint: compare official page JS to the
+// checked-in reference. Never opens a tab.
+registerProtocolProbe({
+  tabsApi: Browser.tabs,
+  alarmsApi: Browser.alarms,
+  scriptingApi: Browser.scripting,
+  fetchImpl: typeof fetch === 'function' ? fetch.bind(globalThis) : undefined,
+  storageApi: Browser.storage.local,
+  notificationsApi: Browser.notifications,
 })
 
 // --- startup --------------------------------------------------------------

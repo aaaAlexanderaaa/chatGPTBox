@@ -85,6 +85,10 @@ export const RuntimeMessage = {
   ChangeLang: 'CHANGE_LANG',
   RefreshMenu: 'REFRESH_MENU',
   GetExtractedContent: 'GET_EXTRACTED_CONTENT',
+
+  // Web-protocol fingerprint probe (settings Check now + tab collect)
+  ProtocolProbeCollect: 'PROTOCOL_PROBE_COLLECT',
+  ProtocolProbeRun: 'PROTOCOL_PROBE_RUN',
 }
 
 /**

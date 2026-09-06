@@ -23,6 +23,7 @@ import {
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
 import { isUsingChatgptWebModel, isUsingOpenAiApiModel } from '../../config/predicates.mjs'
 import { getSettingsCards } from '../../modules/api.mjs'
+import { ProtocolProbeSection } from './ProtocolProbeSection.jsx'
 
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
@@ -523,6 +524,10 @@ export function EnginesTab({ config, updateConfig }) {
           <Component key={id} config={config} updateConfig={updateConfig} />
         ),
       )}
+
+      <Divider />
+
+      <ProtocolProbeSection />
 
       <Divider />
 
