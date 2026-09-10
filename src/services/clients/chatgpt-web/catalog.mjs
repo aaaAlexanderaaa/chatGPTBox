@@ -13,6 +13,10 @@ export const CHATGPT_WEB_CHAT_MODELS_PATH = `/models?${MODELS_QUERY}`
  */
 export const CHATGPT_WEB_WORK_MODELS_PATH = `/tpp/models/?${MODELS_QUERY}`
 
+// Voice / GPT-Live is a third family. Official does not list `gpt-live-1` on
+// either `/models` path; the live slug arrives via voice policy
+// (`voice_mode: wingman`). If a text catalog ever includes it, it stays Chat.
+
 function trimSlug(value) {
   return typeof value === 'string' ? value.trim() : ''
 }

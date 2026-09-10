@@ -247,6 +247,7 @@ The response includes fields such as:
 - `query`
 - `queryMessage`
 - `messages`
+- `thoughtDurationSec` / `thoughtDurationText` (latest-turn thinking time, for example `90` and `"1m 30s"`)
 - `thinking` when `think=true`
 - `defaultModel`
 - `currentNode`
@@ -255,7 +256,9 @@ The response includes fields such as:
 - `message`
 - `cache`
 
-`thinking` is best-effort data extracted from ChatGPT Web reasoning-related nodes such as `thoughts`, `reasoning_recap`, and reasoning metadata that are present in the conversation snapshot.
+`thoughtDurationSec` is always computed when the snapshot has reasoning nodes. It prefers ChatGPT's `metadata.finished_duration_sec`, then `update_time - reasoning_start_time`, then `update_time - create_time`, and sums those values across the latest turn. `thoughtDurationText` is the compact display form (`12s`, `1m`, `1m 30s`). These fields do **not** require `think=true`.
+
+`thinking` is best-effort data extracted from ChatGPT Web reasoning-related nodes such as `thoughts`, `reasoning_recap`, and reasoning metadata that are present in the conversation snapshot. When requested, each entry also includes `durationSec`, `durationText`, `finishedDurationSec`, `finishedText`, and `reasoningStartTime`.
 
 ### `POST /chatgpt/conversations`
 
@@ -313,7 +316,7 @@ The response includes:
 - `query`
 - `pending`
 - `asyncStatus`
-- `conversation`
+- `conversation` (same snapshot shape as `GET /chatgpt/conversations/:id`, including `thoughtDurationSec` / `thoughtDurationText`)
 - `resume`
 - `text`
 
@@ -345,7 +348,7 @@ The response includes:
 - `pending`
 - `asyncStatus`
 - `source`
-- `conversation`
+- `conversation` (same snapshot shape as `GET /chatgpt/conversations/:id`, including `thoughtDurationSec` / `thoughtDurationText`)
 - `resume`
 - `text`
 

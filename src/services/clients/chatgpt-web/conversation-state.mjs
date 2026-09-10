@@ -281,6 +281,63 @@ function extractChatgptWebThoughts(message) {
     .filter(Boolean)
 }
 
+function toFiniteNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function toUnixSeconds(value) {
+  const numeric = toFiniteNumber(value)
+  if (numeric == null) return null
+  return numeric > 1e12 ? numeric / 1000 : numeric
+}
+
+export function formatChatgptWebThoughtDurationText(seconds) {
+  const numeric = toFiniteNumber(seconds)
+  if (numeric == null) return ''
+  const rounded = Math.max(0, Math.round(numeric))
+  if (rounded < 60) return `${rounded}s`
+  const minutes = Math.floor(rounded / 60)
+  const remainder = rounded % 60
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`
+}
+
+function resolveThinkingNodeDurationSec(message) {
+  const finished = toFiniteNumber(message?.metadata?.finished_duration_sec)
+  if (finished != null) return Math.max(0, finished)
+
+  const start = toUnixSeconds(message?.metadata?.reasoning_start_time)
+  const updated = toUnixSeconds(message?.update_time)
+  if (start != null && updated != null && updated >= start) return updated - start
+
+  const created = toUnixSeconds(message?.create_time)
+  if (created != null && updated != null && updated >= created) return updated - created
+  return null
+}
+
+export function summarizeChatgptWebThoughtDuration(thinking = []) {
+  const entries = Array.isArray(thinking) ? thinking : []
+  let total = 0
+  let counted = 0
+  for (const entry of entries) {
+    const seconds = toFiniteNumber(entry?.durationSec ?? entry?.finishedDurationSec)
+    if (seconds == null) continue
+    total += Math.max(0, seconds)
+    counted += 1
+  }
+  if (counted === 0) {
+    return { thoughtDurationSec: null, thoughtDurationText: null }
+  }
+  return {
+    thoughtDurationSec: total,
+    thoughtDurationText: formatChatgptWebThoughtDurationText(total),
+  }
+}
+
 function shouldExposeThinkingNode(node) {
   const message = getNodeMessage(node)
   if (!message || message.author?.role !== 'assistant') return false
@@ -290,7 +347,9 @@ function shouldExposeThinkingNode(node) {
   return Boolean(
     message?.metadata?.reasoning_status ||
       message?.metadata?.reasoning_title ||
-      message?.metadata?.reasoning_start_time,
+      message?.metadata?.reasoning_start_time ||
+      message?.metadata?.finished_duration_sec != null ||
+      message?.metadata?.finished_text,
   )
 }
 
@@ -470,6 +529,11 @@ function formatThinkingNode(node) {
     typeof message?.metadata?.reasoning_title === 'string' ? message.metadata.reasoning_title : ''
   const reasoningStatus =
     typeof message?.metadata?.reasoning_status === 'string' ? message.metadata.reasoning_status : ''
+  const finishedText =
+    typeof message?.metadata?.finished_text === 'string' ? message.metadata.finished_text : ''
+  const finishedDurationSec = toFiniteNumber(message?.metadata?.finished_duration_sec)
+  const reasoningStartTime = toUnixSeconds(message?.metadata?.reasoning_start_time)
+  const durationSec = resolveThinkingNodeDurationSec(message)
 
   return {
     messageId: message.id || node?.id || null,
@@ -478,6 +542,11 @@ function formatThinkingNode(node) {
     contentType: message.content?.content_type || '',
     createTime: message.create_time || null,
     updateTime: message.update_time || null,
+    reasoningStartTime,
+    finishedDurationSec,
+    finishedText,
+    durationSec,
+    durationText: durationSec == null ? '' : formatChatgptWebThoughtDurationText(durationSec),
     text,
     reasoningTitle,
     reasoningStatus,
@@ -702,12 +771,11 @@ export function formatChatgptWebConversationSnapshot(
     assistantMessageId,
   })
   const messages = extractChatgptWebConversationMessages(conversation)
-  const thinking = think
-    ? extractChatgptWebConversationThinking(conversation, {
-        userMessageId,
-        assistantMessageId,
-      })
-    : undefined
+  const thinkingEntries = extractChatgptWebConversationThinking(conversation, {
+    userMessageId,
+    assistantMessageId,
+  })
+  const thoughtDuration = summarizeChatgptWebThoughtDuration(thinkingEntries)
 
   return {
     conversationId: conversation.conversation_id || null,
@@ -726,7 +794,9 @@ export function formatChatgptWebConversationSnapshot(
     query: query?.text || '',
     queryMessage: query,
     messages,
-    thinking,
+    thoughtDurationSec: thoughtDuration.thoughtDurationSec,
+    thoughtDurationText: thoughtDuration.thoughtDurationText,
+    thinking: think ? thinkingEntries : undefined,
     message: result,
   }
 }

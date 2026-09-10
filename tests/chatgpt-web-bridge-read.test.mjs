@@ -15,6 +15,7 @@ import {
   extractChatgptWebConversationThinking,
   formatChatgptWebConversationListItem,
   formatChatgptWebConversationSnapshot,
+  formatChatgptWebThoughtDurationText,
 } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 
 describe('extractChatgptWebConversationListItems', () => {
@@ -141,6 +142,66 @@ function twoTurnConversation() {
   }
 }
 
+function thinkingConversation({
+  finishedDurationSec = 90,
+  finishedText = 'Thought for 1m 30s',
+  extraThinkingNodes = [],
+} = {}) {
+  const mapping = {
+    root: { id: 'root', message: null, parent: null },
+    u1: {
+      id: 'u1',
+      parent: 'root',
+      message: {
+        id: 'u1',
+        author: { role: 'user' },
+        content: { content_type: 'text', parts: ['Think hard'] },
+        create_time: 1,
+      },
+    },
+    t1: {
+      id: 't1',
+      parent: 'u1',
+      message: {
+        id: 't1',
+        author: { role: 'assistant' },
+        content: { content_type: 'thoughts', thoughts: [{ summary: 'plan', content: 'step' }] },
+        status: 'finished_successfully',
+        create_time: 10,
+        update_time: 100,
+        metadata: {
+          reasoning_status: 'reasoning_ended',
+          finished_duration_sec: finishedDurationSec,
+          finished_text: finishedText,
+        },
+      },
+    },
+    a1: {
+      id: 'a1',
+      parent: extraThinkingNodes.at(-1)?.id || 't1',
+      message: {
+        id: 'a1',
+        author: { role: 'assistant' },
+        content: { content_type: 'text', parts: ['Done'] },
+        status: 'finished_successfully',
+        end_turn: true,
+      },
+    },
+  }
+
+  extraThinkingNodes.forEach((node, index) => {
+    const parent = index === 0 ? 't1' : extraThinkingNodes[index - 1].id
+    mapping[node.id] = { ...node, parent }
+  })
+
+  return {
+    conversation_id: 'c-think',
+    current_node: 'a1',
+    async_status: null,
+    mapping,
+  }
+}
+
 describe('extractChatgptWebConversationMessages', () => {
   it('walks the root path and emits alternating user/assistant turns', () => {
     const messages = extractChatgptWebConversationMessages(twoTurnConversation())
@@ -178,6 +239,14 @@ describe('extractChatgptWebConversationResult', () => {
   })
 })
 
+describe('formatChatgptWebThoughtDurationText', () => {
+  it('formats seconds the way ChatGPT shows thought timing', () => {
+    expect(formatChatgptWebThoughtDurationText(12)).toBe('12s')
+    expect(formatChatgptWebThoughtDurationText(60)).toBe('1m')
+    expect(formatChatgptWebThoughtDurationText(90)).toBe('1m 30s')
+  })
+})
+
 describe('extractChatgptWebConversationThinking', () => {
   it('returns an array (possibly empty) without throwing', () => {
     const thinking = extractChatgptWebConversationThinking(twoTurnConversation())
@@ -186,6 +255,32 @@ describe('extractChatgptWebConversationThinking', () => {
 
   it('returns [] for a conversation with no mapping', () => {
     expect(extractChatgptWebConversationThinking({})).toEqual([])
+  })
+
+  it('exposes official finished_duration_sec as durationSec', () => {
+    const thinking = extractChatgptWebConversationThinking(thinkingConversation())
+    expect(thinking).toHaveLength(1)
+    expect(thinking[0].finishedDurationSec).toBe(90)
+    expect(thinking[0].finishedText).toBe('Thought for 1m 30s')
+    expect(thinking[0].durationSec).toBe(90)
+    expect(thinking[0].durationText).toBe('1m 30s')
+  })
+
+  it('falls back to update_time - reasoning_start_time when duration is missing', () => {
+    const conversation = thinkingConversation({
+      finishedDurationSec: null,
+      finishedText: '',
+    })
+    conversation.mapping.t1.message.create_time = 1
+    conversation.mapping.t1.message.update_time = 45
+    conversation.mapping.t1.message.metadata = {
+      reasoning_status: 'reasoning_ended',
+      reasoning_start_time: 10,
+    }
+    const thinking = extractChatgptWebConversationThinking(conversation)
+    expect(thinking[0].finishedDurationSec).toBeNull()
+    expect(thinking[0].durationSec).toBe(35)
+    expect(thinking[0].durationText).toBe('35s')
   })
 })
 
@@ -219,5 +314,37 @@ describe('formatChatgptWebConversationSnapshot', () => {
     const snapshot = formatChatgptWebConversationSnapshot({})
     expect(snapshot.messages).toEqual([])
     expect(snapshot.message).toBeNull()
+    expect(snapshot.thoughtDurationSec).toBeNull()
+    expect(snapshot.thoughtDurationText).toBeNull()
+  })
+
+  it('returns thought duration even when think is not requested', () => {
+    const snapshot = formatChatgptWebConversationSnapshot(thinkingConversation())
+    expect(snapshot.thinking).toBeUndefined()
+    expect(snapshot.thoughtDurationSec).toBe(90)
+    expect(snapshot.thoughtDurationText).toBe('1m 30s')
+  })
+
+  it('sums thinking-node durations and exposes them on each entry when think=true', () => {
+    const snapshot = formatChatgptWebConversationSnapshot(
+      thinkingConversation({
+        extraThinkingNodes: [
+          {
+            id: 't2',
+            message: {
+              id: 't2',
+              author: { role: 'assistant' },
+              content: { content_type: 'reasoning_recap', parts: ['recap'] },
+              status: 'finished_successfully',
+              metadata: { finished_duration_sec: 12 },
+            },
+          },
+        ],
+      }),
+      { think: true },
+    )
+    expect(snapshot.thinking.map((entry) => entry.durationSec)).toEqual([90, 12])
+    expect(snapshot.thoughtDurationSec).toBe(102)
+    expect(snapshot.thoughtDurationText).toBe('1m 42s')
   })
 })

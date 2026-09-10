@@ -12,8 +12,11 @@ Before running them:
 5. Enable ChatGPT history synchronization in Advanced settings and choose a conservative RPM before action 1 performs its full list sync.
 
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
-If you want Drafts notes to include ChatGPT reasoning blocks, set `INCLUDE_THINKING = true` in
-`action-2-open-checked-conversation.js` and `action-3-send-waiting-reply.js`.
+Conversation snapshots always include latest-turn thought timing as `thoughtDurationText`
+(for example `1m 30s`). Actions 2 and 3 print this as `Thought: 1m 30s` even when
+`INCLUDE_THINKING` is false. If you also want the full ChatGPT reasoning blocks, set
+`INCLUDE_THINKING = true` in `action-2-open-checked-conversation.js` and
+`action-3-send-waiting-reply.js`.
 `action-3-send-waiting-reply.js` now declares its model choice explicitly:
 
 - `DEFAULT_MODEL = 'gpt-5-4-thinking'` is the script's built-in default for new conversations.
@@ -40,12 +43,13 @@ Suggested Drafts action names:
 Expected workflow:
 
 1. Run action 1 to force-sync the cached conversation list and replace the draft with a Markdown task list.
-2. Check exactly one conversation line, then run action 2 to load that conversation into the note. The script defaults to a compact user/assistant transcript; turn on `INCLUDE_THINKING` if you also want the `Thinking` section.
+2. Check exactly one conversation line, then run action 2 to load that conversation into the note. The script defaults to a compact user/assistant transcript plus `Thought: 1m 30s` when the bridge has timing; turn on `INCLUDE_THINKING` if you also want the `Thinking` section.
 3. Type the next user message between the `chatgptbox-waiting-reply` markers at the bottom of the note, then run action 3 to `POST /chatgpt/conversations/:id/messages` and refresh the transcript.
+4. After a reply, run action 2 again on the same note to re-fetch that conversation. You do not need to List first. Action 2 keeps any unsent text already typed in the waiting-reply block.
 
 Action 3 also supports two shortcut modes:
 
 - If the note has no `chatgptbox-waiting-reply` block yet, it treats the entire note as a new user prompt, creates a ChatGPT conversation without waiting for the answer, and rewrites the note into a pending conversation draft.
-- If the note already has a `chatgptbox-waiting-reply` block but the block is empty, it refreshes the current conversation instead of sending a new follow-up.
+- If the note already has a `chatgptbox-waiting-reply` block but the block is empty, it refreshes the current conversation instead of sending a new follow-up. Action 2 is the better "just reload this thread" button after a reply.
 
 The scripts rely on the official Drafts scripting runtime objects documented in the Drafts scripting reference, especially [HTTP](https://scripting.getdrafts.com/classes/HTTP.html) and [Draft](https://scripting.getdrafts.com/classes/Draft.html).

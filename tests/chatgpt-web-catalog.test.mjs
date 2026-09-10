@@ -1,9 +1,19 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   classifyChatgptWebModelsPayload,
   collectChatgptWebModelSlugs,
   mergeChatgptWebModelCatalogs,
 } from '../src/services/clients/chatgpt-web/catalog.mjs'
+
+const DUMPED_LATEST_CATALOG = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'resources/chatgpt-web/current',
+  'backend-api:tpp:models:?supports_model_picker_upgrade_presets=true.json',
+)
 
 const CHAT_LATEST = {
   title: 'Latest',
@@ -73,5 +83,17 @@ describe('chatgpt-web model catalogs', () => {
     expect(merged.catalogs.chat.kind).toBe('work')
     expect(merged.chatSlugs).toEqual([])
     expect(merged.workSlugs).toEqual(['gpt-6-astra-wm', 'gpt-5.6-sol-wm'])
+  })
+
+  it('reads the dumped Latest catalog as Chat+embedded Work, with no live slug', () => {
+    const payload = JSON.parse(readFileSync(DUMPED_LATEST_CATALOG, 'utf8'))
+    const catalog = classifyChatgptWebModelsPayload(payload)
+    expect(catalog.kind).toBe('chat')
+    expect(catalog.chatSlugs).toEqual(
+      expect.arrayContaining(['gpt-5-6', 'gpt-5-6-thinking', 'gpt-6-pro']),
+    )
+    expect(catalog.workSlugs).toEqual(expect.arrayContaining(['gpt-6-astra-wm', 'gpt-5.6-sol-wm']))
+    expect(catalog.slugs).not.toContain('gpt-live-1')
+    expect(catalog.slugs.some((slug) => slug.startsWith('gpt-live-'))).toBe(false)
   })
 })

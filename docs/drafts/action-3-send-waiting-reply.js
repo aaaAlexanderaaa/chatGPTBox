@@ -154,6 +154,8 @@ function renderThinking(thinking) {
       lines.push('')
       lines.push('- type: ' + (entry.contentType || ''))
       lines.push('- status: ' + (entry.status || ''))
+      if (entry.durationText) lines.push('- duration: ' + entry.durationText)
+      else if (entry.finishedText) lines.push('- duration: ' + entry.finishedText)
       if (entry.reasoningTitle) lines.push('- title: ' + entry.reasoningTitle)
       if (entry.reasoningStatus) lines.push('- reasoning_status: ' + entry.reasoningStatus)
       if (entry.text && entry.text.trim()) {
@@ -208,6 +210,9 @@ function renderConversation(conversation, sentQuery) {
         : ''),
   )
   if (conversation.updateTime) lines.push('Updated: ' + conversation.updateTime)
+  if (conversation.thoughtDurationText) {
+    lines.push('Thought: ' + conversation.thoughtDurationText)
+  }
   if (conversation.defaultModel) lines.push('Model: ' + conversation.defaultModel)
   lines.push('')
 
