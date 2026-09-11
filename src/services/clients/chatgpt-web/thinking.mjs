@@ -66,6 +66,10 @@ export function needsChatgptWebThinkingEffort(model) {
   const normalized = normalizeChatgptWebModelSlug(model)
   if (!normalized) return false
   // Chat Instant / Auto / Mini do not take thinking_effort.
+  // Deferred (medium, no current impact): keep in view, do not fix yet.
+  // `endsWith('-mini')` also matches `-t-mini`. Official catalogs omit
+  // thinking_effort there (correct), but every live poll / gateway-timeout /
+  // multi-turn path uses this helper, so Thinking Mini is treated as Instant.
   if (normalized.endsWith('-instant') || normalized.endsWith('-mini')) return false
   return (
     normalized.endsWith('-thinking') ||

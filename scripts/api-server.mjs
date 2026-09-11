@@ -145,6 +145,9 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5.6-terra-wm', name: 'GPT-5.6 Terra (Work)' },
   { id: 'gpt-5.6-luna-wm', name: 'GPT-5.6 Luna (Work)' },
   { id: 'gpt-5.5-wm', name: 'GPT-5.5 (Work)' },
+  // Deferred (medium, no current impact): keep in view, do not fix yet.
+  // Advertised as API, but the gateway is Web-only and ChatGPT has no
+  // `gpt-6-astra` slug (official Work id is `gpt-6-astra-wm`).
   { id: 'gpt-6-astra', name: 'GPT-6 Astra (API)' },
   { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking' },
   { id: 'gpt-5-5-pro', name: 'GPT-5.5 Pro' },

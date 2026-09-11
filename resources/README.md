@@ -12,6 +12,7 @@ filenames in `src/`.
 | --- | --- |
 | `chatgpt-web/current/` | Live reference. Whatever `.js` files are here are the current three. |
 | `chatgpt-web/archive/` | Previous bundles you want to keep. The probe ignores this folder. |
+| `chatgpt-web/catalogs/` | Official `/models` JSON snapshots for tests. Use Windows-safe names only (no `:` or `?`). |
 
 ## When ChatGPT ships new hashes
 

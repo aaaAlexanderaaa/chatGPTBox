@@ -103,7 +103,10 @@ export function shouldDeepScan({
     const last = Date.parse(previous.deepScannedAt)
     if (Number.isFinite(last) && now - last >= periodicMs) return true
   }
-  // Already recorded today's drift. Do not refetch the same page on every load.
+  // Already recorded drift. Do not refetch the same page on every load.
+  // Deferred (medium, no current impact): keep in view, do not fix yet.
+  // `url_drift` is not sticky in evaluateProtocolProbe (only marker_drift is),
+  // so the next automatic pass can collapse to incomplete and then re-notify.
   if (['url_drift', 'marker_drift'].includes(previous.status)) return false
   const known = listKnownFilenames(spec)
   const present = new Set((scripts || []).map((script) => script.filename))
@@ -235,6 +238,9 @@ export function evaluateProtocolProbe({
   ]
 
   let status = 'ok'
+  // Deferred (medium, no current impact): keep in view, do not fix yet.
+  // Loading / unfetchable / zero candidates share this ladder with real
+  // drift, so the probe can false-notify or hide a real filename change.
   if (scripts.length === 0) status = 'incomplete'
   else if (usedScan && (missingMarkers.length > 0 || knownUnidentified.length > 0)) {
     status = 'marker_drift'

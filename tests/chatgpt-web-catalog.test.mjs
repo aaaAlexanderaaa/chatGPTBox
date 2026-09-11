@@ -11,8 +11,8 @@ import {
 const DUMPED_LATEST_CATALOG = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
-  'resources/chatgpt-web/current',
-  'backend-api:tpp:models:?supports_model_picker_upgrade_presets=true.json',
+  'resources/chatgpt-web/catalogs',
+  'latest-models.json',
 )
 
 const CHAT_LATEST = {

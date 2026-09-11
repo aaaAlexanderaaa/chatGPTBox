@@ -202,6 +202,9 @@ function createProtocolProbeRuntime(injected = {}) {
           deps.fetchConcurrency,
         )
         scanned = fetched.length > 0
+        // Deferred (medium, no current impact): keep in view, do not fix yet.
+        // Zero candidates and "still loading" become error here, which
+        // evaluateProtocolProbe will not notify as drift.
         if (!scanned) error = new Error('Failed to fetch script bodies')
       } catch (fetchError) {
         error = fetchError
@@ -245,6 +248,10 @@ function createProtocolProbeRuntime(injected = {}) {
 
   async function collectFromTab(tabId) {
     if (!tabId) return null
+    // Deferred (medium, no current impact): keep in view, do not fix yet.
+    // Primary collect is the content-script message. This fallback serializes
+    // collectPageScriptSnapshotInPage; the built bundle closes over Babel
+    // helpers, and the MV3 catch never reaches tabs.executeScript.
     try {
       if (deps.scriptingApi?.executeScript) {
         const results = await deps.scriptingApi.executeScript({

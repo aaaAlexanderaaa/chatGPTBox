@@ -301,6 +301,10 @@ export async function sendModerations(token, question, conversationId, messageId
 }
 
 async function fetchChatgptWebModelsPayload(token, path) {
+  // Deferred (medium, no current impact): keep in view, do not fix yet.
+  // Failures become null, so getModels() returns [] instead of throwing.
+  // Tab-proxy fallback never runs; a transient miss can persist an empty
+  // chatgptWebAccountModels list.
   try {
     const { response, responseText } = await request(token, 'GET', path)
     if (!response?.ok) return null

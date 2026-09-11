@@ -142,6 +142,9 @@ export function mergeChatgptWebModelCatalogs(chatPayload, workPayload) {
   ])
 
   return {
+    // Deferred (medium, no current impact): keep in view, do not fix yet.
+    // `slugs` is Chat+Work. Latest already embeds `*-wm` rows, and getModels()
+    // persists this union, so personal pickers can offer Work engines.
     slugs: uniqueSlugs([...chat.slugs, ...work.slugs]),
     chatSlugs,
     workSlugs,
