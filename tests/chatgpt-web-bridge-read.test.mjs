@@ -16,6 +16,7 @@ import {
   formatChatgptWebConversationListItem,
   formatChatgptWebConversationSnapshot,
   formatChatgptWebThoughtDurationText,
+  parseChatgptWebFinishedDurationText,
 } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 
 describe('extractChatgptWebConversationListItems', () => {
@@ -507,6 +508,19 @@ describe('formatChatgptWebThoughtDurationText', () => {
   })
 })
 
+describe('parseChatgptWebFinishedDurationText', () => {
+  it('reads the current Worked for sentence in English and Chinese', () => {
+    expect(parseChatgptWebFinishedDurationText('Worked for 2 minutes 30 seconds')).toBe(150)
+    expect(parseChatgptWebFinishedDurationText('Worked for 2分30秒')).toBe(150)
+    expect(parseChatgptWebFinishedDurationText('Thought for 1m 30s')).toBe(90)
+  })
+
+  it('returns null when the sentence has no duration', () => {
+    expect(parseChatgptWebFinishedDurationText('Thought for a few seconds')).toBeNull()
+    expect(parseChatgptWebFinishedDurationText('')).toBeNull()
+  })
+})
+
 describe('extractChatgptWebConversationThinking', () => {
   it('returns an array (possibly empty) without throwing', () => {
     const thinking = extractChatgptWebConversationThinking(twoTurnConversation())
@@ -601,6 +615,34 @@ describe('formatChatgptWebConversationSnapshot', () => {
       reasoningThread([{ thought: 3, finishedText: 'Thought for a few seconds', answer: 'done' }]),
     )
     expect(snapshot.thoughtDurationLabel).toBe('Thought for a few seconds')
+  })
+
+  it('reads Worked for from finished_text when finished_duration_sec is absent', () => {
+    const conversation = reasoningThread([
+      { thought: 90, finishedText: 'Worked for 2 minutes 30 seconds', answer: 'done' },
+    ])
+    delete conversation.mapping.r1.message.metadata.finished_duration_sec
+
+    const snapshot = formatChatgptWebConversationSnapshot(conversation)
+    expect(snapshot.thoughtDurationSec).toBe(150)
+    expect(snapshot.thoughtDurationText).toBe('2m 30s')
+    expect(snapshot.thoughtDurationLabel).toBe('Worked for 2 minutes 30 seconds')
+  })
+
+  it('reads Worked for from the visible answer when the recap has no timing', () => {
+    const conversation = reasoningThread([
+      { thought: 90, finishedText: 'Thought for 1m 30s', answer: 'done' },
+    ])
+    delete conversation.mapping.r1.message.metadata.finished_duration_sec
+    delete conversation.mapping.r1.message.metadata.finished_text
+    conversation.mapping.a1.message.metadata = {
+      finished_text: 'Worked for 3 minutes 12 seconds',
+    }
+
+    const snapshot = formatChatgptWebConversationSnapshot(conversation)
+    expect(snapshot.thoughtDurationSec).toBe(192)
+    expect(snapshot.thoughtDurationText).toBe('3m 12s')
+    expect(snapshot.thoughtDurationLabel).toBe('Worked for 3 minutes 12 seconds')
   })
 
   it('reports no timing rather than inventing one from node timestamps', () => {

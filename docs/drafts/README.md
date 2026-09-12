@@ -13,9 +13,11 @@ Before running them:
 
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
 Thinking time is per turn, not per conversation. Every reasoning turn in a snapshot carries its
-own `thoughtDurationText`, so actions 2 and 3 print it on that turn's heading
-(`### ASSISTANT (Thought: 1m 30s)`) even when `INCLUDE_THINKING` is false. Turns without official
-timing from ChatGPT get no annotation rather than an estimate. If you also want the full ChatGPT
+own `thoughtDurationLabel` / `thoughtDurationText`, so actions 2 and 3 print ChatGPT's own
+sentence on that turn's heading (`### ASSISTANT (Worked for 2 minutes 30 seconds)`) even when
+`INCLUDE_THINKING` is false. Official timing can be `finished_duration_sec` or the `Worked for` /
+`Thought for` sentence on the recap or the answer itself. Turns without either get no annotation
+rather than an estimate. If you also want the full ChatGPT
 reasoning blocks, set `INCLUDE_THINKING = true` in `action-2-open-checked-conversation.js` and
 `action-3-send-waiting-reply.js`.
 `action-3-send-waiting-reply.js` now declares its model choice explicitly:

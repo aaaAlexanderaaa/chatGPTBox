@@ -249,10 +249,10 @@ function renderMessages(messages) {
     .filter((message) => normalizeText(message && message.text))
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
-      // Thinking time belongs to one turn, so it rides along with that turn.
-      const heading = message.thoughtDurationText
-        ? '### ' + role + ' (Thought: ' + message.thoughtDurationText + ')'
-        : '### ' + role
+      // Prefer ChatGPT's own sentence (`Worked for 2 minutes`) when present.
+      const timing = message.thoughtDurationLabel ||
+        (message.thoughtDurationText ? 'Thought: ' + message.thoughtDurationText : '')
+      const heading = timing ? '### ' + role + ' (' + timing + ')' : '### ' + role
       return heading + '\n\n' + normalizeText(message.text)
     })
     .join('\n\n')

@@ -266,7 +266,7 @@ The response includes fields such as:
 
 Thinking time is a per-turn property, so every assistant entry in `messages` carries its own value and the top-level fields describe the turn that produced `message`. They do **not** require `think=true`.
 
-Timing follows what ChatGPT Web itself does: it sums `metadata.finished_duration_sec` across a turn's reasoning segments and ignores segments without that field. A turn normally has both a `thoughts` node and a `reasoning_recap` node covering the same reasoning window, so deriving a duration from node timestamps would report that turn twice. When no segment carries official timing, the fields are `null` rather than an estimate.
+Timing prefers ChatGPT's official fields: `metadata.finished_duration_sec`, then the page sentence in `metadata.finished_text` (`Worked for 2 minutes 30 seconds`, `Worked for 2分30秒`, or the older `Thought for …`). Those can sit on a `reasoning_recap` node or on the visible answer. A turn normally also has a `thoughts` node spanning the same window, so deriving a duration from node timestamps would report that turn twice and is not used as a fallback. When no official field is present, the duration fields are `null` rather than an estimate.
 
 `thoughtDurationText` is the compact display form (`12s`, `1m`, `1m 30s`). `thoughtDurationLabel` is ChatGPT's own sentence — the segment's `finished_text` verbatim when the turn has a single timed segment, otherwise `Thought for <duration>`.
 

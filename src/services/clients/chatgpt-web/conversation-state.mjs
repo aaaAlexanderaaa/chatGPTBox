@@ -306,6 +306,36 @@ export function formatChatgptWebThoughtDurationText(seconds) {
   return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`
 }
 
+// ChatGPT's page label moved from "Thought for" to "Worked for", and the
+// localized form is often the only official timing on a turn
+// (`Worked for 2 minutes 30 seconds` / `Worked for 2分30秒`). Read seconds
+// from that sentence when `finished_duration_sec` is absent.
+export function parseChatgptWebFinishedDurationText(text) {
+  const raw = typeof text === 'string' ? text.trim() : ''
+  if (!raw) return null
+
+  const chinese = raw.match(/(\d+)\s*分(?:钟)?(?:\s*(\d+)\s*秒)?/)
+  if (chinese) return Number(chinese[1]) * 60 + Number(chinese[2] || 0)
+
+  if (/[分秒]/.test(raw)) {
+    const secondsOnly = raw.match(/(\d+)\s*秒/)
+    if (secondsOnly) return Number(secondsOnly[1])
+  }
+
+  const minutesWords = raw.match(/(\d+)\s*minutes?/i)
+  const secondsWords = raw.match(/(\d+)\s*seconds?/i)
+  if (minutesWords || secondsWords) {
+    return Number(minutesWords?.[1] || 0) * 60 + Number(secondsWords?.[1] || 0)
+  }
+
+  if (!/(?:worked|thought)\s+for/i.test(raw)) return null
+  const compact = raw.match(/(\d+)\s*m(?:\s+(\d+)\s*s)?\b/i)
+  if (compact) return Number(compact[1]) * 60 + Number(compact[2] || 0)
+  const compactSeconds = raw.match(/(\d+)\s*s\b/i)
+  if (compactSeconds) return Number(compactSeconds[1])
+  return null
+}
+
 function resolveThinkingNodeDurationSec(message) {
   const finished = toFiniteNumber(message?.metadata?.finished_duration_sec)
   if (finished != null) return Math.max(0, finished)
@@ -327,10 +357,14 @@ const EMPTY_THOUGHT_DURATION = Object.freeze({
 
 function readThinkingNodeTiming(node) {
   const message = getNodeMessage(node)
+  const finishedText =
+    typeof message?.metadata?.finished_text === 'string' ? message.metadata.finished_text : ''
+  const finishedDurationSec =
+    toFiniteNumber(message?.metadata?.finished_duration_sec) ??
+    parseChatgptWebFinishedDurationText(finishedText)
   return {
-    finishedDurationSec: toFiniteNumber(message?.metadata?.finished_duration_sec),
-    finishedText:
-      typeof message?.metadata?.finished_text === 'string' ? message.metadata.finished_text : '',
+    finishedDurationSec,
+    finishedText,
   }
 }
 
@@ -775,14 +809,23 @@ function extractChatgptWebConversationTurns(conversation = {}, { userMessageId }
   return collected.map((entry) => {
     const assistantNode = pickBestConversationTurnAssistant(entry.assistantNodes)
     const assistantNodeId = assistantNode?.id || assistantNode?.message?.id || null
-    const timings = entry.thinkingNodes
+    const thinkingTimings = entry.thinkingNodes
       .filter((node) => !nodeHasId(node, assistantNodeId))
       .map((node) => readThinkingNodeTiming(node))
+    // Newer turns put `Worked for …` on the visible assistant message. That
+    // node is also a thinking node (it carries finished_text), so excluding
+    // it here used to drop the only official timing the page shows.
+    let thoughtDuration = summarizeChatgptWebThoughtDuration(thinkingTimings)
+    if (thoughtDuration.thoughtDurationSec == null && assistantNode) {
+      thoughtDuration = summarizeChatgptWebThoughtDuration([
+        readThinkingNodeTiming(assistantNode),
+      ])
+    }
 
     return {
       ...entry,
       assistantNode,
-      thoughtDuration: summarizeChatgptWebThoughtDuration(timings),
+      thoughtDuration,
     }
   })
 }
