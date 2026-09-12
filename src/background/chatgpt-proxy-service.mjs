@@ -599,6 +599,9 @@ export async function createChatgptWebConversation(payload = {}) {
           }
           resolvePromise({
             conversationId: latestSession.conversationId,
+            // The id of the user message that opened the thread, so a later GET
+            // can anchor to it the same way follow-up sends do.
+            messageId: latestSession.messageId || session.messageId,
             defaultModel: latestSession.chatgptWebModelSlugOverride || null,
             createdAt,
             pending: true,

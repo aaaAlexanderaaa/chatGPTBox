@@ -1022,6 +1022,9 @@ export async function sendChatgptWebConversationMessage({
   })
   session.conversationId = normalizedConversationId
   session.parentMessageId = conversationSnapshot.current_node
+  // The client mutates the session in place while streaming, so remember where
+  // the thread started before handing the session over.
+  const parentMessageIdBeforeSend = conversationSnapshot.current_node
   session.chatgptWebModelSlugOverride =
     (typeof model === 'string' && model.trim()) ||
     conversationSnapshot.default_model_slug ||
@@ -1056,13 +1059,26 @@ export async function sendChatgptWebConversationMessage({
     () => {},
   )
 
+  // The stream rewrites parentMessageId to the assistant message it just
+  // created. Passing it on anchors the refreshed snapshot to the turn that was
+  // actually sent instead of letting candidate scoring guess at it.
+  const sentAssistantMessageId =
+    result.session?.parentMessageId && result.session.parentMessageId !== parentMessageIdBeforeSend
+      ? result.session.parentMessageId
+      : undefined
+  const sentUserMessageId = result.session?.messageId || undefined
+
   const refreshed = await refreshChatgptWebConversation({
     conversationId: normalizedConversationId,
+    userMessageId: sentUserMessageId,
+    assistantMessageId: sentAssistantMessageId,
     preferResume: false,
     think,
   }).catch(async () => {
     const conversation = await getChatgptWebConversation({
       conversationId: normalizedConversationId,
+      userMessageId: sentUserMessageId,
+      assistantMessageId: sentAssistantMessageId,
       think,
       forceRefresh: true,
     })

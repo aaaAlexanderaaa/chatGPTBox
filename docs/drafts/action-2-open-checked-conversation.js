@@ -5,6 +5,10 @@ const BASE_URL = 'http://127.0.0.1:18080'
 const INCLUDE_THINKING = false
 const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
 const WAITING_REPLY_END = '<!-- chatgptbox-waiting-reply:end -->'
+const USER_HEADING_RE = /^### USER\s*$/gm
+const PENDING_ANSWER_HEADING = '### ASSISTANT (pending)'
+const PENDING_ANSWER_HEADING_RE = /^### ASSISTANT \(pending\)\s*$/gm
+const PENDING_ANSWER_TEXT = '_Waiting for ChatGPT. Run the Get action to collect the answer._'
 
 function fail(message) {
   app.displayErrorMessage(message)
@@ -70,9 +74,47 @@ function findWaitingReply(content) {
 }
 
 function getCheckedConversationIds(content) {
-  return [...content.matchAll(/^- \[x\].*<!-- chatgptbox-conversation:([A-Za-z0-9-]+) -->\s*$/gm)].map(
-    (match) => match[1],
-  )
+  return [
+    ...content.matchAll(/^- \[x\].*<!-- chatgptbox-conversation:([A-Za-z0-9-]+) -->\s*$/gm),
+  ].map((match) => match[1])
+}
+
+function lastMatchIndex(content, regex, beforeIndex) {
+  let result = -1
+  regex.lastIndex = 0
+  let match
+  while ((match = regex.exec(content)) !== null) {
+    if (beforeIndex !== undefined && match.index >= beforeIndex) break
+    result = match.index
+  }
+  return result
+}
+
+// Recovers the question that the Send action appended to the note. The gateway
+// acknowledges a send before ChatGPT has stored the turn, so for a while the
+// snapshot has no trace of it and the note is the only copy.
+function findLocalPendingQuery(content) {
+  const pendingIndex = lastMatchIndex(content, PENDING_ANSWER_HEADING_RE)
+  if (pendingIndex < 0) return ''
+  const userIndex = lastMatchIndex(content, USER_HEADING_RE, pendingIndex)
+  if (userIndex < 0) return ''
+  const userHeadingEnd = content.indexOf('\n', userIndex)
+  if (userHeadingEnd < 0 || userHeadingEnd > pendingIndex) return ''
+  return content.slice(userHeadingEnd, pendingIndex).trim()
+}
+
+// The turn being awaited: its user message id from the metadata plus the
+// question text from the note. Either one is enough to find it in a snapshot.
+function readPendingAnchor(content, metadata) {
+  const messageId =
+    metadata && typeof metadata.pendingMessageId === 'string'
+      ? metadata.pendingMessageId.trim()
+      : ''
+  const sentAt =
+    metadata && typeof metadata.pendingSentAt === 'string' ? metadata.pendingSentAt.trim() : ''
+  const query = findLocalPendingQuery(content)
+  if (!messageId && !query) return null
+  return { messageId, sentAt, query }
 }
 
 function getOpenConversationId(content) {
@@ -86,11 +128,19 @@ function getOpenConversationId(content) {
       conversationId: waitingId,
       draftReply: waitingReply.query || '',
       metadata: waitingReply.metadata,
+      anchor: readPendingAnchor(content, waitingReply.metadata),
     }
   }
 
   const idMatch = content.match(/^Conversation ID:\s*([A-Za-z0-9-]+)\s*$/m)
-  if (idMatch) return { conversationId: idMatch[1], draftReply: '', metadata: null }
+  if (idMatch) {
+    return {
+      conversationId: idMatch[1],
+      draftReply: '',
+      metadata: null,
+      anchor: readPendingAnchor(content, null),
+    }
+  }
   return null
 }
 
@@ -100,7 +150,13 @@ function resolveConversationTarget(content) {
     fail('Check exactly one conversation line before running this action')
   }
   if (checkedIds.length === 1) {
-    return { conversationId: checkedIds[0], draftReply: '', metadata: null, forceRefresh: false }
+    return {
+      conversationId: checkedIds[0],
+      draftReply: '',
+      metadata: null,
+      anchor: null,
+      forceRefresh: false,
+    }
   }
 
   const open = getOpenConversationId(content)
@@ -109,6 +165,7 @@ function resolveConversationTarget(content) {
       conversationId: open.conversationId,
       draftReply: open.draftReply,
       metadata: open.metadata,
+      anchor: open.anchor,
       forceRefresh: true,
     }
   }
@@ -135,12 +192,103 @@ function getLastMessageText(messages, role) {
   return ''
 }
 
+function sameQuestion(left, right) {
+  const collapse = (text) => normalizeText(text).replace(/\s+/g, ' ')
+  const a = collapse(left)
+  const b = collapse(right)
+  return Boolean(a) && a === b
+}
+
+function isPendingMessageStatus(status) {
+  const normalized = normalizeText(status).toLowerCase()
+  return (
+    normalized === 'in_progress' ||
+    normalized === 'pending' ||
+    normalized === 'streaming' ||
+    normalized === 'queued'
+  )
+}
+
+function findPendingTurnIndex(messages, anchor) {
+  if (!anchor) return -1
+  for (let cursor = messages.length - 1; cursor >= 0; cursor -= 1) {
+    const message = messages[cursor]
+    if (normalizeText(message && message.role).toLowerCase() !== 'user') continue
+    if (anchor.messageId) {
+      if (message.messageId === anchor.messageId) return cursor
+      continue
+    }
+    if (sameQuestion(message.text, anchor.query)) return cursor
+  }
+  return -1
+}
+
+function hasFinishedAssistantAfter(messages, index) {
+  return messages.slice(index + 1).some((message) => {
+    if (normalizeText(message && message.role).toLowerCase() !== 'assistant') return false
+    if (!normalizeText(message && message.text)) return false
+    return !isPendingMessageStatus(message && message.status)
+  })
+}
+
+// Where the awaited turn stands in this snapshot:
+// - `missing`: the snapshot has no trace of the question yet
+// - `awaiting`: the question is there, the answer is not finished
+// - `answered`: this turn has a finished assistant reply
+// - `none`: nothing is being awaited
+// A stored pendingMessageId matches by id only. Question text is a fallback
+// only after that id is gone, so a repeat of an earlier question cannot
+// resolve to the old turn. `conversation.pending` can veto "answered" but
+// never decides the match by itself.
+function resolvePendingTurn(messages, anchor, conversation) {
+  if (!anchor) return { state: 'none', index: -1 }
+  const list = Array.isArray(messages) ? messages : []
+  const index = findPendingTurnIndex(list, anchor)
+  if (index < 0) return { state: 'missing', index }
+
+  const result = conversation && conversation.message
+  const stillGenerating =
+    (conversation && conversation.pending === true) ||
+    (result && result.pending === true) ||
+    (result && isPendingMessageStatus(result.status))
+  if (stillGenerating || !hasFinishedAssistantAfter(list, index)) {
+    return { state: 'awaiting', index }
+  }
+  return { state: 'answered', index }
+}
+
+// Keeps the turn that the Send action left behind visible until the answer
+// actually arrives. A snapshot that does not contain the question yet must not
+// erase it from the note, and a snapshot that contains it without an answer
+// still gets the placeholder.
+function renderTranscript(messages, conversation, anchor, pendingTurn) {
+  const visible = messages.filter((message) => normalizeText(message && message.text))
+  const blocks = [renderMessages(visible)]
+  const placeholder = [PENDING_ANSWER_HEADING, '', PENDING_ANSWER_TEXT].join('\n')
+
+  if (pendingTurn.state === 'missing') {
+    if (anchor && anchor.query) blocks.push('### USER\n\n' + anchor.query)
+    blocks.push(placeholder)
+  } else if (pendingTurn.state === 'awaiting') {
+    blocks.push(placeholder)
+  } else if (pendingTurn.state === 'none' && conversation.pending === true) {
+    const last = visible[visible.length - 1]
+    if (last && normalizeText(last.role).toLowerCase() === 'user') blocks.push(placeholder)
+  }
+
+  return blocks.filter(Boolean).join('\n\n')
+}
+
 function renderMessages(messages) {
   return messages
     .filter((message) => normalizeText(message && message.text))
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
-      return '### ' + role + '\n\n' + normalizeText(message.text)
+      // Thinking time belongs to one turn, so it rides along with that turn.
+      const heading = message.thoughtDurationText
+        ? '### ' + role + ' (Thought: ' + message.thoughtDurationText + ')'
+        : '### ' + role
+      return heading + '\n\n' + normalizeText(message.text)
     })
     .join('\n\n')
 }
@@ -173,7 +321,7 @@ function renderThinking(thinking) {
     .join('\n\n')
 }
 
-function renderWaitingReplyBlock(conversation, draftReply, existingMetadata) {
+function renderWaitingReplyBlock(conversation, draftReply, existingMetadata, anchor, pendingTurn) {
   const metadata = {
     conversationId: conversation.conversationId,
     defaultModel: conversation.defaultModel || null,
@@ -186,6 +334,14 @@ function renderWaitingReplyBlock(conversation, draftReply, existingMetadata) {
   if (pendingReply && existingOperationId) {
     metadata.operationId = existingOperationId
   }
+  // The turn marker stays until the snapshot shows that turn answered. Whether
+  // the conversation reports itself as pending is not the signal: right after a
+  // send the snapshot can lack both the async status and the turn itself, and
+  // dropping the marker then would leave every later Get unanchored.
+  if (anchor && pendingTurn.state !== 'answered') {
+    if (anchor.messageId) metadata.pendingMessageId = anchor.messageId
+    if (anchor.sentAt) metadata.pendingSentAt = anchor.sentAt
+  }
   const body = pendingReply ? '\n' + pendingReply + '\n' : ''
 
   return [
@@ -197,29 +353,28 @@ function renderWaitingReplyBlock(conversation, draftReply, existingMetadata) {
   ].join('\n')
 }
 
-function renderConversation(conversation, draftReply, existingMetadata) {
+function renderConversation(conversation, draftReply, existingMetadata, anchor) {
   const lines = []
   const messages = Array.isArray(conversation.messages) ? conversation.messages : []
-  const transcript = renderMessages(messages)
+  const pendingTurn = resolvePendingTurn(messages, anchor, conversation)
+  const transcript = renderTranscript(messages, conversation, anchor, pendingTurn)
   const lastUserText = getLastMessageText(messages, 'user')
   const lastAssistantText = getLastMessageText(messages, 'assistant')
   const latestQuery = normalizeText(conversation.query)
   const latestAnswer = normalizeText(conversation.message && conversation.message.text)
+  const awaitingReply = pendingTurn.state === 'missing' || pendingTurn.state === 'awaiting'
 
   lines.push('# ' + (conversation.title || conversation.conversationId || 'Conversation'))
   lines.push('')
   lines.push('Conversation ID: ' + conversation.conversationId)
   lines.push(
     'Status: ' +
-      (conversation.pending ? 'pending' : 'complete') +
+      (conversation.pending === true || awaitingReply ? 'pending' : 'complete') +
       (conversation.asyncStatus !== null && conversation.asyncStatus !== undefined
         ? ' (asyncStatus=' + conversation.asyncStatus + ')'
         : ''),
   )
   if (conversation.updateTime) lines.push('Updated: ' + conversation.updateTime)
-  if (conversation.thoughtDurationText) {
-    lines.push('Thought: ' + conversation.thoughtDurationText)
-  }
   if (conversation.defaultModel) lines.push('Model: ' + conversation.defaultModel)
   lines.push('')
 
@@ -237,31 +392,37 @@ function renderConversation(conversation, draftReply, existingMetadata) {
     lines.push(section('Latest Answer', latestAnswer).trimEnd())
   }
 
-  lines.push(renderWaitingReplyBlock(conversation, draftReply, existingMetadata))
+  lines.push(
+    renderWaitingReplyBlock(conversation, draftReply, existingMetadata, anchor, pendingTurn),
+  )
   return lines.join('\n\n').trim() + '\n'
 }
 
 try {
   const target = resolveConversationTarget(draft.content || '')
+  const pendingMessageId = target.anchor ? target.anchor.messageId : ''
   const query = [
     'think=' + String(INCLUDE_THINKING),
     target.forceRefresh ? 'force_refresh=true' : '',
+    // Anchor the snapshot to the turn being awaited. Without it the snapshot
+    // describes the previous answer for as long as this one is still generating.
+    pendingMessageId ? 'user_message_id=' + encodeURIComponent(pendingMessageId) : '',
   ]
     .filter(Boolean)
     .join('&')
   const payload = requestJson(
-    BASE_URL +
-      '/chatgpt/conversations/' +
-      encodeURIComponent(target.conversationId) +
-      '?' +
-      query,
+    BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(target.conversationId) + '?' + query,
     'GET',
   )
-  draft.content = renderConversation(payload, target.draftReply, target.metadata)
+  draft.content = renderConversation(payload, target.draftReply, target.metadata, target.anchor)
   draft.update()
+  const stillWaiting =
+    target.anchor &&
+    resolvePendingTurn(payload.messages || [], target.anchor, payload).state !== 'answered'
   app.displaySuccessMessage(
     (target.forceRefresh ? 'Refreshed conversation ' : 'Loaded conversation ') +
-      target.conversationId,
+      target.conversationId +
+      (stillWaiting ? '. Still waiting for the answer; run Get again later.' : ''),
   )
 } catch (error) {
   app.displayErrorMessage(error.message || String(error))

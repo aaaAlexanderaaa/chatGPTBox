@@ -240,14 +240,22 @@ Example:
 curl "http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>?think=true"
 ```
 
+`user_message_id` anchors the snapshot to one turn: the `messageId` returned by `POST /chatgpt/conversations` or `POST /chatgpt/conversations/:id/messages`. When the snapshot contains that user message, `message`, `query`, and the top-level thought timing describe only that turn:
+
+- If the user message has no assistant beneath it yet, `message` is `null` and the thought timing fields are `null`. The previous turn's answer is never reported in its place.
+- `messages` includes the anchored turn even while `current_node` still points at the previous answer.
+- If the user message is not in the snapshot at all (ChatGPT has not stored the send yet), the anchor cannot narrow anything and the snapshot follows `current_node` as if no anchor were given. Check `messages` for the anchored id to tell this case apart, and poll again later.
+
+Without `user_message_id` the snapshot follows `current_node` as before.
+
 The response includes fields such as:
 
 - `conversationId`
 - `title`
 - `query`
 - `queryMessage`
-- `messages`
-- `thoughtDurationSec` / `thoughtDurationText` (latest-turn thinking time, for example `90` and `"1m 30s"`)
+- `messages` (assistant entries also carry `thoughtDurationSec` / `thoughtDurationText` / `thoughtDurationLabel` for their own turn)
+- `thoughtDurationSec` / `thoughtDurationText` / `thoughtDurationLabel` (thinking time of the turn that produced `message`, for example `90`, `"1m 30s"`, and `"Thought for 1m 30s"`)
 - `thinking` when `think=true`
 - `defaultModel`
 - `currentNode`
@@ -256,7 +264,11 @@ The response includes fields such as:
 - `message`
 - `cache`
 
-`thoughtDurationSec` is always computed when the snapshot has reasoning nodes. It prefers ChatGPT's `metadata.finished_duration_sec`, then `update_time - reasoning_start_time`, then `update_time - create_time`, and sums those values across the latest turn. `thoughtDurationText` is the compact display form (`12s`, `1m`, `1m 30s`). These fields do **not** require `think=true`.
+Thinking time is a per-turn property, so every assistant entry in `messages` carries its own value and the top-level fields describe the turn that produced `message`. They do **not** require `think=true`.
+
+Timing follows what ChatGPT Web itself does: it sums `metadata.finished_duration_sec` across a turn's reasoning segments and ignores segments without that field. A turn normally has both a `thoughts` node and a `reasoning_recap` node covering the same reasoning window, so deriving a duration from node timestamps would report that turn twice. When no segment carries official timing, the fields are `null` rather than an estimate.
+
+`thoughtDurationText` is the compact display form (`12s`, `1m`, `1m 30s`). `thoughtDurationLabel` is ChatGPT's own sentence — the segment's `finished_text` verbatim when the turn has a single timed segment, otherwise `Thought for <duration>`.
 
 `thinking` is best-effort data extracted from ChatGPT Web reasoning-related nodes such as `thoughts`, `reasoning_recap`, and reasoning metadata that are present in the conversation snapshot. When requested, each entry also includes `durationSec`, `durationText`, `finishedDurationSec`, `finishedText`, and `reasoningStartTime`.
 
@@ -284,6 +296,7 @@ curl -X POST http://100.104.70.122:18081/chatgpt/conversations \
 The response includes:
 
 - `conversationId`
+- `messageId` (the id of the user message that opened the thread; pass it back as `user_message_id` on `GET /chatgpt/conversations/:id` to anchor the snapshot to this turn)
 - `defaultModel`
 - `createdAt`
 - `pending`
@@ -291,13 +304,13 @@ The response includes:
 
 ### `POST /chatgpt/conversations/:id/messages`
 
-Sends a follow-up user message into an existing ChatGPT conversation, then refreshes the conversation snapshot.
+Sends a follow-up user message into an existing ChatGPT conversation and returns as soon as ChatGPT acknowledges it. The answer keeps generating in the browser after the HTTP response returns, so this route never holds the connection open while a thinking model works. Collect the answer later with `GET /chatgpt/conversations/:id`.
 
 JSON body:
 
 - `query` or `message`
 - `model` (optional, defaults to the conversation's default model when present)
-- `think` (optional; when true, the refreshed response includes `thinking`)
+- `think` (accepted for compatibility, but ignored: this route returns an acknowledgement rather than a snapshot)
 
 Required header: `Idempotency-Key`. The Drafts client stores one key in the waiting-reply metadata
 and reuses it if the same send action is retried.
@@ -313,12 +326,11 @@ curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/mess
 
 The response includes:
 
+- `conversationId`
+- `messageId` (the id of the user message just sent; pass it back as `user_message_id` on `GET /chatgpt/conversations/:id` to anchor the snapshot to this turn)
+- `createdAt`
+- `pending` (always `true`; the answer has not been generated yet)
 - `query`
-- `pending`
-- `asyncStatus`
-- `conversation` (same snapshot shape as `GET /chatgpt/conversations/:id`, including `thoughtDurationSec` / `thoughtDurationText`)
-- `resume`
-- `text`
 
 ### `POST /chatgpt/conversations/:id/refresh`
 
@@ -326,7 +338,7 @@ Fetches the conversation snapshot again and, when the conversation is still pend
 
 Optional JSON body:
 
-- `userMessageId`
+- `userMessageId` (same anchoring as `user_message_id` on `GET /chatgpt/conversations/:id`)
 - `assistantMessageId`
 - `offset` (start offset for the resume POST; the response `resume.offset` is the **consumed** offset)
 - `preferResume` (defaults to `false`; enabling it sends a resume POST when a conduit token is supplied or the conversation is still pending)
@@ -348,7 +360,7 @@ The response includes:
 - `pending`
 - `asyncStatus`
 - `source`
-- `conversation` (same snapshot shape as `GET /chatgpt/conversations/:id`, including `thoughtDurationSec` / `thoughtDurationText`)
+- `conversation` (same snapshot shape as `GET /chatgpt/conversations/:id`, including per-turn thinking time on `messages`)
 - `resume`
 - `text`
 

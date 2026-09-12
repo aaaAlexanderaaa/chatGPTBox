@@ -319,22 +319,43 @@ function resolveThinkingNodeDurationSec(message) {
   return null
 }
 
+const EMPTY_THOUGHT_DURATION = Object.freeze({
+  thoughtDurationSec: null,
+  thoughtDurationText: null,
+  thoughtDurationLabel: null,
+})
+
+function readThinkingNodeTiming(node) {
+  const message = getNodeMessage(node)
+  return {
+    finishedDurationSec: toFiniteNumber(message?.metadata?.finished_duration_sec),
+    finishedText:
+      typeof message?.metadata?.finished_text === 'string' ? message.metadata.finished_text : '',
+  }
+}
+
+// ChatGPT Web sums `metadata.finished_duration_sec` across a turn's reasoning
+// segments and ignores segments that do not carry it. Deriving a duration from
+// node timestamps instead would count the same reasoning window twice, because
+// the `thoughts` node and the `reasoning_recap` node both span it.
 export function summarizeChatgptWebThoughtDuration(thinking = []) {
   const entries = Array.isArray(thinking) ? thinking : []
-  let total = 0
-  let counted = 0
-  for (const entry of entries) {
-    const seconds = toFiniteNumber(entry?.durationSec ?? entry?.finishedDurationSec)
-    if (seconds == null) continue
-    total += Math.max(0, seconds)
-    counted += 1
-  }
-  if (counted === 0) {
-    return { thoughtDurationSec: null, thoughtDurationText: null }
-  }
+  const timed = entries.filter((entry) => toFiniteNumber(entry?.finishedDurationSec) != null)
+  if (timed.length === 0) return { ...EMPTY_THOUGHT_DURATION }
+
+  const total = timed.reduce(
+    (sum, entry) => sum + Math.max(0, toFiniteNumber(entry.finishedDurationSec)),
+    0,
+  )
+  const thoughtDurationText = formatChatgptWebThoughtDurationText(total)
+  // A single segment shows its own `finished_text` verbatim; only a multi-segment
+  // turn gets a composed label.
+  const singleSegmentText = timed.length === 1 ? (timed[0].finishedText || '').trim() : ''
+
   return {
     thoughtDurationSec: total,
-    thoughtDurationText: formatChatgptWebThoughtDurationText(total),
+    thoughtDurationText,
+    thoughtDurationLabel: singleSegmentText || `Thought for ${thoughtDurationText}`,
   }
 }
 
@@ -385,18 +406,21 @@ function dedupeNodes(nodes = []) {
   })
 }
 
+// Signals in descending priority: the node carries text at all, the caller's
+// explicit anchor, the conversation's own current node, then branch and quality
+// hints. Recency and text length are left to the comparator rather than added
+// here, so that a longer earlier answer cannot outrank the turn being asked for.
 function scoreAssistantNode(node, { currentNodeId, assistantMessageId, pathNodeIds }) {
   const message = node?.message || {}
   const text = getNodeText(node)
   const status = typeof message.status === 'string' ? message.status : ''
   const contentType = getNodeContentType(node)
-  const timestamp = getNodeTimestamp(node)
   let score = 0
 
-  if (text) score += 10_000 + Math.min(text.length, 4000)
-  if (node?.id === currentNodeId || message.id === currentNodeId) score += 2500
+  if (text) score += 10_000
   if (assistantMessageId && (node?.id === assistantMessageId || message.id === assistantMessageId))
-    score += 1500
+    score += 4000
+  if (node?.id === currentNodeId || message.id === currentNodeId) score += 2500
   if (pathNodeIds.has(node?.id)) score += 500
   if (message.channel === 'final') score += 400
   if (message.channel === 'commentary') score += 200
@@ -407,11 +431,17 @@ function scoreAssistantNode(node, { currentNodeId, assistantMessageId, pathNodeI
   if (isFinalChatgptWebMessageStatus(status)) score += 100
   if (isPendingChatgptWebMessageStatus(status)) score += 50
   if (!isUserVisibleAssistantNode(node)) score -= 2_000
-  if (Number.isFinite(timestamp)) score += Math.floor(timestamp)
 
   return score
 }
 
+// A `userMessageId` anchor that the snapshot contains narrows the answer to
+// that turn. Right after a send the user node may be there without any
+// assistant beneath it; there is no answer for that turn then, and reporting
+// the previous turn's answer instead would tell the caller the question was
+// already answered. An anchor the snapshot does not contain cannot narrow
+// anything, so the selection falls back to the current branch as if it were
+// absent (callers that need to know the turn is missing check `messages`).
 function selectChatgptWebConversationAssistantCandidate(
   conversation,
   { userMessageId, assistantMessageId } = {},
@@ -429,19 +459,31 @@ function selectChatgptWebConversationAssistantCandidate(
     if (getMessageRole(assistantNode) === 'assistant') candidates.push(assistantNode)
   }
 
-  if (currentNodeId) {
-    const currentNode = getMappingNode(mapping, currentNodeId)
-    if (getMessageRole(currentNode) === 'assistant') candidates.push(currentNode)
+  if (userMessageId && getMappingNode(mapping, userMessageId)) {
+    candidates.push(...collectAssistantDescendants(mapping, userMessageId))
+  } else {
+    if (currentNodeId) {
+      const currentNode = getMappingNode(mapping, currentNodeId)
+      if (getMessageRole(currentNode) === 'assistant') candidates.push(currentNode)
+    }
+    candidates.push(...pathNodes)
   }
-
-  candidates.push(...pathNodes)
-  if (userMessageId) candidates.push(...collectAssistantDescendants(mapping, userMessageId))
 
   const candidate = dedupeNodes(candidates).sort((left, right) => {
     const scoreDelta =
       scoreAssistantNode(right, { currentNodeId, assistantMessageId, pathNodeIds }) -
       scoreAssistantNode(left, { currentNodeId, assistantMessageId, pathNodeIds })
     if (scoreDelta !== 0) return scoreDelta
+
+    // Among nodes that tie on every signal above, the newer one wins, and only
+    // then does the longer one. Timestamps are compared rather than subtracted
+    // because a node without one reads as -Infinity.
+    const leftTime = getNodeTimestamp(left)
+    const rightTime = getNodeTimestamp(right)
+    if (leftTime !== rightTime) return rightTime > leftTime ? 1 : -1
+
+    const textDelta = getNodeText(right).length - getNodeText(left).length
+    if (textDelta !== 0) return textDelta
     return String(right?.id || '').localeCompare(String(left?.id || ''))
   })[0]
 
@@ -492,17 +534,15 @@ function scoreConversationTurnAssistantNode(node, order) {
 
 function pickBestConversationTurnAssistant(nodes = []) {
   return (
-    nodes
-      .filter(Boolean)
-      .sort((left, right) => {
-        const leftOrder = nodes.indexOf(left)
-        const rightOrder = nodes.indexOf(right)
-        const scoreDelta =
-          scoreConversationTurnAssistantNode(right, rightOrder) -
-          scoreConversationTurnAssistantNode(left, leftOrder)
-        if (scoreDelta !== 0) return scoreDelta
-        return String(right?.id || '').localeCompare(String(left?.id || ''))
-      })[0] || null
+    nodes.filter(Boolean).sort((left, right) => {
+      const leftOrder = nodes.indexOf(left)
+      const rightOrder = nodes.indexOf(right)
+      const scoreDelta =
+        scoreConversationTurnAssistantNode(right, rightOrder) -
+        scoreConversationTurnAssistantNode(left, leftOrder)
+      if (scoreDelta !== 0) return scoreDelta
+      return String(right?.id || '').localeCompare(String(left?.id || ''))
+    })[0] || null
   )
 }
 
@@ -660,44 +700,122 @@ export function extractChatgptWebConversationQuery(
   }
 }
 
-export function extractChatgptWebConversationMessages(conversation = {}) {
+function nodeHasId(node, nodeId) {
+  if (!node || !nodeId) return false
+  return node.id === nodeId || node.message?.id === nodeId
+}
+
+// Follows the newest child at each step, which is how ChatGPT orders sibling
+// branches, so the returned leaf is the most recent tail below `startNodeId`.
+function findNewestLeafNodeId(mapping, startNodeId, maxDepth = 256) {
+  const visited = new Set()
+  let cursor = startNodeId
+
+  while (cursor && !visited.has(cursor) && visited.size < maxDepth) {
+    visited.add(cursor)
+    const node = getMappingNode(mapping, cursor)
+    const children = Array.isArray(node?.children) ? node.children : []
+    const next = children.length ? children[children.length - 1] : null
+    if (!next || !getMappingNode(mapping, next)) return cursor
+    cursor = next
+  }
+
+  return cursor
+}
+
+// The branch to describe. `current_node` is the default, but a `userMessageId`
+// anchor that sits outside that path (ChatGPT has stored the new user turn
+// without moving `current_node` yet) takes over, so the awaited question is
+// part of the transcript instead of being invisible until the answer lands.
+function resolveConversationPathLeafId(mapping, conversation, userMessageId) {
+  const currentNodeId = conversation?.current_node || null
+  if (!userMessageId || !getMappingNode(mapping, userMessageId)) return currentNodeId
+
+  const onCurrentPath = buildAncestorPath(mapping, currentNodeId).some(
+    (node) => node.id === userMessageId,
+  )
+  if (onCurrentPath) return currentNodeId
+  return findNewestLeafNodeId(mapping, userMessageId)
+}
+
+// Splits the current branch into turns so that reasoning timing stays attached
+// to the answer it belongs to. Every turn owns its own thinking segments, which
+// is why a conversation cannot be described by one duration.
+function extractChatgptWebConversationTurns(conversation = {}, { userMessageId } = {}) {
   const mapping = conversation?.mapping
   if (!mapping || typeof mapping !== 'object') return []
 
-  const rootPath = buildRootPath(mapping, conversation?.current_node || null)
-  const messages = []
-  let activeUserNode = null
-  let assistantNodes = []
+  const rootPath = buildRootPath(
+    mapping,
+    resolveConversationPathLeafId(mapping, conversation, userMessageId),
+  )
+  const collected = []
+  let turn = null
 
   function flushTurn() {
-    if (!activeUserNode) return
-
-    const userMessage = formatConversationMessageNode(activeUserNode)
-    if (userMessage?.text) messages.push(userMessage)
-
-    const assistantNode = pickBestConversationTurnAssistant(assistantNodes)
-    const assistantMessage = formatConversationMessageNode(assistantNode)
-    if (assistantMessage?.text) messages.push(assistantMessage)
-
-    activeUserNode = null
-    assistantNodes = []
+    if (turn) collected.push(turn)
+    turn = null
   }
 
   rootPath.forEach((node) => {
     const role = getMessageRole(node)
     if (role === 'user') {
       flushTurn()
-      activeUserNode = node
+      turn = { userNode: node, assistantNodes: [], thinkingNodes: [] }
       return
     }
 
-    if (role !== 'assistant' || !activeUserNode) return
-    if (!isVisibleConversationMessageNode(node)) return
-    assistantNodes.push(node)
+    if (role !== 'assistant' || !turn) return
+    if (shouldExposeThinkingNode(node)) turn.thinkingNodes.push(node)
+    if (isVisibleConversationMessageNode(node)) turn.assistantNodes.push(node)
   })
 
   flushTurn()
+
+  return collected.map((entry) => {
+    const assistantNode = pickBestConversationTurnAssistant(entry.assistantNodes)
+    const assistantNodeId = assistantNode?.id || assistantNode?.message?.id || null
+    const timings = entry.thinkingNodes
+      .filter((node) => !nodeHasId(node, assistantNodeId))
+      .map((node) => readThinkingNodeTiming(node))
+
+    return {
+      ...entry,
+      assistantNode,
+      thoughtDuration: summarizeChatgptWebThoughtDuration(timings),
+    }
+  })
+}
+
+function findChatgptWebConversationTurnByMessageId(turns, messageId) {
+  if (!messageId) return null
+  return (
+    turns.find(
+      (turn) =>
+        turn.assistantNodes.some((node) => nodeHasId(node, messageId)) ||
+        turn.thinkingNodes.some((node) => nodeHasId(node, messageId)),
+    ) || null
+  )
+}
+
+function toChatgptWebConversationMessages(turns = []) {
+  const messages = []
+
+  for (const turn of turns) {
+    const userMessage = formatConversationMessageNode(turn.userNode)
+    if (userMessage?.text) messages.push(userMessage)
+
+    const assistantMessage = formatConversationMessageNode(turn.assistantNode)
+    if (assistantMessage?.text) messages.push({ ...assistantMessage, ...turn.thoughtDuration })
+  }
+
   return messages
+}
+
+export function extractChatgptWebConversationMessages(conversation = {}, { userMessageId } = {}) {
+  return toChatgptWebConversationMessages(
+    extractChatgptWebConversationTurns(conversation, { userMessageId }),
+  )
 }
 
 export function extractChatgptWebConversationThinking(
@@ -770,12 +888,15 @@ export function formatChatgptWebConversationSnapshot(
     userMessageId,
     assistantMessageId,
   })
-  const messages = extractChatgptWebConversationMessages(conversation)
-  const thinkingEntries = extractChatgptWebConversationThinking(conversation, {
-    userMessageId,
-    assistantMessageId,
-  })
-  const thoughtDuration = summarizeChatgptWebThoughtDuration(thinkingEntries)
+  const turns = extractChatgptWebConversationTurns(conversation, { userMessageId })
+  const messages = toChatgptWebConversationMessages(turns)
+  // Anchor the top-level timing to the turn that produced `message`, so the
+  // snapshot never reports a duration belonging to a different answer. Per-turn
+  // values stay on `messages`.
+  const resultTurn = result
+    ? findChatgptWebConversationTurnByMessageId(turns, result.messageId) || turns.at(-1) || null
+    : null
+  const thoughtDuration = resultTurn?.thoughtDuration || EMPTY_THOUGHT_DURATION
 
   return {
     conversationId: conversation.conversation_id || null,
@@ -796,7 +917,13 @@ export function formatChatgptWebConversationSnapshot(
     messages,
     thoughtDurationSec: thoughtDuration.thoughtDurationSec,
     thoughtDurationText: thoughtDuration.thoughtDurationText,
-    thinking: think ? thinkingEntries : undefined,
+    thoughtDurationLabel: thoughtDuration.thoughtDurationLabel,
+    thinking: think
+      ? extractChatgptWebConversationThinking(conversation, {
+          userMessageId,
+          assistantMessageId,
+        })
+      : undefined,
     message: result,
   }
 }

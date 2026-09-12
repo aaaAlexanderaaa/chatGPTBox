@@ -1,6 +1,6 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
-const BASE_URL = 'http://127.0.0.1:18081'
+const BASE_URL = 'http://127.0.0.1:18080'
 // Uses the local cache. Run Full Sync explicitly when you want to refresh it;
 // listing should not trigger a large burst of ChatGPT Web requests.
 const LIST_URL = BASE_URL + '/chatgpt/conversations?offset=0&limit=100&order=updated'
