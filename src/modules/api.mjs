@@ -33,6 +33,12 @@ export const ModuleMessage = {
   ChatgptWebSyncConversations: RuntimeMessage.ChatgptWebSyncConversations,
   ChatgptWebStopConversationSync: RuntimeMessage.ChatgptWebStopConversationSync,
   ChatgptWebUnlockConversationSync: RuntimeMessage.ChatgptWebUnlockConversationSync,
+  ChatgptWebHydrateConversations: RuntimeMessage.ChatgptWebHydrateConversations,
+  ChatgptWebStopConversationHydrate: RuntimeMessage.ChatgptWebStopConversationHydrate,
+  ChatgptWebRetryHydrateFailure: RuntimeMessage.ChatgptWebRetryHydrateFailure,
+  ChatgptWebClearHydrateFailures: RuntimeMessage.ChatgptWebClearHydrateFailures,
+  ChatgptWebResetHydrateCircuit: RuntimeMessage.ChatgptWebResetHydrateCircuit,
+  ChatgptWebReconcileHydrate: RuntimeMessage.ChatgptWebReconcileHydrate,
 }
 
 /**

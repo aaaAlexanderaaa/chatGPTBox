@@ -32,6 +32,7 @@ import {
   hasActiveChatgptWebSessionRequests,
   syncChatgptWebConversationCacheWithFallback,
   stopChatgptWebConversationCacheSyncWithFallback,
+  reconcileChatgptWebHydrateStateWithFallback,
   handleProxyResponsePort,
 } from './chatgpt-proxy-service.mjs'
 import { handleGrokProxyResponsePort } from './grok-proxy-service.mjs'
@@ -137,10 +138,7 @@ async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false }
     getChatgptWebConversationMeta().catch(() => ({})),
   ])
   const badgeApi = Browser.action || Browser.browserAction
-  applyActionBadge(
-    badgeApi,
-    setRateLimitedFlag(meta?.safetyLock?.reason === 'rate_limited'),
-  )
+  applyActionBadge(badgeApi, setRateLimitedFlag(meta?.safetyLock?.reason === 'rate_limited'))
   const existingAlarm =
     (await Browser.alarms.get?.(CHATGPT_WEB_HISTORY_SYNC_ALARM).catch(() => null)) || null
   const decision = resolveChatgptWebHistorySyncAlarmAction({
@@ -160,11 +158,13 @@ async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false }
 Browser.runtime.onInstalled.addListener(() => {
   void ensureChatgptWebConversationSyncAlarm()
   void ensureChatgptWebFirstRun()
+  void reconcileChatgptWebHydrateStateWithFallback()
 })
 
 Browser.runtime.onStartup?.addListener(() => {
   void ensureChatgptWebConversationSyncAlarm()
   void ensureChatgptWebFirstRun()
+  void reconcileChatgptWebHydrateStateWithFallback()
 })
 
 Browser.alarms?.onAlarm.addListener((alarm) => {

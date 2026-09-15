@@ -66,6 +66,12 @@ describe('getUserConfig migrations', () => {
       chatgptWebHistorySyncIntervalHours: 12,
       chatgptWebHistorySyncArchived: false,
       chatgptWebHistorySyncOnlyWhenIdle: true,
+      chatgptWebHistoryHydrateLimit: 0,
+      chatgptWebHistoryHydrateOffset: 0,
+      chatgptWebHistoryHydrateRetryCount: 1,
+      chatgptWebHistoryHydrateOrder: 'updated',
+      chatgptWebHistoryHydrateIncludeArchived: false,
+      chatgptWebHistoryHydrateRefreshListFirst: false,
       disableWebModeHistory: true,
       debugChatgptWebRequests: false,
     })

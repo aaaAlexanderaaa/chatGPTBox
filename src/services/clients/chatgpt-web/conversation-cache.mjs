@@ -394,6 +394,23 @@ export async function setChatgptWebConversationMeta(meta) {
   })
 }
 
+let conversationMetaWriteQueue = Promise.resolve()
+
+export async function updateChatgptWebConversationMeta(updater) {
+  const run = conversationMetaWriteQueue.then(async () => {
+    const current = await getChatgptWebConversationMeta()
+    const base = current && typeof current === 'object' ? current : {}
+    const next = await updater(base)
+    await setChatgptWebConversationMeta(next && typeof next === 'object' ? next : {})
+    return next
+  })
+  conversationMetaWriteQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export async function getCachedChatgptWebConversationRecord(conversationId) {
   const key = makeChatgptWebConversationSnapshotStorageKey(conversationId)
   const storage = await getBrowserStorage()
@@ -449,10 +466,7 @@ export async function rememberChatgptWebCreatedConversationIndexEntry(
   return entry
 }
 
-export async function upsertChatgptWebCreatedConversationIndexEntry(
-  conversationId,
-  options = {},
-) {
+export async function upsertChatgptWebCreatedConversationIndexEntry(conversationId, options = {}) {
   const entry = await rememberChatgptWebCreatedConversationIndexEntry(conversationId, options)
   const stored = await getStoredChatgptWebConversationIndex()
   if (stored[entry.id]) {

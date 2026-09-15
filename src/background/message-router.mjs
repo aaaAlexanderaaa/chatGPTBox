@@ -23,6 +23,12 @@ import {
   syncChatgptWebConversationCacheWithFallback,
   stopChatgptWebConversationCacheSyncWithFallback,
   unlockChatgptWebConversationSyncWithFallback,
+  runChatgptWebConversationHydrateWithFallback,
+  stopChatgptWebConversationHydrateWithFallback,
+  retryChatgptWebHydrateFailureWithFallback,
+  clearChatgptWebHydrateFailuresWithFallback,
+  resetChatgptWebHydrateCircuitWithFallback,
+  reconcileChatgptWebHydrateStateWithFallback,
   listChatgptWebConversationsWithFallback,
   listChatgptWebModelsWithFallback,
   getChatgptWebConversationWithFallback,
@@ -187,6 +193,18 @@ export function createMessageRouter() {
       stopChatgptWebConversationCacheSyncWithFallback(),
     [RuntimeMessage.ChatgptWebUnlockConversationSync]: () =>
       unlockChatgptWebConversationSyncWithFallback(),
+    [RuntimeMessage.ChatgptWebHydrateConversations]: (message) =>
+      runChatgptWebConversationHydrateWithFallback(message.data || {}),
+    [RuntimeMessage.ChatgptWebStopConversationHydrate]: () =>
+      stopChatgptWebConversationHydrateWithFallback(),
+    [RuntimeMessage.ChatgptWebRetryHydrateFailure]: (message) =>
+      retryChatgptWebHydrateFailureWithFallback(message.data || {}),
+    [RuntimeMessage.ChatgptWebClearHydrateFailures]: () =>
+      clearChatgptWebHydrateFailuresWithFallback(),
+    [RuntimeMessage.ChatgptWebResetHydrateCircuit]: () =>
+      resetChatgptWebHydrateCircuitWithFallback(),
+    [RuntimeMessage.ChatgptWebReconcileHydrate]: () =>
+      reconcileChatgptWebHydrateStateWithFallback(),
     [RuntimeMessage.ChatgptWebListModels]: async () => {
       const models = await listChatgptWebModelsWithFallback()
       if (Array.isArray(models) && models.length > 0) {

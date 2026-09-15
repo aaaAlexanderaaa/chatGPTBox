@@ -44,6 +44,9 @@ export const NUMERIC_FIELDS = /** @type {NumericFieldSpec[]} */ ([
   { key: 'chatgptWebConversationPollIntervalSeconds', kind: 'int', min: 1, max: 300 },
   { key: 'chatgptWebHistorySyncRpm', kind: 'int', min: 1, max: 30 },
   { key: 'chatgptWebHistorySyncIntervalHours', kind: 'int', min: 1, max: 168 },
+  { key: 'chatgptWebHistoryHydrateLimit', kind: 'int', min: 0, max: 100000 },
+  { key: 'chatgptWebHistoryHydrateOffset', kind: 'int', min: 0, max: 100000 },
+  { key: 'chatgptWebHistoryHydrateRetryCount', kind: 'int', min: 0, max: 5 },
 ])
 
 /**

@@ -33,6 +33,14 @@ import {
   unlockChatgptWebConversationSync,
 } from '../services/clients/chatgpt-web/conversation-api.mjs'
 import {
+  clearChatgptWebHydrateFailures,
+  reconcileChatgptWebHydrateState,
+  resetChatgptWebHydrateCircuit,
+  retryChatgptWebHydrateFailure,
+  runChatgptWebConversationHydrate,
+  stopChatgptWebConversationHydrate,
+} from '../services/clients/chatgpt-web/conversation-hydrate.mjs'
+import {
   invalidateConversation,
   rememberChatgptWebCreatedConversationIndexEntry,
   upsertChatgptWebCreatedConversationIndexEntry,
@@ -397,6 +405,30 @@ export async function stopChatgptWebConversationCacheSyncWithFallback() {
 
 export async function unlockChatgptWebConversationSyncWithFallback() {
   return await unlockChatgptWebConversationSync()
+}
+
+export async function runChatgptWebConversationHydrateWithFallback(payload = {}) {
+  return await runChatgptWebConversationHydrate(payload)
+}
+
+export async function stopChatgptWebConversationHydrateWithFallback() {
+  return await stopChatgptWebConversationHydrate()
+}
+
+export async function retryChatgptWebHydrateFailureWithFallback(payload = {}) {
+  return await retryChatgptWebHydrateFailure(payload?.conversationId)
+}
+
+export async function clearChatgptWebHydrateFailuresWithFallback() {
+  return await clearChatgptWebHydrateFailures()
+}
+
+export async function resetChatgptWebHydrateCircuitWithFallback() {
+  return await resetChatgptWebHydrateCircuit()
+}
+
+export async function reconcileChatgptWebHydrateStateWithFallback() {
+  return await reconcileChatgptWebHydrateState()
 }
 
 // --- list/get/refresh with proxy fallback (used by message router) --------

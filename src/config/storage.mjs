@@ -10,6 +10,9 @@ import {
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_INTERVAL_SECONDS,
   DEFAULT_CHATGPT_WEB_CONVERSATION_POLL_TIMEOUT_SECONDS,
+  DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_LIMIT,
+  DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_OFFSET,
+  DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_RETRY_COUNT,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
@@ -116,6 +119,12 @@ export const defaultConfig = {
   chatgptWebHistorySyncIntervalHours: DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
   chatgptWebHistorySyncArchived: false,
   chatgptWebHistorySyncOnlyWhenIdle: true,
+  chatgptWebHistoryHydrateLimit: DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_LIMIT,
+  chatgptWebHistoryHydrateOffset: DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_OFFSET,
+  chatgptWebHistoryHydrateRetryCount: DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_RETRY_COUNT,
+  chatgptWebHistoryHydrateOrder: 'updated',
+  chatgptWebHistoryHydrateIncludeArchived: false,
+  chatgptWebHistoryHydrateRefreshListFirst: false,
   customOpenAiApiUrl: 'https://api.openai.com',
   customClaudeApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
@@ -298,6 +307,18 @@ export async function getUserConfig() {
   config.chatgptWebHistorySyncEnabled = config.chatgptWebHistorySyncEnabled === true
   config.chatgptWebHistorySyncArchived = config.chatgptWebHistorySyncArchived === true
   config.chatgptWebHistorySyncOnlyWhenIdle = config.chatgptWebHistorySyncOnlyWhenIdle !== false
+  config.chatgptWebHistoryHydrateIncludeArchived =
+    config.chatgptWebHistoryHydrateIncludeArchived === true
+  config.chatgptWebHistoryHydrateRefreshListFirst =
+    config.chatgptWebHistoryHydrateRefreshListFirst === true
+  if (
+    !['updated', 'updated_asc', 'created', 'created_asc'].includes(
+      config.chatgptWebHistoryHydrateOrder,
+    )
+  ) {
+    config.chatgptWebHistoryHydrateOrder = 'updated'
+    await Browser.storage.local.set({ chatgptWebHistoryHydrateOrder: 'updated' })
+  }
   if (!['off', 'adaptive', 'fixed'].includes(config.chatgptWebHistoryAutoSyncMode)) {
     config.chatgptWebHistoryAutoSyncMode = 'off'
     await Browser.storage.local.set({ chatgptWebHistoryAutoSyncMode: 'off' })

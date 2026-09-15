@@ -1,6 +1,7 @@
 import Browser from 'webextension-polyfill'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
 } from '../../../config/limits.mjs'
 import { fetchSSE } from '../../../utils/fetch-sse.mjs'
@@ -17,7 +18,7 @@ import {
   overlayChatgptWebConversationStatus,
   saveChatgptWebConversationSnapshot,
   setChatgptWebConversationIndex,
-  setChatgptWebConversationMeta,
+  updateChatgptWebConversationMeta,
   clearInvalidation,
 } from './conversation-cache.mjs'
 import {
@@ -101,12 +102,7 @@ function normalizeRequestStats(stats = {}) {
   return { ...createDefaultRequestStats(), ...(stats || {}) }
 }
 
-async function updateConversationMeta(updater) {
-  const current = await getChatgptWebConversationMeta()
-  const next = updater(current && typeof current === 'object' ? current : {})
-  await setChatgptWebConversationMeta(next)
-  return next
-}
+const updateConversationMeta = updateChatgptWebConversationMeta
 
 async function recordHistoryRequest({ kind, automatic, reason, status = null }) {
   const now = new Date().toISOString()
@@ -167,7 +163,7 @@ async function engageHistoryRateLimitSafetyLock({ path, reason }) {
   return meta
 }
 
-async function assertHistorySafetyLockClear() {
+async function assertHistorySafetyLockClear({ respectListPause = true } = {}) {
   const meta = await getChatgptWebConversationMeta()
   if (meta?.safetyLock?.reason === 'rate_limited') {
     const error = new Error(
@@ -177,18 +173,24 @@ async function assertHistorySafetyLockClear() {
     error.status = 429
     throw error
   }
-  if (meta?.syncState?.status === 'pause_requested') {
+  if (respectListPause && meta?.syncState?.status === 'pause_requested') {
     throw createAbortError()
   }
   return meta
 }
 
+const HISTORY_REQUEST_WAIT_SLICE_MS = 1000
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitForHistoryRequestSlot(rpm) {
-  await assertHistorySafetyLockClear()
+async function waitForHistoryRequestSlot(rpm, { respectListPause = true, shouldAbort } = {}) {
+  const abortIfRequested = async () => {
+    if (shouldAbort && (await shouldAbort())) throw createAbortError()
+  }
+  await abortIfRequested()
+  await assertHistorySafetyLockClear({ respectListPause })
   const config = await getUserConfig().catch(() => ({}))
   if (config.chatgptWebHistorySyncEnabled !== true) {
     const error = new Error('ChatGPT history synchronization is disabled in settings')
@@ -202,10 +204,12 @@ async function waitForHistoryRequestSlot(rpm) {
   const nextAt = Date.parse(meta?.nextHistoryRequestAt || '')
   let remaining = Number.isFinite(nextAt) ? Math.max(0, nextAt - Date.now()) : 0
   while (remaining > 0) {
-    await wait(Math.min(remaining, 30_000))
+    await wait(Math.min(remaining, HISTORY_REQUEST_WAIT_SLICE_MS))
     remaining = Math.max(0, nextAt - Date.now())
-    await assertHistorySafetyLockClear()
+    await abortIfRequested()
+    await assertHistorySafetyLockClear({ respectListPause })
   }
+  await abortIfRequested()
   const reservedAt = Date.now()
   await updateConversationMeta((current) => ({
     ...current,
@@ -292,7 +296,10 @@ async function fetchChatgptWebJson(
   { method = 'GET', body, signal, historyRequest = null } = {},
 ) {
   if (historyRequest?.limited !== false) {
-    await waitForHistoryRequestSlot(historyRequest.rpm)
+    await waitForHistoryRequestSlot(historyRequest.rpm, {
+      respectListPause: historyRequest.respectListPause !== false,
+      shouldAbort: historyRequest.shouldAbort,
+    })
   }
   const context = await getChatgptWebRequestContext()
   let response
@@ -427,13 +434,63 @@ async function fetchChatgptWebConversationListPageFromNetwork({
 async function fetchChatgptWebConversationSnapshotFromNetwork(
   conversationId,
   historyRequest = null,
+  { signal } = {},
 ) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
   return await fetchChatgptWebJson(
     `/backend-api/conversation/${encodeURIComponent(normalizedConversationId)}`,
-    { historyRequest },
+    { historyRequest, signal },
   )
+}
+
+export async function fetchChatgptWebConversationSnapshotForHydrate(
+  conversationId,
+  { shouldAbort } = {},
+) {
+  const normalizedConversationId = normalizeConversationId(conversationId)
+  if (!normalizedConversationId) throw new Error('conversationId is required')
+  const config = await getUserConfig().catch(() => ({}))
+  const timeoutSeconds =
+    parseInt(config.apiServerRequestTimeoutSeconds, 10) ||
+    DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS
+  const timeoutMs = Math.max(1, timeoutSeconds) * 1000
+  const controller = new AbortController()
+  const timer = setTimeout(() => {
+    controller.abort()
+  }, timeoutMs)
+
+  try {
+    const snapshot = await fetchChatgptWebConversationSnapshotFromNetwork(
+      normalizedConversationId,
+      {
+        kind: 'detail',
+        automatic: false,
+        reason: 'hydrate',
+        limited: true,
+        respectListPause: false,
+        shouldAbort,
+      },
+      { signal: controller.signal },
+    )
+    await saveChatgptWebConversationSnapshot(snapshot, {
+      cachedAt: new Date().toISOString(),
+      source: 'hydrate',
+    })
+    return snapshot
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(
+        `Conversation snapshot timed out after ${timeoutSeconds} seconds`,
+      )
+      timeoutError.code = 'CHATGPT_HISTORY_HYDRATE_TIMEOUT'
+      timeoutError.cause = error
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function cacheChatgptWebConversationSnapshotById(conversationId, source = 'unknown') {

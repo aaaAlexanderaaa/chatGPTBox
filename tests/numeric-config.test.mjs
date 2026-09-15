@@ -23,6 +23,9 @@ const defaultConfig = {
   chatgptWebConversationPollIntervalSeconds: 5,
   chatgptWebHistorySyncRpm: 6,
   chatgptWebHistorySyncIntervalHours: 12,
+  chatgptWebHistoryHydrateLimit: 0,
+  chatgptWebHistoryHydrateOffset: 0,
+  chatgptWebHistoryHydrateRetryCount: 1,
 }
 
 describe('NUMERIC_FIELDS table', () => {
@@ -40,6 +43,9 @@ describe('NUMERIC_FIELDS table', () => {
       'chatgptWebConversationPollIntervalSeconds',
       'chatgptWebHistorySyncRpm',
       'chatgptWebHistorySyncIntervalHours',
+      'chatgptWebHistoryHydrateLimit',
+      'chatgptWebHistoryHydrateOffset',
+      'chatgptWebHistoryHydrateRetryCount',
     ])
   })
 
