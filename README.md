@@ -246,6 +246,13 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.0.1
+
+- ChatGPT Web history can now optionally back up conversation contents from the local list, with stop/resume and a circuit breaker, still under the RPM gate.
+- Automatic and bulk history requests are jittered across a one-minute window and wait for that window to end, so a fast full sync cannot burst past the configured RPM.
+- Conversation snapshots expose latest-turn thought duration, acknowledge sends immediately, and keep thinking-model generation in the browser so Drafts can collect answers by turn.
+- Synced the latest ChatGPT conversation bundles and Chat/Work model catalogs, and watch `current/` scripts for protocol drift.
+
 ### v4.0.0
 
 - The extension is now the full DeepSeek Harness Web client: Harness shell, workspace-grouped sessions, schema-driven settings and preset roster, composer controls for command/skill/permission/plan, plus jobs, subagents, trajectory, and workflow runs.

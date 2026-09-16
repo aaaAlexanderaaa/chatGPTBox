@@ -243,6 +243,13 @@ ChatGPTBox 在浏览器中本地运行。仅在您配置的提供商/端点上�
 
 ## 更新日志
 
+### v4.0.1
+
+- ChatGPT Web 历史现在可以从本地目录可选备份会话正文，支持停止 / 续传和熔断，仍受 RPM 限制。
+- 自动及批量历史请求会在一分钟窗口内随机分布，并等到该窗口结束再开下一窗，避免完整同步过快打穿设定 RPM。
+- 对话快照会带上最近一轮思考时长，发送后立即确认，并在浏览器里收齐思考模型的按轮回答，方便 Drafts 取结果。
+- 同步了最新的 ChatGPT 会话协议包和 Chat / Work 模型目录，并监视 `current/` 脚本是否发生协议漂移。
+
 ### v4.0.0
 
 - 扩展现为完整的 DeepSeek Harness Web 客户端：Harness shell、按 workspace 分组的会话、schema 驱动的设置与 preset roster、composer 上的 command/skill/permission/plan，以及 jobs、subagents、trajectory 与 workflow runs。
