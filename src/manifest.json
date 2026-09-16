@@ -68,6 +68,7 @@
         "content-script.js"
       ],
       "css": [
+        "shared.css",
         "content-script.css"
       ]
     }

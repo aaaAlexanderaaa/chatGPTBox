@@ -29,8 +29,12 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
     'react-tabs',
     './src/utils',
     './src/_locales/i18n-react',
+    // Always share the UI kit so Markdown/KaTeX/highlight land in one JS+CSS
+    // pair instead of being copied into every page that renders a chat.
+    // The without-katex pass still rewrites markdown.jsx via the replacement
+    // plugin below, so this entry stays valid for both builds.
+    './src/components',
   ]
-  if (isWithoutKatex) shared.push('./src/components')
 
   const compiler = webpack({
     entry: {
@@ -121,6 +125,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
     resolve: {
       extensions: ['.jsx', '.mjs', '.js'],
       alias: {
+        // rehype-highlight imports `lowlight`, which must stay on the common
+        // language set. Pinning the alias keeps a future lowlight major from
+        // silently pulling highlight.js/lib/all into every chat surface.
+        'lowlight$': path.resolve(__dirname, 'node_modules/lowlight/lib/common.js'),
         ...(minimal
           ? { buffer: path.resolve(__dirname, 'node_modules/buffer') }
           : {
@@ -218,6 +226,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
           },
         },
         {
+          // Content-script CSS is injected into arbitrary pages. Relative
+          // `url()` font paths resolve against the page origin, and a single
+          // CSS file is reused for Chromium and Firefox, so chrome-extension://
+          // URLs cannot be baked in. Inline woff2 once (via shared.css).
           test: /\.woff2$/,
           type: 'asset/inline',
         },
@@ -300,13 +312,20 @@ async function copyFiles(entryPoints, targetDir) {
 }
 
 async function finishOutput(outputDirSuffix) {
+  // The without-katex pass may not emit shared.css (no KaTeX font stylesheet
+  // in that graph). Manifests and HTML always reference it, so keep a stub.
+  if (!(await fs.pathExists('build/shared.css'))) {
+    await fs.writeFile('build/shared.css', '/* shared stylesheet placeholder */\n')
+  }
+
   const commonFiles = [
     { src: 'LICENSE', dst: 'LICENSE' },
     { src: 'src/logo.png', dst: 'logo.png' },
     { src: 'src/rules.json', dst: 'rules.json' },
 
     { src: 'build/shared.js', dst: 'shared.js' },
-    { src: 'build/content-script.css', dst: 'content-script.css' }, // shared
+    { src: 'build/shared.css', dst: 'shared.css' },
+    { src: 'build/content-script.css', dst: 'content-script.css' }, // shared page chrome
 
     { src: 'build/content-script.js', dst: 'content-script.js' },
 

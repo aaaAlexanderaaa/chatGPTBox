@@ -81,7 +81,10 @@ export async function ensureGrokProxyTab({ tabs, createTab } = {}) {
 
 async function injectContentScript(tabId) {
   try {
-    await Browser.scripting.insertCSS({ target: { tabId }, files: ['content-script.css'] })
+    await Browser.scripting.insertCSS({
+      target: { tabId },
+      files: ['shared.css', 'content-script.css'],
+    })
   } catch {
     /* non-critical */
   }

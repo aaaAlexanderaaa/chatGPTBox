@@ -1,6 +1,7 @@
 export * from './change-children-font-size'
 export * from './create-element-at-position'
-export * from './crop-text'
+// crop-text.mjs pulls @nem035/gpt-3-encoder (~1.5MB). Import that file at
+// the content-script call sites that need it; do not re-export it here.
 export * from './ends-with-question-mark'
 export * from './fetch-sse'
 export * from './get-client-position'

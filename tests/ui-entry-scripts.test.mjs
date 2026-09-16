@@ -39,6 +39,22 @@ describe('UI entries that depend on the shared webpack chunk', () => {
   })
 })
 
+const SHARED_CSS_HTML = [
+  'src/popup/index.html',
+  'src/options/index.html',
+  'src/pages/IndependentPanel/index.html',
+]
+
+describe('pages that render shared Markdown/KaTeX', () => {
+  it.each(SHARED_CSS_HTML)('%s loads shared.css before content-script.css', (relative) => {
+    const html = readFileSync(path.join(root, relative), 'utf8')
+    const hrefs = stylesheetHrefs(html)
+    expect(hrefs).toContain('shared.css')
+    expect(hrefs).toContain('content-script.css')
+    expect(hrefs.indexOf('shared.css')).toBeLessThan(hrefs.indexOf('content-script.css'))
+  })
+})
+
 describe('DSH packaged stylesheet name', () => {
   it('copies webpack dsh.css to the href used by dsh.html', () => {
     const html = readFileSync(path.join(root, 'src/modules/dsh/ui/index.html'), 'utf8')

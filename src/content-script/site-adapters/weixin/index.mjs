@@ -1,4 +1,4 @@
-import { cropText } from '../../../utils'
+import { cropText } from '../../../utils/crop-text.mjs'
 import { safeAdapter } from '../_helpers.mjs'
 
 export default {

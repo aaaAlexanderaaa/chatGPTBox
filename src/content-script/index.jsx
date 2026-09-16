@@ -14,7 +14,6 @@ import {
 import { isUsingChatgptWebModel } from '../config/predicates.mjs'
 import {
   createElementAtPosition,
-  cropText,
   endsWithQuestionMark,
   getClientPosition,
   getPossibleElementByQuerySelector,
@@ -23,6 +22,7 @@ import {
   resolveEngineForSite,
   resolvePromptTemplate,
 } from '../utils'
+import { cropText } from '../utils/crop-text.mjs'
 import FloatingToolbar from '../components/FloatingToolbar'
 import Browser from 'webextension-polyfill'
 import { getPreferredLanguage } from '../config/language.mjs'
