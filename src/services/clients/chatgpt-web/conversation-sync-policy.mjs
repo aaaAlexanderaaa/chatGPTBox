@@ -12,9 +12,80 @@ export function normalizeChatgptWebHistoryAutoSyncMode(value) {
     : CHATGPT_WEB_HISTORY_AUTO_SYNC_MODES.Off
 }
 
+export function normalizeHistorySyncRpm(rpm) {
+  return Math.min(30, Math.max(1, parseInt(rpm, 10) || 6))
+}
+
 export function getChatgptWebHistoryRequestIntervalMs(rpm) {
-  const normalizedRpm = Math.min(30, Math.max(1, parseInt(rpm, 10) || 6))
-  return Math.ceil(60_000 / normalizedRpm)
+  return Math.ceil(60_000 / normalizeHistorySyncRpm(rpm))
+}
+
+const HISTORY_REQUEST_WINDOW_MS = 60_000
+const HISTORY_REQUEST_MISSED_SLOT_GRACE_MS = 250
+
+export function createHistoryRequestWindow(rpm, { now = Date.now(), random = Math.random } = {}) {
+  const count = normalizeHistorySyncRpm(rpm)
+  const offsets = Array.from({ length: count }, () =>
+    Math.round(random() * HISTORY_REQUEST_WINDOW_MS),
+  ).sort((left, right) => left - right)
+  return {
+    startedAt: new Date(now).toISOString(),
+    offsets,
+    index: 0,
+  }
+}
+
+function normalizeHistoryRequestSchedule(schedule) {
+  if (!schedule || typeof schedule !== 'object') return null
+  const startedAt = Date.parse(schedule.startedAt || '')
+  if (!Number.isFinite(startedAt)) return null
+  const offsets = Array.isArray(schedule.offsets)
+    ? schedule.offsets.filter((value) => Number.isFinite(Number(value)))
+    : []
+  if (offsets.length === 0) return null
+  return {
+    startedAt: new Date(startedAt).toISOString(),
+    offsets,
+    index: Math.max(0, parseInt(schedule.index, 10) || 0),
+  }
+}
+
+export function planHistoryRequestSlot(
+  schedule,
+  rpm,
+  { now = Date.now(), random = Math.random } = {},
+) {
+  const originOf = (state) => Date.parse(state.startedAt)
+  let state = normalizeHistoryRequestSchedule(schedule)
+  const origin = state ? originOf(state) : NaN
+  const windowAlive = state && Number.isFinite(origin) && now - origin < HISTORY_REQUEST_WINDOW_MS
+
+  if (!windowAlive) {
+    state = createHistoryRequestWindow(rpm, { now, random })
+  }
+
+  let startedAtMs = originOf(state)
+  while (
+    state.index < state.offsets.length &&
+    startedAtMs + state.offsets[state.index] < now - HISTORY_REQUEST_MISSED_SLOT_GRACE_MS
+  ) {
+    state = { ...state, index: state.index + 1 }
+  }
+
+  if (state.index >= state.offsets.length) {
+    const nextWindowStart = Math.max(now, startedAtMs + HISTORY_REQUEST_WINDOW_MS)
+    state = createHistoryRequestWindow(rpm, { now: nextWindowStart, random })
+    startedAtMs = originOf(state)
+  }
+
+  const fireAt = Math.max(now, startedAtMs + state.offsets[state.index])
+  return {
+    fireAt,
+    schedule: {
+      ...state,
+      index: state.index + 1,
+    },
+  }
 }
 
 export function getNextAdaptiveSyncIntervalHours(currentHours, changed) {

@@ -112,11 +112,13 @@ describe('ChatGPT history sync engine', () => {
     const items = Array.from({ length: 100 }, (_, index) => makeConversation(`id-${index}`))
     fetch.mockResolvedValue(jsonResponse(200, { items, total: 400 }))
 
-    const result = await syncChatgptWebConversationCache({
+    const sync = syncChatgptWebConversationCache({
       mode: 'incremental',
       automatic: true,
       reason: 'scheduled',
     })
+    await vi.runAllTimersAsync()
+    const result = await sync
 
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(result.pagesCompleted).toBe(1)
@@ -143,7 +145,7 @@ describe('ChatGPT history sync engine', () => {
     expect(storageData.chatgptWebConversationMeta.syncState.status).toBe('failed')
   })
 
-  it('spaces bulk requests evenly according to the configured RPM', async () => {
+  it('spaces bulk requests on the random one-minute schedule', async () => {
     getUserConfig.mockResolvedValue({
       accessToken: 'test-token',
       chatgptWebHistorySyncEnabled: true,
@@ -156,22 +158,33 @@ describe('ChatGPT history sync engine', () => {
       .mockResolvedValueOnce(jsonResponse(200, { items: firstPage, total: 101 }))
       .mockResolvedValueOnce(jsonResponse(200, { items: secondPage, total: 101 }))
 
-    const sync = syncChatgptWebConversationCache({ mode: 'full', reason: 'manual_full_sync' })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(fetch).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(9_999)
-    expect(fetch).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(1)
-    await sync
-    expect(fetch).toHaveBeenCalledTimes(2)
+    const samples = [0.1, 0.4, 0.5, 0.6, 0.7, 0.8]
+    let cursor = 0
+    const randomSpy = vi.spyOn(Math, 'random').mockImplementation(() => samples[cursor++] ?? 0.5)
+    try {
+      const sync = syncChatgptWebConversationCache({ mode: 'full', reason: 'manual_full_sync' })
+      await vi.advanceTimersByTimeAsync(5_999)
+      expect(fetch).toHaveBeenCalledTimes(0)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(17_999)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await sync
+      expect(fetch).toHaveBeenCalledTimes(2)
+    } finally {
+      randomSpy.mockRestore()
+    }
   })
 
   it('locks all automatic history activity after HTTP 429', async () => {
     fetch.mockResolvedValue(jsonResponse(429, { message: 'rate limited' }))
 
-    await expect(
+    const locked = expect(
       syncChatgptWebConversationCache({ mode: 'full', reason: 'manual_full_sync' }),
     ).rejects.toThrow('rate limited')
+    await vi.runAllTimersAsync()
+    await locked
 
     const meta = storageData.chatgptWebConversationMeta
     expect(meta.safetyLock).toMatchObject({ reason: 'rate_limited', status: 429 })
@@ -196,7 +209,9 @@ describe('ChatGPT history sync engine', () => {
     })
     fetch.mockResolvedValue(jsonResponse(200, { items: [makeConversation('id-1')], total: 1 }))
 
-    await syncChatgptWebConversationCache({ mode: 'incremental', automatic: true })
+    const sync = syncChatgptWebConversationCache({ mode: 'incremental', automatic: true })
+    await vi.runAllTimersAsync()
+    await sync
 
     expect(fetch.mock.calls[0][1].headers['Chatgpt-Account-Id']).toBe('account-team')
   })

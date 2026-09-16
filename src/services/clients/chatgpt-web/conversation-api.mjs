@@ -23,8 +23,8 @@ import {
 } from './conversation-cache.mjs'
 import {
   CHATGPT_WEB_HISTORY_SYNC_ALARM,
-  getChatgptWebHistoryRequestIntervalMs,
   getNextAdaptiveSyncIntervalHours,
+  planHistoryRequestSlot,
 } from './conversation-sync-policy.mjs'
 import { getChatGptAccessToken } from '../../wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from './client.mjs'
@@ -197,12 +197,13 @@ async function waitForHistoryRequestSlot(rpm, { respectListPause = true, shouldA
     error.code = 'CHATGPT_HISTORY_SYNC_DISABLED'
     throw error
   }
-  const intervalMs = getChatgptWebHistoryRequestIntervalMs(
-    config.chatgptWebHistorySyncRpm || rpm || DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
-  )
+  const normalizedRpm =
+    config.chatgptWebHistorySyncRpm || rpm || DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM
   const meta = await getChatgptWebConversationMeta()
-  const nextAt = Date.parse(meta?.nextHistoryRequestAt || '')
-  let remaining = Number.isFinite(nextAt) ? Math.max(0, nextAt - Date.now()) : 0
+  const planned = planHistoryRequestSlot(meta?.historyRequestSchedule, normalizedRpm)
+  const storedNextAt = Date.parse(meta?.nextHistoryRequestAt || '')
+  const nextAt = Math.max(planned.fireAt, Number.isFinite(storedNextAt) ? storedNextAt : 0)
+  let remaining = Math.max(0, nextAt - Date.now())
   while (remaining > 0) {
     await wait(Math.min(remaining, HISTORY_REQUEST_WAIT_SLICE_MS))
     remaining = Math.max(0, nextAt - Date.now())
@@ -210,10 +211,11 @@ async function waitForHistoryRequestSlot(rpm, { respectListPause = true, shouldA
     await assertHistorySafetyLockClear({ respectListPause })
   }
   await abortIfRequested()
-  const reservedAt = Date.now()
+  const following = planHistoryRequestSlot(planned.schedule, normalizedRpm, { now: Date.now() })
   await updateConversationMeta((current) => ({
     ...current,
-    nextHistoryRequestAt: new Date(reservedAt + intervalMs).toISOString(),
+    nextHistoryRequestAt: new Date(following.fireAt).toISOString(),
+    historyRequestSchedule: planned.schedule,
   }))
 }
 
@@ -764,6 +766,7 @@ export async function unlockChatgptWebConversationSync() {
     safetyLock: null,
     lastSyncError: null,
     nextHistoryRequestAt: null,
+    historyRequestSchedule: null,
     syncState: {
       ...(meta.syncState || {}),
       status: 'paused',

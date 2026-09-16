@@ -697,7 +697,7 @@ describe('ChatGPT history content backup engine', () => {
     )
 
     await stopChatgptWebConversationHydrate()
-    release(jsonResponse(200, { conversation_id: 'a', title: 'A', mapping: {}, update_time: 2 }))
+    release?.(jsonResponse(200, { conversation_id: 'a', title: 'A', mapping: {}, update_time: 2 }))
     await vi.runAllTimersAsync()
     await hydrate
   })
@@ -788,7 +788,9 @@ describe('ChatGPT history content backup engine', () => {
     }))
     fetch.mockResolvedValue(jsonResponse(200, { items, total: 100 }))
 
-    await syncChatgptWebConversationCache({ mode: 'incremental', automatic: true })
+    const sync = syncChatgptWebConversationCache({ mode: 'incremental', automatic: true })
+    await vi.runAllTimersAsync()
+    await sync
 
     expect(String(fetch.mock.calls[0][0])).toContain('limit=100')
     expect(storageData.chatgptWebConversationMeta.syncState.status).toBe('complete')
