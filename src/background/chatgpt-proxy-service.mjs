@@ -18,7 +18,11 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY, CHATGPT_WEB_DEBUG_LOG_KEY } from '../con
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { initSession } from '../services/init-session.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
-import { getChatGptAccessToken } from '../services/wrappers.mjs'
+import {
+  createPendingProxyCancellation,
+  getChatGptAccessToken,
+  isUiPortStopRequested,
+} from '../services/wrappers.mjs'
 import { getModelValue } from '../utils/model-name-convert.mjs'
 import {
   CHATGPT_PROXY_QUERY_PARAM,
@@ -138,6 +142,11 @@ export async function appendChatgptWebDebugLog(config, stage, payload = {}) {
 
 // --- session lock ----------------------------------------------------------
 
+function sameUiPort(a, b) {
+  const id = (port) => port?.__uiPort || port
+  return id(a) === id(b)
+}
+
 export function acquireChatgptWebSessionLock(session, port, config) {
   const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : ''
   if (!sessionId) return () => {}
@@ -147,11 +156,11 @@ export function acquireChatgptWebSessionLock(session, port, config) {
     void appendChatgptWebDebugLog(config, 'chatgpt-web-duplicate-blocked', {
       sessionId,
       model: getModelValue(session) || null,
-      samePort: existing.port === port,
+      samePort: sameUiPort(existing.port, port),
       sameQuestion: existing.question === session?.question,
       activeForMs: Date.now() - existing.startedAt,
     })
-    if (existing.port === port && existing.question === session?.question) {
+    if (sameUiPort(existing.port, port) && existing.question === session?.question) {
       return null
     }
     throw new Error('A ChatGPT Web request is already in progress for this session.')
@@ -165,7 +174,7 @@ export function acquireChatgptWebSessionLock(session, port, config) {
 
   return () => {
     const current = activeChatgptWebSessionRequests.get(sessionId)
-    if (current?.port === port) {
+    if (sameUiPort(current?.port, port)) {
       activeChatgptWebSessionRequests.delete(sessionId)
     }
   }
@@ -286,30 +295,73 @@ async function injectContentScript(tabId) {
 
 // --- proxy request / control send -----------------------------------------
 
-export async function sendChatgptProxyRequest(tabId, session, uiPort) {
+export async function sendChatgptProxyRequest(tabId, session, uiPort, deps = {}) {
   const requestId = crypto.randomUUID()
+  const send = deps.sendMessage || ((id, message) => Browser.tabs.sendMessage(id, message))
+
+  if (isUiPortStopRequested(uiPort)) return
 
   return new Promise((resolve, reject) => {
-    pendingChatgptProxyRequests.set(requestId, { uiPort, resolve, reject })
+    const cancellation = createPendingProxyCancellation(uiPort)
+    const entry = {
+      uiPort,
+      resolve,
+      reject,
+      cancellation,
+      cancelled: false,
+      sent: false,
+      settled: false,
+    }
 
-    const doSend = () =>
-      Browser.tabs.sendMessage(tabId, {
+    const settleResolve = () => {
+      if (entry.settled) return
+      entry.settled = true
+      resolve()
+    }
+
+    const settleReject = (error) => {
+      if (entry.settled) return
+      entry.settled = true
+      pendingChatgptProxyRequests.delete(requestId)
+      cancellation.dispose()
+      reject(error)
+    }
+
+    cancellation.onCancel(() => {
+      entry.cancelled = true
+      if (entry.settled) return
+      if (!entry.sent) {
+        pendingChatgptProxyRequests.delete(requestId)
+        cancellation.dispose()
+      }
+      settleResolve()
+    })
+
+    pendingChatgptProxyRequests.set(requestId, entry)
+
+    const doSend = () => {
+      if (entry.cancelled || entry.settled || isUiPortStopRequested(uiPort))
+        return Promise.resolve()
+      entry.sent = true
+      return send(tabId, {
         type: RuntimeMessage.ChatgptProxyRequest,
         data: { session, requestId },
       })
+    }
 
     doSend().catch(async (firstErr) => {
+      if (entry.cancelled || entry.settled) return
       if (/receiving end does not exist/i.test(firstErr?.message)) {
         console.debug('[background] Content script not found, injecting into tab', tabId)
         try {
           await injectContentScript(tabId)
           await new Promise((r) => setTimeout(r, 500))
+          if (entry.cancelled || entry.settled) return
           await doSend()
           return
         } catch (retryErr) {
           console.debug('[background] Retry after injection failed:', retryErr?.message)
-          pendingChatgptProxyRequests.delete(requestId)
-          reject(
+          settleReject(
             new Error(
               'Content script could not be loaded in the ChatGPT tab. ' +
                 'Please make sure ChatGPTBox has permission to access chatgpt.com ' +
@@ -319,8 +371,7 @@ export async function sendChatgptProxyRequest(tabId, session, uiPort) {
           return
         }
       }
-      pendingChatgptProxyRequests.delete(requestId)
-      reject(firstErr)
+      settleReject(firstErr)
     })
   })
 }
@@ -707,8 +758,22 @@ export function handleProxyResponsePort(port) {
     return true
   }
   pendingChatgptProxyRequests.delete(requestId)
+  entry.cancellation?.dispose()
+  if (entry.cancelled) {
+    try {
+      port.postMessage({ stop: true })
+    } catch (e) {
+      console.debug('[background] Failed to forward stop to proxy tab:', e?.message)
+    }
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
   const { uiPort, resolve, reject } = entry
-  let settled = false
+  let settled = entry.settled === true
 
   // The abort controller for this request lives in the ChatGPT tab, on this
   // port. Relay the UI's stop request so the proxy route is cancellable.

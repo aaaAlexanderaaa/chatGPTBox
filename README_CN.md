@@ -133,12 +133,12 @@ npm run build      # 生产构建 → build/*.zip
 
 ## 开发
 
-ChatGPTBox 在 CI 中使用 **Node.js 20**。
+ChatGPTBox 在 CI 中使用 **Node.js 22**。
 
 ```bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-nvm use 20
+nvm use 22
 npm ci
 ```
 

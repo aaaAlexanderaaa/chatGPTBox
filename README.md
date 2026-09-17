@@ -133,12 +133,12 @@ Provider notes:
 
 ## Development
 
-ChatGPTBox targets **Node.js 20** in CI.
+ChatGPTBox targets **Node.js 22** in CI.
 
 ```bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-nvm use 20
+nvm use 22
 npm ci
 ```
 

@@ -33,7 +33,6 @@ import {
   listChatgptWebModelsWithFallback,
   getChatgptWebConversationWithFallback,
 } from './chatgpt-proxy-service.mjs'
-import { handleFetchMessage } from './fetch-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
@@ -170,7 +169,6 @@ export function createMessageRouter() {
         await setUserConfig({ chatgptTabId: tabId })
       }
     },
-    [RuntimeMessage.Fetch]: (message, sender) => handleFetchMessage(message, sender),
     [RuntimeMessage.ChatgptWebListConversations]: (message) =>
       listChatgptWebConversationsWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebGetConversation]: (message) =>

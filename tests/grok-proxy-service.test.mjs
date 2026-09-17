@@ -249,6 +249,57 @@ describe('handleGrokProxyRequest', () => {
   })
 })
 
+describe('handleGrokProxyMessage abort', () => {
+  it('posts done instead of error when the chat request is aborted', async () => {
+    const posts = []
+    const messageListeners = []
+    const port = {
+      postMessage(message) {
+        posts.push(message)
+      },
+      disconnect() {},
+      onMessage: {
+        addListener(listener) {
+          messageListeners.push(listener)
+        },
+      },
+      onDisconnect: { addListener() {} },
+    }
+    const pending = handleGrokProxyMessage(
+      {
+        type: RuntimeMessage.GrokProxyRequest,
+        data: { session: { question: 'hi', modelName: 'grokWebFast' }, requestId: 'r-abort' },
+      },
+      {
+        hostname: 'grok.com',
+        connect: () => port,
+        setUserConfig: async () => {},
+        fetch: async (url, init) => {
+          if (String(url).includes('/api/auth/session')) {
+            return new Response(JSON.stringify({ user: { userId: 'u1' } }), { status: 200 })
+          }
+          if (String(url).includes('/rest/rate-limits')) {
+            return new Response(JSON.stringify({ tier: 'basic' }), { status: 200 })
+          }
+          if (String(url).includes('/conversations/new')) {
+            return await new Promise((_, reject) => {
+              init.signal.addEventListener('abort', () => {
+                reject(new DOMException('aborted', 'AbortError'))
+              })
+            })
+          }
+          throw new Error(`unexpected ${url}`)
+        },
+      },
+    )
+    await new Promise((r) => setTimeout(r, 10))
+    for (const listener of messageListeners) listener({ stop: true })
+    await pending
+    expect(posts.some((msg) => msg?.done === true)).toBe(true)
+    expect(posts.some((msg) => msg?.error)).toBe(false)
+  })
+})
+
 describe('grok proxy control create/send', () => {
   it('hard-confirms then creates with a single POST', async () => {
     const methods = []
@@ -635,6 +686,73 @@ describe('handleGrokProxyResponsePort', () => {
     handleGrokProxyResponsePort(proxyPort)
     for (const fn of uiDisconnectListeners) fn()
     await pending
+    expect(stops.some((msg) => msg?.stop)).toBe(true)
+    expect(disconnected).toBe(1)
+  })
+
+  it('resolves on UI stop before the proxy response port connects', async () => {
+    const messageListeners = []
+    const uiPort = {
+      postMessage() {},
+      onMessage: {
+        addListener(listener) {
+          messageListeners.push(listener)
+        },
+        removeListener(listener) {
+          const index = messageListeners.indexOf(listener)
+          if (index >= 0) messageListeners.splice(index, 1)
+        },
+      },
+      onDisconnect: { addListener() {}, removeListener() {} },
+    }
+    const pending = sendGrokProxyRequest(1, { sessionId: 's' }, uiPort, {
+      sendMessage: () => new Promise(() => {}),
+      connectTimeoutMs: 5_000,
+    })
+    for (const listener of messageListeners) listener({ stop: true })
+    await pending
+  })
+
+  it('forwards stop if the response port connects after cancel', async () => {
+    const messageListeners = []
+    const uiPort = {
+      postMessage() {},
+      onMessage: {
+        addListener(listener) {
+          messageListeners.push(listener)
+        },
+        removeListener(listener) {
+          const index = messageListeners.indexOf(listener)
+          if (index >= 0) messageListeners.splice(index, 1)
+        },
+      },
+      onDisconnect: { addListener() {}, removeListener() {} },
+    }
+    let requestId
+    const pending = sendGrokProxyRequest(1, { sessionId: 's' }, uiPort, {
+      sendMessage: async (_id, message) => {
+        requestId = message.data.requestId
+      },
+      connectTimeoutMs: 5_000,
+    })
+    await Promise.resolve()
+    for (const listener of messageListeners) listener({ stop: true })
+    await pending
+
+    const stops = []
+    let disconnected = 0
+    const proxyPort = {
+      name: `grok-proxy-response:${requestId}`,
+      postMessage(msg) {
+        stops.push(msg)
+      },
+      disconnect() {
+        disconnected += 1
+      },
+      onMessage: { addListener() {} },
+      onDisconnect: { addListener() {} },
+    }
+    expect(handleGrokProxyResponsePort(proxyPort)).toBe(true)
     expect(stops.some((msg) => msg?.stop)).toBe(true)
     expect(disconnected).toBe(1)
   })

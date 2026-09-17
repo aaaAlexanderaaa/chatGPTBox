@@ -333,7 +333,11 @@ export async function handleGrokProxyMessage(
       })
     } catch (err) {
       try {
-        port.postMessage({ error: err?.message || String(err) })
+        if (isAbortError(err)) {
+          port.postMessage({ done: true })
+        } else {
+          port.postMessage({ error: err?.message || String(err) })
+        }
       } catch {
         /* ignore */
       }
