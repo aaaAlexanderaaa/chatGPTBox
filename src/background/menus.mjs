@@ -6,10 +6,18 @@ import { RuntimeMessage } from '../protocol/messages.mjs'
 
 const menuId = 'ChatGPTBox-Menu'
 const onClickMenu = (info, tab) => {
+  const itemId = info.menuItemId.replace(menuId, '')
+  // chrome.sidePanel.open must run in the click's user-gesture stack.
+  // tabs.query().then(...) drops that gesture, so open Side Panel first.
+  if (itemId === 'openSidePanel') {
+    menuConfig.openSidePanel.action(true, tab)
+    return
+  }
+
   Browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
     const currentTab = tabs[0]
     const message = {
-      itemId: info.menuItemId.replace(menuId, ''),
+      itemId,
       selectionText: info.selectionText,
       useMenuPosition: tab.id === currentTab.id,
     }

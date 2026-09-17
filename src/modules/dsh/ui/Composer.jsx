@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { Paperclip, Send, Square, X } from 'lucide-react'
+import { shouldHandleInputAction } from '../../api.mjs'
 import { CommandMenu } from './chrome/CommandMenu.jsx'
 import { PermissionSelect } from './chrome/PermissionSelect.jsx'
 import { PlanChip } from './chrome/PlanChip.jsx'
@@ -193,7 +194,7 @@ export function Composer({ session, rpc, apiRef }) {
                     value={editText}
                     onInput={(event) => setEditText(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
+                      if (shouldHandleInputAction(event)) {
                         event.preventDefault()
                         void saveQueueEdit(item.id)
                       }

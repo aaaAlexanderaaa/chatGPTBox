@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/storage.mjs'
 import { cn } from '../../utils/cn.mjs'
+import { shouldHandleInputAction } from '../../utils/should-handle-input-action.mjs'
 
 // Draft storage lives in the extension's own storage.local, never page
 // localStorage: this component also renders inside content scripts, where
@@ -75,13 +76,13 @@ export function InputBox({ onSubmit, enabled, postMessage, draftKey }) {
   useEffect(() => {
     if (enabled)
       getUserConfig().then((config) => {
-        if (config.focusAfterAnswer) inputRef.current.focus()
+        if (config.focusAfterAnswer) inputRef.current?.focus()
       })
   }, [enabled])
 
   const handleKeyDownOrClick = (e) => {
     e.stopPropagation()
-    if (e.type === 'click' || (e.keyCode === 13 && e.shiftKey === false)) {
+    if (shouldHandleInputAction(e)) {
       e.preventDefault()
       if (enabled) {
         if (!value) return
