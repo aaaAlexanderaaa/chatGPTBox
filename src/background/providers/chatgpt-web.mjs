@@ -22,7 +22,8 @@ import {
 // no longer reaches back into background internals.
 export default {
   route: 'chatgpt-web',
-  match: (session) => isUsingChatgptWebModel(session),
+  match: (session, config) =>
+    config?.chatgptWebEnabled !== false && isUsingChatgptWebModel(session),
   async run({ session, port, config }) {
     const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
     if (releaseChatgptWebSessionLock === null) return

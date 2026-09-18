@@ -107,6 +107,47 @@ export function isEngineSelection(value) {
   return Boolean(parseEngineSelection(value))
 }
 
+export function selectionFromSiteOverride(override) {
+  if (typeof override === 'string') return canonicalizeEngineSelection(override)
+  if (!override || typeof override !== 'object') return ''
+  if (typeof override.modelName === 'string' && override.modelName) {
+    return canonicalizeEngineSelection(override.modelName)
+  }
+  if (typeof override.apiMode?.engineSelection === 'string') {
+    return canonicalizeEngineSelection(override.apiMode.engineSelection)
+  }
+  return ''
+}
+
+/**
+ * Keep only `{providerId}/{modelId}` site rules that still resolve.
+ * Legacy vendor keys (claudeApi, chatgptApi5_4, …) are dropped, not mapped.
+ */
+export function sanitizeSiteEngineOverrides(overrides, config) {
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return {}
+  const next = {}
+  for (const [site, override] of Object.entries(overrides)) {
+    if (!site) continue
+    const selection = selectionFromSiteOverride(override)
+    if (!parseEngineSelection(selection)) continue
+    const resolved = resolveEngine({ modelName: selection }, config)
+    if (resolved.kind === 'unknown') continue
+    if (resolved.kind === 'l1' && !resolved.provider) continue
+    next[site] = { modelName: selection, apiMode: null }
+  }
+  return next
+}
+
+export function siteEngineOverridesDiffer(left, right) {
+  const a = left && typeof left === 'object' ? left : {}
+  const b = right && typeof right === 'object' ? right : {}
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const key of keys) {
+    if ((a[key]?.modelName || '') !== (b[key]?.modelName || '')) return true
+  }
+  return false
+}
+
 export function isStaleEngineSelection(value) {
   return typeof value === 'string' && value.length > 0 && !parseEngineSelection(value)
 }
@@ -384,7 +425,7 @@ export function applyEngineSelectionPatch(selection) {
 }
 
 export function firstEnabledSelection(config) {
-  return listEnabledEngineSelections(config)[0]?.value || DEFAULT_ENGINE_SELECTION
+  return listEnabledEngineSelections(config)[0]?.value || ''
 }
 
 export function createBlankL1Provider(format = 'openai-compat') {

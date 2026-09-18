@@ -6,6 +6,11 @@
 // both the content script (session init) and the settings UI (picker value)
 // share one truth.
 
+import {
+  parseEngineSelection,
+  selectionFromSiteOverride,
+} from '../config/engine-selection.mjs'
+
 /**
  * Resolve which hostname-derived site key the current page belongs to.
  * Mirrors the matching precedence the content script has always used:
@@ -55,8 +60,9 @@ export function matchSiteName(config, hostname, siteKeys) {
  */
 export function resolveEngineForSite(config, siteName) {
   const override = siteName ? config?.siteEngineOverrides?.[siteName] : null
-  if (override && typeof override === 'object' && (override.modelName || override.apiMode)) {
-    return { modelName: override.modelName, apiMode: override.apiMode ?? null }
+  const selection = selectionFromSiteOverride(override)
+  if (parseEngineSelection(selection)) {
+    return { modelName: selection, apiMode: null }
   }
   return { modelName: config?.modelName, apiMode: config?.apiMode ?? null }
 }

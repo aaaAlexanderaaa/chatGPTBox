@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { PROVIDERS, detectExecutionRoute } from '../src/background/providers/registry.mjs'
+import {
+  PROVIDERS,
+  detectExecutionRoute,
+  executeApi,
+} from '../src/background/providers/registry.mjs'
 import { createDefaultL1Providers } from '../src/config/engine-selection.mjs'
 
 function l1Config(format, id, modelId, extra = {}) {
@@ -32,7 +36,7 @@ const SESSION_BY_ROUTE = {
   },
   'grok-web': {
     session: { modelName: 'grokweb/grok-chat-expert' },
-    config: {},
+    config: { grokWebEnabled: true },
   },
   'claude-api': {
     session: { modelName: 'anth/claude-sonnet' },
@@ -98,9 +102,37 @@ describe('provider registry', () => {
     expect(detectExecutionRoute({ modelName: 'does-not-exist' }, {})).toBe('unknown')
   })
 
+  it('does not match ChatGPT Web when the enable slide is off', () => {
+    const session = { modelName: 'chatgptweb/gpt-5-6-thinking' }
+    expect(detectExecutionRoute(session, { chatgptWebEnabled: false })).toBe('unknown')
+  })
+
+  it('does not match Grok Web when the enable slide is off', () => {
+    const session = { modelName: 'grokweb/grok-chat-expert' }
+    expect(detectExecutionRoute(session, { grokWebEnabled: false })).toBe('unknown')
+  })
+
   it('does not keep moonshot or vendor API routes', () => {
     expect(PROVIDERS.map((p) => p.route)).not.toContain('moonshot-web')
     expect(PROVIDERS.map((p) => p.route)).not.toContain('chatgpt-api')
     expect(PROVIDERS.map((p) => p.route)).not.toContain('openrouter-api')
+  })
+
+  it('posts error and done when no provider matches', async () => {
+    const posts = []
+    await executeApi({ modelName: 'claudeApi' }, { postMessage: (msg) => posts.push(msg) }, {})
+    expect(posts.some((msg) => typeof msg?.error === 'string' && msg.error.length > 0)).toBe(true)
+    expect(posts.some((msg) => msg?.done === true)).toBe(true)
+  })
+
+  it('tells the user when ChatGPT Web is selected but disabled', async () => {
+    const posts = []
+    await executeApi(
+      { modelName: 'chatgptweb/gpt-5-6-thinking' },
+      { postMessage: (msg) => posts.push(msg) },
+      { chatgptWebEnabled: false },
+    )
+    expect(posts[0].error).toMatch(/ChatGPT Web is disabled/)
+    expect(posts.some((msg) => msg?.done === true)).toBe(true)
   })
 })

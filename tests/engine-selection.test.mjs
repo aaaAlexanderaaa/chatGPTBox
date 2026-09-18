@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ENGINE_SELECTION,
   createDefaultL1Providers,
+  firstEnabledSelection,
   formatEngineSelection,
   listEnabledEngineSelections,
   parseEngineSelection,
   resolveEngine,
+  sanitizeSiteEngineOverrides,
 } from '../src/config/engine-selection.mjs'
 
 describe('engine selection', () => {
@@ -60,6 +62,33 @@ describe('engine selection', () => {
     })
     expect(resolveEngine({ modelName: 'chatgptweb/gpt-5-6-thinking' })).toMatchObject({
       kind: 'chatgpt-web',
+    })
+  })
+
+  it('does not fall back to ChatGPT Web when nothing is enabled', () => {
+    expect(
+      firstEnabledSelection({
+        l1Providers: [],
+        chatgptWebEnabled: false,
+        grokWebEnabled: false,
+        dshModuleEnabled: false,
+      }),
+    ).toBe('')
+  })
+
+  it('drops leftover vendor site overrides instead of mapping them', () => {
+    const config = { l1Providers: createDefaultL1Providers() }
+    expect(
+      sanitizeSiteEngineOverrides(
+        {
+          github: { modelName: 'claudeApi', apiMode: { groupName: 'claudeApiModelKeys' } },
+          gitlab: { modelName: 'chatgptweb/gpt-5-6-thinking' },
+          reddit: { modelName: 'missing-provider/gpt-4' },
+        },
+        config,
+      ),
+    ).toEqual({
+      gitlab: { modelName: 'chatgptweb/gpt-5-6-thinking', apiMode: null },
     })
   })
 })

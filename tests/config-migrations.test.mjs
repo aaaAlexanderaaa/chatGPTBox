@@ -112,6 +112,21 @@ describe('getUserConfig migrations', () => {
     expect(config.showLegacyProviderNotice).toBe(true)
   })
 
+  it('drops leftover vendor keys from site engine overrides', async () => {
+    store.set('modelName', 'chatgptApi5_4')
+    store.set('siteEngineOverrides', {
+      github: { modelName: 'claudeApi', apiMode: { groupName: 'claudeApiModelKeys' } },
+      gitlab: { modelName: 'chatgptWeb56Thinking' },
+    })
+    const config = await getUserConfig()
+    expect(config.siteEngineOverrides).toEqual({
+      gitlab: { modelName: 'chatgptweb/gpt-5-6-thinking', apiMode: null },
+    })
+    expect(store.get('siteEngineOverrides')).toEqual({
+      gitlab: { modelName: 'chatgptweb/gpt-5-6-thinking', apiMode: null },
+    })
+  })
+
   it('clamps a NaN numeric field back to its default', async () => {
     store.set('maxResponseTokenLength', NaN)
     store.set('temperature', 'not-a-number')

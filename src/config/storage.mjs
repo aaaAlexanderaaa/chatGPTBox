@@ -26,6 +26,8 @@ import {
   PROVIDER_SCHEMA_VERSION,
   createDefaultL1Providers,
   normalizeL1Providers,
+  sanitizeSiteEngineOverrides,
+  siteEngineOverridesDiffer,
 } from './engine-selection.mjs'
 
 export function getNavigatorLanguage() {
@@ -325,6 +327,7 @@ export async function getUserConfig() {
     config.grokWebEnabledModels = []
     config.apiMode = null
     config.modelName = defaultConfig.modelName
+    config.siteEngineOverrides = sanitizeSiteEngineOverrides(config.siteEngineOverrides, config)
     const schemaPatch = {
       providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
       l1Providers: config.l1Providers,
@@ -334,6 +337,7 @@ export async function getUserConfig() {
       grokWebEnabledModels: [],
       apiMode: null,
       modelName: config.modelName,
+      siteEngineOverrides: config.siteEngineOverrides,
     }
     if (hadExistingConfig) {
       config.showLegacyProviderNotice = true
@@ -342,6 +346,13 @@ export async function getUserConfig() {
     await Browser.storage.local.set(schemaPatch)
   } else {
     config.l1Providers = normalizeL1Providers(config.l1Providers)
+  }
+  const sanitizedSiteOverrides = sanitizeSiteEngineOverrides(config.siteEngineOverrides, config)
+  if (siteEngineOverridesDiffer(config.siteEngineOverrides, sanitizedSiteOverrides)) {
+    config.siteEngineOverrides = sanitizedSiteOverrides
+    await Browser.storage.local.set({ siteEngineOverrides: sanitizedSiteOverrides })
+  } else {
+    config.siteEngineOverrides = sanitizedSiteOverrides
   }
   config.chatgptWebEnabled = config.chatgptWebEnabled !== false
   config.grokWebEnabled = config.grokWebEnabled === true

@@ -43,18 +43,32 @@ describe('resolveEngineForSite', () => {
 
   it('returns the site override when set', () => {
     const config = {
-      modelName: 'global-model',
+      modelName: 'chatgptweb/gpt-5-6-thinking',
+      apiMode: null,
+      siteEngineOverrides: {
+        github: { modelName: 'tokendance/deepseek-v4.1-flash', apiMode: null },
+      },
+    }
+    expect(resolveEngineForSite(config, 'github')).toEqual({
+      modelName: 'tokendance/deepseek-v4.1-flash',
+      apiMode: null,
+    })
+    expect(resolveEngineForSite(config, 'google')).toEqual({
+      modelName: 'chatgptweb/gpt-5-6-thinking',
+      apiMode: null,
+    })
+  })
+
+  it('ignores leftover vendor keys and follows the default engine', () => {
+    const config = {
+      modelName: 'chatgptweb/gpt-5-6-thinking',
       apiMode: null,
       siteEngineOverrides: {
         github: { modelName: 'claudeApi', apiMode: { groupName: 'claudeApiModelKeys' } },
       },
     }
     expect(resolveEngineForSite(config, 'github')).toEqual({
-      modelName: 'claudeApi',
-      apiMode: { groupName: 'claudeApiModelKeys' },
-    })
-    expect(resolveEngineForSite(config, 'google')).toEqual({
-      modelName: 'global-model',
+      modelName: 'chatgptweb/gpt-5-6-thinking',
       apiMode: null,
     })
   })
