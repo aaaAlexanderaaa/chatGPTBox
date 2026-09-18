@@ -1,8 +1,4 @@
-import {
-  clearOldAccessToken,
-  getUserConfig,
-  setAccessToken,
-} from '../config/index.mjs'
+import { clearOldAccessToken, getUserConfig, setAccessToken } from '../config/index.mjs'
 import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
 import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
@@ -46,7 +42,7 @@ export function handlePortError(session, port, err) {
       )
         port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + err.message })
       else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => err.message.includes(m)))
-        port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + err.message })
+        port.postMessage({ error: t('Captcha challenge') + '\n\n' + err.message })
       else if (['exceeded your current quota'].some((m) => err.message.includes(m)))
         port.postMessage({ error: t('Exceeded quota') + '\n\n' + err.message })
       else if (['Rate limit reached'].some((m) => err.message.includes(m)))
@@ -61,15 +57,114 @@ export function handlePortError(session, port, err) {
   }
 }
 
+function isPortLifecycleMessage(message) {
+  if (!message || typeof message !== 'object') return false
+  return (
+    Object.prototype.hasOwnProperty.call(message, 'answer') ||
+    message.done === true ||
+    Object.prototype.hasOwnProperty.call(message, 'error')
+  )
+}
+
+/**
+ * Per-port generation token so Stop / retry do not let a stale executor post
+ * `answer` / `done` / `error` after the UI has already moved on.
+ */
+export function createPortRunGuard(port) {
+  let currentRunId = 0
+
+  function wrapPort(runId) {
+    return new Proxy(port, {
+      get(target, prop, receiver) {
+        if (prop === '__uiPort') return target
+        if (prop === 'postMessage') {
+          return (message) => {
+            if (runId !== currentRunId && isPortLifecycleMessage(message)) return
+            return target.postMessage(message)
+          }
+        }
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+  }
+
+  return {
+    isCurrent(runId) {
+      return runId === currentRunId
+    },
+    ackStopWithoutSession() {
+      currentRunId += 1
+      port.__stopRequested = true
+      port.postMessage({ done: true })
+    },
+    beginSessionRun() {
+      currentRunId += 1
+      port.__stopRequested = false
+      const runId = currentRunId
+      return { runId, port: wrapPort(runId) }
+    },
+  }
+}
+
+export function isUiPortStopRequested(uiPort) {
+  if (!uiPort) return false
+  return uiPort.__stopRequested === true || uiPort.__uiPort?.__stopRequested === true
+}
+
+/**
+ * Listen for `{stop:true}` on a UI port as soon as a proxy request is queued,
+ * not only after the content-script response port connects.
+ */
+export function createPendingProxyCancellation(uiPort) {
+  let cancelled = false
+  const cancelListeners = new Set()
+  const onMessage = (msg) => {
+    if (cancelled || !msg?.stop) return
+    cancelled = true
+    for (const listener of cancelListeners) {
+      try {
+        listener()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  uiPort?.onMessage?.addListener?.(onMessage)
+  return {
+    get cancelled() {
+      return cancelled
+    },
+    onCancel(listener) {
+      if (typeof listener === 'function') cancelListeners.add(listener)
+    },
+    dispose() {
+      try {
+        uiPort?.onMessage?.removeListener?.(onMessage)
+      } catch {
+        /* ignore */
+      }
+      cancelListeners.clear()
+    },
+  }
+}
+
 export function registerPortListener(executor) {
   Browser.runtime.onConnect.addListener((port) => {
     if (port.name === 'api-bridge-proxy') return
     console.debug('connected')
+    const runGuard = createPortRunGuard(port)
     const onMessage = async (msg) => {
       console.debug('received msg', msg)
+      if (msg?.stop && !msg.session) {
+        runGuard.ackStopWithoutSession()
+        return
+      }
       const session = msg.session
       if (!session) return
+      const { runId, port: guardedPort } = runGuard.beginSessionRun()
       const config = await getUserConfig()
+      if (!runGuard.isCurrent(runId)) return
       if (!session.modelName) session.modelName = config.modelName
       if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
       if (!session.aiName)
@@ -80,11 +175,11 @@ export function registerPortListener(executor) {
               t,
               config.customModelName,
             )
-      port.postMessage({ session })
+      guardedPort.postMessage({ session })
       try {
-        await executor(session, port, config)
+        await executor(session, guardedPort, config)
       } catch (err) {
-        handlePortError(session, port, err)
+        handlePortError(session, guardedPort, err)
       }
     }
 

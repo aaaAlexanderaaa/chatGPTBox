@@ -16,7 +16,11 @@ import { describe, expect, it } from 'vitest'
 // graph. The Map is module-scoped, so test isolation relies on each test using
 // a unique sessionId.
 
-import { acquireChatgptWebSessionLock } from '../src/background/chatgpt-proxy-service.mjs'
+import {
+  acquireChatgptWebSessionLock,
+  handleProxyResponsePort,
+  sendChatgptProxyRequest,
+} from '../src/background/chatgpt-proxy-service.mjs'
 
 let counter = 0
 function uniqueSession(question = 'hi') {
@@ -83,5 +87,88 @@ describe('acquireChatgptWebSessionLock', () => {
     expect(typeof release).toBe('function')
     // no-op release should not throw
     expect(() => release()).not.toThrow()
+  })
+})
+
+function fakeUiPort() {
+  const messageListeners = []
+  const disconnectListeners = []
+  return {
+    postMessage() {},
+    onMessage: {
+      addListener(listener) {
+        messageListeners.push(listener)
+      },
+      removeListener(listener) {
+        const index = messageListeners.indexOf(listener)
+        if (index >= 0) messageListeners.splice(index, 1)
+      },
+    },
+    onDisconnect: {
+      addListener(listener) {
+        disconnectListeners.push(listener)
+      },
+      removeListener(listener) {
+        const index = disconnectListeners.indexOf(listener)
+        if (index >= 0) disconnectListeners.splice(index, 1)
+      },
+    },
+    emit(message) {
+      for (const listener of [...messageListeners]) listener(message)
+    },
+  }
+}
+
+describe('sendChatgptProxyRequest pending stop', () => {
+  it('resolves without sending when the UI port is already stopped', async () => {
+    let sends = 0
+    const uiPort = fakeUiPort()
+    uiPort.__stopRequested = true
+    await sendChatgptProxyRequest(1, { sessionId: 'stopped' }, uiPort, {
+      sendMessage: async () => {
+        sends += 1
+      },
+    })
+    expect(sends).toBe(0)
+  })
+
+  it('resolves on UI stop before the proxy response port connects', async () => {
+    const uiPort = fakeUiPort()
+    const pending = sendChatgptProxyRequest(1, { sessionId: 's' }, uiPort, {
+      sendMessage: () => new Promise(() => {}),
+    })
+    uiPort.emit({ stop: true })
+    await pending
+  })
+
+  it('forwards stop if the response port connects after cancel', async () => {
+    const uiPort = fakeUiPort()
+    let requestId
+    const pending = sendChatgptProxyRequest(1, { sessionId: 's' }, uiPort, {
+      sendMessage: async (_id, message) => {
+        requestId = message.data.requestId
+      },
+    })
+    await Promise.resolve()
+    uiPort.emit({ stop: true })
+    await pending
+    expect(requestId).toBeTruthy()
+
+    const stops = []
+    let disconnected = 0
+    const proxyPort = {
+      name: `chatgpt-proxy-response:${requestId}`,
+      postMessage(msg) {
+        stops.push(msg)
+      },
+      disconnect() {
+        disconnected += 1
+      },
+      onMessage: { addListener() {} },
+      onDisconnect: { addListener() {} },
+    }
+    expect(handleProxyResponsePort(proxyPort)).toBe(true)
+    expect(stops.some((msg) => msg?.stop)).toBe(true)
+    expect(disconnected).toBe(1)
   })
 })

@@ -19,12 +19,16 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - run: npm ci
       - run: npm run lint
       - run: npm run test
@@ -32,11 +36,15 @@ jobs:
 
   audit:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
     needs: tests
     continue-on-error: true
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - run: npm audit --audit-level=high

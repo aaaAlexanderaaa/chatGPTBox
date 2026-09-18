@@ -8,6 +8,7 @@
 import Browser from 'webextension-polyfill'
 import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { isGrokWebPrePostControlError } from '../services/clients/grok-web/pre-post-errors.mjs'
+import { createPendingProxyCancellation, isUiPortStopRequested } from '../services/wrappers.mjs'
 import {
   GROK_PROXY_QUERY_PARAM,
   GROK_PROXY_QUERY_VALUE,
@@ -106,39 +107,81 @@ export async function sendGrokProxyRequest(tabId, session, uiPort, deps = {}) {
   const send = deps.sendMessage || ((id, message) => Browser.tabs.sendMessage(id, message))
   const timeoutMs = deps.connectTimeoutMs ?? GROK_PROXY_CONNECT_TIMEOUT_MS
 
+  if (isUiPortStopRequested(uiPort)) return
+
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const entry = pendingGrokProxyRequests.get(requestId)
-      if (!entry || entry.connected) return
+    const cancellation = createPendingProxyCancellation(uiPort)
+    const entry = {
+      uiPort,
+      resolve,
+      reject,
+      timer: null,
+      connected: false,
+      cancellation,
+      cancelled: false,
+      sent: false,
+      settled: false,
+    }
+
+    const settleResolve = () => {
+      if (entry.settled) return
+      entry.settled = true
+      resolve()
+    }
+
+    const settleReject = (error) => {
+      if (entry.settled) return
+      entry.settled = true
       clearPendingGrokProxyRequest(requestId)
-      reject(
+      cancellation.dispose()
+      reject(error)
+    }
+
+    cancellation.onCancel(() => {
+      entry.cancelled = true
+      if (entry.timer) clearTimeout(entry.timer)
+      if (entry.settled) return
+      if (!entry.sent) {
+        clearPendingGrokProxyRequest(requestId)
+        cancellation.dispose()
+      }
+      settleResolve()
+    })
+
+    entry.timer = setTimeout(() => {
+      const current = pendingGrokProxyRequests.get(requestId)
+      if (!current || current.connected || current.cancelled || current.settled) return
+      settleReject(
         new Error(
           'Grok proxy tab did not accept the request in time. It will not be submitted again automatically.',
         ),
       )
     }, timeoutMs)
 
-    pendingGrokProxyRequests.set(requestId, { uiPort, resolve, reject, timer, connected: false })
+    pendingGrokProxyRequests.set(requestId, entry)
 
-    const doSend = () =>
-      send(tabId, {
+    const doSend = () => {
+      if (entry.cancelled || entry.settled || isUiPortStopRequested(uiPort))
+        return Promise.resolve()
+      entry.sent = true
+      return send(tabId, {
         type: RuntimeMessage.GrokProxyRequest,
         data: { requestId, session },
       })
+    }
 
     doSend().catch(async (firstErr) => {
-      if (!pendingGrokProxyRequests.has(requestId)) return
+      if (entry.cancelled || entry.settled) return
       if (/receiving end does not exist/i.test(firstErr?.message)) {
         try {
           await injectContentScript(tabId)
           await new Promise((r) => setTimeout(r, 500))
-          if (!pendingGrokProxyRequests.has(requestId)) return
+          if (entry.cancelled || entry.settled) return
           await doSend()
           return
         } catch {
-          if (!pendingGrokProxyRequests.has(requestId)) return
-          clearPendingGrokProxyRequest(requestId)
-          reject(
+          if (entry.cancelled || entry.settled) return
+          settleReject(
             new Error(
               'Content script could not be loaded in the Grok tab. ' +
                 'Please make sure ChatGPTBox has permission to access grok.com, ' +
@@ -148,8 +191,7 @@ export async function sendGrokProxyRequest(tabId, session, uiPort, deps = {}) {
           return
         }
       }
-      clearPendingGrokProxyRequest(requestId)
-      reject(firstErr)
+      settleReject(firstErr)
     })
   })
 }
@@ -249,8 +291,22 @@ export function handleGrokProxyResponsePort(port) {
   if (entry.timer) clearTimeout(entry.timer)
   entry.connected = true
   pendingGrokProxyRequests.delete(requestId)
+  entry.cancellation?.dispose()
+  if (entry.cancelled) {
+    try {
+      port.postMessage({ stop: true })
+    } catch {
+      /* ignore */
+    }
+    try {
+      port.disconnect()
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
   const { uiPort, resolve, reject } = entry
-  let settled = false
+  let settled = entry.settled === true
 
   const uiStopListener = (msg) => {
     if (settled || !msg?.stop) return

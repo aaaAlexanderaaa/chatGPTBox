@@ -7,7 +7,7 @@
 //
 //   - message-router.mjs          runtime.onMessage dispatch
 //   - chatgpt-proxy-service.mjs   proxy tab lifecycle, session lock, debug log
-//   - fetch-proxy-service.mjs     FETCH allowlist + handler
+//   - fetch-proxy-service.mjs     extension-page sender trust (API Bridge)
 //   - api-bridge-proxy-service.mjs  WebSocket bridge onConnect handler
 //   - webrequest-rules.mjs        DNR rules + webRequest listeners
 //

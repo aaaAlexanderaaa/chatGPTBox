@@ -87,7 +87,6 @@ export const RuntimeMessage = {
   ApiBridgeDiagnose: 'API_BRIDGE_DIAGNOSE',
 
   // Cross-context helpers
-  Fetch: 'FETCH',
   ChangeLang: 'CHANGE_LANG',
   RefreshMenu: 'REFRESH_MENU',
   GetExtractedContent: 'GET_EXTRACTED_CONTENT',
