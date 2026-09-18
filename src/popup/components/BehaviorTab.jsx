@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { SettingSection, ToggleRow, NumberRow, Divider } from './SettingComponents.jsx'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import {
+  DEFAULT_MAX_CONVERSATION_CONTEXT_LENGTH,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
   MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
@@ -25,7 +26,7 @@ export function BehaviorTab({ config, updateConfig }) {
   )
   const maxConversationContextLengthValue = parseIntWithClamp(
     config.maxConversationContextLength,
-    9,
+    DEFAULT_MAX_CONVERSATION_CONTEXT_LENGTH,
     0,
     MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   )
