@@ -39,6 +39,19 @@ describe('buildEngineOptions', () => {
     expect(values).not.toContain('grokweb/grok-chat-fast')
   })
 
+  it('does not treat an empty Grok enabled list as the whole catalog', () => {
+    const values = buildEngineOptions(
+      {
+        ...base,
+        grokWebEnabled: true,
+        grokWebAccountModels: ['grok-chat-fast', 'grok-chat-expert'],
+        grokWebEnabledModels: [],
+      },
+      t,
+    ).map((o) => o.value)
+    expect(values.some((v) => String(v).startsWith('grokweb/'))).toBe(false)
+  })
+
   it('keeps a selected stale engine visible', () => {
     const values = buildEngineOptions({ ...base, modelName: 'chatgptApi5_4' }, t, {
       selectedModelName: 'chatgptApi5_4',

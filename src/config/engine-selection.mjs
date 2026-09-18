@@ -343,7 +343,7 @@ export function enabledGrokWebSelections(config) {
   let enabled = Array.isArray(config?.grokWebEnabledModels)
     ? config.grokWebEnabledModels.filter(Boolean)
     : []
-  if (enabled.length === 0) enabled = catalog
+  if (enabled.length === 0) return []
   const catalogSet = new Set(catalog)
   return enabled
     .filter((slug) => catalog.length === 0 || catalogSet.has(slug))
@@ -426,6 +426,27 @@ export function applyEngineSelectionPatch(selection) {
 
 export function firstEnabledSelection(config) {
   return listEnabledEngineSelections(config)[0]?.value || ''
+}
+
+export function fallbackEngineSelection(config) {
+  if (config?.chatgptWebEnabled !== false) return DEFAULT_ENGINE_SELECTION
+  return firstEnabledSelection(config) || DEFAULT_ENGINE_SELECTION
+}
+
+/**
+ * Map leftover vendor keys (`chatgptApi5_4`, `customModel`, …) to a current
+ * `{providerId}/{modelId}` selection. ChatGPT Web / Grok / DSH / known L1 rows stay.
+ */
+export function coerceStoredEngineSelection(modelName, config) {
+  const canonical = canonicalizeEngineSelection(modelName)
+  const parsed = parseEngineSelection(canonical)
+  if (parsed) {
+    const resolved = resolveEngine({ modelName: canonical }, config)
+    if (resolved.kind === 'unknown') return fallbackEngineSelection(config)
+    if (resolved.kind === 'l1' && !resolved.provider) return fallbackEngineSelection(config)
+    return canonical
+  }
+  return fallbackEngineSelection(config)
 }
 
 export function createBlankL1Provider(format = 'openai-compat') {

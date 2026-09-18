@@ -127,6 +127,18 @@ describe('getUserConfig migrations', () => {
     })
   })
 
+  it('coerces a legacy vendor modelName imported after schema v2', async () => {
+    store.set('providerSchemaVersion', 2)
+    store.set('modelName', 'chatgptApi5_4')
+    store.set('apiMode', { groupName: 'chatgptApiModelKeys', itemName: 'chatgptApi5_4' })
+    store.set('chatgptWebEnabled', true)
+    const config = await getUserConfig()
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.apiMode).toBeNull()
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(store.get('apiMode')).toBeNull()
+  })
+
   it('clamps a NaN numeric field back to its default', async () => {
     store.set('maxResponseTokenLength', NaN)
     store.set('temperature', 'not-a-number')

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ENGINE_SELECTION,
+  coerceStoredEngineSelection,
   createDefaultL1Providers,
+  enabledGrokWebSelections,
   firstEnabledSelection,
   formatEngineSelection,
   listEnabledEngineSelections,
@@ -74,6 +76,33 @@ describe('engine selection', () => {
         dshModuleEnabled: false,
       }),
     ).toBe('')
+  })
+
+  it('coerces leftover vendor model names to ChatGPT Web when it is on', () => {
+    expect(
+      coerceStoredEngineSelection('chatgptApi5_4', {
+        l1Providers: createDefaultL1Providers(),
+        chatgptWebEnabled: true,
+      }),
+    ).toBe('chatgptweb/gpt-5-6-thinking')
+  })
+
+  it('keeps a known L1 selection', () => {
+    expect(
+      coerceStoredEngineSelection('tokendance/deepseek-v4.1-flash', {
+        l1Providers: createDefaultL1Providers(),
+      }),
+    ).toBe('tokendance/deepseek-v4.1-flash')
+  })
+
+  it('omits Grok picker rows when the enabled-model list is empty', () => {
+    expect(
+      enabledGrokWebSelections({
+        grokWebEnabled: true,
+        grokWebAccountModels: ['grok-chat-fast', 'grok-chat-expert'],
+        grokWebEnabledModels: [],
+      }),
+    ).toEqual([])
   })
 
   it('drops leftover vendor site overrides instead of mapping them', () => {

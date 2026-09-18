@@ -24,7 +24,9 @@ import { migrateArrayField, normalizeStoredModelSelection } from './migrations.m
 import { getModuleConfigDefaults } from '../modules/index.mjs'
 import {
   PROVIDER_SCHEMA_VERSION,
+  coerceStoredEngineSelection,
   createDefaultL1Providers,
+  getSelectionString,
   normalizeL1Providers,
   sanitizeSiteEngineOverrides,
   siteEngineOverridesDiffer,
@@ -517,6 +519,13 @@ export async function getUserConfig() {
 
   if (webModelMigrationNeedsFix) {
     await Browser.storage.local.set(webModelMigrationPatch)
+  }
+
+  const coercedSelection = coerceStoredEngineSelection(getSelectionString(config), config)
+  if (config.modelName !== coercedSelection || config.apiMode != null) {
+    config.modelName = coercedSelection
+    config.apiMode = null
+    await Browser.storage.local.set({ modelName: coercedSelection, apiMode: null })
   }
 
   const storedSiteAdapters = Array.isArray(options.siteAdapters)
