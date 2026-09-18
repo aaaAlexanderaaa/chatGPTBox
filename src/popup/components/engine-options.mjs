@@ -1,125 +1,71 @@
-// Shared engine-option list for every picker (default-engine selector in
-// General, per-site engine rules in Sites). Extracted from GeneralTab when
-// the per-site picker (roadmap C3) needed the identical list, including the
-// enabled-provider gating and deprecated-model filtering.
-import { apiModeToModelName, getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
-import { isChatgptWebKeyAvailableForAccount } from '../../config/account-models.mjs'
-import { grokWebApiModesForAccount } from '../../config/grok-web.mjs'
-import { DSH_HARNESS_API_MODE, isModelDeprecated } from '../../config/models.mjs'
+// Shared engine-option list for every picker. The selectable unit is
+// `{providerId}/{modelId}` from currently enabled L1/L2/L3 models.
+import {
+  applyEngineSelectionPatch,
+  engineSelectionLabel,
+  getSelectionString,
+  isEnabledEngineSelection,
+  listEnabledEngineSelections,
+} from '../../config/engine-selection.mjs'
 
-function modelNameToSelectLabel(modelName, config, t) {
-  if (modelName === 'customModel') return modelNameToDesc(modelName, t, config.customModelName)
-  if (modelName.startsWith('azureOpenAi-') && modelName.endsWith('-'))
-    return modelNameToDesc('azureOpenAi', t)
-  if (modelName.startsWith('ollama-') && modelName.endsWith('-'))
-    return modelNameToDesc('ollama', t)
-  return modelNameToDesc(modelName, t)
-}
-
-/**
- * Api modes visible in Settings and ConversationCard pickers.
- * Grok is gated by `grokWebSignedIn` (not `enabledProviders`).
- *
- * @param {object} config
- * @param {string} [selectedModelName] - keep this selection visible when filtered out
- * @returns {object[]}
- */
 export function visibleApiModesForConfig(config, selectedModelName) {
-  const selected =
-    selectedModelName || (config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName)
-  const apiModes = getApiModesFromConfig(config, true).filter((apiMode) => {
-    if (!apiMode || !apiMode.groupName) return false
-    const modelName = apiModeToModelName(apiMode)
-    const isSelected = modelName === selected
-    const providerEnabled = config.enabledProviders?.[apiMode.groupName] === true
-    if (!providerEnabled && !isSelected) return false
-    if (!config.showDeprecatedModels && !isSelected && isModelDeprecated(modelName)) return false
-    // D-15: never offer a ChatGPT Web tier the account cannot use (unknown
-    // catalogs and the current selection are always kept).
-    if (
-      !isSelected &&
-      apiMode.groupName === 'chatgptWebModelKeys' &&
-      !isChatgptWebKeyAvailableForAccount(modelName, config.chatgptWebAccountModels)
-    ) {
-      return false
-    }
-    return true
-  })
-
-  const seen = new Set(apiModes.map((m) => apiModeToModelName(m)).filter(Boolean))
-  const withGrok = [...apiModes]
-  for (const apiMode of grokWebApiModesForAccount({
-    signedIn: config.grokWebSignedIn === true,
-    tier: config.grokWebAccountTier,
-    availableSlugs: config.grokWebAccountModels,
-    selectedModelName: selected,
-  })) {
-    const modelName = apiModeToModelName(apiMode)
-    if (!modelName || seen.has(modelName)) continue
-    seen.add(modelName)
-    withGrok.push(apiMode)
-  }
-  return withGrok
+  const selected = selectedModelName || getSelectionString(config)
+  return listEnabledEngineSelections(config)
+    .concat(
+      selected && !isEnabledEngineSelection(selected, config)
+        ? [
+            {
+              value: selected,
+              providerId: selected.split('/')[0],
+              modelId: selected.slice(selected.indexOf('/') + 1),
+              providerName: '',
+            },
+          ]
+        : [],
+    )
+    .map((item) => ({
+      groupName: item.providerId,
+      itemName: item.value,
+      isCustom: false,
+      displayName: item.value,
+      customName: '',
+      customUrl: '',
+      apiKey: '',
+      active: true,
+      engineSelection: item.value,
+    }))
 }
 
-/**
- * Build the selectable engine list from config.
- *
- * @param {object} config
- * @param {(key: string, opts?: object) => string} t
- * @param {{ selectedModelName?: string }} [options] - keep the given
- *   selection visible even when its provider is disabled/deprecated
- * @returns {Array<{ value: string, label: string, apiMode: object|null }>}
- */
 export function buildEngineOptions(config, t, { selectedModelName } = {}) {
-  const selected = selectedModelName || (config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName)
-  const apiModes = visibleApiModesForConfig(config, selected)
-
-  const opts = apiModes
-    .map((apiMode) => {
-      const modelName = apiModeToModelName(apiMode)
-      if (!modelName) return null
-      const displayName = apiMode.displayName?.trim()
-      return {
-        value: modelName,
-        label: displayName ? displayName : modelNameToSelectLabel(modelName, config, t),
-        apiMode,
-      }
-    })
-    .filter(Boolean)
-
-  opts.push({
-    value: 'customModel',
-    label: modelNameToSelectLabel('customModel', config, t),
+  const selected = selectedModelName || getSelectionString(config)
+  const opts = listEnabledEngineSelections(config).map((item) => ({
+    value: item.value,
+    label: item.value,
     apiMode: null,
-  })
+  }))
 
-  // The dsh engine exists only while its module is enabled (D-2); it is not
-  // part of the user's model directory.
-  if (config.dshModuleEnabled === true) {
-    opts.push({
-      value: 'dshHarnessAgent',
-      label: modelNameToDesc('dshHarnessAgent', t),
-      apiMode: DSH_HARNESS_API_MODE,
-    })
-  }
-
-  if (selected && !opts.some((o) => o.value === selected)) {
+  if (selected && !opts.some((option) => option.value === selected)) {
     opts.unshift({
       value: selected,
-      label: modelNameToSelectLabel(selected, config, t),
-      apiMode: config.apiMode && apiModeToModelName(config.apiMode) === selected ? config.apiMode : null,
+      label: engineSelectionLabel(selected, t),
+      apiMode: null,
     })
   }
 
   const deduped = []
   const seen = new Set()
-  for (const opt of opts) {
-    if (seen.has(opt.value)) continue
-    seen.add(opt.value)
-    deduped.push(opt)
+  for (const option of opts) {
+    if (seen.has(option.value)) continue
+    seen.add(option.value)
+    deduped.push(option)
   }
   return deduped
 }
 
-export { modelNameToSelectLabel }
+export function patchEngineSelection(selection) {
+  return applyEngineSelectionPatch(selection)
+}
+
+export function modelNameToSelectLabel(modelName, _config, t) {
+  return engineSelectionLabel(modelName, t)
+}

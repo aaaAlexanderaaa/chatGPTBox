@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useTranslation } from 'react-i18next'
 import { fieldHelp, fieldsFromDescribe } from '../../models/schema-fields.mjs'
 import { settingsDraftOps } from '../../models/settings-write.mjs'
 
 export function SchemaForm({ section, values = {}, onSubmit }) {
+  const { t } = useTranslation()
   const fields = useMemo(() => fieldsFromDescribe(section), [section])
   const [draft, setDraft] = useState(() => ({ ...values }))
   const [touchedSecrets, setTouchedSecrets] = useState(() => new Set())
@@ -55,7 +57,7 @@ export function SchemaForm({ section, values = {}, onSubmit }) {
                 value={draft[field.path] ?? ''}
                 onChange={(event) => setField(field.path, event.target.value, field.secret)}
               >
-                <option value="">Host default</option>
+                <option value="">{t('Host default')}</option>
                 {field.options.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -81,7 +83,7 @@ export function SchemaForm({ section, values = {}, onSubmit }) {
         type="submit"
         className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
       >
-        Save
+        {t('Save')}
       </button>
     </form>
   )

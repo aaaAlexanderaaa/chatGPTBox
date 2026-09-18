@@ -37,13 +37,15 @@ export function AdvancedTab({ config, updateConfig, onExport, onImport, onReset 
   return (
     <div className="space-y-4">
       <SettingSection
+        id="api-server-bridge"
         title={t('API Server Bridge')}
-        description={t('Expose ChatGPT Web as a local OpenAI-compatible endpoint')}
+        description={t('Local OpenAI-compatible endpoints for web engines')}
       >
+        <div id="api-server-bridge" />
         <ToggleRow
           label={t('Keep API Server chats in ChatGPT history')}
           hint={t(
-            'When enabled, bridge requests create visible chats in your ChatGPT history instead of privacy-cleaned temporary conversations',
+            'ChatGPT-only. When enabled, bridge requests create visible chats in your ChatGPT history instead of privacy-cleaned temporary conversations',
           )}
           checked={config.apiServerKeepHistory === true}
           onChange={(value) => updateConfig({ apiServerKeepHistory: value })}

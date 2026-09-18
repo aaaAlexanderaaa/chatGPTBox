@@ -1,19 +1,23 @@
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
-import { Models, chatgptWebModelKeys } from '../../config/models.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_KEY, CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../../config/limits.mjs'
+import { formatEngineSelection, L2_CHATGPT_WEB, L2_GROK_WEB } from '../../config/engine-selection.mjs'
 import { grokSlugToModelKey, isGrokChatSlug } from '../../config/grok-web.mjs'
 
 export function isGrokEngineKey(key) {
-  return typeof key === 'string' && key.startsWith('grokWeb')
+  if (typeof key !== 'string') return false
+  if (key.startsWith(`${L2_GROK_WEB}/`)) return true
+  return key.startsWith('grokWeb')
 }
 
 export function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
   if (isGrokChatSlug(normalized)) {
-    return grokSlugToModelKey(normalized)
+    return formatEngineSelection(L2_GROK_WEB, normalized)
   }
-  for (const key of chatgptWebModelKeys) {
-    if (Models[key] && Models[key].value === normalized) return key
+  if (normalized.startsWith(`${L2_CHATGPT_WEB}/`) || normalized.startsWith(`${L2_GROK_WEB}/`)) {
+    return normalized
   }
-  if (Models[normalized]) return normalized
+  if (normalized) return formatEngineSelection(L2_CHATGPT_WEB, normalized)
   return CHATGPT_WEB_DEFAULT_MODEL_KEY
 }
+
+export { grokSlugToModelKey, CHATGPT_WEB_DEFAULT_MODEL_SLUG }

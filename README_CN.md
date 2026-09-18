@@ -23,8 +23,8 @@
 - 在任意页面使用浮动聊天、独立对话页面/窗口和侧边栏。
 - 选择工具支持翻译/摘要/解释/改写，以及用户自定义的选择提示词。
 - 网站集成支持搜索引擎和各类网站，包括 Google、GitHub、YouTube、Reddit、Stack Overflow、arXiv、Bilibili 和知乎。
-- 支持 Web 和 API 提供商，包括 ChatGPT Web 以及 OpenAI、Anthropic、Azure OpenAI、OpenRouter、AIML、DeepSeek、Moonshot、Ollama、ChatGLM 和 OpenAI 兼容的自定义端点。
-- 本地 API 服务桥接，通过 OpenAI 兼容的 `/v1/chat/completions` 端点暴露 ChatGPT Web，并支持缓存对话查看和跟进 API。
+- Web 引擎：ChatGPT Web（默认，无需 API Key）和 Grok Web（未成熟）。L3 是本机 DeepSeek Harness。L1 是自定义 OpenAI 兼容（以及 Anthropic / Ollama / Completions / Azure）提供商，默认一行 TokenDance。
+- 本地 API 服务桥接，通过 OpenAI 兼容的 `/v1/chat/completions` 端点暴露网页引擎，并支持缓存对话查看和跟进 API。
 - Markdown 渲染支持代码块、语法高亮和 KaTeX。
 
 ## 截图
@@ -116,20 +116,21 @@ npm run build      # 生产构建 → build/*.zip
 
 从扩展图标或扩展选项页面打开设置界面。
 
-- 工具栏弹出窗口是一个快速工作区，包含 `常规`、`站点` 和 `高级`，以及一个 `完整设置` 按钮。
-- 完整设置工作区包含所有顶级选项卡：`常规`、`功能`、`模块` 和 `高级`。
+- 工具栏弹出窗口是快速工作区：对话、默认引擎、主题、触发方式、语言，以及进入完整设置的入口。
+- 完整设置左侧选项卡：`常规`、`外观`、`引擎`、已启用的 `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`、`行为`、`工具`、`站点`、`高级`。
 
 完整设置工作区的主要区域：
 
-- **常规**：模型/提供商选择、语言、触发行为和外观。
-- **功能**：启用/禁用支持的网站集成。
-- **模块**：API 模式、选择工具、网站适配器和内容提取器。
-- **高级**：上下文长度、最大令牌数、温度、自定义端点、调试/导出/导入/重置设置。
+- **常规**：语言、触发方式、工具栏图标、右键菜单。
+- **引擎**：自定义 API 提供商（默认 TokenDance），以及 ChatGPT Web、Grok Web、DeepSeek Harness 的滑动启用。
+- **ChatGPT Web / Grok Web / DeepSeek Harness**：启用后的分引擎选项。Grok 尚未成熟，历史同步只是占位。
+- **站点**：站点适配器（全部可关）和按站点覆盖引擎。
+- **高级**：网页引擎的 API 服务桥接，以及导出/导入/重置。
 
 提供商说明：
 
-- **自定义模型** 支持 OpenAI 兼容端点（默认：`http://localhost:8000/v1/chat/completions`）。
-- **Ollama** 使用本地端点（默认：`http://127.0.0.1:11434`）。
+- 添加 OpenAI 兼容提供商时 URL 填到 `/v1`。从 `{base}/models` 拉取模型，或手填模型 id。
+- **Ollama**、**Anthropic**、**Azure**、**Completions** 是自定义提供商的格式，不是厂商卡片。
 
 ## 开发
 

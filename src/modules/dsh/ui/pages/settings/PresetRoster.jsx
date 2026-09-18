@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useTranslation } from 'react-i18next'
 import { presetLabel } from '../../models/preset-model.mjs'
 import { fieldsFromDescribe } from '../../models/schema-fields.mjs'
 import { isSettingsConflict, settingsMutatePayload } from '../../models/settings-write.mjs'
 import { sectionNamespace, sectionsFromDescribeResult } from './load-sections.mjs'
 
 export function PresetRoster({ rpc }) {
+  const { t } = useTranslation()
   const [list, setList] = useState({ presets: [], hasDocument: true })
   const [copyFrom, setCopyFrom] = useState('')
   const [copyId, setCopyId] = useState('')
@@ -160,7 +162,7 @@ export function PresetRoster({ rpc }) {
                     className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
                     onClick={() => void onRead(preset.id)}
                   >
-                    Read
+                    {t('Read')}
                   </button>
                 )}
                 {hasDocument ? (
@@ -169,7 +171,7 @@ export function PresetRoster({ rpc }) {
                     className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
                     onClick={() => void onOpen(preset.id)}
                   >
-                    Open
+                    {t('Open')}
                   </button>
                 ) : (
                   pathHints[preset.id] && (
@@ -184,7 +186,7 @@ export function PresetRoster({ rpc }) {
                     className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary text-red-500"
                     onClick={() => void onRemove(preset.id)}
                   >
-                    Delete
+                    {t('Delete')}
                   </button>
                 )}
                 <button
@@ -192,7 +194,7 @@ export function PresetRoster({ rpc }) {
                   className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
                   onClick={() => setCopyFrom(preset.id)}
                 >
-                  Copy from
+                  {t('Copy from')}
                 </button>
                 {!preset.isDefault && (
                   <button
@@ -200,7 +202,7 @@ export function PresetRoster({ rpc }) {
                     className="text-xs px-2 py-1 rounded-md border border-border hover:bg-secondary"
                     onClick={() => void onSetDefault(preset.id)}
                   >
-                    Set default
+                    {t('Set default')}
                   </button>
                 )}
               </div>
@@ -213,15 +215,15 @@ export function PresetRoster({ rpc }) {
         className="space-y-2 border border-border rounded-md p-3"
         onSubmit={(e) => void onCopy(e)}
       >
-        <h3 className="text-sm font-medium">Copy preset</h3>
+        <h3 className="text-sm font-medium">{t('Copy preset')}</h3>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">From</span>
+          <span className="text-muted-foreground">{t('From')}</span>
           <select
             className="text-sm bg-secondary border border-border rounded-md px-2 py-1"
             value={copyFrom}
             onChange={(event) => setCopyFrom(event.target.value)}
           >
-            <option value="">Select source…</option>
+            <option value="">{t('Select source…')}</option>
             {presets.map((preset) => (
               <option key={preset.id} value={preset.id}>
                 {presetLabel(preset)}
@@ -230,7 +232,7 @@ export function PresetRoster({ rpc }) {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">New id</span>
+          <span className="text-muted-foreground">{t('New id')}</span>
           <input
             className="text-sm bg-secondary border border-border rounded-md px-2 py-1"
             value={copyId}
@@ -239,7 +241,7 @@ export function PresetRoster({ rpc }) {
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Name (optional)</span>
+          <span className="text-muted-foreground">{t('Name (optional)')}</span>
           <input
             className="text-sm bg-secondary border border-border rounded-md px-2 py-1"
             value={copyName}
@@ -250,7 +252,7 @@ export function PresetRoster({ rpc }) {
           type="submit"
           className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
         >
-          Copy
+          {t('Copy')}
         </button>
       </form>
 

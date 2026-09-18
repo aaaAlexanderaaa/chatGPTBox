@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { getUserConfig, setUserConfig } from '../../config/storage.mjs'
 import { initSession } from '../../services/init-session.mjs'
@@ -59,6 +60,7 @@ function buildBridgeWsUrl(targetPort, token) {
 }
 
 function App() {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(null)
   const [port, setPort] = useState(18080)
   const [portInput, setPortInput] = useState('18080')
@@ -809,10 +811,8 @@ function App() {
         <div className="api-server-brand">
           <img src="logo.png" alt="" className="api-server-logo" />
           <div>
-            <h1>API Server Bridge</h1>
-            <p className="subtitle">
-              Bridges the local API server to the ChatGPT Web backend via this extension.
-            </p>
+            <h1>{t('API Server Bridge')}</h1>
+            <p className="subtitle">{t('Local endpoints for web engines via this extension.')}</p>
           </div>
         </div>
       </header>
@@ -821,18 +821,20 @@ function App() {
         <div className="status-row">
           <span className={`status-dot ${statusClass}`} />
           <span className="status-text">{status}</span>
-          <span className="request-count">{requestCount} requests served</span>
+          <span className="request-count">
+            {t('{{count}} requests served', { count: requestCount })}
+          </span>
         </div>
 
         <div className="control-row">
           <label className="toggle-label">
             <input type="checkbox" checked={!!enabled} onChange={toggleEnabled} />
-            <span>Enable API Server Bridge</span>
+            <span>{t('Enable API Server Bridge')}</span>
           </label>
         </div>
 
         <div className="url-row">
-          <label className="port-label">Port:</label>
+          <label className="port-label">{t('Port')}:</label>
           <input
             type="text"
             value={portInput}
@@ -848,17 +850,17 @@ function App() {
           )}
           {enabled && status === 'connected' ? (
             <button onClick={disconnect} className="btn-disconnect">
-              Disconnect
+              {t('Disconnect')}
             </button>
           ) : enabled && status !== 'disabled' ? (
             <button onClick={connect} className="btn-connect">
-              Connect
+              {t('Connect')}
             </button>
           ) : null}
         </div>
 
         <div className="url-row">
-          <label className="port-label">Bridge token:</label>
+          <label className="port-label">{t('Bridge token')}:</label>
           <input
             type="password"
             value={bridgeTokenInput}
@@ -940,9 +942,9 @@ function App() {
       )}
 
       <section className="api-server-usage">
-        <h3>Usage</h3>
+        <h3>{t('Usage')}</h3>
         <ol>
-          <li>Enable the API Server Bridge above</li>
+          <li>{t('Enable the API Server Bridge above')}</li>
           <li>
             Run <code>npm run api-server{showPort ? ` -- --port ${port}` : ''}</code> in a terminal
           </li>

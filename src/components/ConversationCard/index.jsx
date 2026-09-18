@@ -3,15 +3,7 @@ import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
 import InputBox from '../InputBox'
 import ConversationItem from '../ConversationItem'
-import {
-  apiModeToModelName,
-  createElementAtPosition,
-  isApiModeSelected,
-  isFirefox,
-  isMobile,
-  isSafari,
-  modelNameToDesc,
-} from '../../utils'
+import { createElementAtPosition, isFirefox, isMobile, isSafari } from '../../utils'
 import {
   X,
   Pin,
@@ -29,13 +21,12 @@ import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { getUserConfig } from '../../config/storage.mjs'
-import { DSH_HARNESS_API_MODE } from '../../config/models.mjs'
 import { visibleApiModesForConfig } from '../../popup/components/engine-options.mjs'
+import { engineSelectionLabel, getSelectionString } from '../../config/engine-selection.mjs'
 import {
   isUsingChatgptWebModel,
   isUsingDshHarnessModel,
   isUsingGrokWebModel,
-  isUsingMoonshotWebModel,
 } from '../../config/predicates.mjs'
 import { grokWebConversationUrl } from '../../config/grok-web.mjs'
 import { useTranslation } from 'react-i18next'
@@ -239,19 +230,17 @@ function ConversationCard(props) {
   }, [props.question, triggered]) // usually only triggered once
 
   useLayoutEffect(() => {
-    const selected = session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName
+    const selected = getSelectionString(session)
     setApiModes(visibleApiModesForConfig(config, selected))
   }, [
-    config.activeApiModes,
-    config.customApiModes,
-    config.azureDeploymentName,
-    config.ollamaModelName,
-    config.enabledProviders,
-    config.showDeprecatedModels,
+    config.l1Providers,
+    config.chatgptWebEnabled,
+    config.chatgptWebEnabledModels,
     config.chatgptWebAccountModels,
-    config.grokWebSignedIn,
-    config.grokWebAccountTier,
+    config.grokWebEnabled,
+    config.grokWebEnabledModels,
     config.grokWebAccountModels,
+    config.dshModuleEnabled,
     session.apiMode,
     session.modelName,
   ])
@@ -369,59 +358,24 @@ function ConversationCard(props) {
   const modelPickerOptions = useMemo(() => {
     const opts = apiModes
       .map((apiMode, index) => {
-        const modelName = apiModeToModelName(apiMode)
-        const displayName = apiMode.displayName?.trim()
-        const label = displayName
-          ? displayName
-          : modelNameToDesc(modelName, t, config.customModelName)
-        return label ? { id: `mode-${index}`, modelName, apiMode, label } : null
+        const modelName = apiMode.engineSelection || apiMode.itemName
+        const label = apiMode.displayName?.trim() || engineSelectionLabel(modelName, t)
+        return label ? { id: `mode-${index}`, modelName, apiMode: null, label } : null
       })
       .filter(Boolean)
 
-    opts.push({
-      id: 'customModel',
-      modelName: 'customModel',
-      apiMode: null,
-      label: modelNameToDesc('customModel', t, config.customModelName),
-    })
-
-    // The dsh engine exists only while its module is enabled (D-2).
-    if (config.dshModuleEnabled === true) {
-      opts.push({
-        id: 'dshHarnessAgent',
-        modelName: 'dshHarnessAgent',
-        apiMode: DSH_HARNESS_API_MODE,
-        label: modelNameToDesc('dshHarnessAgent', t),
-      })
-    }
-
-    const currentModelName = session.apiMode
-      ? apiModeToModelName(session.apiMode)
-      : session.modelName
-    const hasCurrentSelection = session.apiMode
-      ? opts.some((o) => o.apiMode && isApiModeSelected(o.apiMode, session))
-      : opts.some((o) => o.modelName === session.modelName)
-    if (currentModelName && !hasCurrentSelection) {
-      const displayName = session.apiMode?.displayName?.trim()
+    const currentModelName = getSelectionString(session)
+    if (currentModelName && !opts.some((o) => o.modelName === currentModelName)) {
       opts.unshift({
         id: 'session-current',
         modelName: currentModelName,
-        apiMode: session.apiMode || null,
-        label: displayName
-          ? displayName
-          : modelNameToDesc(currentModelName, t, config.customModelName),
+        apiMode: null,
+        label: engineSelectionLabel(currentModelName, t),
       })
     }
 
     return opts
-  }, [
-    apiModes,
-    config.customModelName,
-    config.dshModuleEnabled,
-    session.apiMode,
-    session.modelName,
-    t,
-  ])
+  }, [apiModes, session.apiMode, session.modelName, t])
 
   const filteredModelPickerOptions = useMemo(() => {
     const q = modelPickerQuery.trim().toLowerCase()
@@ -440,8 +394,6 @@ function ConversationCard(props) {
       setEngineMemoryNote(t('ChatGPT Web keeps the conversation server-side'))
     else if (isUsingGrokWebModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('Grok Web keeps the conversation server-side'))
-    else if (isUsingMoonshotWebModel({ modelName: nextModelName }))
-      setEngineMemoryNote(t('Kimi Web keeps the conversation server-side'))
     else if (isUsingDshHarnessModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('The agent keeps the conversation engine-side'))
     else setEngineMemoryNote(t('History lives in this window and is re-sent'))
@@ -478,20 +430,14 @@ function ConversationCard(props) {
   }
 
   const applyModelSelection = useCallback(
-    ({ apiMode, modelName }) => {
+    ({ modelName }) => {
       const newSession = {
         ...session,
         modelName,
-        apiMode,
-        aiName: apiMode?.displayName?.trim()
-          ? apiMode.displayName.trim()
-          : modelNameToDesc(
-              apiMode ? apiModeToModelName(apiMode) : modelName,
-              t,
-              config.customModelName,
-            ),
+        apiMode: null,
+        aiName: engineSelectionLabel(modelName, t),
       }
-      showMemoryNote(apiMode ? apiModeToModelName(apiMode) : modelName)
+      showMemoryNote(modelName)
       setModelPickerOpen(false)
       setModelPickerQuery('')
       if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
@@ -561,13 +507,7 @@ function ConversationCard(props) {
               onClick={() => setModelPickerOpen((v) => !v)}
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {session.apiMode?.displayName?.trim()
-                  ? session.apiMode.displayName.trim()
-                  : modelNameToDesc(
-                      session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
-                      t,
-                      config.customModelName,
-                    )}
+                {engineSelectionLabel(getSelectionString(session), t)}
               </span>
               <ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.8 }} />
             </button>
@@ -639,12 +579,7 @@ function ConversationCard(props) {
                     </div>
                   ) : (
                     filteredModelPickerOptions.map((opt) => {
-                      const selected =
-                        opt.modelName === 'customModel'
-                          ? !session.apiMode && session.modelName === 'customModel'
-                          : session.apiMode
-                          ? opt.apiMode && isApiModeSelected(opt.apiMode, session)
-                          : !session.apiMode && session.modelName === opt.modelName
+                      const selected = getSelectionString(session) === opt.modelName
                       return (
                         <button
                           type="button"

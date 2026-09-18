@@ -1,24 +1,20 @@
-// Account-available ChatGPT Web models (roadmap D / D-15).
-//
-// The settings side must never offer a tier the logged-in account cannot
-// use (the遗留项 D-15 closes). The runtime client already resolves the
-// real slug with fallbacks; these helpers bring the same knowledge to the
-// pickers: they map our model keys to account slugs and filter. `null`
-// always means "catalog unknown" — filtering is off, nothing is hidden.
+// Account-available ChatGPT Web models.
+// Pickers use `chatgptweb/<slug>`. Catalog unknown → do not filter.
 
 import { chatgptWebChatModelKeys, chatgptWebModelKeys, Models } from './models.mjs'
+import {
+  formatEngineSelection,
+  L2_CHATGPT_WEB,
+  parseEngineSelection,
+} from './engine-selection.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from './limits.mjs'
 
-/** @returns {string|undefined} the account slug a model key stands for */
 export function slugForChatgptWebModelKey(modelKey) {
+  const parsed = parseEngineSelection(modelKey)
+  if (parsed?.providerId === L2_CHATGPT_WEB) return parsed.modelId
   return Models[modelKey]?.value
 }
 
-/**
- * Which chatgptWeb model keys the account can actually use.
- *
- * @param {string[]|null|undefined} availableSlugs - slugs from /models
- * @returns {string[]|null} usable keys, or null when the catalog is unknown
- */
 export function filterChatgptWebKeysByAccount(availableSlugs) {
   if (!Array.isArray(availableSlugs) || availableSlugs.length === 0) return null
   const slugSet = new Set(availableSlugs)
@@ -26,34 +22,30 @@ export function filterChatgptWebKeysByAccount(availableSlugs) {
   return keys.length > 0 ? keys : null
 }
 
-/**
- * Is a specific model key usable with this catalog? Unknown catalogs and
- * the currently selected key are always "usable" (never hide what is in
- * use, never filter blind).
- *
- * @param {string} modelKey
- * @param {string[]|null|undefined} availableSlugs
- * @returns {boolean}
- */
 export function isChatgptWebKeyAvailableForAccount(modelKey, availableSlugs) {
-  const availableKeys = filterChatgptWebKeysByAccount(availableSlugs)
-  if (!availableKeys) return true
-  return availableKeys.includes(modelKey)
+  if (!Array.isArray(availableSlugs) || availableSlugs.length === 0) return true
+  const slug = slugForChatgptWebModelKey(modelKey)
+  if (slug) return availableSlugs.includes(slug)
+  if (typeof modelKey === 'string' && !modelKey.includes('/')) {
+    return availableSlugs.includes(modelKey)
+  }
+  return true
 }
 
-/**
- * The default model key for a fresh install: the newest Chat / Latest tier
- * the account can use (never a Work `*-wm` slug when Chat is available),
- * keeping the current key when it is already usable. Pure best-effort — the
- * runtime client still resolves the final slug with its own fallbacks.
- *
- * @param {{ currentKey?: string, availableSlugs?: string[]|null }} options
- * @returns {string|null} the key to select, or null when nothing is known
- */
+export function pickDefaultChatgptWebSlug({ currentSlug, availableSlugs }) {
+  if (!Array.isArray(availableSlugs) || availableSlugs.length === 0) {
+    return currentSlug || CHATGPT_WEB_DEFAULT_MODEL_SLUG
+  }
+  if (currentSlug && availableSlugs.includes(currentSlug)) return currentSlug
+  if (availableSlugs.includes(CHATGPT_WEB_DEFAULT_MODEL_SLUG)) return CHATGPT_WEB_DEFAULT_MODEL_SLUG
+  const chatKeys = chatgptWebChatModelKeys
+    .map((key) => Models[key]?.value)
+    .filter((slug) => slug && availableSlugs.includes(slug))
+  return chatKeys[0] || availableSlugs[0]
+}
+
 export function pickDefaultChatgptWebKey({ currentKey, availableSlugs }) {
-  const availableKeys = filterChatgptWebKeysByAccount(availableSlugs)
-  if (!availableKeys) return currentKey || null
-  if (currentKey && availableKeys.includes(currentKey)) return currentKey
-  const chatKeys = availableKeys.filter((key) => chatgptWebChatModelKeys.includes(key))
-  return chatKeys[0] || availableKeys[0]
+  const currentSlug = slugForChatgptWebModelKey(currentKey)
+  const slug = pickDefaultChatgptWebSlug({ currentSlug, availableSlugs })
+  return slug ? formatEngineSelection(L2_CHATGPT_WEB, slug) : currentKey || null
 }

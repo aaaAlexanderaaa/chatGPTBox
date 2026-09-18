@@ -53,6 +53,9 @@
         "src/options/index.jsx",
         "src/popup/components/GeneralTab.jsx",
         "src/popup/components/EnginesTab.jsx",
+        "src/popup/components/ChatgptWebTab.jsx",
+        "src/popup/components/GrokWebTab.jsx",
+        "src/popup/components/DshEngineTab.jsx",
         "src/background/providers/dsh-bridge.mjs"
       ],
       "rules": {

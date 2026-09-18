@@ -18,8 +18,9 @@
 import Browser from 'webextension-polyfill'
 import { defaultConfig, getUserConfig, setAccessToken, setUserConfig } from '../config/storage.mjs'
 import { isUsingChatgptWebModel } from '../config/predicates.mjs'
-import { chatgptWebModelKeys } from '../config/models.mjs'
 import { pickDefaultChatgptWebKey } from '../config/account-models.mjs'
+import { parseEngineSelection } from '../config/engine-selection.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../config/limits.mjs'
 import { refreshChatGptWebModelList } from '../services/model-lists.mjs'
 import '../_locales/i18n'
 import { registerPortListener } from '../services/wrappers.mjs'
@@ -109,19 +110,27 @@ async function ensureChatgptWebFirstRun() {
     }
 
     const models = await refreshChatGptWebModelList({ accessToken })
-    await setUserConfig({ chatgptWebAccountModels: models })
+    const patch = { chatgptWebAccountModels: models }
 
-    // Fix the default only while the selection is still an untouched web
-    // preset — a user's explicit choice is never second-guessed.
-    if (!config.apiMode && chatgptWebModelKeys.includes(config.modelName)) {
+    if (isUsingChatgptWebModel(config) && !config.apiMode) {
       const preferred = pickDefaultChatgptWebKey({
         currentKey: config.modelName,
         availableSlugs: models,
       })
-      if (preferred && preferred !== config.modelName) {
-        await setUserConfig({ modelName: preferred })
+      if (preferred && preferred !== config.modelName) patch.modelName = preferred
+      const enabled = Array.isArray(config.chatgptWebEnabledModels)
+        ? config.chatgptWebEnabledModels
+        : []
+      if (enabled.length === 0) {
+        const slug =
+          parseEngineSelection(preferred || config.modelName)?.modelId ||
+          CHATGPT_WEB_DEFAULT_MODEL_SLUG
+        patch.chatgptWebEnabledModels = models.includes(slug)
+          ? [slug]
+          : models.slice(0, 1).filter(Boolean)
       }
     }
+    await setUserConfig(patch)
   } catch (error) {
     // Best-effort by design: offline, logged out, or upstream changes just
     // leave the defaults (and the runtime client's own fallbacks) in charge.

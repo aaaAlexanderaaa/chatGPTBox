@@ -7,6 +7,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
 import { AgentProtocol, resolveOpenAiCompatibleProtocol } from './openai-protocol.mjs'
+import { stripTrailingV1 } from '../../config/engine-selection.mjs'
 import {
   convertMessagesToResponsesInput,
   extractResponsesOutputText,
@@ -74,7 +75,13 @@ async function requestWithResponsesApi({
  * @param {Session} session
  * @param {string} apiKey
  */
-export async function generateAnswersWithGptCompletionApi(port, question, session, apiKey) {
+export async function generateAnswersWithGptCompletionApi(
+  port,
+  question,
+  session,
+  apiKey,
+  apiUrlOverride,
+) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const model = getModelValue(session)
 
@@ -86,7 +93,7 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
       true,
     ) +
     `Human: ${question}\nAI: `
-  const apiUrl = config.customOpenAiApiUrl
+  const apiUrl = stripTrailingV1(apiUrlOverride) || config.customOpenAiApiUrl
 
   let answer = ''
   let finished = false

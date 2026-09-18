@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { previewToolArgs } from '../../../turn-fold.mjs'
 import { feedbackSubmitListed } from '../../models/feedback-model.mjs'
 
@@ -94,6 +95,7 @@ function ToolRow({ block, onInspect }) {
 }
 
 function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }) {
+  const { t } = useTranslation()
   const settled = block.status !== 'pending'
   return (
     <div
@@ -109,15 +111,15 @@ function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }
         ⚠ {settled ? `Decision · ${block.toolName}` : `Waiting for you · ${block.toolName}`}
       </div>
       <div className="dsh-decision-args my-2">
-        {toolCall ? toolCall.args : '(arguments not captured)'}
+        {toolCall ? toolCall.args : t('(arguments not captured)')}
       </div>
       {block.reason && <p className="text-xs text-muted-foreground mb-2">{block.reason}</p>}
       {settled ? (
         <p className="text-xs text-muted-foreground">
           {block.status === 'allowed-once'
-            ? '✓ Allowed'
+            ? t('✓ Allowed')
             : block.status === 'rejected'
-            ? '✗ Rejected — the tool did not run'
+            ? t('✗ Rejected — the tool did not run')
             : `· ${block.status}`}
         </p>
       ) : (
@@ -133,7 +135,7 @@ function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }
               })
             }
           >
-            Allow once (a)
+            {t('Allow once (a)')}
           </button>
           <button
             className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-secondary"
@@ -146,14 +148,14 @@ function ApprovalCard({ block, toolCall, onRespond, onSessionAuto, autoApprove }
               })
             }
           >
-            Reject (r)
+            {t('Reject (r)')}
           </button>
           <button
             className="text-xs text-muted-foreground hover:text-foreground ml-auto flex items-center gap-1"
             onClick={onSessionAuto}
-            title="Auto-approve every decision in this session"
+            title={t('Auto-approve every decision in this session')}
           >
-            {autoApprove ? '✓ auto this session' : 'auto this session ›'}
+            {autoApprove ? t('✓ auto this session') : t('auto this session ›')}
           </button>
         </div>
       )}

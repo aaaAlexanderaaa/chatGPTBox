@@ -135,3 +135,7 @@ export function getModule(id) {
 // appearance.mjs is import-free, so re-exporting it keeps the seam pure.
 export { applyDocumentAppearance } from '../utils/appearance.mjs'
 export { shouldHandleInputAction } from '../utils/should-handle-input-action.mjs'
+
+export async function ensureModuleI18n() {
+  await import('../_locales/i18n-react.mjs')
+}

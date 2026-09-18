@@ -98,8 +98,8 @@ describe('clampNumericConfig', () => {
     const config = { ...defaultConfig, maxResponseTokenLength: 999999999 }
     const { clampedValues, needsFix } = clampNumericConfig(config, defaultConfig)
     expect(needsFix).toBe(true)
-    // max is 256000
-    expect(clampedValues.maxResponseTokenLength).toBe(256000)
+    // max is 384000
+    expect(clampedValues.maxResponseTokenLength).toBe(384000)
     // only the offending field is "changed"; others equal their input
     expect(clampedValues.temperature).toBe(config.temperature)
   })

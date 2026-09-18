@@ -30,6 +30,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
     storageKeys,
     exportHistory,
     importHistory,
+    thinkingEfforts = ['min', 'standard', 'extended', 'xhigh', 'max'],
   } = kit
 
   const [webDebugLogs, setWebDebugLogs] = useState([])
@@ -425,7 +426,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
 
   return (
     <div className="space-y-4">
-      <SettingSection title={t('ChatGPT Web History')}>
+      <SettingSection title={t('Official site history')}>
         <SettingRow
           label={t('Keep ChatGPTBox chats in ChatGPT history')}
           hint={t(
@@ -450,7 +451,479 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
             />
           </button>
         </SettingRow>
+      </SettingSection>
 
+      <details className="space-y-3">
+        <summary className="text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer">
+          {t('ChatGPT Web History')}
+        </summary>
+        <SettingSection title={t('History sync')}>
+          <SettingRow
+            label={t('Enable ChatGPT history synchronization')}
+            hint={t('Disabled by default. Enabling it does not start a full synchronization.')}
+          >
+            <ToggleSwitch
+              checked={config.chatgptWebHistorySyncEnabled === true}
+              onChange={(value) => updateConfig({ chatgptWebHistorySyncEnabled: value })}
+            />
+          </SettingRow>
+
+          {config.chatgptWebHistorySyncEnabled === true && (
+            <>
+              <SettingRow
+                label={t('Automatic history synchronization')}
+                hint={t('Automatic synchronization fetches only the newest 100 conversations.')}
+              >
+                <select
+                  value={config.chatgptWebHistoryAutoSyncMode || 'off'}
+                  onChange={(event) =>
+                    updateConfig({ chatgptWebHistoryAutoSyncMode: event.target.value })
+                  }
+                  className={TEXT_INPUT_CLASS}
+                >
+                  <option value="off">{t('Off')}</option>
+                  <option value="adaptive">{t('Adaptive (6–24 hours)')}</option>
+                  <option value="fixed">{t('Fixed interval')}</option>
+                </select>
+              </SettingRow>
+
+              {config.chatgptWebHistoryAutoSyncMode === 'fixed' && (
+                <SettingRow
+                  label={t('Automatic sync interval (hours)')}
+                  hint={t('Each automatic synchronization requests one page only.')}
+                >
+                  <input
+                    type="number"
+                    min={limits.MIN_HISTORY_SYNC_INTERVAL_HOURS}
+                    max={limits.MAX_HISTORY_SYNC_INTERVAL_HOURS}
+                    step={1}
+                    value={chatgptWebHistorySyncIntervalHoursValue}
+                    onChange={(event) => {
+                      const value = parseIntWithClamp(
+                        event.target.value,
+                        chatgptWebHistorySyncIntervalHoursValue,
+                        limits.MIN_HISTORY_SYNC_INTERVAL_HOURS,
+                        limits.MAX_HISTORY_SYNC_INTERVAL_HOURS,
+                      )
+                      updateConfig({ chatgptWebHistorySyncIntervalHours: value })
+                    }}
+                    className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                  />
+                </SettingRow>
+              )}
+
+              <SettingRow
+                label={t('Automatic and bulk history RPM')}
+                hint={t('Limits background and bulk history requests, not normal chats.')}
+              >
+                <input
+                  type="number"
+                  min={limits.MIN_HISTORY_SYNC_RPM}
+                  max={limits.MAX_HISTORY_SYNC_RPM}
+                  step={1}
+                  value={chatgptWebHistorySyncRpmValue}
+                  onChange={(event) => {
+                    const value = parseIntWithClamp(
+                      event.target.value,
+                      chatgptWebHistorySyncRpmValue,
+                      limits.MIN_HISTORY_SYNC_RPM,
+                      limits.MAX_HISTORY_SYNC_RPM,
+                    )
+                    updateConfig({ chatgptWebHistorySyncRpm: value })
+                  }}
+                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                />
+              </SettingRow>
+              {chatgptWebHistorySyncRpmValue > 20 && (
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  {t('RPM values above 20 may increase the risk of account rate limiting.')}
+                </div>
+              )}
+
+              <SettingRow
+                label={t('Include archived conversations in full sync')}
+                hint={t('Archived conversations are never fetched by automatic synchronization.')}
+              >
+                <ToggleSwitch
+                  checked={config.chatgptWebHistorySyncArchived === true}
+                  onChange={(value) => updateConfig({ chatgptWebHistorySyncArchived: value })}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('Synchronize only while idle')}
+                hint={t('Defers automatic history requests while a ChatGPTBox chat is active.')}
+              >
+                <ToggleSwitch
+                  checked={config.chatgptWebHistorySyncOnlyWhenIdle !== false}
+                  onChange={(value) => updateConfig({ chatgptWebHistorySyncOnlyWhenIdle: value })}
+                />
+              </SettingRow>
+
+              <div
+                className={`rounded-lg border p-3 text-xs space-y-2 ${
+                  historySyncMeta?.safetyLock?.reason === 'rate_limited'
+                    ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300'
+                    : 'border-border bg-secondary/30 text-muted-foreground'
+                }`}
+              >
+                {historySyncMeta?.safetyLock?.reason === 'rate_limited' && (
+                  <div className="font-medium">
+                    {t(
+                      'Automatic history requests were stopped after HTTP 429. They will remain disabled until you unlock them manually.',
+                    )}
+                  </div>
+                )}
+                <div>
+                  {t('Status')}: {t(historySyncMeta?.syncState?.status || 'idle')}
+                </div>
+                <div>
+                  {t('Progress')}: {historySyncMeta?.syncState?.itemsFetched || 0}{' '}
+                  {historySyncMeta?.syncState?.expectedTotal
+                    ? `/ ${historySyncMeta.syncState.expectedTotal} `
+                    : ''}
+                  {t('conversations')}, {historySyncMeta?.syncState?.pagesCompleted || 0}{' '}
+                  {t('pages')}
+                </div>
+                <div>
+                  {t('Requests')}: {historySyncMeta?.requestStats?.total || 0} {t('total')},{' '}
+                  {historySyncMeta?.requestStats?.list || 0} {t('list')},{' '}
+                  {historySyncMeta?.requestStats?.detail || 0} {t('detail')},{' '}
+                  {historySyncMeta?.requestStats?.rateLimited || 0} HTTP 429
+                </div>
+                <div>
+                  {t('Current sync')}: {currentHistorySyncRequestCount}; {t('last minute')}:{' '}
+                  {historyRequestsLastMinute} / {chatgptWebHistorySyncRpmValue};{' '}
+                  {t('last 24 hours')}: {historyRequestsLastDay}
+                </div>
+                {historySyncMeta?.lastSyncError && <div>{historySyncMeta.lastSyncError}</div>}
+                {historySyncError && <div>{historySyncError}</div>}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {historySyncMeta?.safetyLock?.reason === 'rate_limited' ? (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
+                      onClick={unlockHistorySync}
+                    >
+                      {t('Unlock after reviewing settings')}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={
+                          historySyncBusy || historySyncMeta?.syncState?.status === 'running'
+                        }
+                        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                        onClick={() => runHistorySync(false)}
+                      >
+                        {t('Start full list sync')}
+                      </button>
+                      {['paused', 'failed', 'pause_requested'].includes(
+                        historySyncMeta?.syncState?.status,
+                      ) && (
+                        <button
+                          type="button"
+                          disabled={historySyncBusy}
+                          className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
+                          onClick={() => runHistorySync(true)}
+                        >
+                          {t('Resume')}
+                        </button>
+                      )}
+                      {historySyncMeta?.syncState?.status === 'running' && (
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-md border border-border"
+                          onClick={stopHistorySync}
+                        >
+                          {t('Stop')}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <Divider />
+
+              <div className="text-sm font-medium text-foreground">
+                {t('Backup conversation contents')}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'Walks the local conversation list and downloads missing or stale bodies. Cached bodies are fetched again only when the list update time is newer. Does not change list synchronization.',
+                )}
+              </p>
+
+              <SettingRow
+                label={t('Refresh the conversation list before backing up contents')}
+                hint={t(
+                  'Runs the existing full list sync first, then downloads bodies. List sync still uses 100 conversations per network page.',
+                )}
+              >
+                <ToggleSwitch
+                  checked={config.chatgptWebHistoryHydrateRefreshListFirst === true}
+                  onChange={(value) =>
+                    updateConfig({ chatgptWebHistoryHydrateRefreshListFirst: value })
+                  }
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('Content backup limit')}
+                hint={t(
+                  'Maximum conversation bodies to download in this job. 0 means no cap. Fresh cached conversations do not count.',
+                )}
+              >
+                <input
+                  type="number"
+                  min={limits.MIN_HISTORY_HYDRATE_LIMIT}
+                  max={limits.MAX_HISTORY_HYDRATE_LIMIT}
+                  step={1}
+                  value={chatgptWebHistoryHydrateLimitValue}
+                  onChange={(event) => {
+                    updateConfig({
+                      chatgptWebHistoryHydrateLimit: parseIntWithClamp(
+                        event.target.value,
+                        chatgptWebHistoryHydrateLimitValue,
+                        limits.MIN_HISTORY_HYDRATE_LIMIT,
+                        limits.MAX_HISTORY_HYDRATE_LIMIT,
+                      ),
+                    })
+                  }}
+                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('Content backup offset')}
+                hint={t('Skip this many conversations from the start of the chosen local order.')}
+              >
+                <input
+                  type="number"
+                  min={limits.MIN_HISTORY_HYDRATE_OFFSET}
+                  max={limits.MAX_HISTORY_HYDRATE_OFFSET}
+                  step={1}
+                  value={chatgptWebHistoryHydrateOffsetValue}
+                  onChange={(event) => {
+                    updateConfig({
+                      chatgptWebHistoryHydrateOffset: parseIntWithClamp(
+                        event.target.value,
+                        chatgptWebHistoryHydrateOffsetValue,
+                        limits.MIN_HISTORY_HYDRATE_OFFSET,
+                        limits.MAX_HISTORY_HYDRATE_OFFSET,
+                      ),
+                    })
+                  }}
+                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('Content backup order')}
+                hint={t(
+                  'Sorts the local list only. ChatGPT list synchronization still uses newest updated first.',
+                )}
+              >
+                <select
+                  value={config.chatgptWebHistoryHydrateOrder || 'updated'}
+                  onChange={(event) =>
+                    updateConfig({ chatgptWebHistoryHydrateOrder: event.target.value })
+                  }
+                  className={TEXT_INPUT_CLASS}
+                >
+                  <option value="updated">{t('Newest updated')}</option>
+                  <option value="updated_asc">{t('Oldest updated')}</option>
+                  <option value="created">{t('Newest created')}</option>
+                  <option value="created_asc">{t('Oldest created')}</option>
+                </select>
+              </SettingRow>
+
+              <SettingRow
+                label={t('Retry failed contents')}
+                hint={t(
+                  'How many extra attempts to make after a timeout or other content error before skipping that conversation.',
+                )}
+              >
+                <input
+                  type="number"
+                  min={limits.MIN_HISTORY_HYDRATE_RETRY_COUNT}
+                  max={limits.MAX_HISTORY_HYDRATE_RETRY_COUNT}
+                  step={1}
+                  value={chatgptWebHistoryHydrateRetryCountValue}
+                  onChange={(event) => {
+                    updateConfig({
+                      chatgptWebHistoryHydrateRetryCount: parseIntWithClamp(
+                        event.target.value,
+                        chatgptWebHistoryHydrateRetryCountValue,
+                        limits.MIN_HISTORY_HYDRATE_RETRY_COUNT,
+                        limits.MAX_HISTORY_HYDRATE_RETRY_COUNT,
+                      ),
+                    })
+                  }}
+                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
+                />
+              </SettingRow>
+
+              <SettingRow
+                label={t('Include archived conversations in content backup')}
+                hint={t('Archived conversations are never fetched by automatic synchronization.')}
+              >
+                <ToggleSwitch
+                  checked={config.chatgptWebHistoryHydrateIncludeArchived === true}
+                  onChange={(value) =>
+                    updateConfig({ chatgptWebHistoryHydrateIncludeArchived: value })
+                  }
+                />
+              </SettingRow>
+
+              <div
+                className={`rounded-lg border p-3 text-xs space-y-2 ${
+                  hydrateState.status === 'circuit_open' || hydrateState.status === 'auth_failed'
+                    ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+                    : 'border-border bg-secondary/30 text-muted-foreground'
+                }`}
+              >
+                <div>
+                  {t('Status')}: {t(hydrateState.status || 'idle')}
+                </div>
+                <div>
+                  {t('Progress')}: {hydrateState.hydrated || 0} {t('hydrated')},{' '}
+                  {hydrateState.skippedFresh || 0} {t('skipped fresh')}, {hydrateState.failed || 0}{' '}
+                  {t('failed')}
+                  {hydrateState.currentConversationId
+                    ? ` · ${hydrateState.currentConversationId}`
+                    : ''}
+                </div>
+                {historySyncMeta?.lastHydrateError && <div>{historySyncMeta.lastHydrateError}</div>}
+                {historyHydrateError && <div>{historyHydrateError}</div>}
+                {hydrateState.status === 'circuit_open' && (
+                  <div>
+                    {t(
+                      'Content backup is paused after repeated failures. Resume the same job or reset the circuit first.',
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={
+                      historyHydrateBusy ||
+                      hydrateRunning ||
+                      hydrateState.status === 'circuit_open' ||
+                      historySyncMeta?.safetyLock?.reason === 'rate_limited'
+                    }
+                    className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                    onClick={() => runHistoryHydrate(false)}
+                  >
+                    {t('Start content backup')}
+                  </button>
+                  {['paused', 'failed', 'pause_requested', 'circuit_open', 'auth_failed'].includes(
+                    hydrateState.status,
+                  ) && (
+                    <button
+                      type="button"
+                      disabled={
+                        historyHydrateBusy || historySyncMeta?.safetyLock?.reason === 'rate_limited'
+                      }
+                      className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
+                      onClick={() => runHistoryHydrate(true)}
+                    >
+                      {t('Resume')}
+                    </button>
+                  )}
+                  {hydrateState.status === 'circuit_open' && (
+                    <button
+                      type="button"
+                      disabled={historyHydrateBusy}
+                      className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
+                      onClick={resetHydrateCircuit}
+                    >
+                      {t('Reset circuit')}
+                    </button>
+                  )}
+                  {hydrateRunning && (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-border"
+                      onClick={stopHistoryHydrate}
+                    >
+                      {t('Stop content backup')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 text-xs space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-medium text-foreground">
+                    {t('Failed / skipped conversations')}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={hydrateFailures.length === 0 || historyHydrateBusy || hydrateRunning}
+                    className="px-2 py-1 rounded-md border border-border disabled:opacity-50"
+                    onClick={clearHydrateFailures}
+                  >
+                    {t('Clear skipped list')}
+                  </button>
+                </div>
+                <p className="text-muted-foreground">
+                  {t(
+                    'These conversations stay skipped on later backups until you retry or clear them. Opening a chat still fetches that conversation.',
+                  )}
+                </p>
+                {hydrateFailures.length === 0 ? (
+                  <div className="text-muted-foreground">{t('No failed conversations')}</div>
+                ) : (
+                  <div className="max-h-56 overflow-auto space-y-2">
+                    {hydrateFailures.map((entry) => (
+                      <div
+                        key={entry.conversationId}
+                        className="rounded-md border border-destructive/30 bg-destructive/5 p-2 space-y-1"
+                      >
+                        <div className="font-medium text-foreground">
+                          {entry.title || entry.conversationId}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 font-mono">
+                          <span>{entry.conversationId}</span>
+                          <button
+                            type="button"
+                            className="px-2 py-0.5 rounded border border-border"
+                            onClick={() => copyHydrateConversationId(entry.conversationId)}
+                          >
+                            {copiedHydrateId === entry.conversationId
+                              ? t('Copied')
+                              : t('Copy conversation ID')}
+                          </button>
+                        </div>
+                        <div className="text-destructive">{entry.error}</div>
+                        {entry.failedAt && (
+                          <div className="text-muted-foreground">{entry.failedAt}</div>
+                        )}
+                        <button
+                          type="button"
+                          disabled={historyHydrateBusy || hydrateRunning}
+                          className="px-2 py-1 rounded-md border border-border disabled:opacity-50"
+                          onClick={() => retryHydrateFailure(entry.conversationId)}
+                        >
+                          {t('Retry this conversation')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </SettingSection>
+      </details>
+
+      <SettingSection
+        title={t('Requests and polling')}
+        description={t('How ChatGPTBox waits for thinking results')}
+      >
         <SettingRow
           label={t('ChatGPT Web poll interval (s)')}
           hint={t(
@@ -501,464 +974,19 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
           />
         </SettingRow>
 
-        <Divider />
-
-        <SettingRow
-          label={t('Enable ChatGPT history synchronization')}
-          hint={t('Disabled by default. Enabling it does not start a full synchronization.')}
-        >
-          <ToggleSwitch
-            checked={config.chatgptWebHistorySyncEnabled === true}
-            onChange={(value) => updateConfig({ chatgptWebHistorySyncEnabled: value })}
-          />
+        <SettingRow label={t('Thinking effort')} hint={t('Sent with ChatGPT Web thinking models')}>
+          <select
+            value={config.chatgptWebThinkingEffort || 'max'}
+            onChange={(event) => updateConfig({ chatgptWebThinkingEffort: event.target.value })}
+            className={TEXT_INPUT_CLASS}
+          >
+            {thinkingEfforts.map((effort) => (
+              <option key={effort} value={effort}>
+                {effort}
+              </option>
+            ))}
+          </select>
         </SettingRow>
-
-        {config.chatgptWebHistorySyncEnabled === true && (
-          <>
-            <SettingRow
-              label={t('Automatic history synchronization')}
-              hint={t('Automatic synchronization fetches only the newest 100 conversations.')}
-            >
-              <select
-                value={config.chatgptWebHistoryAutoSyncMode || 'off'}
-                onChange={(event) =>
-                  updateConfig({ chatgptWebHistoryAutoSyncMode: event.target.value })
-                }
-                className={TEXT_INPUT_CLASS}
-              >
-                <option value="off">{t('Off')}</option>
-                <option value="adaptive">{t('Adaptive (6–24 hours)')}</option>
-                <option value="fixed">{t('Fixed interval')}</option>
-              </select>
-            </SettingRow>
-
-            {config.chatgptWebHistoryAutoSyncMode === 'fixed' && (
-              <SettingRow
-                label={t('Automatic sync interval (hours)')}
-                hint={t('Each automatic synchronization requests one page only.')}
-              >
-                <input
-                  type="number"
-                  min={limits.MIN_HISTORY_SYNC_INTERVAL_HOURS}
-                  max={limits.MAX_HISTORY_SYNC_INTERVAL_HOURS}
-                  step={1}
-                  value={chatgptWebHistorySyncIntervalHoursValue}
-                  onChange={(event) => {
-                    const value = parseIntWithClamp(
-                      event.target.value,
-                      chatgptWebHistorySyncIntervalHoursValue,
-                      limits.MIN_HISTORY_SYNC_INTERVAL_HOURS,
-                      limits.MAX_HISTORY_SYNC_INTERVAL_HOURS,
-                    )
-                    updateConfig({ chatgptWebHistorySyncIntervalHours: value })
-                  }}
-                  className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
-                />
-              </SettingRow>
-            )}
-
-            <SettingRow
-              label={t('Automatic and bulk history RPM')}
-              hint={t('Limits background and bulk history requests, not normal chats.')}
-            >
-              <input
-                type="number"
-                min={limits.MIN_HISTORY_SYNC_RPM}
-                max={limits.MAX_HISTORY_SYNC_RPM}
-                step={1}
-                value={chatgptWebHistorySyncRpmValue}
-                onChange={(event) => {
-                  const value = parseIntWithClamp(
-                    event.target.value,
-                    chatgptWebHistorySyncRpmValue,
-                    limits.MIN_HISTORY_SYNC_RPM,
-                    limits.MAX_HISTORY_SYNC_RPM,
-                  )
-                  updateConfig({ chatgptWebHistorySyncRpm: value })
-                }}
-                className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
-              />
-            </SettingRow>
-            {chatgptWebHistorySyncRpmValue > 20 && (
-              <div className="text-xs text-amber-700 dark:text-amber-300">
-                {t('RPM values above 20 may increase the risk of account rate limiting.')}
-              </div>
-            )}
-
-            <SettingRow
-              label={t('Include archived conversations in full sync')}
-              hint={t('Archived conversations are never fetched by automatic synchronization.')}
-            >
-              <ToggleSwitch
-                checked={config.chatgptWebHistorySyncArchived === true}
-                onChange={(value) => updateConfig({ chatgptWebHistorySyncArchived: value })}
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Synchronize only while idle')}
-              hint={t('Defers automatic history requests while a ChatGPTBox chat is active.')}
-            >
-              <ToggleSwitch
-                checked={config.chatgptWebHistorySyncOnlyWhenIdle !== false}
-                onChange={(value) => updateConfig({ chatgptWebHistorySyncOnlyWhenIdle: value })}
-              />
-            </SettingRow>
-
-            <div
-              className={`rounded-lg border p-3 text-xs space-y-2 ${
-                historySyncMeta?.safetyLock?.reason === 'rate_limited'
-                  ? 'border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300'
-                  : 'border-border bg-secondary/30 text-muted-foreground'
-              }`}
-            >
-              {historySyncMeta?.safetyLock?.reason === 'rate_limited' && (
-                <div className="font-medium">
-                  {t(
-                    'Automatic history requests were stopped after HTTP 429. They will remain disabled until you unlock them manually.',
-                  )}
-                </div>
-              )}
-              <div>
-                {t('Status')}: {t(historySyncMeta?.syncState?.status || 'idle')}
-              </div>
-              <div>
-                {t('Progress')}: {historySyncMeta?.syncState?.itemsFetched || 0}{' '}
-                {historySyncMeta?.syncState?.expectedTotal
-                  ? `/ ${historySyncMeta.syncState.expectedTotal} `
-                  : ''}
-                {t('conversations')}, {historySyncMeta?.syncState?.pagesCompleted || 0} {t('pages')}
-              </div>
-              <div>
-                {t('Requests')}: {historySyncMeta?.requestStats?.total || 0} {t('total')},{' '}
-                {historySyncMeta?.requestStats?.list || 0} {t('list')},{' '}
-                {historySyncMeta?.requestStats?.detail || 0} {t('detail')},{' '}
-                {historySyncMeta?.requestStats?.rateLimited || 0} HTTP 429
-              </div>
-              <div>
-                {t('Current sync')}: {currentHistorySyncRequestCount}; {t('last minute')}:{' '}
-                {historyRequestsLastMinute} / {chatgptWebHistorySyncRpmValue}; {t('last 24 hours')}:{' '}
-                {historyRequestsLastDay}
-              </div>
-              {historySyncMeta?.lastSyncError && <div>{historySyncMeta.lastSyncError}</div>}
-              {historySyncError && <div>{historySyncError}</div>}
-              <div className="flex flex-wrap gap-2 pt-1">
-                {historySyncMeta?.safetyLock?.reason === 'rate_limited' ? (
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
-                    onClick={unlockHistorySync}
-                  >
-                    {t('Unlock after reviewing settings')}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={historySyncBusy || historySyncMeta?.syncState?.status === 'running'}
-                      className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-                      onClick={() => runHistorySync(false)}
-                    >
-                      {t('Start full list sync')}
-                    </button>
-                    {['paused', 'failed', 'pause_requested'].includes(
-                      historySyncMeta?.syncState?.status,
-                    ) && (
-                      <button
-                        type="button"
-                        disabled={historySyncBusy}
-                        className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
-                        onClick={() => runHistorySync(true)}
-                      >
-                        {t('Resume')}
-                      </button>
-                    )}
-                    {historySyncMeta?.syncState?.status === 'running' && (
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 rounded-md border border-border"
-                        onClick={stopHistorySync}
-                      >
-                        {t('Stop')}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            <Divider />
-
-            <div className="text-sm font-medium text-foreground">
-              {t('Backup conversation contents')}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t(
-                'Walks the local conversation list and downloads missing or stale bodies. Cached bodies are fetched again only when the list update time is newer. Does not change list synchronization.',
-              )}
-            </p>
-
-            <SettingRow
-              label={t('Refresh the conversation list before backing up contents')}
-              hint={t(
-                'Runs the existing full list sync first, then downloads bodies. List sync still uses 100 conversations per network page.',
-              )}
-            >
-              <ToggleSwitch
-                checked={config.chatgptWebHistoryHydrateRefreshListFirst === true}
-                onChange={(value) =>
-                  updateConfig({ chatgptWebHistoryHydrateRefreshListFirst: value })
-                }
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Content backup limit')}
-              hint={t(
-                'Maximum conversation bodies to download in this job. 0 means no cap. Fresh cached conversations do not count.',
-              )}
-            >
-              <input
-                type="number"
-                min={limits.MIN_HISTORY_HYDRATE_LIMIT}
-                max={limits.MAX_HISTORY_HYDRATE_LIMIT}
-                step={1}
-                value={chatgptWebHistoryHydrateLimitValue}
-                onChange={(event) => {
-                  updateConfig({
-                    chatgptWebHistoryHydrateLimit: parseIntWithClamp(
-                      event.target.value,
-                      chatgptWebHistoryHydrateLimitValue,
-                      limits.MIN_HISTORY_HYDRATE_LIMIT,
-                      limits.MAX_HISTORY_HYDRATE_LIMIT,
-                    ),
-                  })
-                }}
-                className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Content backup offset')}
-              hint={t('Skip this many conversations from the start of the chosen local order.')}
-            >
-              <input
-                type="number"
-                min={limits.MIN_HISTORY_HYDRATE_OFFSET}
-                max={limits.MAX_HISTORY_HYDRATE_OFFSET}
-                step={1}
-                value={chatgptWebHistoryHydrateOffsetValue}
-                onChange={(event) => {
-                  updateConfig({
-                    chatgptWebHistoryHydrateOffset: parseIntWithClamp(
-                      event.target.value,
-                      chatgptWebHistoryHydrateOffsetValue,
-                      limits.MIN_HISTORY_HYDRATE_OFFSET,
-                      limits.MAX_HISTORY_HYDRATE_OFFSET,
-                    ),
-                  })
-                }}
-                className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Content backup order')}
-              hint={t(
-                'Sorts the local list only. ChatGPT list synchronization still uses newest updated first.',
-              )}
-            >
-              <select
-                value={config.chatgptWebHistoryHydrateOrder || 'updated'}
-                onChange={(event) =>
-                  updateConfig({ chatgptWebHistoryHydrateOrder: event.target.value })
-                }
-                className={TEXT_INPUT_CLASS}
-              >
-                <option value="updated">{t('Newest updated')}</option>
-                <option value="updated_asc">{t('Oldest updated')}</option>
-                <option value="created">{t('Newest created')}</option>
-                <option value="created_asc">{t('Oldest created')}</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow
-              label={t('Retry failed contents')}
-              hint={t(
-                'How many extra attempts to make after a timeout or other content error before skipping that conversation.',
-              )}
-            >
-              <input
-                type="number"
-                min={limits.MIN_HISTORY_HYDRATE_RETRY_COUNT}
-                max={limits.MAX_HISTORY_HYDRATE_RETRY_COUNT}
-                step={1}
-                value={chatgptWebHistoryHydrateRetryCountValue}
-                onChange={(event) => {
-                  updateConfig({
-                    chatgptWebHistoryHydrateRetryCount: parseIntWithClamp(
-                      event.target.value,
-                      chatgptWebHistoryHydrateRetryCountValue,
-                      limits.MIN_HISTORY_HYDRATE_RETRY_COUNT,
-                      limits.MAX_HISTORY_HYDRATE_RETRY_COUNT,
-                    ),
-                  })
-                }}
-                className="w-28 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-right text-foreground"
-              />
-            </SettingRow>
-
-            <SettingRow
-              label={t('Include archived conversations in content backup')}
-              hint={t('Archived conversations are never fetched by automatic synchronization.')}
-            >
-              <ToggleSwitch
-                checked={config.chatgptWebHistoryHydrateIncludeArchived === true}
-                onChange={(value) =>
-                  updateConfig({ chatgptWebHistoryHydrateIncludeArchived: value })
-                }
-              />
-            </SettingRow>
-
-            <div
-              className={`rounded-lg border p-3 text-xs space-y-2 ${
-                hydrateState.status === 'circuit_open' || hydrateState.status === 'auth_failed'
-                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-200'
-                  : 'border-border bg-secondary/30 text-muted-foreground'
-              }`}
-            >
-              <div>
-                {t('Status')}: {t(hydrateState.status || 'idle')}
-              </div>
-              <div>
-                {t('Progress')}: {hydrateState.hydrated || 0} {t('hydrated')},{' '}
-                {hydrateState.skippedFresh || 0} {t('skipped fresh')}, {hydrateState.failed || 0}{' '}
-                {t('failed')}
-                {hydrateState.currentConversationId
-                  ? ` · ${hydrateState.currentConversationId}`
-                  : ''}
-              </div>
-              {historySyncMeta?.lastHydrateError && <div>{historySyncMeta.lastHydrateError}</div>}
-              {historyHydrateError && <div>{historyHydrateError}</div>}
-              {hydrateState.status === 'circuit_open' && (
-                <div>
-                  {t(
-                    'Content backup is paused after repeated failures. Resume the same job or reset the circuit first.',
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={
-                    historyHydrateBusy ||
-                    hydrateRunning ||
-                    hydrateState.status === 'circuit_open' ||
-                    historySyncMeta?.safetyLock?.reason === 'rate_limited'
-                  }
-                  className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-                  onClick={() => runHistoryHydrate(false)}
-                >
-                  {t('Start content backup')}
-                </button>
-                {['paused', 'failed', 'pause_requested', 'circuit_open', 'auth_failed'].includes(
-                  hydrateState.status,
-                ) && (
-                  <button
-                    type="button"
-                    disabled={
-                      historyHydrateBusy || historySyncMeta?.safetyLock?.reason === 'rate_limited'
-                    }
-                    className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
-                    onClick={() => runHistoryHydrate(true)}
-                  >
-                    {t('Resume')}
-                  </button>
-                )}
-                {hydrateState.status === 'circuit_open' && (
-                  <button
-                    type="button"
-                    disabled={historyHydrateBusy}
-                    className="px-3 py-1.5 rounded-md border border-border disabled:opacity-50"
-                    onClick={resetHydrateCircuit}
-                  >
-                    {t('Reset circuit')}
-                  </button>
-                )}
-                {hydrateRunning && (
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 rounded-md border border-border"
-                    onClick={stopHistoryHydrate}
-                  >
-                    {t('Stop content backup')}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border p-3 text-xs space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="font-medium text-foreground">
-                  {t('Failed / skipped conversations')}
-                </div>
-                <button
-                  type="button"
-                  disabled={hydrateFailures.length === 0 || historyHydrateBusy || hydrateRunning}
-                  className="px-2 py-1 rounded-md border border-border disabled:opacity-50"
-                  onClick={clearHydrateFailures}
-                >
-                  {t('Clear skipped list')}
-                </button>
-              </div>
-              <p className="text-muted-foreground">
-                {t(
-                  'These conversations stay skipped on later backups until you retry or clear them. Opening a chat still fetches that conversation.',
-                )}
-              </p>
-              {hydrateFailures.length === 0 ? (
-                <div className="text-muted-foreground">{t('No failed conversations')}</div>
-              ) : (
-                <div className="max-h-56 overflow-auto space-y-2">
-                  {hydrateFailures.map((entry) => (
-                    <div
-                      key={entry.conversationId}
-                      className="rounded-md border border-destructive/30 bg-destructive/5 p-2 space-y-1"
-                    >
-                      <div className="font-medium text-foreground">
-                        {entry.title || entry.conversationId}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 font-mono">
-                        <span>{entry.conversationId}</span>
-                        <button
-                          type="button"
-                          className="px-2 py-0.5 rounded border border-border"
-                          onClick={() => copyHydrateConversationId(entry.conversationId)}
-                        >
-                          {copiedHydrateId === entry.conversationId
-                            ? t('Copied')
-                            : t('Copy conversation ID')}
-                        </button>
-                      </div>
-                      <div className="text-destructive">{entry.error}</div>
-                      {entry.failedAt && (
-                        <div className="text-muted-foreground">{entry.failedAt}</div>
-                      )}
-                      <button
-                        type="button"
-                        disabled={historyHydrateBusy || hydrateRunning}
-                        className="px-2 py-1 rounded-md border border-border disabled:opacity-50"
-                        onClick={() => retryHydrateFailure(entry.conversationId)}
-                      >
-                        {t('Retry this conversation')}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </SettingSection>
 
       {!isPopupMode && (

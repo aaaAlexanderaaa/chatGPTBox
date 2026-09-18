@@ -15,12 +15,18 @@ import {
   DEFAULT_CHATGPT_WEB_HISTORY_HYDRATE_RETRY_COUNT,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_INTERVAL_HOURS,
   DEFAULT_CHATGPT_WEB_HISTORY_SYNC_RPM,
+  DEFAULT_MAX_CONVERSATION_CONTEXT_LENGTH,
   DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
 } from './limits.mjs'
 import { DefaultActiveModelKeysByGroup, DefaultEnabledProviderGroups, Models } from './models.mjs'
 import { isChatgptWebThinkingEffort } from '../services/clients/chatgpt-web/thinking.mjs'
 import { migrateArrayField, normalizeStoredModelSelection } from './migrations.mjs'
 import { getModuleConfigDefaults } from '../modules/index.mjs'
+import {
+  PROVIDER_SCHEMA_VERSION,
+  createDefaultL1Providers,
+  normalizeL1Providers,
+} from './engine-selection.mjs'
 
 export function getNavigatorLanguage() {
   const l =
@@ -98,7 +104,7 @@ export const defaultConfig = {
   // advanced
 
   maxResponseTokenLength: DEFAULT_MAX_RESPONSE_TOKEN_LENGTH,
-  maxConversationContextLength: 9,
+  maxConversationContextLength: DEFAULT_MAX_CONVERSATION_CONTEXT_LENGTH,
   temperature: 1,
   apiServerEnabled: false,
   apiServerPort: 18080,
@@ -137,6 +143,13 @@ export const defaultConfig = {
   appendQuery: '',
   prependQuery: '',
   enabledProviders: { ...DefaultEnabledProviderGroups },
+  providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+  l1Providers: createDefaultL1Providers(),
+  chatgptWebEnabled: true,
+  grokWebEnabled: false,
+  chatgptWebEnabledModels: ['gpt-5-6-thinking'],
+  grokWebEnabledModels: [],
+  showLegacyProviderNotice: false,
   showDeprecatedModels: false,
   // Account-available ChatGPT Web slugs (D-15): written by the background
   // whenever the model catalog refreshes; empty = unknown, pickers filter
@@ -198,6 +211,19 @@ export const defaultConfig = {
     'mp.weixin.qq',
     'followin',
     'arxiv',
+    'bing',
+    'yahoo',
+    'duckduckgo',
+    'startpage',
+    'baidu',
+    'kagi',
+    'yandex',
+    'naver',
+    'brave',
+    'searx',
+    'ecosia',
+    'neeva',
+    'presearch',
   ],
   accessToken: '',
   tokenSavedOn: 0,
@@ -252,6 +278,19 @@ export const defaultConfig = {
     'mp.weixin.qq',
     'followin',
     'arxiv',
+    'bing',
+    'yahoo',
+    'duckduckgo',
+    'startpage',
+    'baidu',
+    'kagi',
+    'yandex',
+    'naver',
+    'brave',
+    'searx',
+    'ecosia',
+    'neeva',
+    'presearch',
   ],
 
   // Optional engine modules contribute their config keys through the module
@@ -270,7 +309,48 @@ export async function getUserConfig() {
   })
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
+  const storedProviderSchemaVersion = options.providerSchemaVersion
   const config = defaults(options, defaultConfig)
+
+  // Provider schema v2 is a cut, not a vendor-config migration. Old
+  // enabledProviders / customApiModes / per-vendor API keys stay in storage
+  // for Advanced export but are not read into l1Providers.
+  if (storedProviderSchemaVersion !== PROVIDER_SCHEMA_VERSION) {
+    const hadExistingConfig = Object.keys(options).length > 0
+    config.providerSchemaVersion = PROVIDER_SCHEMA_VERSION
+    config.l1Providers = createDefaultL1Providers()
+    config.chatgptWebEnabled = true
+    config.grokWebEnabled = false
+    config.chatgptWebEnabledModels = ['gpt-5-6-thinking']
+    config.grokWebEnabledModels = []
+    config.apiMode = null
+    config.modelName = defaultConfig.modelName
+    const schemaPatch = {
+      providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+      l1Providers: config.l1Providers,
+      chatgptWebEnabled: true,
+      grokWebEnabled: false,
+      chatgptWebEnabledModels: config.chatgptWebEnabledModels,
+      grokWebEnabledModels: [],
+      apiMode: null,
+      modelName: config.modelName,
+    }
+    if (hadExistingConfig) {
+      config.showLegacyProviderNotice = true
+      schemaPatch.showLegacyProviderNotice = true
+    }
+    await Browser.storage.local.set(schemaPatch)
+  } else {
+    config.l1Providers = normalizeL1Providers(config.l1Providers)
+  }
+  config.chatgptWebEnabled = config.chatgptWebEnabled !== false
+  config.grokWebEnabled = config.grokWebEnabled === true
+  if (!Array.isArray(config.chatgptWebEnabledModels)) {
+    config.chatgptWebEnabledModels = ['gpt-5-6-thinking']
+  }
+  if (!Array.isArray(config.grokWebEnabledModels)) {
+    config.grokWebEnabledModels = []
+  }
 
   // Guard against invalid numeric values (e.g. NaN) persisted by user input/imports.
   // Table-driven: each numeric field is declared once in numeric-config.mjs;
@@ -443,6 +523,10 @@ export async function getUserConfig() {
       newSiteAdapters.includes(key),
     )
     config.activeSiteAdapters = Array.from(new Set([...storedActive, ...newActive]))
+    await Browser.storage.local.set({
+      siteAdapters: config.siteAdapters,
+      activeSiteAdapters: config.activeSiteAdapters,
+    })
   }
 
   return config

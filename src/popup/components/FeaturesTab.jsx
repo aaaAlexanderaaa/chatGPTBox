@@ -6,14 +6,26 @@ import { ToggleSwitch, SettingRow, SettingSection, ToggleRow } from './SettingCo
 import { SearchableSelect } from './SearchableSelect.jsx'
 import { ContentExtractor } from '../sections/ContentExtractor.jsx'
 import { buildEngineOptions } from './engine-options.mjs'
-import { apiModeToModelName, modelNameToDesc } from '../../utils/index.mjs'
+import { engineSelectionLabel, getSelectionString } from '../../config/engine-selection.mjs'
 
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
 
 const SITE_DISPLAY_NAMES = {
   google: 'Google Search',
+  bing: 'Bing',
+  yahoo: 'Yahoo',
+  duckduckgo: 'DuckDuckGo',
+  startpage: 'Startpage',
+  baidu: 'Baidu',
   kagi: 'Kagi',
+  yandex: 'Yandex',
+  naver: 'Naver',
+  brave: 'Brave',
+  searx: 'Searx',
+  ecosia: 'Ecosia',
+  neeva: 'Neeva',
+  presearch: 'Presearch',
   github: 'GitHub',
   gitlab: 'GitLab',
   youtube: 'YouTube',
@@ -48,9 +60,9 @@ export function FeaturesTab({ config, updateConfig }) {
   const engineOptions = useMemo(() => buildEngineOptions(config, t, {}), [config, t])
 
   const defaultEngineLabel = useMemo(() => {
-    const name = config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName
-    return name ? modelNameToDesc(name, t, config.customModelName) : t('Default engine')
-  }, [config.apiMode, config.modelName, config.customModelName, t])
+    const name = getSelectionString(config)
+    return name ? engineSelectionLabel(name, t) : t('Default engine')
+  }, [config, t])
 
   const toggleSiteAdapter = (key, enabled) => {
     const activeSiteAdapters = config.activeSiteAdapters || []
@@ -66,14 +78,14 @@ export function FeaturesTab({ config, updateConfig }) {
   const setSiteEngine = (key, opt) => {
     const overrides = { ...(config.siteEngineOverrides || {}) }
     if (!opt || !opt.value) delete overrides[key]
-    else overrides[key] = { modelName: opt.value, apiMode: opt.apiMode || null }
+    else overrides[key] = { modelName: opt.value, apiMode: null }
     updateConfig({ siteEngineOverrides: overrides })
   }
 
   const siteEngineValue = (key) => {
     const override = config.siteEngineOverrides?.[key]
     if (!override) return ''
-    return override.apiMode ? apiModeToModelName(override.apiMode) : override.modelName || ''
+    return override.modelName || ''
   }
 
   return (
@@ -95,7 +107,7 @@ export function FeaturesTab({ config, updateConfig }) {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">
-                    {SITE_DISPLAY_NAMES[key] || key}
+                    {t(SITE_DISPLAY_NAMES[key] || key)}
                   </p>
                   <p className="text-xs text-muted-foreground">{key}</p>
                 </div>

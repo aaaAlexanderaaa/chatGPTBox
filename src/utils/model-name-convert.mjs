@@ -1,7 +1,10 @@
 import { AlwaysCustomGroups, ModelGroups, Models } from '../config/models.mjs'
+import { getSelectionString, parseEngineSelection } from '../config/engine-selection.mjs'
 
 export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
   if (!t) t = (x) => x
+  const parsed = parseEngineSelection(modelName)
+  if (parsed) return modelName
   if (modelName in Models) {
     const desc = t(Models[modelName].desc)
     if (modelName === 'customModel' && extraCustomModelName)
@@ -39,16 +42,15 @@ export function modelNameToCustomPart(modelName) {
 }
 
 export function modelNameToValue(modelName) {
+  const parsed = parseEngineSelection(modelName)
+  if (parsed) return parsed.modelId
   if (modelName in Models) return Models[modelName].value
 
   return modelNameToCustomPart(modelName)
 }
 
 export function getModelValue(configOrSession) {
-  let value
-  if (configOrSession.apiMode) value = modelNameToValue(apiModeToModelName(configOrSession.apiMode))
-  else value = modelNameToValue(configOrSession.modelName)
-  return value
+  return modelNameToValue(getSelectionString(configOrSession))
 }
 
 export function isCustomModelName(modelName) {

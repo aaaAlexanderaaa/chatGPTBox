@@ -7,6 +7,7 @@ import {
   MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   MAX_RESPONSE_TOKEN_LENGTH_LIMIT,
 } from '../../config/limits.mjs'
+import { isUsingL1Engine } from '../../config/engine-selection.mjs'
 
 /**
  * BehaviorTab - how conversations behave: generation parameters on one side,
@@ -29,13 +30,21 @@ export function BehaviorTab({ config, updateConfig }) {
     MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT,
   )
   const temperatureValue = parseFloatWithClamp(config.temperature, 1, 0, 2)
+  const l1Active = isUsingL1Engine(config, config)
 
   return (
     <div className="space-y-4">
       <SettingSection
         title={t('Generation')}
-        description={t('Defaults applied to every conversation')}
+        description={t('These three knobs apply to L1 API providers only')}
       >
+        {!l1Active && (
+          <p className="text-xs text-muted-foreground bg-secondary/50 border border-border rounded-lg px-3 py-2">
+            {t(
+              'The current engine is a web engine. ChatGPT Web, Grok Web, and DeepSeek Harness ignore Max Response Tokens, Context Length, and Temperature.',
+            )}
+          </p>
+        )}
         <NumberRow
           label={t('Max Response Tokens')}
           hint={t('Maximum tokens in response (actual model/provider limits still apply)')}

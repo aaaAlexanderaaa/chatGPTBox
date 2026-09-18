@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useTranslation } from 'react-i18next'
 import { isSettingsConflict, settingsMutatePayload } from '../../models/settings-write.mjs'
 import {
   credentialRefsFromProviders,
@@ -19,13 +20,6 @@ import {
   settingsTabForNamespace,
 } from './load-sections.mjs'
 
-const TABS = [
-  { id: 'general', label: 'General' },
-  { id: 'models', label: 'Models' },
-  { id: 'plugins', label: 'Plugins' },
-  { id: 'presets', label: 'Presets' },
-]
-
 const EMPTY_VALUES = {}
 const BASE_URL_PLACEHOLDER = 'https://api.deepseek.com'
 const BASE_URL_HELP =
@@ -40,6 +34,13 @@ function namespaceOf(section) {
 }
 
 export function SettingsPage({ rpc }) {
+  const { t } = useTranslation()
+  const TABS = [
+    { id: 'general', label: t('General') },
+    { id: 'models', label: t('Models') },
+    { id: 'plugins', label: t('Plugins') },
+    { id: 'presets', label: t('Presets') },
+  ]
   const [tab, setTab] = useState('general')
   const [sections, setSections] = useState([])
   const [providers, setProviders] = useState([])
@@ -190,10 +191,13 @@ export function SettingsPage({ rpc }) {
   }, [credentials])
 
   const emptyCopy = {
-    general:
+    general: t(
       'No general preferences from this harness yet. Language, theme, and permission defaults appear here when the host exposes them.',
-    models: 'No model namespaces from this harness yet. Add an API key or a custom provider below.',
-    plugins: 'No plugin settings from this harness yet.',
+    ),
+    models: t(
+      'No model namespaces from this harness yet. Add an API key or a custom provider below.',
+    ),
+    plugins: t('No plugin settings from this harness yet.'),
   }
 
   return (
@@ -216,7 +220,7 @@ export function SettingsPage({ rpc }) {
           className="ml-auto text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
           onClick={() => void openSettingsDocument()}
         >
-          Open settings.yaml
+          {t('Open settings.yaml')}
         </button>
       </div>
       <div className="dsh-scroll flex-1 min-h-0 px-6 py-4 space-y-6">
@@ -239,12 +243,13 @@ export function SettingsPage({ rpc }) {
         {tab === 'models' && (
           <>
             <p className="text-xs text-muted-foreground">
-              Enter provider keys here. Official DeepSeek only needs an API key. Custom
-              OpenAI-compatible servers need a base URL and a protocol.
+              {t(
+                'Enter provider keys here. Official DeepSeek only needs an API key. Custom OpenAI-compatible servers need a base URL and a protocol.',
+              )}
             </p>
             {Array.isArray(providers) && providers.length > 0 && (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium">Providers</h3>
+                <h3 className="text-sm font-medium">{t('Providers')}</h3>
                 <ul className="text-xs space-y-1">
                   {providers.map((provider) => (
                     <li
@@ -276,7 +281,7 @@ export function SettingsPage({ rpc }) {
             )}
             {credentialRows.length > 0 && (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium">Credentials</h3>
+                <h3 className="text-sm font-medium">{t('Credentials')}</h3>
                 <ul className="space-y-2">
                   {credentialRows.map(([id, view]) => (
                     <li key={id} className="flex items-center gap-2 text-xs">
@@ -288,7 +293,7 @@ export function SettingsPage({ rpc }) {
                         disabled={view?.writable === false}
                         onClick={() => void unsetCredential(id)}
                       >
-                        Unset
+                        {t('Unset')}
                       </button>
                     </li>
                   ))}
@@ -296,7 +301,7 @@ export function SettingsPage({ rpc }) {
               </div>
             )}
             <form className="space-y-2 border border-border rounded-md p-3" onSubmit={runDiscover}>
-              <h3 className="text-sm font-medium">Discover models</h3>
+              <h3 className="text-sm font-medium">{t('Discover models')}</h3>
               <p className="text-[11px] text-muted-foreground">{BASE_URL_HELP}</p>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">Adapter</span>

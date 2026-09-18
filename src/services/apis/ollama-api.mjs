@@ -1,6 +1,7 @@
 import { getUserConfig } from '../../config/storage.mjs'
 import { generateAnswersWithChatgptApiCompat } from './openai-api.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { resolveL1Credentials, stripTrailingV1 } from '../../config/engine-selection.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -9,22 +10,24 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
  */
 export async function generateAnswersWithOllamaApi(port, question, session) {
   const config = await getUserConfig()
-  const model = getModelValue(session)
+  const l1 = resolveL1Credentials(session, config)
+  const endpoint = stripTrailingV1(l1?.baseUrl || config.ollamaEndpoint)
+  const apiKey = l1?.apiKey || config.ollamaApiKey
+  const model = l1?.modelId || getModelValue(session)
   return generateAnswersWithChatgptApiCompat(
-    config.ollamaEndpoint + '/v1',
+    endpoint + '/v1',
     port,
     question,
     session,
-    config.ollamaApiKey,
+    apiKey,
     {},
-    // A local Ollama server needs no credentials, so the key stays optional.
     { requireApiKey: false },
   ).then(() =>
-    fetch(config.ollamaEndpoint + '/api/generate', {
+    fetch(endpoint + '/api/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(config.ollamaApiKey && { Authorization: `Bearer ${config.ollamaApiKey}` }),
+        ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
       },
       body: JSON.stringify({
         model,

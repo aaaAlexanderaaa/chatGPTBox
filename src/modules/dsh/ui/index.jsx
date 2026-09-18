@@ -1,10 +1,11 @@
 import { render } from 'preact'
 import Browser from 'webextension-polyfill'
+import { changeLanguage } from 'i18next'
 import { App } from './app.jsx'
-import { applyDocumentAppearance } from '../../api.mjs'
+import { applyDocumentAppearance, ensureModuleI18n } from '../../api.mjs'
 import './tokens.css'
 
-// Full-page DeepSeek Harness. The cockpit follows the extension's theme
+// Full-page DeepSeek Harness. The client follows the extension's theme
 // choice (light/dark/auto + accent) like every other surface, reading
 // storage directly — the module seam cannot re-export core config without
 // an import cycle. 'auto' is applied synchronously so first paint follows
@@ -15,6 +16,8 @@ const THEME_KEYS = [
   'accentStrengthLight',
   'accentColorDark',
   'accentStrengthDark',
+  'preferredLanguage',
+  'userLanguage',
 ]
 
 document.documentElement.dataset.theme = 'auto'
@@ -30,9 +33,15 @@ function applyStoredTheme(stored) {
       : themeMode
   document.documentElement.dataset.theme = themeMode
   applyDocumentAppearance(document.documentElement, stored, resolved)
+  const lang =
+    stored.preferredLanguage === 'auto' || !stored.preferredLanguage
+      ? stored.userLanguage
+      : stored.preferredLanguage
+  if (lang) void changeLanguage(lang)
 }
 
 async function boot() {
+  await ensureModuleI18n()
   await Browser.storage.local
     .get(THEME_KEYS)
     .then(applyStoredTheme)

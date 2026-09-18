@@ -7,8 +7,8 @@ import { SelectField } from './SelectField.jsx'
 import { SearchableSelect } from './SearchableSelect.jsx'
 import { ThemeSwitcher } from '../../components/ThemeSwitcher.jsx'
 import { applyPreferredLanguage, buildLanguageOptions } from './preferred-language.mjs'
-import { buildEngineOptions } from './engine-options.mjs'
-import { apiModeToModelName } from '../../utils/index.mjs'
+import { buildEngineOptions, patchEngineSelection } from './engine-options.mjs'
+import { getSelectionString } from '../../config/engine-selection.mjs'
 import { TriggerMode } from '../../config/constants.mjs'
 
 /**
@@ -23,16 +23,10 @@ export function QuickSettingsTab({ config, updateConfig, openFullSettings }) {
   const engineOptions = useMemo(() => buildEngineOptions(config, t), [config, t])
   const languageOptions = useMemo(() => buildLanguageOptions(), [])
 
-  const selectedModelName = config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName
+  const selectedModelName = getSelectionString(config)
 
   const handleModelChange = (modelName) => {
-    if (modelName === 'customModel') {
-      updateConfig({ modelName: 'customModel', apiMode: null })
-      return
-    }
-    const found = engineOptions.find((o) => o.value === modelName)
-    if (found?.apiMode) updateConfig({ apiMode: found.apiMode })
-    else updateConfig({ modelName, apiMode: null })
+    updateConfig(patchEngineSelection(modelName))
   }
 
   const sections = [
@@ -46,9 +40,9 @@ export function QuickSettingsTab({ config, updateConfig, openFullSettings }) {
   return (
     <div className="space-y-4">
       <SettingSection title={t('Engine')}>
-        <SettingRow label={t('API Mode')} hint={t('Select provider / model')}>
+        <SettingRow label={t('Default engine')} hint={t('Select provider / model')}>
           <SearchableSelect
-            value={selectedModelName || 'customModel'}
+            value={selectedModelName}
             onChange={handleModelChange}
             options={engineOptions}
             placeholder={t('Select…')}
