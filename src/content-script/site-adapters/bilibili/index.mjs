@@ -52,8 +52,9 @@ export default {
 
     let subtitleContent = ''
     for (let i = 0; i < subtitles.length; i++) {
-      if (i === subtitles.length - 1) subtitleContent += subtitles[i].content
-      else subtitleContent += subtitles[i].content + ','
+      if (subtitles[i].content == null) continue
+      if (subtitleContent) subtitleContent += ','
+      subtitleContent += subtitles[i].content
     }
 
     return await cropText(

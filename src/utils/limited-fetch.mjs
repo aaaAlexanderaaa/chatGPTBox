@@ -6,11 +6,24 @@ export async function limitedFetch(url, maxBytes) {
       const xhr = new XMLHttpRequest()
       xhr.onprogress = (ev) => {
         if (ev.loaded < maxBytes) return
-        resolve(ev.target.responseText.substring(0, maxBytes))
-        xhr.abort()
+        const status = ev.target.status
+        if (status >= 200 && status < 300) {
+          resolve(ev.target.responseText.substring(0, maxBytes))
+          xhr.abort()
+          return
+        }
+        if (status) {
+          reject(new Error(status))
+          xhr.abort()
+        }
       }
       xhr.onload = (ev) => {
-        resolve(ev.target.responseText.substring(0, maxBytes))
+        const status = ev.target.status
+        if (status >= 200 && status < 300) {
+          resolve(ev.target.responseText.substring(0, maxBytes))
+          return
+        }
+        reject(new Error(status))
       }
       xhr.onerror = (ev) => {
         reject(new Error(ev.target.status))

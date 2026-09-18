@@ -24,10 +24,6 @@ import { encode } from '@nem035/gpt-3-encoder'
 import { getUserConfig } from '../config/index.mjs'
 import { apiModeToModelName, modelNameToDesc } from './model-name-convert.mjs'
 
-const clamp = (v, min, max) => {
-  return Math.min(Math.max(v, min), max)
-}
-
 export async function cropText(
   text,
   maxLength = 8000,
@@ -45,9 +41,6 @@ export async function cropText(
   ).match(/[- (]*([0-9]+)k/)?.[1]
   if (k) {
     maxLength = Number(k) * 1000
-    maxLength -= 100 + clamp(userConfig.maxResponseTokenLength, 1, maxLength - 2000)
-  } else {
-    maxLength -= 100 + clamp(userConfig.maxResponseTokenLength, 1, maxLength - 2000)
   }
 
   const splits = text.split(/[,，。?？!！;；]/).map((s) => s.trim())

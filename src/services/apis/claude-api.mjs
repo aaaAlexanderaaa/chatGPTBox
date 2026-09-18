@@ -4,6 +4,11 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { parseFloatWithClamp } from '../../utils/parse-float-with-clamp.mjs'
+import { parseIntWithClamp } from '../../utils/parse-int-with-clamp.mjs'
+
+/** Anthropic Messages API documented max output tokens. Never send 384000. */
+export const CLAUDE_MAX_OUTPUT_TOKENS = 64000
 
 /**
  * @param {Runtime.Port} port
@@ -49,8 +54,13 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       model,
       messages: prompt,
       stream: true,
-      max_tokens: config.maxResponseTokenLength,
-      temperature: config.temperature,
+      max_tokens: parseIntWithClamp(
+        config.maxResponseTokenLength,
+        CLAUDE_MAX_OUTPUT_TOKENS,
+        1,
+        CLAUDE_MAX_OUTPUT_TOKENS,
+      ),
+      temperature: parseFloatWithClamp(config.temperature, 1, 0, 1),
     }),
     onMessage(message) {
       console.debug('sse message', message)

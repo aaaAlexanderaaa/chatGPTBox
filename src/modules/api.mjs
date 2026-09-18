@@ -134,3 +134,4 @@ export function getModule(id) {
 // would cycle config/storage.mjs → modules/index.mjs → this file.
 // appearance.mjs is import-free, so re-exporting it keeps the seam pure.
 export { applyDocumentAppearance } from '../utils/appearance.mjs'
+export { shouldHandleInputAction } from '../utils/should-handle-input-action.mjs'

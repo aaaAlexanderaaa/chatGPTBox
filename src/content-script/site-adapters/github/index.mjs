@@ -19,11 +19,11 @@ const getPatchData = async (patchUrl) => {
 }
 
 const isPull = () => {
-  return location.href.match(/\/pull\/\d+$/)
+  return location.pathname.match(/\/pull\/\d+$/)
 }
 
 const isIssue = () => {
-  return location.href.match(/\/issues\/\d+$/)
+  return location.pathname.match(/\/issues\/\d+$/)
 }
 
 function parseGitHubIssueData() {
