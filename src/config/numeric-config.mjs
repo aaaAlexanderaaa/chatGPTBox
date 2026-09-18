@@ -34,7 +34,7 @@ import { parseFloatWithClamp } from '../utils/parse-float-with-clamp.mjs'
 // limits.mjs is the canonical home for these constants; storage.mjs forwards
 // them in when calling clampNumericConfig.
 export const NUMERIC_FIELDS = /** @type {NumericFieldSpec[]} */ ([
-  { key: 'maxResponseTokenLength', kind: 'int', min: 100, max: 256000 },
+  { key: 'maxResponseTokenLength', kind: 'int', min: 100, max: 384000 },
   { key: 'maxConversationContextLength', kind: 'int', min: 0, max: 200 },
   { key: 'temperature', kind: 'float', min: 0, max: 2 },
   { key: 'apiServerRequestTimeoutSeconds', kind: 'int', min: 30, max: 3600 },

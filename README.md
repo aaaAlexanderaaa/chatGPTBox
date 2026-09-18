@@ -23,8 +23,8 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 - Chat on any page with floating chat, independent conversation page/window, and side-panel support.
 - Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
-- Web and API provider support, including ChatGPT Web plus API/custom runtimes such as OpenAI, Anthropic, Azure OpenAI, OpenRouter, AIML, DeepSeek, Moonshot, Ollama, ChatGLM, and OpenAI-compatible custom endpoints.
-- Local API Server Bridge that exposes ChatGPT Web through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
+- Web engines: ChatGPT Web (default, no API key) and Grok Web (immature). L3 is DeepSeek Harness for a local agent. L1 is custom OpenAI-compatible (and Anthropic / Ollama / Completions / Azure) providers, with TokenDance as the default row.
+- Local API Server Bridge that exposes web engines through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
 
 ## Screenshots
@@ -80,9 +80,9 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_modules_tab.webp" alt="Modules Tab" /><br />
-      <b>Modules &amp; API Modes</b><br />
-      <sub>Configure API modes, selection tools, site adapters, and content extractors</sub>
+      <img src="./screenshots/preview_modules_tab.webp" alt="Engines settings" /><br />
+      <b>Engines &amp; Providers</b><br />
+      <sub>Custom API providers, ChatGPT Web, Grok Web, and DeepSeek Harness</sub>
     </td>
   </tr>
 </table>
@@ -110,26 +110,27 @@ Load the extension:
 - Summarize page: <kbd>Alt</kbd>+<kbd>B</kbd> (via shortcut or context menu).
 - Independent conversation panel: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd>.
 - Select text on a page to open the selection toolbar.
-- Click the extension icon to open the quick workspace with `General`, `Sites`, and `Advanced`. Use `Full settings` for the complete configuration workspace.
+- Click the extension icon to open the quick workspace (chat plus daily controls). Use `Full settings` for the complete configuration workspace.
 
 ## Configuration
 
 Open the Settings UI from the extension icon or the extension options page.
 
-- The toolbar popup is a quick workspace with `General`, `Sites`, and `Advanced`, plus a `Full settings` button.
-- The full settings workspace exposes all top-level tabs: `General`, `Features`, `Modules`, and `Advanced`.
+- The toolbar popup is a quick workspace: chat, default engine, theme, trigger, language, plus links into full settings.
+- The full settings workspace uses left-nav tabs: `General`, `Appearance`, `Engines`, enabled `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`, `Behavior`, `Tools`, `Sites`, and `Advanced`.
 
 Main areas in the full settings workspace:
 
-- **General**: model/provider selection, language, trigger behavior, and appearance.
-- **Features**: enable/disable supported site integrations.
-- **Modules**: API modes, selection tools, site adapters, and content extractors.
-- **Advanced**: context length, max tokens, temperature, custom endpoints, debug/export/import/reset settings.
+- **General**: language, trigger, toolbar icon, context menu.
+- **Engines**: custom API providers (TokenDance by default), plus slides for ChatGPT Web, Grok Web, and DeepSeek Harness.
+- **ChatGPT Web / Grok Web / DeepSeek Harness**: per-engine options after you enable them. Grok is immature; history sync there is a placeholder.
+- **Sites**: site adapters (all togglable) and per-site engines.
+- **Advanced**: API Server Bridge for web engines, plus export/import/reset.
 
 Provider notes:
 
-- **Custom Model** supports OpenAI-compatible endpoints (default: `http://localhost:8000/v1/chat/completions`).
-- **Ollama** uses a local endpoint (default: `http://127.0.0.1:11434`).
+- Add OpenAI-compatible providers with a `/v1` base URL. Fetch models from `{base}/models`, or type a model id.
+- **Ollama** and **Anthropic** / **Azure** / **Completions** are formats on a custom provider, not vendor cards.
 
 ## Development
 

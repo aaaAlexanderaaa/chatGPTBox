@@ -32,13 +32,13 @@ function deriveV1BaseUrlFromEndpoint(url) {
 
 async function fetchV1Models({ v1BaseUrl, apiKey }) {
   if (!v1BaseUrl) throw new Error('Missing API base URL')
-  if (!apiKey) throw new Error('Missing API key')
+
+  const headers = {}
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
 
   const resp = await fetch(`${v1BaseUrl}/models`, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
   })
 
   if (!resp.ok) {
@@ -106,6 +106,26 @@ export async function refreshChatGptWebModelList({ accessToken }) {
   }
   await Browser.storage.local.set({ [MODEL_LIST_CACHE_KEY]: next })
   return models
+}
+
+export { deriveV1BaseUrlFromEndpoint, fetchV1Models }
+
+export async function fetchOllamaTags(endpoint) {
+  const origin = String(endpoint || '')
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/i, '')
+  if (!origin) throw new Error('Missing Ollama endpoint')
+  const resp = await fetch(`${origin}/api/tags`)
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(text || `${resp.status} ${resp.statusText}`)
+  }
+  const json = await resp.json().catch(() => ({}))
+  const models = Array.isArray(json.models) ? json.models : []
+  return models
+    .map((m) => m?.name || m?.model)
+    .filter(Boolean)
+    .sort()
 }
 
 export async function refreshCustomModelList({ apiKey, apiUrl }) {

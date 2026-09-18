@@ -1,546 +1,519 @@
 import PropTypes from 'prop-types'
-import { ExternalLink, CircleDot } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
-import {
-  SettingRow,
-  SettingSection,
-  ToggleRow,
-  ToggleSwitch,
-  Divider,
-} from './SettingComponents.jsx'
+import { SettingRow, SettingSection, ToggleSwitch, Divider } from './SettingComponents.jsx'
 import { SearchableSelect } from './SearchableSelect.jsx'
-import { ApiModes } from '../sections/ApiModes.jsx'
-import { buildModuleKit } from './module-kit.mjs'
-import { buildEngineOptions } from './engine-options.mjs'
+import { buildEngineOptions, patchEngineSelection } from './engine-options.mjs'
 import { cn } from '../../utils/cn.mjs'
-import { apiModeToModelName, getApiModesFromConfig } from '../../utils/index.mjs'
 import {
-  DefaultActiveModelKeysByGroup,
-  ModelGroups,
-  isModelDeprecated,
-} from '../../config/models.mjs'
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
-import { isUsingChatgptWebModel, isUsingOpenAiApiModel } from '../../config/predicates.mjs'
-import { getSettingsCards } from '../../modules/api.mjs'
-import { ProtocolProbeSection } from './ProtocolProbeSection.jsx'
+  deriveV1BaseUrlFromEndpoint,
+  fetchOllamaTags,
+  fetchV1Models,
+} from '../../services/model-lists.mjs'
+import {
+  L1_FORMATS,
+  L1_PROVIDER_PRESETS,
+  createBlankL1Provider,
+  createL1ProviderFromPreset,
+  firstEnabledSelection,
+  getSelectionString,
+  keysUrlForL1Provider,
+  normalizeL1Providers,
+} from '../../config/engine-selection.mjs'
 
 const inputClassName =
   'h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-foreground placeholder:text-muted-foreground'
 
-// Unified engine anatomy (roadmap C2, definition.md "三个用户概念 · 引擎"):
-// every engine gets the same card skeleton — name, capability badges,
-// enable toggle, credentials/endpoint, diagnostics — instead of provider
-// settings that only appear for the currently selected engine scattered
-// between General and Advanced.
-
-const ENGINE_LEVEL_LABELS = {
-  1: 'Q&A',
-  2: 'Session',
-  3: 'Agent',
+const FORMAT_LABELS = {
+  'openai-compat': 'OpenAI-compatible',
+  anthropic: 'Anthropic',
+  ollama: 'Ollama',
+  completions: 'GPT Completions',
+  azure: 'Azure',
 }
 
-const ENGINE_CARDS = [
-  { group: 'chatgptWebModelKeys', level: 2, defaultModel: CHATGPT_WEB_DEFAULT_MODEL_KEY },
-  { group: 'chatgptApiModelKeys', level: 1, fields: ['openai-key', 'openai-url'] },
-  { group: 'gptApiModelKeys', level: 1, fields: ['openai-key'] },
-  {
-    group: 'azureOpenAiApiModelKeys',
-    level: 1,
-    fields: ['azure-endpoint', 'azure-deployment', 'azure-key'],
-  },
-  { group: 'claudeApiModelKeys', level: 1, fields: ['claude-key', 'claude-url'] },
-  { group: 'moonshotApiModelKeys', level: 1, fields: ['moonshot-key'] },
-  { group: 'moonshotWebModelKeys', level: 2 },
-  { group: 'openRouterApiModelKeys', level: 1, fields: ['openrouter-key'] },
-  { group: 'deepSeekApiModelKeys', level: 1, fields: ['deepseek-key'] },
-  { group: 'aimlModelKeys', level: 1, fields: ['aiml-key'] },
-  {
-    group: 'ollamaApiModelKeys',
-    level: 1,
-    fields: ['ollama-endpoint', 'ollama-model', 'ollama-key', 'ollama-keepalive'],
-  },
-  { group: 'chatglmApiModelKeys', level: 1, fields: ['chatglm-key'] },
-  { group: 'customApiModelKeys', level: 1, fields: ['custom-url', 'custom-key', 'custom-model'] },
-]
+function persistProviders(updateConfig, providers) {
+  updateConfig({ l1Providers: normalizeL1Providers(providers) })
+}
 
-function EngineFields({ field, config, updateConfig, t }) {
-  switch (field) {
-    case 'openai-key':
-      return (
-        <SettingRow label={t('OpenAI API Key')} hint={t('Used for OpenAI API models')}>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              placeholder="sk-..."
-              value={config.apiKey || ''}
-              onChange={(e) => updateConfig({ apiKey: e.target.value })}
-              className={cn(inputClassName, 'w-[260px]')}
-            />
-            <a
-              href="https://platform.openai.com/account/api-keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="h-9 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              {t('Get')}
-            </a>
-          </div>
-        </SettingRow>
-      )
-    case 'openai-url':
-      return (
-        <SettingRow label={t('OpenAI Base URL')} hint={t('For proxies / custom domains')}>
-          <input
-            type="text"
-            value={config.customOpenAiApiUrl || ''}
-            onChange={(e) => updateConfig({ customOpenAiApiUrl: e.target.value })}
-            placeholder="https://api.openai.com"
-            className={cn(inputClassName, 'w-[320px]')}
-          />
-        </SettingRow>
-      )
-    case 'azure-endpoint':
-      return (
-        <SettingRow label={t('Azure Endpoint')} hint={t('e.g. https://xxx.openai.azure.com')}>
-          <input
-            type="text"
-            value={config.azureEndpoint || ''}
-            onChange={(e) => updateConfig({ azureEndpoint: e.target.value })}
-            placeholder="https://..."
-            className={cn(inputClassName, 'w-[320px]')}
-          />
-        </SettingRow>
-      )
-    case 'azure-deployment':
-      return (
-        <SettingRow label={t('Azure Deployment Name')} hint={t('Used to build model ID')}>
-          <input
-            type="text"
-            value={config.azureDeploymentName || ''}
-            onChange={(e) => updateConfig({ azureDeploymentName: e.target.value })}
-            placeholder={t('Deployment name')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'azure-key':
-      return (
-        <SettingRow label={t('Azure API Key')} hint={t('Credential for Azure OpenAI')}>
-          <input
-            type="password"
-            value={config.azureApiKey || ''}
-            onChange={(e) => updateConfig({ azureApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'openrouter-key':
-      return (
-        <SettingRow label={t('OpenRouter API Key')} hint={t('Used for OpenRouter models')}>
-          <input
-            type="password"
-            value={config.openRouterApiKey || ''}
-            onChange={(e) => updateConfig({ openRouterApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'aiml-key':
-      return (
-        <SettingRow label={t('AIML API Key')} hint={t('Used for AIML models')}>
-          <input
-            type="password"
-            value={config.aimlApiKey || ''}
-            onChange={(e) => updateConfig({ aimlApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'claude-key':
-      return (
-        <SettingRow label={t('Claude API Key')} hint={t('Used for Anthropic API models')}>
-          <input
-            type="password"
-            value={config.claudeApiKey || ''}
-            onChange={(e) => updateConfig({ claudeApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'claude-url':
-      return (
-        <SettingRow label={t('Claude Base URL')} hint={t('For proxies / custom domains')}>
-          <input
-            type="text"
-            value={config.customClaudeApiUrl || ''}
-            onChange={(e) => updateConfig({ customClaudeApiUrl: e.target.value })}
-            placeholder="https://api.anthropic.com"
-            className={cn(inputClassName, 'w-[320px]')}
-          />
-        </SettingRow>
-      )
-    case 'moonshot-key':
-      return (
-        <SettingRow label={t('Moonshot API Key')} hint={t('Used for Moonshot API models')}>
-          <input
-            type="password"
-            value={config.moonshotApiKey || ''}
-            onChange={(e) => updateConfig({ moonshotApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'deepseek-key':
-      return (
-        <SettingRow label={t('DeepSeek API Key')} hint={t('Used for DeepSeek API models')}>
-          <input
-            type="password"
-            value={config.deepSeekApiKey || ''}
-            onChange={(e) => updateConfig({ deepSeekApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'chatglm-key':
-      return (
-        <SettingRow label={t('ChatGLM API Key')} hint={t('Used for ChatGLM API models')}>
-          <input
-            type="password"
-            value={config.chatglmApiKey || ''}
-            onChange={(e) => updateConfig({ chatglmApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'ollama-endpoint':
-      return (
-        <SettingRow label={t('Ollama Endpoint')} hint={t('Local Ollama server')}>
-          <input
-            type="text"
-            value={config.ollamaEndpoint || ''}
-            onChange={(e) => updateConfig({ ollamaEndpoint: e.target.value })}
-            placeholder="http://127.0.0.1:11434"
-            className={cn(inputClassName, 'w-[320px]')}
-          />
-        </SettingRow>
-      )
-    case 'ollama-model':
-      return (
-        <SettingRow label={t('Ollama Model Name')} hint={t('e.g. llama3.1')}>
-          <input
-            type="text"
-            value={config.ollamaModelName || ''}
-            onChange={(e) => updateConfig({ ollamaModelName: e.target.value })}
-            placeholder="llama3.1"
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'ollama-key':
-      return (
-        <SettingRow label={t('Ollama API Key')} hint={t('Optional (for proxies)')}>
-          <input
-            type="password"
-            value={config.ollamaApiKey || ''}
-            onChange={(e) => updateConfig({ ollamaApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'ollama-keepalive':
-      return (
-        <SettingRow label={t('Keep Alive')} hint={t('e.g. 5m / 0')}>
-          <input
-            type="text"
-            value={config.ollamaKeepAliveTime || ''}
-            onChange={(e) => updateConfig({ ollamaKeepAliveTime: e.target.value })}
-            placeholder="5m"
-            className={cn(inputClassName, 'w-[140px]')}
-          />
-        </SettingRow>
-      )
-    case 'custom-url':
-      return (
-        <SettingRow label={t('Custom API URL')} hint={t('OpenAI-compatible chat/completions')}>
-          <input
-            type="text"
-            value={config.customModelApiUrl || ''}
-            onChange={(e) => updateConfig({ customModelApiUrl: e.target.value })}
-            placeholder="http://localhost:8000/v1/chat/completions"
-            className={cn(inputClassName, 'w-[360px]')}
-          />
-        </SettingRow>
-      )
-    case 'custom-key':
-      return (
-        <SettingRow label={t('Custom API Key')} hint={t('Optional')}>
-          <input
-            type="password"
-            value={config.customApiKey || ''}
-            onChange={(e) => updateConfig({ customApiKey: e.target.value })}
-            placeholder={t('API Key')}
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    case 'custom-model':
-      return (
-        <SettingRow label={t('Custom Model Name')} hint={t('Sent as model field')}>
-          <input
-            type="text"
-            value={config.customModelName || ''}
-            onChange={(e) => updateConfig({ customModelName: e.target.value })}
-            placeholder="gpt-4.1"
-            className={cn(inputClassName, 'w-[260px]')}
-          />
-        </SettingRow>
-      )
-    default:
-      return null
+function mergeFetchedModels(existing, ids) {
+  const next = new Map((existing || []).map((model) => [model.id, model]))
+  for (const id of ids) {
+    if (!id) continue
+    if (!next.has(id)) next.set(id, { id, enabled: false, source: 'fetched' })
   }
+  return [...next.values()]
 }
 
-EngineFields.propTypes = {
-  field: PropTypes.string.isRequired,
-  config: PropTypes.object.isRequired,
-  updateConfig: PropTypes.func.isRequired,
-  t: PropTypes.func.isRequired,
-}
+function L1ProviderRow({ provider, expanded, onToggle, config, updateConfig, t }) {
+  const [draftModel, setDraftModel] = useState('')
+  const [fetchError, setFetchError] = useState('')
+  const [fetching, setFetching] = useState(false)
+  const keysUrl = keysUrlForL1Provider(provider)
+  const models = Array.isArray(provider.models) ? provider.models : []
 
-function EngineCard({ engine, config, updateConfig, selectedGroup }) {
-  const { t } = useTranslation()
-  const { group, level, fields, defaultModel } = engine
-  const meta = ModelGroups[group] || { desc: group, value: [] }
-  const enabledProviders = config.enabledProviders || {}
-  const enabled = enabledProviders[group] === true
-  const inUse = selectedGroup === group
-
-  const setAsDefault = () => {
-    const items = meta.value || []
-    const modelName =
-      defaultModel ||
-      DefaultActiveModelKeysByGroup[group]?.[0] ||
-      items.find((item) => !isModelDeprecated(item)) ||
-      items[0]
-    if (!modelName) return
-    const found = getApiModesFromConfig(config, true).find(
-      (apiMode) => apiModeToModelName(apiMode) === modelName,
+  const patchProvider = (partial) => {
+    const next = (config.l1Providers || []).map((item) =>
+      item.id === provider.id ? { ...item, ...partial } : item,
     )
-    if (found) updateConfig({ apiMode: found })
-    else updateConfig({ modelName, apiMode: null })
+    persistProviders(updateConfig, next)
+  }
+
+  const fetchModels = async () => {
+    setFetching(true)
+    setFetchError('')
+    try {
+      let ids = []
+      if (provider.format === 'ollama') {
+        ids = await fetchOllamaTags(provider.baseUrl)
+      } else {
+        const v1BaseUrl = deriveV1BaseUrlFromEndpoint(provider.baseUrl)
+        ids = await fetchV1Models({ v1BaseUrl, apiKey: provider.apiKey })
+      }
+      patchProvider({ models: mergeFetchedModels(models, ids) })
+    } catch {
+      setFetchError(t('This endpoint has no standard model list. Type a model id.'))
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const addModel = () => {
+    const id = draftModel.trim()
+    if (!id) return
+    if (models.some((model) => model.id === id)) {
+      setDraftModel('')
+      return
+    }
+    patchProvider({
+      models: [...models, { id, enabled: true, source: 'manual' }],
+    })
+    setDraftModel('')
+  }
+
+  const removeProvider = () => {
+    const next = (config.l1Providers || []).filter((item) => item.id !== provider.id)
+    const patch = { l1Providers: normalizeL1Providers(next) }
+    const current = getSelectionString(config)
+    if (current.startsWith(`${provider.id}/`)) {
+      patch.modelName = firstEnabledSelection({ ...config, ...patch })
+      patch.apiMode = null
+    }
+    updateConfig(patch)
   }
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border p-4 space-y-3 transition-colors',
-        inUse ? 'border-primary/40 bg-primary/5' : 'border-border bg-card',
-      )}
-    >
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="font-medium text-sm">{t(meta.desc)}</span>
-        <span
-          className="text-[10px] font-medium rounded-full px-2 py-0.5 border border-border text-muted-foreground"
-          title={t('Engine capability level')}
-        >
-          L{level} · {t(ENGINE_LEVEL_LABELS[level])}
-        </span>
-        {inUse && (
-          <span className="text-[10px] font-medium rounded-full px-2 py-0.5 bg-primary/10 text-primary inline-flex items-center gap-1">
-            <CircleDot size={10} /> {t('Default engine')}
-          </span>
+    <div className="rounded-xl border border-border bg-card/60">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
+        onClick={onToggle}
+      >
+        {expanded ? (
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
         )}
-        <div className="ml-auto flex items-center gap-3">
-          {!inUse && meta.value?.length > 0 && (
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-primary transition-colors"
-              onClick={setAsDefault}
+        <span className="font-medium text-sm text-foreground">{provider.name || provider.id}</span>
+        <span className="text-[11px] text-muted-foreground">
+          {FORMAT_LABELS[provider.format] || provider.format}
+        </span>
+      </button>
+      {!expanded && models.filter((model) => model.enabled !== false).length > 0 && (
+        <ul className="px-10 pb-3 space-y-1">
+          {models
+            .filter((model) => model.enabled !== false)
+            .map((model) => (
+              <li key={model.id} className="text-xs text-muted-foreground font-mono">
+                {provider.id}/{model.id}
+              </li>
+            ))}
+        </ul>
+      )}
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-border/60 pt-3">
+          <SettingRow label={t('Name')}>
+            <input
+              className={cn(inputClassName, 'w-[220px]')}
+              value={provider.name || ''}
+              onChange={(event) => patchProvider({ name: event.target.value })}
+            />
+          </SettingRow>
+          <SettingRow label={t('Format')} hint={t('Request shape for this provider')}>
+            <select
+              className={cn(inputClassName, 'w-[220px]')}
+              value={provider.format}
+              onChange={(event) => patchProvider({ format: event.target.value })}
             >
-              {t('Set as default')}
-            </button>
-          )}
-          <label className="flex items-center gap-2 text-xs cursor-pointer text-muted-foreground">
-            <ToggleSwitch
-              checked={enabled}
-              onChange={(value) =>
-                updateConfig({
-                  enabledProviders: { ...enabledProviders, [group]: value },
-                })
-              }
+              {L1_FORMATS.map((format) => (
+                <option key={format} value={format}>
+                  {FORMAT_LABELS[format]}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+          <SettingRow
+            label={t('Base URL')}
+            hint={t('Store the /v1 origin. Chat uses {base}/chat/completions.')}
+          >
+            <input
+              className={cn(inputClassName, 'w-[320px]')}
+              value={provider.baseUrl || ''}
+              placeholder="https://api.example.com/v1"
+              onChange={(event) => patchProvider({ baseUrl: event.target.value })}
             />
-            {enabled ? t('Enabled') : t('Disabled')}
-          </label>
-        </div>
-      </div>
-      {enabled && fields && (
-        <div className="space-y-1 pt-1 border-t border-border/60">
-          {fields.map((field) => (
-            <EngineFields
-              key={field}
-              field={field}
-              config={config}
-              updateConfig={updateConfig}
-              t={t}
-            />
-          ))}
+          </SettingRow>
+          <SettingRow label={t('API Key')}>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                className={cn(inputClassName, 'w-[260px]')}
+                value={provider.apiKey || ''}
+                onChange={(event) => patchProvider({ apiKey: event.target.value })}
+              />
+              {keysUrl ? (
+                <a
+                  href={keysUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-9 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  {t('Get')}
+                </a>
+              ) : null}
+            </div>
+          </SettingRow>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{t('Models')}</p>
+              <button
+                type="button"
+                className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-secondary"
+                onClick={() => void fetchModels()}
+                disabled={fetching}
+              >
+                {fetching ? t('Fetching…') : t('Fetch models')}
+              </button>
+            </div>
+            {fetchError ? <p className="text-xs text-destructive">{fetchError}</p> : null}
+            <ul className="space-y-1">
+              {models.map((model) => (
+                <li key={model.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={model.enabled !== false}
+                    onChange={(event) =>
+                      patchProvider({
+                        models: models.map((item) =>
+                          item.id === model.id ? { ...item, enabled: event.target.checked } : item,
+                        ),
+                      })
+                    }
+                  />
+                  <span className="font-mono text-xs">{model.id}</span>
+                  <button
+                    type="button"
+                    className="ml-auto text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() =>
+                      patchProvider({ models: models.filter((item) => item.id !== model.id) })
+                    }
+                  >
+                    {t('Remove')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-2">
+              <input
+                className={cn(inputClassName, 'flex-1')}
+                value={draftModel}
+                placeholder={t('Type a model id')}
+                onChange={(event) => setDraftModel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    addModel()
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="h-9 px-3 text-xs font-medium bg-secondary rounded-lg"
+                onClick={addModel}
+              >
+                {t('Add')}
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-destructive"
+            onClick={removeProvider}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {t('Remove provider')}
+          </button>
         </div>
       )}
     </div>
   )
 }
 
-EngineCard.propTypes = {
-  engine: PropTypes.shape({
-    group: PropTypes.string.isRequired,
-    level: PropTypes.number.isRequired,
-    fields: PropTypes.arrayOf(PropTypes.string),
-    defaultModel: PropTypes.string,
-  }).isRequired,
+L1ProviderRow.propTypes = {
+  provider: PropTypes.object.isRequired,
+  expanded: PropTypes.bool,
+  onToggle: PropTypes.func.isRequired,
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
-  selectedGroup: PropTypes.string,
+  t: PropTypes.func.isRequired,
 }
 
-/**
- * EnginesTab - the unified engine anatomy (roadmap C2).
- *
- * All engines, one dissection: name / capability badge / enable toggle /
- * credentials / diagnostics. Absorbs Provider Settings (GeneralTab) and the
- * Providers & Models matrix (AdvancedTab); module engine cards (dsh,
- * chatgptweb) render through the module seam.
- */
-export function EnginesTab({ config, updateConfig }) {
-  const { t } = useTranslation()
-  const moduleKit = useMemo(() => buildModuleKit(), [])
-  const [manualModelId, setManualModelId] = useState('')
+function AddProviderForm({ config, updateConfig, onClose, t }) {
+  const [presetId, setPresetId] = useState('')
+  const [draft, setDraft] = useState(() => createBlankL1Provider())
 
-  const engineOptions = useMemo(() => buildEngineOptions(config, t), [config, t])
-
-  const selectedModelName = config.apiMode ? apiModeToModelName(config.apiMode) : config.modelName
-
-  const selectedGroup = useMemo(() => {
-    if (config.apiMode?.groupName) return config.apiMode.groupName
-    for (const [group, { value }] of Object.entries(ModelGroups)) {
-      if (value?.includes(config.modelName)) return group
-    }
-    return null
-  }, [config.apiMode, config.modelName])
-
-  const usingOpenAiApi = isUsingOpenAiApiModel(config)
-  const usingChatGptWeb = isUsingChatgptWebModel(config)
-
-  const handleModelChange = (modelName) => {
-    if (modelName === 'customModel') {
-      updateConfig({ modelName: 'customModel', apiMode: null })
+  const applyPreset = (id) => {
+    setPresetId(id)
+    if (!id) {
+      setDraft(createBlankL1Provider())
       return
     }
-    const found = engineOptions.find((o) => o.value === modelName)
-    if (found?.apiMode) updateConfig({ apiMode: found.apiMode })
-    else updateConfig({ modelName, apiMode: null })
+    const existingIds = (config.l1Providers || []).map((item) => item.id)
+    setDraft(createL1ProviderFromPreset(id, existingIds))
+  }
+
+  const save = () => {
+    const next = [...(config.l1Providers || []), draft]
+    persistProviders(updateConfig, next)
+    onClose()
+  }
+
+  return (
+    <div className="rounded-xl border border-dashed border-border p-3 space-y-3">
+      <SettingRow label={t('Preset')} hint={t('Prefills a common OpenAI-compatible URL')}>
+        <select
+          className={cn(inputClassName, 'w-[220px]')}
+          value={presetId}
+          onChange={(event) => applyPreset(event.target.value)}
+        >
+          <option value="">{t('Blank provider')}</option>
+          {L1_PROVIDER_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.name}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
+      <SettingRow label={t('Name')}>
+        <input
+          className={cn(inputClassName, 'w-[220px]')}
+          value={draft.name}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
+      </SettingRow>
+      <SettingRow label={t('Format')}>
+        <select
+          className={cn(inputClassName, 'w-[220px]')}
+          value={draft.format}
+          onChange={(event) =>
+            setDraft({
+              ...createBlankL1Provider(event.target.value),
+              name: draft.name,
+              apiKey: draft.apiKey,
+            })
+          }
+        >
+          {L1_FORMATS.map((format) => (
+            <option key={format} value={format}>
+              {FORMAT_LABELS[format]}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
+      <SettingRow label={t('Base URL')}>
+        <input
+          className={cn(inputClassName, 'w-[320px]')}
+          value={draft.baseUrl}
+          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+        />
+      </SettingRow>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="h-9 px-3 text-xs font-medium bg-primary text-primary-foreground rounded-lg"
+          onClick={save}
+        >
+          {t('Add provider')}
+        </button>
+        <button
+          type="button"
+          className="h-9 px-3 text-xs font-medium bg-secondary rounded-lg"
+          onClick={onClose}
+        >
+          {t('Cancel')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+AddProviderForm.propTypes = {
+  config: PropTypes.object.isRequired,
+  updateConfig: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
+  t: PropTypes.func.isRequired,
+}
+
+function WebEngineRow({ title, enabled, onToggle, onOpen, t }) {
+  return (
+    <div className="rounded-xl border border-border bg-card/60 px-3 py-2.5 flex items-center gap-3">
+      <span className="font-medium text-sm flex-1">{title}</span>
+      <button type="button" className="text-xs text-primary hover:underline" onClick={onOpen}>
+        {t('Open settings')}
+      </button>
+      <ToggleSwitch checked={enabled} onChange={onToggle} />
+    </div>
+  )
+}
+
+WebEngineRow.propTypes = {
+  title: PropTypes.string.isRequired,
+  enabled: PropTypes.bool,
+  onToggle: PropTypes.func.isRequired,
+  onOpen: PropTypes.func.isRequired,
+  t: PropTypes.func.isRequired,
+}
+
+export function EnginesTab({ config, updateConfig, onOpenEngineTab, enablePrompt }) {
+  const { t } = useTranslation()
+  const [adding, setAdding] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+  const engineOptions = useMemo(() => buildEngineOptions(config, t), [config, t])
+  const selectedModelName = getSelectionString(config)
+  const providers = Array.isArray(config.l1Providers) ? config.l1Providers : []
+
+  const setDefaultEngine = (value) => updateConfig(patchEngineSelection(value))
+
+  const toggleWebEngine = (key, enabled, tabId) => {
+    const patch = { [key]: enabled }
+    const merged = { ...config, ...patch }
+    const current = getSelectionString(merged)
+    const stillEnabled = buildEngineOptions(merged, t).some((option) => option.value === current)
+    if (!stillEnabled) {
+      patch.modelName = firstEnabledSelection(merged)
+      patch.apiMode = null
+    }
+    updateConfig(patch)
+    if (enabled) onOpenEngineTab?.(tabId)
   }
 
   return (
     <div className="space-y-4">
+      {enablePrompt ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+          {enablePrompt}
+        </p>
+      ) : null}
+      {config.showLegacyProviderNotice === true ? (
+        <p className="text-xs text-muted-foreground bg-secondary/50 border border-border rounded-lg px-3 py-2">
+          {t(
+            'Old API provider config is not imported. Re-add providers here. Export is still in Advanced.',
+          )}{' '}
+          <button
+            type="button"
+            className="text-primary hover:underline"
+            onClick={() => updateConfig({ showLegacyProviderNotice: false })}
+          >
+            {t('Dismiss')}
+          </button>
+        </p>
+      ) : null}
+
       <SettingSection
-        title={t('Default Engine')}
+        title={t('Default engine')}
         description={t('Answers everything unless a site overrides it')}
       >
-        <SettingRow label={t('API Mode')} hint={t('Select provider / model')}>
+        <SettingRow label={t('Default engine')} hint={t('Select provider / model')}>
           <SearchableSelect
-            value={selectedModelName || 'customModel'}
-            onChange={handleModelChange}
+            value={selectedModelName}
+            onChange={setDefaultEngine}
             options={engineOptions}
             placeholder={t('Select…')}
             searchPlaceholder={t('Search…')}
             minWidth="260px"
           />
         </SettingRow>
-
-        {(usingChatGptWeb || usingOpenAiApi) && (
-          <SettingRow label={t('Manual Model ID')} hint={t('Use when model list refresh fails')}>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={manualModelId}
-                onChange={(e) => setManualModelId(e.target.value)}
-                placeholder={usingChatGptWeb ? 'gpt-5-6-thinking' : 'gpt-5'}
-                className={cn(inputClassName, 'w-[260px]')}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const value = manualModelId.trim()
-                  if (!value) return
-                  const groupName = usingChatGptWeb ? 'chatgptWebModelKeys' : 'chatgptApiModelKeys'
-                  updateConfig({ modelName: `${groupName}-${value}`, apiMode: null })
-                  setManualModelId('')
-                }}
-                className="h-9 px-3 inline-flex items-center text-xs font-medium text-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
-              >
-                {t('Use')}
-              </button>
-            </div>
-          </SettingRow>
-        )}
       </SettingSection>
 
       <Divider />
 
       <SettingSection
-        title={t('Engines')}
-        description={t(
-          'Every engine in one anatomy: capability level, credentials, and diagnostics.',
-        )}
+        title={t('API providers')}
+        description={t('Custom providers and enabled models')}
       >
-        <div className="space-y-3">
-          {ENGINE_CARDS.map((engine) => (
-            <EngineCard
-              key={engine.group}
-              engine={engine}
+        <div className="space-y-2">
+          {providers.map((provider) => (
+            <L1ProviderRow
+              key={provider.id}
+              provider={provider}
+              expanded={expandedId === provider.id}
+              onToggle={() => setExpandedId((id) => (id === provider.id ? null : provider.id))}
               config={config}
               updateConfig={updateConfig}
-              selectedGroup={selectedGroup}
+              t={t}
             />
           ))}
+          {adding ? (
+            <AddProviderForm
+              config={config}
+              updateConfig={updateConfig}
+              onClose={() => setAdding(false)}
+              t={t}
+            />
+          ) : (
+            <button
+              type="button"
+              className="w-full h-10 rounded-xl border border-dashed border-border text-sm inline-flex items-center justify-center gap-1.5 hover:bg-secondary/60"
+              onClick={() => setAdding(true)}
+            >
+              <Plus className="w-4 h-4" />
+              {t('+ Provider')}
+            </button>
+          )}
         </div>
       </SettingSection>
 
-      {/* Module engine cards (dsh, chatgptweb) through the seam */}
-      {getSettingsCards('engines').map(({ id, Component }) =>
-        id === 'chatgptweb' ? (
-          <Component key={id} config={config} updateConfig={updateConfig} kit={moduleKit} />
-        ) : (
-          <Component key={id} config={config} updateConfig={updateConfig} />
-        ),
-      )}
-
-      <Divider />
-
-      <ProtocolProbeSection />
-
       <Divider />
 
       <SettingSection
-        title={t('Model Directory')}
-        description={t('Which modes appear in pickers, and under what display name.')}
+        title={t('Web engines')}
+        description={t('Slide to enable; each engine has its own tab')}
       >
-        <ToggleRow
-          label={t('Show deprecated models')}
-          checked={config.showDeprecatedModels === true}
-          onChange={(value) => updateConfig({ showDeprecatedModels: value })}
-        />
-        <ApiModes config={config} updateConfig={updateConfig} />
+        <div className="space-y-2">
+          <WebEngineRow
+            title={t('ChatGPT Web')}
+            enabled={config.chatgptWebEnabled !== false}
+            onToggle={(value) => toggleWebEngine('chatgptWebEnabled', value, 'chatgptweb')}
+            onOpen={() => onOpenEngineTab?.('chatgptweb')}
+            t={t}
+          />
+          <WebEngineRow
+            title={t('Grok Web')}
+            enabled={config.grokWebEnabled === true}
+            onToggle={(value) => toggleWebEngine('grokWebEnabled', value, 'grokweb')}
+            onOpen={() => onOpenEngineTab?.('grokweb')}
+            t={t}
+          />
+          <WebEngineRow
+            title={t('DeepSeek Harness')}
+            enabled={config.dshModuleEnabled === true}
+            onToggle={(value) => toggleWebEngine('dshModuleEnabled', value, 'dsh')}
+            onOpen={() => onOpenEngineTab?.('dsh')}
+            t={t}
+          />
+        </div>
       </SettingSection>
     </div>
   )
@@ -549,4 +522,6 @@ export function EnginesTab({ config, updateConfig }) {
 EnginesTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  onOpenEngineTab: PropTypes.func,
+  enablePrompt: PropTypes.string,
 }

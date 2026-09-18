@@ -4,6 +4,7 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { resolveL1Credentials, stripTrailingV1 } from '../../config/engine-selection.mjs'
 
 /**
  * @param {Runtime.Port} port
@@ -17,8 +18,9 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     port.onDisconnect.removeListener(disconnectListener)
   }
   const config = await getUserConfig()
-  const apiUrl = String(config.customClaudeApiUrl || '').replace(/\/+$/, '')
-  const model = getModelValue(session)
+  const l1 = resolveL1Credentials(session, config)
+  const apiUrl = stripTrailingV1(l1?.baseUrl || config.customClaudeApiUrl || '')
+  const model = l1?.modelId || getModelValue(session)
 
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
@@ -42,7 +44,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
-      'x-api-key': config.claudeApiKey,
+      'x-api-key': l1?.apiKey || config.claudeApiKey,
       'anthropic-dangerous-direct-browser-access': true,
     },
     body: JSON.stringify({

@@ -1,31 +1,23 @@
 import { generateAnswersWithCustomApi } from '../../services/apis/custom-api.mjs'
 import { isUsingCustomModel } from '../../config/predicates.mjs'
+import { resolveL1Credentials } from '../../config/engine-selection.mjs'
+import { normalizeCustomChatCompletionsUrl } from '../../services/apis/custom-api-utils.mjs'
 
 export default {
   route: 'custom-api',
-  match: (session) => isUsingCustomModel(session),
+  match: (session, config) => isUsingCustomModel(session, config),
   async run({ port, session, config }) {
-    // Two paths: a configured custom-mode session carries its own url/key/name,
-    // otherwise fall back to the global customModel* config fields.
-    if (!session.apiMode)
-      await generateAnswersWithCustomApi(
-        port,
-        session.question,
-        session,
-        config.customModelApiUrl.trim() || 'http://localhost:8000/v1/chat/completions',
-        config.customApiKey,
-        config.customModelName,
-      )
-    else
-      await generateAnswersWithCustomApi(
-        port,
-        session.question,
-        session,
-        session.apiMode.customUrl?.trim() ||
-          config.customModelApiUrl.trim() ||
-          'http://localhost:8000/v1/chat/completions',
-        session.apiMode.apiKey?.trim() || config.customApiKey,
-        session.apiMode.customName,
-      )
+    const l1 = resolveL1Credentials(session, config)
+    const apiUrl = l1?.baseUrl || ''
+    const apiKey = l1?.apiKey || ''
+    const modelName = l1?.modelId || ''
+    await generateAnswersWithCustomApi(
+      port,
+      session.question,
+      session,
+      normalizeCustomChatCompletionsUrl(apiUrl) || apiUrl,
+      apiKey,
+      modelName,
+    )
   },
 }

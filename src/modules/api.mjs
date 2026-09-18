@@ -134,3 +134,7 @@ export function getModule(id) {
 // would cycle config/storage.mjs → modules/index.mjs → this file.
 // appearance.mjs is import-free, so re-exporting it keeps the seam pure.
 export { applyDocumentAppearance } from '../utils/appearance.mjs'
+
+export async function ensureModuleI18n() {
+  await import('../_locales/i18n-react.mjs')
+}

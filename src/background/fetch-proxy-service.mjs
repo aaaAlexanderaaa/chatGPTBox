@@ -62,6 +62,9 @@ export async function getFetchAllowedOrigins() {
     return origins
   }
   for (const key of FETCH_ALLOWLIST_CONFIG_URL_KEYS) addOriginFromUrlString(origins, config[key])
+  if (Array.isArray(config.l1Providers)) {
+    for (const provider of config.l1Providers) addOriginFromUrlString(origins, provider?.baseUrl)
+  }
   if (Array.isArray(config.customApiModes)) {
     for (const mode of config.customApiModes) addOriginFromUrlString(origins, mode?.customUrl)
   }

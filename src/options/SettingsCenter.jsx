@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
-import { Settings, Palette, Cpu, Sliders, Wrench, Globe, ServerCog } from 'lucide-react'
+import {
+  Settings,
+  Palette,
+  Cpu,
+  Sliders,
+  Wrench,
+  Globe,
+  ServerCog,
+  Bot,
+  Sparkles,
+} from 'lucide-react'
 import { defaultConfig, setUserConfig } from '../config/storage.mjs'
 import { useSettingsConfig, useApplyAppearance } from '../hooks/use-settings-config.mjs'
 import { downloadJsonFile, pickJsonFile } from '../popup/file-transfer.mjs'
@@ -10,15 +20,15 @@ import { cn } from '../utils/cn.mjs'
 import { GeneralTab } from '../popup/components/GeneralTab.jsx'
 import { AppearanceTab } from '../popup/components/AppearanceTab.jsx'
 import { EnginesTab } from '../popup/components/EnginesTab.jsx'
+import { ChatgptWebTab } from '../popup/components/ChatgptWebTab.jsx'
+import { GrokWebTab } from '../popup/components/GrokWebTab.jsx'
+import { DshEngineTab } from '../popup/components/DshEngineTab.jsx'
 import { BehaviorTab } from '../popup/components/BehaviorTab.jsx'
 import { ToolsTab } from '../popup/components/ToolsTab.jsx'
 import { FeaturesTab } from '../popup/components/FeaturesTab.jsx'
 import { AdvancedTab } from '../popup/components/AdvancedTab.jsx'
 
-// The settings center grows out of the product's feature domains: one
-// section per thing the extension can do. Ids are stable because popup
-// quick links and module cards deep-link with ?tab=<id>.
-const SECTIONS = [
+const BASE_SECTIONS = [
   {
     id: 'general',
     label: 'General',
@@ -63,13 +73,43 @@ const SECTIONS = [
   },
 ]
 
-// Legacy deep links (options.html?tab=features) keep working.
+const ENGINE_SECTIONS = [
+  {
+    id: 'chatgptweb',
+    label: 'ChatGPT Web',
+    icon: Sparkles,
+    description: 'ChatGPT Web account, models, history, and diagnostics',
+    enabled: (config) => config.chatgptWebEnabled !== false,
+    enableHint: 'Enable ChatGPT Web on the Engines tab first.',
+  },
+  {
+    id: 'grokweb',
+    label: 'Grok Web',
+    icon: Bot,
+    description: 'Grok Web account, models, and upcoming sync controls',
+    enabled: (config) => config.grokWebEnabled === true,
+    enableHint: 'Enable Grok Web on the Engines tab first.',
+  },
+  {
+    id: 'dsh',
+    label: 'DeepSeek Harness',
+    icon: Bot,
+    description: 'Local agent endpoint, diagnostics, and the full client',
+    enabled: (config) => config.dshModuleEnabled === true,
+    enableHint: 'Enable DeepSeek Harness on the Engines tab first.',
+  },
+]
+
 const SECTION_ALIASES = { features: 'sites' }
 
-function resolveSectionId(requested) {
-  if (!requested) return null
-  const aliased = SECTION_ALIASES[requested] || requested
-  return SECTIONS.some((section) => section.id === aliased) ? aliased : null
+function sectionsForConfig(config) {
+  const engineTabs = ENGINE_SECTIONS.filter((section) => section.enabled(config))
+  const enginesIndex = BASE_SECTIONS.findIndex((section) => section.id === 'engines')
+  return [
+    ...BASE_SECTIONS.slice(0, enginesIndex + 1),
+    ...engineTabs,
+    ...BASE_SECTIONS.slice(enginesIndex + 1),
+  ]
 }
 
 function SettingsCenter() {
@@ -77,14 +117,42 @@ function SettingsCenter() {
   const [config, updateConfig] = useSettingsConfig()
   useApplyAppearance(config)
 
-  const [activeSection, setActiveSection] = useState(
-    () => resolveSectionId(new URLSearchParams(window.location.search).get('tab')) || 'general',
-  )
+  const [enablePrompt, setEnablePrompt] = useState('')
+  const requestedTab = new URLSearchParams(window.location.search).get('tab')
+
+  const sections = useMemo(() => sectionsForConfig(config), [config])
+
+  const [activeSection, setActiveSection] = useState(() => {
+    const aliased = SECTION_ALIASES[requestedTab] || requestedTab
+    return aliased || 'general'
+  })
+
+  useEffect(() => {
+    const aliased = SECTION_ALIASES[requestedTab] || requestedTab
+    if (!aliased) return
+    const engineMeta = ENGINE_SECTIONS.find((section) => section.id === aliased)
+    if (engineMeta && !engineMeta.enabled(config)) {
+      setActiveSection('engines')
+      setEnablePrompt(t(engineMeta.enableHint))
+      return
+    }
+    if (sections.some((section) => section.id === aliased)) {
+      setActiveSection(aliased)
+    }
+  }, [config.chatgptWebEnabled, config.grokWebEnabled, config.dshModuleEnabled])
 
   useEffect(() => {
     const url = new URL(window.location.href)
     url.searchParams.set('tab', activeSection)
+    if (activeSection !== 'advanced') url.hash = ''
     window.history.replaceState(null, '', url)
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'advanced') return
+    if (window.location.hash !== '#api-server-bridge') return
+    const el = document.getElementById('api-server-bridge')
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [activeSection])
 
   const version = useMemo(() => Browser.runtime.getManifest().version || '', [])
@@ -114,20 +182,34 @@ function SettingsCenter() {
     }
   }
 
-  const active = SECTIONS.find((section) => section.id === activeSection) || SECTIONS[0]
+  const openEngineTab = (id) => {
+    const engineMeta = ENGINE_SECTIONS.find((section) => section.id === id)
+    if (engineMeta && !engineMeta.enabled(config)) {
+      setActiveSection('engines')
+      setEnablePrompt(t(engineMeta.enableHint))
+      return
+    }
+    setEnablePrompt('')
+    setActiveSection(id)
+  }
+
+  const active = sections.find((section) => section.id === activeSection) || sections[0]
 
   return (
     <div className="settings-center" data-settings-center>
       <nav className="settings-nav" aria-label={t('Settings sections')}>
         <div className="settings-nav-items">
-          {SECTIONS.map((section) => {
+          {sections.map((section) => {
             const Icon = section.icon
             const isActive = section.id === active.id
             return (
               <button
                 key={section.id}
                 type="button"
-                onClick={() => setActiveSection(section.id)}
+                onClick={() => {
+                  setEnablePrompt('')
+                  setActiveSection(section.id)
+                }}
                 aria-current={isActive ? 'page' : undefined}
                 title={t(section.description)}
                 className={cn('settings-nav-item', isActive && 'settings-nav-item--active')}
@@ -154,7 +236,19 @@ function SettingsCenter() {
           {active.id === 'appearance' && (
             <AppearanceTab config={config} updateConfig={updateConfig} />
           )}
-          {active.id === 'engines' && <EnginesTab config={config} updateConfig={updateConfig} />}
+          {active.id === 'engines' && (
+            <EnginesTab
+              config={config}
+              updateConfig={updateConfig}
+              onOpenEngineTab={openEngineTab}
+              enablePrompt={enablePrompt}
+            />
+          )}
+          {active.id === 'chatgptweb' && (
+            <ChatgptWebTab config={config} updateConfig={updateConfig} />
+          )}
+          {active.id === 'grokweb' && <GrokWebTab config={config} updateConfig={updateConfig} />}
+          {active.id === 'dsh' && <DshEngineTab config={config} updateConfig={updateConfig} />}
           {active.id === 'behavior' && <BehaviorTab config={config} updateConfig={updateConfig} />}
           {active.id === 'tools' && <ToolsTab config={config} updateConfig={updateConfig} />}
           {active.id === 'sites' && <FeaturesTab config={config} updateConfig={updateConfig} />}

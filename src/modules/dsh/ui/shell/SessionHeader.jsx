@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { GitBranch, Pencil } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { modelsFromCatalog, modelChipLabel, selectModelArgs } from '../select-model.mjs'
 import { JobsPopover } from '../chrome/JobsPopover.jsx'
 import { SubagentCatalog } from '../chrome/SubagentCatalog.jsx'
@@ -7,6 +8,7 @@ import { SubagentCatalog } from '../chrome/SubagentCatalog.jsx'
 // Session chrome: title (rename), model chip, auto-approve switch, fork.
 
 export function SessionHeader({ session, rpc, onSelect, sessions }) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [models, setModels] = useState(null)
@@ -55,13 +57,13 @@ export function SessionHeader({ session, rpc, onSelect, sessions }) {
         <button
           type="button"
           className="text-sm font-medium truncate max-w-sm flex items-center gap-1.5 hover:text-primary"
-          title="Rename"
+          title={t('Rename')}
           onClick={() => {
             setTitleDraft(session.title || '')
             setEditing(true)
           }}
         >
-          {session.title || (session.blank ? 'New session' : session.sessionId)}
+          {session.title || (session.blank ? t('New session') : session.sessionId)}
           <Pencil size={12} className="opacity-50" />
         </button>
       )}
@@ -111,12 +113,14 @@ export function SessionHeader({ session, rpc, onSelect, sessions }) {
 
       <label
         className="ml-auto flex items-center gap-2 text-xs cursor-pointer select-none"
-        title="Auto-approve every decision in this session (default off — the agent never steps past an approval without you)"
+        title={t(
+          'Auto-approve every decision in this session (default off — the agent never steps past an approval without you)',
+        )}
       >
         <span
           className={session.autoApprove ? 'text-foreground font-medium' : 'text-muted-foreground'}
         >
-          auto-approve
+          {t('auto-approve')}
         </span>
         <input
           type="checkbox"
@@ -133,7 +137,7 @@ export function SessionHeader({ session, rpc, onSelect, sessions }) {
       <button
         type="button"
         className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-        title="Fork at the last completed turn"
+        title={t('Fork at the last completed turn')}
         onClick={() =>
           void rpc('session.fork', { sessionId: session.sessionId }).then(
             (value) => {
@@ -143,7 +147,7 @@ export function SessionHeader({ session, rpc, onSelect, sessions }) {
           )
         }
       >
-        <GitBranch size={13} /> fork
+        <GitBranch size={13} /> {t('fork')}
       </button>
     </div>
   )

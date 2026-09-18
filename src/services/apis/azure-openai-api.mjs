@@ -4,6 +4,7 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { resolveL1Credentials, stripTrailingSlash } from '../../config/engine-selection.mjs'
 
 /**
  * @param {Runtime.Port} port
@@ -13,8 +14,11 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
 export async function generateAnswersWithAzureOpenaiApi(port, question, session) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const config = await getUserConfig()
-  let model = getModelValue(session)
+  const l1 = resolveL1Credentials(session, config)
+  let model = l1?.modelId || getModelValue(session)
   if (!model) model = config.azureDeploymentName
+  const endpoint = stripTrailingSlash(l1?.baseUrl || config.azureEndpoint)
+  const apiKey = l1?.apiKey || config.azureApiKey
 
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
@@ -24,16 +28,13 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
 
   let answer = ''
   await fetchSSE(
-    `${config.azureEndpoint.replace(
-      /\/$/,
-      '',
-    )}/openai/deployments/${model}/chat/completions?api-version=2024-02-01`,
+    `${endpoint}/openai/deployments/${model}/chat/completions?api-version=2024-02-01`,
     {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'api-key': config.azureApiKey,
+        'api-key': apiKey,
       },
       body: JSON.stringify({
         messages: prompt,

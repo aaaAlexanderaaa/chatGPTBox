@@ -9,7 +9,7 @@ import { resolveEndpointCommit } from '../background/fence.mjs'
 // diagnose + a door into the cockpit. Registered through the module seam
 // (settings-cards.mjs) — never into the Advanced tab.
 
-export function DshSettingsCard({ config, updateConfig }) {
+export function DshSettingsCard({ config, updateConfig, hideEnableToggle = false }) {
   const { t } = useTranslation()
   const [diagnosis, setDiagnosis] = useState(null)
   const [testing, setTesting] = useState(false)
@@ -51,14 +51,16 @@ export function DshSettingsCard({ config, updateConfig }) {
         <span className="text-[11px] text-muted-foreground">
           {t('local agent engine — off by default')}
         </span>
-        <label className="ml-auto flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => updateConfig({ dshModuleEnabled: event.target.checked })}
-          />
-          {enabled ? t('Enabled') : t('Disabled')}
-        </label>
+        {!hideEnableToggle && (
+          <label className="ml-auto flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => updateConfig({ dshModuleEnabled: event.target.checked })}
+            />
+            {enabled ? t('Enabled') : t('Disabled')}
+          </label>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         {t(

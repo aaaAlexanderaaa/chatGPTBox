@@ -3,7 +3,7 @@ import { isUsingOllamaApiModel } from '../../config/predicates.mjs'
 
 export default {
   route: 'ollama-api',
-  match: (session) => isUsingOllamaApiModel(session),
+  match: (session, config) => isUsingOllamaApiModel(session, config),
   async run({ port, session }) {
     await generateAnswersWithOllamaApi(port, session.question, session)
   },

@@ -48,7 +48,12 @@ describe('getUserConfig migrations', () => {
   it('uses the current ChatGPT Web and local gateway defaults', async () => {
     const config = await getUserConfig()
     expect(config).toMatchObject({
-      modelName: 'chatgptWeb56Thinking',
+      modelName: 'chatgptweb/gpt-5-6-thinking',
+      maxResponseTokenLength: 384000,
+      maxConversationContextLength: 64,
+      l1Providers: expect.arrayContaining([expect.objectContaining({ id: 'tokendance' })]),
+      chatgptWebEnabled: true,
+      grokWebEnabled: false,
       apiServerEnabled: false,
       apiServerPort: 18080,
       apiServerBridgeToken: '',
@@ -80,36 +85,38 @@ describe('getUserConfig migrations', () => {
   it('migrates a guessed Work GPT-6 key to Chat GPT-6 Pro', async () => {
     store.set('modelName', 'chatgptWeb6Astra')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptWeb56Thinking')
-    expect(store.get('modelName')).toBe('chatgptWeb56Thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
   })
 
   it('migrates a legacy chatgptWeb model key to the current default', async () => {
     store.set('modelName', 'chatgptFree35')
     const config = await getUserConfig()
     // chatgptFree35 is in LegacyChatgptWebModelKeyMap -> current default key.
-    expect(config.modelName).toBe('chatgptWeb56Thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
     // migration should have been persisted.
-    expect(store.get('modelName')).toBe('chatgptWeb56Thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
   })
 
   it('migrates a chatgptWebModelKeys-<legacy-slug> name to the default', async () => {
     store.set('modelName', 'chatgptWebModelKeys-gpt-4o')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptWeb56Thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
   })
 
-  it('leaves a non-legacy model key untouched', async () => {
+  it('does not import old vendor API provider selections', async () => {
     store.set('modelName', 'chatgptApi5_4')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptApi5_4')
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.l1Providers[0].id).toBe('tokendance')
+    expect(config.showLegacyProviderNotice).toBe(true)
   })
 
   it('clamps a NaN numeric field back to its default', async () => {
     store.set('maxResponseTokenLength', NaN)
     store.set('temperature', 'not-a-number')
     const config = await getUserConfig()
-    expect(config.maxResponseTokenLength).toBe(2000) // DEFAULT_MAX_RESPONSE_TOKEN_LENGTH
+    expect(config.maxResponseTokenLength).toBe(384000) // DEFAULT_MAX_RESPONSE_TOKEN_LENGTH
     expect(config.temperature).toBe(1) // default
   })
 
@@ -140,14 +147,14 @@ describe('getUserConfig migrations', () => {
     // selection must not survive as an unroutable model.
     store.set('modelName', 'bingFreeSydney')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptWeb56Thinking')
-    expect(store.get('modelName')).toBe('chatgptWeb56Thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
   })
 
   it('resets a removed-provider apiMode item to the default', async () => {
     store.set('apiMode', { groupName: 'bingWebModelKeys', itemName: 'bingFree4' })
     const config = await getUserConfig()
-    expect(config.apiMode.itemName).toBe('chatgptWeb56Thinking')
+    expect(config.apiMode).toBeNull()
   })
 
   it('normalizes the chatgptWebThinkingEffort away from unknown values', async () => {

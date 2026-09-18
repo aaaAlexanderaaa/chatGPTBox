@@ -35,6 +35,7 @@ import {
   MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
 } from '../../config/limits.mjs'
 import { CHATGPT_WEB_CONVERSATION_META_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
+import { CHATGPT_WEB_THINKING_EFFORTS } from '../../services/clients/chatgpt-web/thinking.mjs'
 import { downloadJsonFile, pickJsonFile } from '../file-transfer.mjs'
 import {
   exportChatgptHistoryData,
@@ -75,6 +76,7 @@ export function buildModuleKit() {
       MIN_HISTORY_HYDRATE_RETRY_COUNT: MIN_CHATGPT_WEB_HISTORY_HYDRATE_RETRY_COUNT,
       MAX_HISTORY_HYDRATE_RETRY_COUNT: MAX_CHATGPT_WEB_HISTORY_HYDRATE_RETRY_COUNT,
     },
+    thinkingEfforts: CHATGPT_WEB_THINKING_EFFORTS,
     storageKeys: {
       debugLog: CHATGPT_WEB_DEBUG_LOG_KEY,
       conversationMeta: CHATGPT_WEB_CONVERSATION_META_KEY,

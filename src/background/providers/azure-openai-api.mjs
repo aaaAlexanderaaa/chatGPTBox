@@ -3,7 +3,7 @@ import { isUsingAzureOpenAiApiModel } from '../../config/predicates.mjs'
 
 export default {
   route: 'azure-openai-api',
-  match: (session) => isUsingAzureOpenAiApiModel(session),
+  match: (session, config) => isUsingAzureOpenAiApiModel(session, config),
   async run({ port, session }) {
     await generateAnswersWithAzureOpenaiApi(port, session.question, session)
   },
