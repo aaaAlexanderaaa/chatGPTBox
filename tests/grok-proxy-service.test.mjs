@@ -82,6 +82,23 @@ describe('handleGrokProxyRequest', () => {
     })
   })
 
+  it('posts Expert when the session uses grokweb/<slug>', async () => {
+    let modeId
+    await handleGrokProxyRequest({
+      session: { question: 'hi', modelName: 'grokweb/grok-chat-expert' },
+      hostname: 'grok.com',
+      fetch: async (url, init) => {
+        if (String(url).includes('/conversations/new')) {
+          modeId = JSON.parse(init.body).modeId
+        }
+        return signedInSessionFetch()(url, init)
+      },
+      post: () => {},
+      setUserConfig: async () => {},
+    })
+    expect(modeId).toBe('expert')
+  })
+
   it('does not POST when session GET is unauthenticated and clears signed-in', async () => {
     let chatPosts = 0
     const configs = []

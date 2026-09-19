@@ -57,8 +57,6 @@ export function FeaturesTab({ config, updateConfig }) {
     return [...new Set([...stored, ...known])]
   }, [config.siteAdapters])
 
-  const engineOptions = useMemo(() => buildEngineOptions(config, t, {}), [config, t])
-
   const defaultEngineLabel = useMemo(() => {
     const name = getSelectionString(config)
     return name ? engineSelectionLabel(name, t) : t('Default engine')
@@ -87,6 +85,14 @@ export function FeaturesTab({ config, updateConfig }) {
     if (!override) return ''
     return override.modelName || ''
   }
+
+  const optionsForSite = (key) => [
+    {
+      value: '',
+      label: `${t('Follow default')} (${defaultEngineLabel})`,
+    },
+    ...buildEngineOptions(config, t, { selectedModelName: siteEngineValue(key) }),
+  ]
 
   return (
     <div className="space-y-4">
@@ -126,16 +132,10 @@ export function FeaturesTab({ config, updateConfig }) {
                 onChange={(value) =>
                   setSiteEngine(
                     key,
-                    engineOptions.find((opt) => opt.value === value),
+                    optionsForSite(key).find((opt) => opt.value === value),
                   )
                 }
-                options={[
-                  {
-                    value: '',
-                    label: `${t('Follow default')} (${defaultEngineLabel})`,
-                  },
-                  ...engineOptions,
-                ]}
+                options={optionsForSite(key)}
                 minWidth="220px"
                 searchPlaceholder={t('Search…')}
               />

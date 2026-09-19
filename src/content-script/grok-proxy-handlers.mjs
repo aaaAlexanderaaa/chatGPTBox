@@ -1,6 +1,6 @@
 import Browser from 'webextension-polyfill'
 import { Models } from '../config/models.mjs'
-import { isGrokChatSlug, pickDefaultGrokWebKey } from '../config/grok-web.mjs'
+import { isGrokChatSlug, pickDefaultGrokWebKey, resolveGrokChatSlug } from '../config/grok-web.mjs'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { createGrokChatWriter } from '../services/clients/grok-web/chat.mjs'
@@ -172,7 +172,7 @@ export async function handleGrokProxyRequest({
 
   await hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal })
 
-  const modelSlug = Models[session?.modelName]?.value ?? 'grok-chat-fast'
+  const modelSlug = resolveGrokChatSlug(session?.modelName)
   const writer = createGrokChatWriter({ fetch })
 
   let result

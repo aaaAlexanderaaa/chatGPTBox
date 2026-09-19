@@ -7,6 +7,7 @@ import {
   grokWebModelKeys,
   isGrokChatSlug,
   pickDefaultGrokWebKey,
+  resolveGrokChatSlug,
   slugsForGrokWebTier,
 } from '../src/config/grok-web.mjs'
 import { Models } from '../src/config/models.mjs'
@@ -67,6 +68,12 @@ describe('grok web catalog', () => {
     expect(isGrokChatSlug('gpt-5-6-thinking')).toBe(false)
     expect(grokSlugToModelKey('grok-chat-heavy')).toBe('grokWebHeavy')
     expect(grokSlugToModelKey('nope')).toBeNull()
+  })
+
+  it('resolves grokweb/<slug> and leftover grokWeb keys to a chat slug', () => {
+    expect(resolveGrokChatSlug('grokweb/grok-chat-expert')).toBe('grok-chat-expert')
+    expect(resolveGrokChatSlug('grokWebHeavy')).toBe('grok-chat-heavy')
+    expect(resolveGrokChatSlug('chatgptweb/gpt-5-6-thinking')).toBe('grok-chat-fast')
   })
 
   it('maps public slugs to grok2api modeId', () => {

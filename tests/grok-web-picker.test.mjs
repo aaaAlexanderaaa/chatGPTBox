@@ -58,4 +58,17 @@ describe('buildEngineOptions', () => {
     }).map((o) => o.value)
     expect(values).toContain('chatgptApi5_4')
   })
+
+  it('keeps a site override visible after its model is unchecked', () => {
+    const values = buildEngineOptions(
+      {
+        ...base,
+        chatgptWebEnabledModels: [],
+        chatgptWebAccountModels: ['gpt-5-6-thinking'],
+      },
+      t,
+      { selectedModelName: 'chatgptweb/gpt-5-6-thinking' },
+    ).map((o) => o.value)
+    expect(values).toContain('chatgptweb/gpt-5-6-thinking')
+  })
 })

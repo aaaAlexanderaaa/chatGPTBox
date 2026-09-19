@@ -127,6 +127,24 @@ describe('getUserConfig migrations', () => {
     })
   })
 
+  it('does not revive disabled ChatGPT Web after an empty selection', async () => {
+    store.set('providerSchemaVersion', 2)
+    store.set('chatgptWebEnabled', false)
+    store.set('modelName', '')
+    store.set('l1Providers', [
+      {
+        id: 'tokendance',
+        name: 'TokenDance',
+        format: 'openai-compat',
+        models: [{ id: 'deepseek-v4.1-flash', enabled: false, source: 'manual' }],
+      },
+    ])
+    const config = await getUserConfig()
+    expect(config.modelName).toBe('')
+    expect(config.chatgptWebEnabled).toBe(false)
+    expect(store.get('modelName')).toBe('')
+  })
+
   it('coerces a legacy vendor modelName imported after schema v2', async () => {
     store.set('providerSchemaVersion', 2)
     store.set('modelName', 'chatgptApi5_4')

@@ -3,7 +3,9 @@ import {
   DEFAULT_ENGINE_SELECTION,
   coerceStoredEngineSelection,
   createDefaultL1Providers,
+  enabledChatgptWebSelections,
   enabledGrokWebSelections,
+  fallbackEngineSelection,
   firstEnabledSelection,
   formatEngineSelection,
   listEnabledEngineSelections,
@@ -103,6 +105,36 @@ describe('engine selection', () => {
         grokWebEnabledModels: [],
       }),
     ).toEqual([])
+  })
+
+  it('omits ChatGPT Web picker rows when the enabled-model list is empty', () => {
+    expect(
+      enabledChatgptWebSelections({
+        chatgptWebEnabled: true,
+        chatgptWebAccountModels: ['gpt-5-6-thinking', 'gpt-5-6-instant'],
+        chatgptWebEnabledModels: [],
+      }),
+    ).toEqual([])
+  })
+
+  it('does not revive disabled ChatGPT Web as a fallback', () => {
+    const config = {
+      l1Providers: [
+        {
+          id: 'tokendance',
+          name: 'TokenDance',
+          format: 'openai-compat',
+          models: [{ id: 'deepseek-v4.1-flash', enabled: false, source: 'manual' }],
+        },
+      ],
+      chatgptWebEnabled: false,
+      chatgptWebEnabledModels: ['gpt-5-6-thinking'],
+      grokWebEnabled: false,
+      dshModuleEnabled: false,
+    }
+    expect(fallbackEngineSelection(config)).toBe('')
+    expect(coerceStoredEngineSelection('', config)).toBe('')
+    expect(coerceStoredEngineSelection('chatgptApi5_4', config)).toBe('')
   })
 
   it('drops leftover vendor site overrides instead of mapping them', () => {

@@ -1,3 +1,4 @@
+import { modelNameToValue } from '../utils/model-name-convert.mjs'
 import { grokWebModelKeys, Models } from './models.mjs'
 
 export { grokWebModelKeys } from './models.mjs'
@@ -53,6 +54,11 @@ export function pickDefaultGrokWebKey(tier) {
 
 export function isGrokChatSlug(slug) {
   return slug in slugToKey
+}
+
+export function resolveGrokChatSlug(modelName) {
+  const slug = modelNameToValue(modelName)
+  return isGrokChatSlug(slug) ? slug : GROK_WEB_SLUGS.grokWebFast
 }
 
 export function grokSlugToModelKey(slug) {

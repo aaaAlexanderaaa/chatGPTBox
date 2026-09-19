@@ -40,15 +40,9 @@ export function ChatgptWebTab({ config, updateConfig }) {
     setRefreshError('')
     try {
       const models = await refreshChatGptWebModelList({ accessToken: config.accessToken })
-      const nextEnabled =
-        enabled.length > 0
-          ? enabled.filter((slug) => models.includes(slug))
-          : models.includes(CHATGPT_WEB_DEFAULT_MODEL_SLUG)
-          ? [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
-          : models.slice(0, 1)
       updateConfig({
         chatgptWebAccountModels: models,
-        chatgptWebEnabledModels: nextEnabled,
+        chatgptWebEnabledModels: enabled.filter((slug) => models.includes(slug)),
       })
     } catch (error) {
       setRefreshError(
@@ -107,10 +101,7 @@ export function ChatgptWebTab({ config, updateConfig }) {
             <li key={slug} className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                checked={
-                  enabled.includes(slug) ||
-                  (enabled.length === 0 && slug === CHATGPT_WEB_DEFAULT_MODEL_SLUG)
-                }
+                checked={enabled.includes(slug)}
                 onChange={(event) => toggleModel(slug, event.target.checked)}
               />
               <span className="font-mono text-xs">chatgptweb/{slug}</span>

@@ -19,8 +19,6 @@ import Browser from 'webextension-polyfill'
 import { defaultConfig, getUserConfig, setAccessToken, setUserConfig } from '../config/storage.mjs'
 import { isUsingChatgptWebModel } from '../config/predicates.mjs'
 import { pickDefaultChatgptWebKey } from '../config/account-models.mjs'
-import { parseEngineSelection } from '../config/engine-selection.mjs'
-import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../config/limits.mjs'
 import { refreshChatGptWebModelList } from '../services/model-lists.mjs'
 import '../_locales/i18n'
 import { registerPortListener } from '../services/wrappers.mjs'
@@ -118,17 +116,6 @@ async function ensureChatgptWebFirstRun() {
         availableSlugs: models,
       })
       if (preferred && preferred !== config.modelName) patch.modelName = preferred
-      const enabled = Array.isArray(config.chatgptWebEnabledModels)
-        ? config.chatgptWebEnabledModels
-        : []
-      if (enabled.length === 0) {
-        const slug =
-          parseEngineSelection(preferred || config.modelName)?.modelId ||
-          CHATGPT_WEB_DEFAULT_MODEL_SLUG
-        patch.chatgptWebEnabledModels = models.includes(slug)
-          ? [slug]
-          : models.slice(0, 1).filter(Boolean)
-      }
     }
     await setUserConfig(patch)
   } catch (error) {

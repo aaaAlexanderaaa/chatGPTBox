@@ -316,14 +316,8 @@ export function enabledChatgptWebSelections(config) {
     : []
   let enabled = Array.isArray(config?.chatgptWebEnabledModels)
     ? config.chatgptWebEnabledModels.filter(Boolean)
-    : []
-  if (enabled.length === 0) {
-    enabled = catalog.includes(CHATGPT_WEB_DEFAULT_MODEL_SLUG)
-      ? [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
-      : catalog.length > 0
-      ? [catalog[0]]
-      : [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
-  }
+    : [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
+  if (enabled.length === 0) return []
   const catalogSet = new Set(catalog)
   return enabled
     .filter((slug) => catalog.length === 0 || catalogSet.has(slug))
@@ -429,8 +423,15 @@ export function firstEnabledSelection(config) {
 }
 
 export function fallbackEngineSelection(config) {
-  if (config?.chatgptWebEnabled !== false) return DEFAULT_ENGINE_SELECTION
-  return firstEnabledSelection(config) || DEFAULT_ENGINE_SELECTION
+  if (config?.chatgptWebEnabled !== false) {
+    const chatgpt = enabledChatgptWebSelections(config)
+    if (chatgpt.length > 0) {
+      return (
+        chatgpt.find((item) => item.value === DEFAULT_ENGINE_SELECTION)?.value || chatgpt[0].value
+      )
+    }
+  }
+  return firstEnabledSelection(config)
 }
 
 /**
