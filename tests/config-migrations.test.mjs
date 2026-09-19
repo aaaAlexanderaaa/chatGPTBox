@@ -112,6 +112,21 @@ describe('getUserConfig migrations', () => {
     expect(config.showLegacyProviderNotice).toBe(true)
   })
 
+  it('keeps a stored ChatGPT Web engine across schema v2', async () => {
+    store.set('modelName', 'chatgptWeb56Instant')
+    const config = await getUserConfig()
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-instant')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-instant')
+    expect(config.providerSchemaVersion).toBe(2)
+  })
+
+  it('keeps a canonical ChatGPT Web selection across schema v2', async () => {
+    store.set('modelName', 'chatgptweb/gpt-5-6-instant')
+    const config = await getUserConfig()
+    expect(config.modelName).toBe('chatgptweb/gpt-5-6-instant')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-instant')
+  })
+
   it('drops leftover vendor keys from site engine overrides', async () => {
     store.set('modelName', 'chatgptApi5_4')
     store.set('siteEngineOverrides', {

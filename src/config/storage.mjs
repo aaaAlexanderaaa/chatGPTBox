@@ -318,7 +318,9 @@ export async function getUserConfig() {
 
   // Provider schema v2 is a cut, not a vendor-config migration. Old
   // enabledProviders / customApiModes / per-vendor API keys stay in storage
-  // for Advanced export but are not read into l1Providers.
+  // for Advanced export but are not read into l1Providers. Do not rewrite
+  // modelName here: leftover vendor keys are coerced later, and a stored
+  // ChatGPT Web / still-valid engine must survive the upgrade.
   if (storedProviderSchemaVersion !== PROVIDER_SCHEMA_VERSION) {
     const hadExistingConfig = Object.keys(options).length > 0
     config.providerSchemaVersion = PROVIDER_SCHEMA_VERSION
@@ -328,7 +330,6 @@ export async function getUserConfig() {
     config.chatgptWebEnabledModels = ['gpt-5-6-thinking']
     config.grokWebEnabledModels = []
     config.apiMode = null
-    config.modelName = defaultConfig.modelName
     config.siteEngineOverrides = sanitizeSiteEngineOverrides(config.siteEngineOverrides, config)
     const schemaPatch = {
       providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
@@ -338,7 +339,6 @@ export async function getUserConfig() {
       chatgptWebEnabledModels: config.chatgptWebEnabledModels,
       grokWebEnabledModels: [],
       apiMode: null,
-      modelName: config.modelName,
       siteEngineOverrides: config.siteEngineOverrides,
     }
     if (hadExistingConfig) {
