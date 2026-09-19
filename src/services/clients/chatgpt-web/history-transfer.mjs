@@ -12,9 +12,21 @@ import {
 } from './thread-state.mjs'
 
 export const CHATGPT_WEB_HISTORY_EXPORT_SCOPE = 'chatgpt-web-history'
-export const CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION = 1
+export const CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION = 2
+export const DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES = 16 * 1024 * 1024
+export const CHATGPT_WEB_HISTORY_STORAGE_CHUNK_SIZE = 40
+export const CHATGPT_WEB_HISTORY_MIXED_EXPORT_IDS_ERROR =
+  'ChatGPT history volume files are from different exports'
+export const CHATGPT_WEB_HISTORY_EMPTY_IMPORT_ERROR = 'No ChatGPT history data found in import file'
+export const CHATGPT_WEB_HISTORY_CATALOG_KEYS = [
+  CHATGPT_WEB_CONVERSATION_INDEX_KEY,
+  CHATGPT_WEB_CONVERSATION_META_KEY,
+  CHATGPT_WEB_SESSION_SNAPSHOTS_KEY,
+  CHATGPT_WEB_API_THREADS_KEY,
+]
 
-const STORAGE_WRITE_CHUNK_SIZE = 40
+const STORAGE_WRITE_CHUNK_SIZE = CHATGPT_WEB_HISTORY_STORAGE_CHUNK_SIZE
+const STORAGE_READ_CHUNK_SIZE = CHATGPT_WEB_HISTORY_STORAGE_CHUNK_SIZE
 
 async function getBrowserStorage() {
   const { default: Browser } = await import('webextension-polyfill')
@@ -342,6 +354,7 @@ function mergeConversationMeta(existingMeta = {}) {
   return {
     // Sync bookkeeping belongs to the current browser/account context.
     // Imports should not mark remote state as freshly synced.
+    ...existing,
     lastSyncAt: existing.lastSyncAt ?? null,
     lastArchivedSyncAt: existing.lastArchivedSyncAt ?? null,
     lastSyncError: existing.lastSyncError ?? null,
@@ -611,6 +624,75 @@ export function summarizeChatgptHistoryStorageData(data = {}) {
   }
 }
 
+export function summarizeChatgptHistoryLibrary(index, snapshotKeys = [], meta = {}) {
+  const entries = isPlainObject(index) ? index : {}
+  const conversationIds = Object.keys(entries)
+  const snapshotKeyList = Array.isArray(snapshotKeys)
+    ? snapshotKeys
+    : snapshotKeys instanceof Set
+    ? [...snapshotKeys]
+    : []
+  const snapshotIdSet = new Set(
+    snapshotKeyList
+      .map((key) => {
+        const text = String(key || '')
+        return text.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX)
+          ? text.slice(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX.length)
+          : ''
+      })
+      .filter(Boolean),
+  )
+  const indexIdSet = new Set(conversationIds)
+
+  let activeCount = 0
+  let archivedCount = 0
+  let missingActiveBodyCount = 0
+  let missingArchivedBodyCount = 0
+
+  for (const id of conversationIds) {
+    const archived = entries[id]?.isArchived === true
+    if (archived) archivedCount += 1
+    else activeCount += 1
+    if (!snapshotIdSet.has(id)) {
+      if (archived) missingArchivedBodyCount += 1
+      else missingActiveBodyCount += 1
+    }
+  }
+
+  return {
+    conversationCount: conversationIds.length,
+    activeCount,
+    archivedCount,
+    snapshotCount: snapshotIdSet.size,
+    missingBodyCount: missingActiveBodyCount + missingArchivedBodyCount,
+    missingActiveBodyCount,
+    missingArchivedBodyCount,
+    extraSnapshotCount: [...snapshotIdSet].filter((id) => !indexIdSet.has(id)).length,
+    lastSyncAt: meta?.lastSyncAt ?? null,
+    lastArchivedSyncAt: meta?.lastArchivedSyncAt ?? null,
+    lastIncrementalSyncAt: meta?.lastIncrementalSyncAt ?? null,
+    lastHydrateAt: meta?.hydrateState?.completedAt ?? null,
+  }
+}
+
+function collectSnapshotKeys(data = {}) {
+  return Object.keys(filterChatgptHistoryStorageData(data)).filter((key) =>
+    key.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX),
+  )
+}
+
+export function summarizeChatgptHistoryExport(data = {}) {
+  const filtered = filterChatgptHistoryStorageData(data)
+  return {
+    ...summarizeChatgptHistoryStorageData(filtered),
+    ...summarizeChatgptHistoryLibrary(
+      filtered[CHATGPT_WEB_CONVERSATION_INDEX_KEY],
+      collectSnapshotKeys(filtered),
+      filtered[CHATGPT_WEB_CONVERSATION_META_KEY],
+    ),
+  }
+}
+
 function normalizeImportPayload(payload = {}) {
   if (!isPlainObject(payload)) return {}
   if (payload.scope === CHATGPT_WEB_HISTORY_EXPORT_SCOPE && isPlainObject(payload.storage)) {
@@ -620,6 +702,169 @@ function normalizeImportPayload(payload = {}) {
     return filterChatgptHistoryStorageData(payload.storage)
   }
   return filterChatgptHistoryStorageData(payload)
+}
+
+function collectImportPayloads(payload) {
+  return Array.isArray(payload) ? payload : [payload]
+}
+
+function assertSameHistoryExportId(payloads = []) {
+  const exportIds = new Set()
+  for (const item of payloads) {
+    if (isPlainObject(item) && typeof item.exportId === 'string' && item.exportId.trim()) {
+      exportIds.add(item.exportId.trim())
+    }
+  }
+  if (exportIds.size > 1) {
+    throw new Error(CHATGPT_WEB_HISTORY_MIXED_EXPORT_IDS_ERROR)
+  }
+}
+
+export function getCompactJsonSize(value) {
+  return JSON.stringify(value).length
+}
+
+function createStorageSizeAccountant() {
+  const valueSizes = new Map()
+  return {
+    remember(key, value) {
+      valueSizes.set(key, JSON.stringify(value).length)
+    },
+    sizeOf(keys) {
+      if (keys.length === 0) return 2
+      let size = 1
+      for (let index = 0; index < keys.length; index += 1) {
+        if (index > 0) size += 1
+        size += JSON.stringify(keys[index]).length + 1 + (valueSizes.get(keys[index]) || 0)
+      }
+      return size + 1
+    },
+  }
+}
+
+export function packChatgptHistoryStorageIntoVolumeMaps(
+  storageData = {},
+  { maxVolumeBytes = DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES, envelopeOverhead = 0 } = {},
+) {
+  const filtered = filterChatgptHistoryStorageData(storageData)
+  const accountant = createStorageSizeAccountant()
+  const catalogKeys = CHATGPT_WEB_HISTORY_CATALOG_KEYS.filter((key) =>
+    Object.prototype.hasOwnProperty.call(filtered, key),
+  )
+  const snapshotKeys = Object.keys(filtered)
+    .filter((key) => key.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX))
+    .sort()
+
+  for (const key of [...catalogKeys, ...snapshotKeys]) {
+    accountant.remember(key, filtered[key])
+  }
+
+  const storageBudget = Math.max(2, maxVolumeBytes - Math.max(0, envelopeOverhead))
+  const volumes = []
+  const pushVolume = (keys) => {
+    volumes.push(Object.fromEntries(keys.map((key) => [key, filtered[key]])))
+  }
+
+  let currentKeys = [...catalogKeys]
+  for (const key of snapshotKeys) {
+    const proposed = [...currentKeys, key]
+    const proposedSize = accountant.sizeOf(proposed)
+    if (proposedSize <= storageBudget || currentKeys.length === 0) {
+      currentKeys = proposed
+      continue
+    }
+    pushVolume(currentKeys)
+    currentKeys = [key]
+  }
+  if (currentKeys.length > 0 || volumes.length === 0) {
+    pushVolume(currentKeys)
+  }
+  return volumes
+}
+
+function createHistoryExportId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `export-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function estimateVolumeEnvelopeOverhead({ exportedAt, exportId, summary }) {
+  return (
+    JSON.stringify({
+      scope: CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
+      schemaVersion: CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION,
+      exportedAt,
+      exportId,
+      volume: { index: 1, count: 1 },
+      storage: {},
+      summary,
+    }).length - 2
+  )
+}
+
+export function buildChatgptHistoryVolumePayloads(
+  storageData = {},
+  {
+    maxVolumeBytes = DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES,
+    exportId = createHistoryExportId(),
+    exportedAt = new Date().toISOString(),
+    summary = summarizeChatgptHistoryExport(storageData),
+  } = {},
+) {
+  const storageMaps = packChatgptHistoryStorageIntoVolumeMaps(storageData, {
+    maxVolumeBytes,
+    envelopeOverhead: estimateVolumeEnvelopeOverhead({ exportedAt, exportId, summary }),
+  })
+  return storageMaps.map((storage, index) => ({
+    scope: CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
+    schemaVersion: CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION,
+    exportedAt,
+    exportId,
+    volume: { index: index + 1, count: storageMaps.length },
+    storage,
+    summary,
+  }))
+}
+
+/**
+ * List ChatGPT history keys without `storage.get(null)`.
+ *
+ * Prefer `storage.getKeys()` when the browser provides it. Fallback: known
+ * catalog keys plus snapshot keys derived from the conversation index.
+ * Limitation of the fallback: extra snapshots whose ids are not in the index
+ * are missed, because discovering them would require dumping all storage.
+ */
+export async function listChatgptHistoryStorageKeys(storage) {
+  if (typeof storage.getKeys === 'function') {
+    const keys = await storage.getKeys()
+    return [...new Set((Array.isArray(keys) ? keys : []).filter(isChatgptHistoryStorageKey))]
+  }
+
+  const indexResult = await storage.get([CHATGPT_WEB_CONVERSATION_INDEX_KEY])
+  const index = isPlainObject(indexResult?.[CHATGPT_WEB_CONVERSATION_INDEX_KEY])
+    ? indexResult[CHATGPT_WEB_CONVERSATION_INDEX_KEY]
+    : {}
+  const snapshotKeys = Object.keys(index)
+    .map((id) => stringifyKey(id))
+    .filter(Boolean)
+    .map((id) => `${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}${id}`)
+  return [...new Set([...CHATGPT_WEB_HISTORY_CATALOG_KEYS, ...snapshotKeys])]
+}
+
+async function readStorageEntries(storage, keys = []) {
+  const uniqueKeys = [...new Set(keys)]
+  const result = {}
+  for (let index = 0; index < uniqueKeys.length; index += STORAGE_READ_CHUNK_SIZE) {
+    const chunk = uniqueKeys.slice(index, index + STORAGE_READ_CHUNK_SIZE)
+    if (chunk.length === 0) continue
+    const data = await storage.get(chunk)
+    if (isPlainObject(data)) Object.assign(result, data)
+  }
+  return result
+}
+
+async function readChatgptHistoryStorageData(storage) {
+  const keys = await listChatgptHistoryStorageKeys(storage)
+  return filterChatgptHistoryStorageData(await readStorageEntries(storage, keys))
 }
 
 export function mergeChatgptHistoryStorageData(existingData = {}, incomingData = {}) {
@@ -664,28 +909,51 @@ async function writeStorageEntries(storage, entries = []) {
   }
 }
 
-export async function exportChatgptHistoryData() {
+export async function getChatgptHistoryLibraryStats() {
   const storage = await getBrowserStorage()
-  const allData = await storage.get(null)
-  const filteredData = filterChatgptHistoryStorageData(allData)
-  return {
-    scope: CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
-    schemaVersion: CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
-    storage: filteredData,
-    summary: summarizeChatgptHistoryStorageData(filteredData),
-  }
+  const existingHistoryData = await readChatgptHistoryStorageData(storage)
+  return summarizeChatgptHistoryExport(existingHistoryData)
+}
+
+export async function buildChatgptHistoryExportVolumes({
+  maxVolumeBytes = DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES,
+} = {}) {
+  const storage = await getBrowserStorage()
+  const historyData = await readChatgptHistoryStorageData(storage)
+  const summary = summarizeChatgptHistoryExport(historyData)
+  const exportId = createHistoryExportId()
+  const exportedAt = new Date().toISOString()
+  const volumes = buildChatgptHistoryVolumePayloads(historyData, {
+    maxVolumeBytes,
+    exportId,
+    exportedAt,
+    summary,
+  })
+  return { exportId, volumes, summary }
+}
+
+export async function exportChatgptHistoryData(options = {}) {
+  return buildChatgptHistoryExportVolumes(options)
 }
 
 export async function importChatgptHistoryData(payload) {
-  const incomingData = normalizeImportPayload(payload)
-  if (Object.keys(incomingData).length === 0) {
-    throw new Error('No ChatGPT history data found in import file')
+  const payloads = collectImportPayloads(payload)
+  assertSameHistoryExportId(payloads)
+
+  let incomingData = {}
+  let foundHistory = false
+  for (const item of payloads) {
+    const part = normalizeImportPayload(item)
+    if (Object.keys(part).length === 0) continue
+    foundHistory = true
+    incomingData = mergeChatgptHistoryStorageData(incomingData, part)
+  }
+  if (!foundHistory) {
+    throw new Error(CHATGPT_WEB_HISTORY_EMPTY_IMPORT_ERROR)
   }
 
   const storage = await getBrowserStorage()
-  const existingAllData = await storage.get(null)
-  const existingHistoryData = filterChatgptHistoryStorageData(existingAllData)
+  const existingHistoryData = await readChatgptHistoryStorageData(storage)
   const mergedHistoryData = mergeChatgptHistoryStorageData(existingHistoryData, incomingData)
   const entriesToWrite = Object.entries(mergedHistoryData).filter(([key, value]) => {
     return JSON.stringify(existingHistoryData[key] ?? null) !== JSON.stringify(value ?? null)
@@ -698,8 +966,8 @@ export async function importChatgptHistoryData(payload) {
   return {
     importedAt: new Date().toISOString(),
     keysWritten: entriesToWrite.length,
-    before: summarizeChatgptHistoryStorageData(existingHistoryData),
-    incoming: summarizeChatgptHistoryStorageData(incomingData),
-    after: summarizeChatgptHistoryStorageData(mergedHistoryData),
+    before: summarizeChatgptHistoryExport(existingHistoryData),
+    incoming: summarizeChatgptHistoryExport(incomingData),
+    after: summarizeChatgptHistoryExport(mergedHistoryData),
   }
 }

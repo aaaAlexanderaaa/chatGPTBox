@@ -17,6 +17,11 @@ import { ModuleMessage } from '../../api.mjs'
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
 
+function formatHistoryLibraryTimestamp(value, t) {
+  if (typeof value === 'string' && value.trim()) return value
+  return t('Never')
+}
+
 export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit }) {
   const { t } = useTranslation()
   const {
@@ -30,6 +35,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
     storageKeys,
     exportHistory,
     importHistory,
+    getHistoryLibraryStats,
     thinkingEfforts = ['min', 'standard', 'extended', 'xhigh', 'max'],
   } = kit
 
@@ -46,6 +52,17 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
   const [historyHydrateBusy, setHistoryHydrateBusy] = useState(false)
   const [historyHydrateError, setHistoryHydrateError] = useState('')
   const [copiedHydrateId, setCopiedHydrateId] = useState('')
+  const [historyLibraryStats, setHistoryLibraryStats] = useState(null)
+
+  const loadHistoryLibraryStats = useCallback(async () => {
+    if (!getHistoryLibraryStats) return
+    try {
+      const stats = await getHistoryLibraryStats()
+      setHistoryLibraryStats(stats || null)
+    } catch {
+      /* stats are informational; job controls still work without them */
+    }
+  }, [getHistoryLibraryStats])
 
   const loadHistorySyncMeta = useCallback(async () => {
     try {
@@ -55,19 +72,21 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
     }
     const data = await Browser.storage.local.get({ [storageKeys.conversationMeta]: {} })
     setHistorySyncMeta(data[storageKeys.conversationMeta] || {})
-  }, [storageKeys.conversationMeta])
+    await loadHistoryLibraryStats()
+  }, [loadHistoryLibraryStats, storageKeys.conversationMeta])
 
   useEffect(() => {
     void loadHistorySyncMeta()
     const listener = (changes) => {
       if (changes?.[storageKeys.conversationMeta]) {
         setHistorySyncMeta(changes[storageKeys.conversationMeta].newValue || {})
+        void loadHistoryLibraryStats()
       }
     }
     const storageChanges = Browser.storage.onChanged || Browser.storage.local.onChanged
     storageChanges.addListener(listener)
     return () => storageChanges.removeListener(listener)
-  }, [loadHistorySyncMeta, storageKeys.conversationMeta])
+  }, [loadHistoryLibraryStats, loadHistorySyncMeta, storageKeys.conversationMeta])
 
   const runHistorySync = useCallback(
     async (resume = false) => {
@@ -380,22 +399,22 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
     setHistoryTransferError('')
     try {
       const summary = await exportHistory()
-      if (summary) {
-        setHistoryTransferMessage(
-          t(
-            'Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads',
-            summary,
-          ),
-        )
-      } else {
-        setHistoryTransferMessage(t('ChatGPT history export completed'))
-      }
+      if (!summary) return
+      const exportedLine = t(
+        'Exported ChatGPT history: {{conversationCount}} conversations, {{snapshotCount}} raw snapshots, {{sessionSnapshotCount}} session snapshots, {{apiThreadCount}} continuation threads',
+        summary,
+      )
+      const volumeLine = t('Exported {{volumeCount}} ChatGPT history volume files', {
+        volumeCount: summary.volumeCount || 1,
+      })
+      setHistoryTransferMessage(`${exportedLine} ${volumeLine}`)
+      void loadHistoryLibraryStats()
     } catch (error) {
-      setHistoryTransferError(error?.message || String(error))
+      setHistoryTransferError(t(error?.message || String(error)))
     } finally {
       setHistoryTransferBusy(false)
     }
-  }, [exportHistory, t])
+  }, [exportHistory, loadHistoryLibraryStats, t])
 
   const handleImportChatgptHistory = useCallback(async () => {
     if (!importHistory) return
@@ -417,12 +436,13 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
           },
         ),
       )
+      void loadHistorySyncMeta()
     } catch (error) {
-      setHistoryTransferError(error?.message || String(error))
+      setHistoryTransferError(t(error?.message || String(error)))
     } finally {
       setHistoryTransferBusy(false)
     }
-  }, [importHistory, t])
+  }, [importHistory, loadHistorySyncMeta, t])
 
   return (
     <div className="space-y-4">
@@ -467,6 +487,54 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
               onChange={(value) => updateConfig({ chatgptWebHistorySyncEnabled: value })}
             />
           </SettingRow>
+
+          {historyLibraryStats && (
+            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs space-y-1 text-muted-foreground">
+              <div className="font-medium text-foreground">{t('Library')}</div>
+              <div>
+                {t(
+                  '{{conversationCount}} conversations ({{activeCount}} active, {{archivedCount}} archived)',
+                  {
+                    conversationCount: historyLibraryStats.conversationCount || 0,
+                    activeCount: historyLibraryStats.activeCount || 0,
+                    archivedCount: historyLibraryStats.archivedCount || 0,
+                  },
+                )}
+              </div>
+              <div>
+                {t(
+                  'Bodies: {{snapshotCount}} cached, {{missingBodyCount}} missing ({{missingActiveBodyCount}} active, {{missingArchivedBodyCount}} archived)',
+                  {
+                    snapshotCount: historyLibraryStats.snapshotCount || 0,
+                    missingBodyCount: historyLibraryStats.missingBodyCount || 0,
+                    missingActiveBodyCount: historyLibraryStats.missingActiveBodyCount || 0,
+                    missingArchivedBodyCount: historyLibraryStats.missingArchivedBodyCount || 0,
+                  },
+                )}
+              </div>
+              <div>
+                {t('Extra snapshots not in the list: {{extraSnapshotCount}}', {
+                  extraSnapshotCount: historyLibraryStats.extraSnapshotCount || 0,
+                })}
+              </div>
+              <div>
+                {t('Last list sync')}:{' '}
+                {formatHistoryLibraryTimestamp(historyLibraryStats.lastSyncAt, t)}
+              </div>
+              <div>
+                {t('Last archived sync')}:{' '}
+                {formatHistoryLibraryTimestamp(historyLibraryStats.lastArchivedSyncAt, t)}
+              </div>
+              <div>
+                {t('Last incremental sync')}:{' '}
+                {formatHistoryLibraryTimestamp(historyLibraryStats.lastIncrementalSyncAt, t)}
+              </div>
+              <div>
+                {t('Last hydrate')}:{' '}
+                {formatHistoryLibraryTimestamp(historyLibraryStats.lastHydrateAt, t)}
+              </div>
+            </div>
+          )}
 
           {config.chatgptWebHistorySyncEnabled === true && (
             <>
@@ -1095,6 +1163,11 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
             {t(
               'Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.',
             )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {t('Large ChatGPT history backups are saved as multiple compact JSON volume files.')}{' '}
+            {t('Pick a folder to save ChatGPT history volume files')}.{' '}
+            {t('Downloading multiple ChatGPT history files')}.
           </p>
 
           <div className="flex gap-3">

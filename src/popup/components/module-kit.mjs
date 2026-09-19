@@ -36,9 +36,10 @@ import {
 } from '../../config/limits.mjs'
 import { CHATGPT_WEB_CONVERSATION_META_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import { CHATGPT_WEB_THINKING_EFFORTS } from '../../services/clients/chatgpt-web/thinking.mjs'
-import { downloadJsonFile, pickJsonFile } from '../file-transfer.mjs'
+import { downloadChatgptHistoryVolumes, pickJsonFiles } from '../file-transfer.mjs'
 import {
   exportChatgptHistoryData,
+  getChatgptHistoryLibraryStats,
   importChatgptHistoryData,
 } from '../../services/clients/chatgpt-web/history-transfer.mjs'
 
@@ -81,20 +82,26 @@ export function buildModuleKit() {
       debugLog: CHATGPT_WEB_DEBUG_LOG_KEY,
       conversationMeta: CHATGPT_WEB_CONVERSATION_META_KEY,
     },
+    getHistoryLibraryStats: async () => getChatgptHistoryLibraryStats(),
     exportHistory: async () => {
-      const payload = await exportChatgptHistoryData()
-      downloadJsonFile(
-        payload,
-        `chatgptbox-chatgpt-history-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
-      )
-      return payload.summary
+      const result = await exportChatgptHistoryData()
+      const downloadResult = await downloadChatgptHistoryVolumes(result)
+      if (downloadResult?.cancelled) return null
+      return {
+        ...result.summary,
+        volumeCount: result.volumes.length,
+        downloadMethod: downloadResult?.method || 'download',
+      }
     },
     importHistory: async () => {
-      const file = await pickJsonFile()
-      if (!file) return null
-      const text = await file.text()
-      const imported = JSON.parse(text)
-      return await importChatgptHistoryData(imported)
+      const files = await pickJsonFiles()
+      if (!files || files.length === 0) return null
+      const payloads = []
+      for (const file of files) {
+        const text = await file.text()
+        payloads.push(JSON.parse(text))
+      }
+      return await importChatgptHistoryData(payloads.length === 1 ? payloads[0] : payloads)
     },
   }
 }
