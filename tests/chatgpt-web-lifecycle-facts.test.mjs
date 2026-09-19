@@ -406,6 +406,35 @@ describe('lifecycle claims — current behavior', () => {
       ).rejects.toThrow(ACCESS_DENIED)
     })
 
+    it('uses the list title when the conversation snapshot is still New Chat', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'listed-1': {
+          id: 'listed-1',
+          title: 'Plan the weekend',
+          rawItem: { id: 'listed-1', title: 'Plan the weekend' },
+          updateTime: 20,
+          asyncStatus: null,
+        },
+      }
+      fetch.mockResolvedValue(
+        jsonResponse(200, {
+          conversation_id: 'listed-1',
+          title: 'New chat',
+          update_time: 20,
+          current_node: 'n1',
+          mapping: {},
+          async_status: null,
+        }),
+      )
+
+      const result = await getChatgptWebConversation({
+        conversationId: 'listed-1',
+        forceRefresh: true,
+      })
+
+      expect(result.title).toBe('Plan the weekend')
+    })
+
     it('softens access-denied on get the same way as refresh', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({

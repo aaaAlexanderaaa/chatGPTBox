@@ -11,6 +11,22 @@ function normalizeConversationTitle(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
+export function isPlaceholderChatgptWebConversationTitle(value) {
+  const normalized = normalizeConversationTitle(value)
+  return !normalized || normalized === 'new chat'
+}
+
+export function pickChatgptWebConversationTitle(...values) {
+  let fallback = ''
+  for (const value of values) {
+    const title = typeof value === 'string' ? value.trim() : ''
+    if (!title) continue
+    if (!isPlaceholderChatgptWebConversationTitle(title)) return title
+    if (!fallback) fallback = title
+  }
+  return fallback
+}
+
 function hasConversationAsyncStatusField(conversation) {
   if (!conversation || typeof conversation !== 'object') return false
   return (

@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "api-server": "node scripts/api-server.mjs",
+    "history-viewer": "node scripts/chatgpt-history-viewer.mjs",
     "pretty": "prettier --write ./**/*.{js,mjs,jsx,json,css}",
     "stage": "run-script-os",
     "stage:default": "git add $(git diff --name-only --cached --diff-filter=d)",

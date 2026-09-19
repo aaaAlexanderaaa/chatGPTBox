@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChatGPTBox History</title>
+    <style>
+      :root {
+        --bg: #101114;
+        --panel: #17181d;
+        --panel-2: #1e2026;
+        --line: #2a2c33;
+        --text: #f2f3f5;
+        --muted: #9aa0ab;
+        --user: #2f6fed;
+        --assistant: #23262e;
+        --accent: #7aa2ff;
+        --danger: #f87171;
+        --ok: #34d399;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        height: 100%;
+      }
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .sidebar-head,
+      .thread-head {
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .chip {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+      }
+      .search {
+        width: 100%;
+        margin-top: 12px;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 10px;
+        outline: none;
+      }
+      .search:focus {
+        border-color: var(--accent);
+      }
+      .filters {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .filters button,
+      .icon-btn {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 5px 8px;
+        cursor: pointer;
+      }
+      .filters button.active,
+      .icon-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .list {
+        overflow: auto;
+        flex: 1;
+      }
+      .item {
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 16px;
+        cursor: pointer;
+      }
+      .item:hover,
+      .item.active {
+        background: #22242b;
+      }
+      .item-title {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .item-meta {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .warn {
+        color: var(--danger);
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .thread {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .thread-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .messages {
+        overflow: auto;
+        padding: 20px 24px 48px;
+        flex: 1;
+      }
+      .bubble {
+        max-width: 760px;
+        margin: 0 auto 16px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .bubble.user {
+        background: var(--user);
+      }
+      .bubble.assistant {
+        background: var(--assistant);
+        border: 1px solid var(--line);
+      }
+      .role {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .empty {
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--muted);
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+      }
+      pre {
+        background: #0c0d10;
+        padding: 10px;
+        border-radius: 8px;
+        overflow: auto;
+      }
+      kbd {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 4px;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h1>ChatGPT 历史库</h1>
+          <div id="summary" class="muted">正在读取分卷…</div>
+          <div id="stats" class="stats"></div>
+          <input
+            id="q"
+            class="search"
+            type="search"
+            placeholder="搜索标题，或 / 聚焦。正文搜索用按钮"
+          />
+          <div class="filters">
+            <button data-filter="all" class="active">全部</button>
+            <button data-filter="active">进行中</button>
+            <button data-filter="archived">已归档</button>
+            <button data-filter="missing">缺正文</button>
+            <button id="body-search">搜正文</button>
+          </div>
+        </div>
+        <div id="list" class="list"></div>
+      </aside>
+      <main class="thread">
+        <div class="thread-head">
+          <div>
+            <h1 id="title">选择一个会话</h1>
+            <div id="meta" class="muted">j / k 切换，Enter 打开，c 复制 Markdown</div>
+          </div>
+          <div class="actions">
+            <button class="icon-btn" id="copy-md">复制 Markdown</button>
+            <button class="icon-btn" id="open-web">打开 chatgpt.com</button>
+            <button class="icon-btn" id="toggle-think">思考过程</button>
+          </div>
+        </div>
+        <div id="messages" class="messages">
+          <div class="empty">
+            这是导出分卷的本地浏览器，不会访问 ChatGPT 账号。<br />
+            超大会话只在点开时展开。
+          </div>
+        </div>
+      </main>
+    </div>
+    <script>
+      const state = {
+        library: null,
+        filter: 'all',
+        query: '',
+        selectedId: '',
+        think: false,
+        conversation: null,
+        bodyHits: null,
+      }
+
+      const $ = (id) => document.getElementById(id)
+
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+      }
+
+      function renderInline(text) {
+        const escaped = escapeHtml(text)
+        return escaped.replace(/`([^`]+)`/g, '<code>$1</code>')
+      }
+
+      function renderMarkdown(text) {
+        const source = String(text || '')
+        const chunks = source.split(/```/g)
+        return chunks
+          .map((chunk, index) => {
+            if (index % 2 === 1) {
+              const newline = chunk.indexOf('\n')
+              const code = newline === -1 ? chunk : chunk.slice(newline + 1)
+              return `<pre><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre>`
+            }
+            return renderInline(chunk).replace(/\n/g, '<br />')
+          })
+          .join('')
+      }
+
+      function formatTime(value) {
+        if (value == null || value === '') return ''
+        const numeric = Number(value)
+        const date =
+          Number.isFinite(numeric) && !String(value).includes('T')
+            ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
+            : new Date(value)
+        if (Number.isNaN(date.getTime())) return String(value)
+        return date.toLocaleString()
+      }
+
+      function visibleConversations() {
+        const all = state.library?.conversations || []
+        const q = state.query.trim().toLowerCase()
+        return all.filter((item) => {
+          if (state.filter === 'archived' && !item.isArchived) return false
+          if (state.filter === 'active' && item.isArchived) return false
+          if (state.filter === 'missing' && item.hasSnapshot) return false
+          if (state.bodyHits) {
+            return state.bodyHits.has(item.id)
+          }
+          if (!q) return true
+          return (
+            String(item.title || '')
+              .toLowerCase()
+              .includes(q) || String(item.id).toLowerCase().includes(q)
+          )
+        })
+      }
+
+      function renderList() {
+        const items = visibleConversations()
+        $('list').innerHTML = items
+          .map((item) => {
+            const active = item.id === state.selectedId ? ' active' : ''
+            const body = item.hasSnapshot ? '<span class="ok">有正文</span>' : '<span class="warn">缺正文</span>'
+            const archived = item.isArchived ? '<span>归档</span>' : ''
+            return `<button class="item${active}" data-id="${escapeHtml(item.id)}">
+              <div class="item-title">${escapeHtml(item.title || 'Untitled')}</div>
+              <div class="item-meta">${body}${archived}<span>${escapeHtml(
+                formatTime(item.updateTime),
+              )}</span></div>
+            </button>`
+          })
+          .join('')
+      }
+
+      function renderSummary() {
+        const lib = state.library
+        if (!lib) return
+        $('summary').textContent = `${lib.volumes.length} 个分卷 · ${lib.conversations.length} 个会话 · export ${
+          lib.exportId || '(none)'
+        }`
+        $('stats').innerHTML = [
+          `对话 ${lib.summary.conversationCount || 0}`,
+          `正文 ${lib.summary.snapshotCount || 0}`,
+          `缺正文 ${lib.summary.missingBodyCount || 0}`,
+          `归档 ${lib.summary.archivedCount || 0}`,
+        ]
+          .map((text) => `<span class="chip">${escapeHtml(text)}</span>`)
+          .join('')
+      }
+
+      function renderThread() {
+        const conv = state.conversation
+        if (!conv) return
+        $('title').textContent = conv.title || 'Untitled'
+        const bits = [
+          conv.conversationId,
+          conv.defaultModel,
+          conv.missingSnapshot ? '缺正文' : `${(conv.messages || []).length} 条消息`,
+          conv.mappingNodeCount ? `${conv.mappingNodeCount} nodes` : '',
+          formatTime(conv.updateTime),
+        ].filter(Boolean)
+        $('meta').textContent = bits.join(' · ')
+        if (conv.missingSnapshot) {
+          $('messages').innerHTML =
+            '<div class="empty">列表里有这条会话，但导出分卷里没有缓存正文。</div>'
+          return
+        }
+        const messages = conv.messages || []
+        if (messages.length === 0) {
+          $('messages').innerHTML = '<div class="empty">没有可展示的 user/assistant 文本。</div>'
+          return
+        }
+        const thinkHtml = (state.think && conv.thinking ? conv.thinking : [])
+          .map((entry) => {
+            const body = entry.text || (entry.thoughts || []).join('\n')
+            if (!body) return ''
+            return `<div class="bubble assistant"><div class="role">thinking${
+              entry.durationText ? ` · ${escapeHtml(entry.durationText)}` : ''
+            }</div>${renderMarkdown(body)}</div>`
+          })
+          .join('')
+        $('messages').innerHTML =
+          thinkHtml +
+          messages
+            .map((message) => {
+              const role = message.role === 'user' ? 'user' : 'assistant'
+              const extra = message.thoughtDurationLabel
+                ? ` · ${escapeHtml(message.thoughtDurationLabel)}`
+                : ''
+              const text =
+                String(message.text || '').length > 120000
+                  ? `${String(message.text).slice(0, 120000)}\n\n…truncated…`
+                  : message.text || ''
+              return `<div class="bubble ${role}"><div class="role">${escapeHtml(role)}${extra}</div>${renderMarkdown(
+                text,
+              )}</div>`
+            })
+            .join('')
+      }
+
+      async function loadLibrary() {
+        const response = await fetch('/api/library')
+        if (!response.ok) throw new Error(await response.text())
+        state.library = await response.json()
+        renderSummary()
+        renderList()
+      }
+
+      async function openConversation(id) {
+        state.selectedId = id
+        renderList()
+        const response = await fetch(
+          `/api/conversations/${encodeURIComponent(id)}?think=${state.think ? '1' : '0'}`,
+        )
+        if (!response.ok) {
+          $('messages').innerHTML = `<div class="empty">${escapeHtml(await response.text())}</div>`
+          return
+        }
+        state.conversation = await response.json()
+        renderThread()
+        $('messages').scrollTop = 0
+      }
+
+      async function searchBodies() {
+        const q = $('q').value.trim()
+        if (!q) {
+          state.bodyHits = null
+          renderList()
+          return
+        }
+        $('summary').textContent = '正在搜索正文…'
+        const response = await fetch(`/api/search?q=${encodeURIComponent(q)}`)
+        const hits = await response.json()
+        state.bodyHits = new Set(hits.map((hit) => hit.id))
+        renderSummary()
+        renderList()
+        $('summary').textContent += ` · 正文命中 ${hits.length}`
+      }
+
+      $('list').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-id]')
+        if (button) void openConversation(button.dataset.id)
+      })
+      $('q').addEventListener('input', () => {
+        state.query = $('q').value
+        state.bodyHits = null
+        renderList()
+      })
+      document.querySelectorAll('[data-filter]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.filter = button.dataset.filter
+          document.querySelectorAll('[data-filter]').forEach((node) => node.classList.remove('active'))
+          button.classList.add('active')
+          renderList()
+        })
+      })
+      $('body-search').addEventListener('click', () => void searchBodies())
+      $('copy-md').addEventListener('click', async () => {
+        if (!state.selectedId) return
+        const response = await fetch(`/api/conversations/${encodeURIComponent(state.selectedId)}.md`)
+        const text = await response.text()
+        await navigator.clipboard.writeText(text)
+      })
+      $('open-web').addEventListener('click', () => {
+        if (!state.selectedId) return
+        window.open(`https://chatgpt.com/c/${encodeURIComponent(state.selectedId)}`, '_blank')
+      })
+      $('toggle-think').addEventListener('click', () => {
+        state.think = !state.think
+        if (state.selectedId) void openConversation(state.selectedId)
+      })
+      document.addEventListener('keydown', (event) => {
+        if (event.key === '/' && document.activeElement !== $('q')) {
+          event.preventDefault()
+          $('q').focus()
+          return
+        }
+        if (document.activeElement === $('q')) return
+        const items = visibleConversations()
+        const index = items.findIndex((item) => item.id === state.selectedId)
+        if (event.key === 'j') {
+          const next = items[Math.min(items.length - 1, index + 1)] || items[0]
+          if (next) void openConversation(next.id)
+        }
+        if (event.key === 'k') {
+          const prev = items[Math.max(0, index - 1)] || items[0]
+          if (prev) void openConversation(prev.id)
+        }
+        if (event.key === 'c') $('copy-md').click()
+      })
+
+      loadLibrary().catch((error) => {
+        $('summary').textContent = error.message || String(error)
+      })
+    </script>
+  </body>
+</html>

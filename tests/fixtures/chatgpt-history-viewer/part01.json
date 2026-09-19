@@ -1,0 +1,68 @@
+{
+  "scope": "chatgpt-web-history",
+  "schemaVersion": 2,
+  "exportedAt": "2026-09-19T00:00:00.000Z",
+  "exportId": "fixture-export",
+  "volume": { "index": 1, "count": 2 },
+  "storage": {
+    "chatgptWebConversationIndex": {
+      "alpha": {
+        "id": "alpha",
+        "title": "Fixture Alpha",
+        "updateTime": "2026-09-19T12:00:00.000Z",
+        "isArchived": false
+      },
+      "beta": {
+        "id": "beta",
+        "title": "Fixture Beta",
+        "updateTime": "2026-09-18T12:00:00.000Z",
+        "isArchived": true
+      },
+      "ghost": {
+        "id": "ghost",
+        "title": "Fixture Ghost",
+        "updateTime": "2026-09-17T12:00:00.000Z"
+      }
+    },
+    "chatgptWebConversationSnapshot:alpha": {
+      "conversationId": "alpha",
+      "snapshot": {
+        "conversation_id": "alpha",
+        "title": "Fixture Alpha",
+        "create_time": 1700000000,
+        "update_time": 1700000100,
+        "current_node": "assistant-1",
+        "default_model_slug": "gpt-5-6-thinking",
+        "mapping": {
+          "root": { "id": "root", "parent": null, "children": ["user-0"] },
+          "user-0": {
+            "id": "user-0",
+            "parent": "root",
+            "children": ["assistant-1"],
+            "message": {
+              "id": "user-0",
+              "author": { "role": "user" },
+              "status": "finished_successfully",
+              "content": { "content_type": "text", "parts": ["hello from alpha"] }
+            }
+          },
+          "assistant-1": {
+            "id": "assistant-1",
+            "parent": "user-0",
+            "children": [],
+            "message": {
+              "id": "assistant-1",
+              "author": { "role": "assistant" },
+              "status": "finished_successfully",
+              "content": {
+                "content_type": "text",
+                "parts": ["alpha reply with unique-token-alpha"]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "summary": { "conversationCount": 3, "snapshotCount": 1 }
+}

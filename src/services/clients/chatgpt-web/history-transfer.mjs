@@ -693,7 +693,7 @@ export function summarizeChatgptHistoryExport(data = {}) {
   }
 }
 
-function normalizeImportPayload(payload = {}) {
+export function normalizeImportPayload(payload = {}) {
   if (!isPlainObject(payload)) return {}
   if (payload.scope === CHATGPT_WEB_HISTORY_EXPORT_SCOPE && isPlainObject(payload.storage)) {
     return filterChatgptHistoryStorageData(payload.storage)

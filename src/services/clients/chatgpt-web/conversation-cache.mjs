@@ -1,6 +1,7 @@
 import {
   formatChatgptWebConversationListItem,
   isPendingChatgptWebConversation,
+  pickChatgptWebConversationTitle,
 } from './conversation-state.mjs'
 
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
@@ -325,7 +326,11 @@ export function overlayChatgptWebConversationStatus(conversation, indexEntry) {
 
   return {
     ...conversation,
-    title: indexEntry.title || conversation.title || '',
+    title: pickChatgptWebConversationTitle(
+      indexEntry.rawItem?.title,
+      indexEntry.title,
+      conversation.title,
+    ),
     update_time:
       indexEntry.updateTime !== undefined ? indexEntry.updateTime : conversation.update_time,
     async_status:

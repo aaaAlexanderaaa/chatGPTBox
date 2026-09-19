@@ -13,11 +13,14 @@ import {
   isFinalChatgptWebMessageStatus,
   isPendingChatgptWebConversation,
   isPendingChatgptWebMessageStatus,
+  isPlaceholderChatgptWebConversationTitle,
+  pickChatgptWebConversationTitle,
   selectChatgptWebRefreshResult,
 } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 import {
   isChatgptWebConversationSnapshotStale,
   normalizeChatgptWebConversationIndexEntry,
+  overlayChatgptWebConversationStatus,
 } from '../src/services/clients/chatgpt-web/conversation-cache.mjs'
 
 // These are the pure helpers under clients/chatgpt-web/ — parsing,
@@ -249,6 +252,44 @@ describe('normalizeChatgptWebConversationIndexEntry', () => {
     const entry = normalizeChatgptWebConversationIndexEntry({ id: 'c1' }, existing)
     expect(entry.firstSeenAt).toBe('2024-01-01')
     expect(entry.snapshotCachedAt).toBe('2024-01-02')
+  })
+})
+
+describe('pickChatgptWebConversationTitle', () => {
+  it('treats empty and New Chat titles as placeholders', () => {
+    expect(isPlaceholderChatgptWebConversationTitle('')).toBe(true)
+    expect(isPlaceholderChatgptWebConversationTitle('New Chat')).toBe(true)
+    expect(isPlaceholderChatgptWebConversationTitle('new chat')).toBe(true)
+    expect(isPlaceholderChatgptWebConversationTitle('Plan the weekend')).toBe(false)
+  })
+
+  it('prefers a generated title over a New Chat placeholder', () => {
+    expect(pickChatgptWebConversationTitle('New Chat', 'Plan the weekend')).toBe('Plan the weekend')
+    expect(pickChatgptWebConversationTitle('Plan the weekend', 'New Chat')).toBe('Plan the weekend')
+  })
+
+  it('keeps the first real title when both sources are named', () => {
+    expect(pickChatgptWebConversationTitle('From list', 'From snapshot')).toBe('From list')
+  })
+
+  it('falls back to New Chat only when nothing else is available', () => {
+    expect(pickChatgptWebConversationTitle('', 'New Chat')).toBe('New Chat')
+    expect(pickChatgptWebConversationTitle(null, undefined, '')).toBe('')
+  })
+})
+
+describe('overlayChatgptWebConversationStatus', () => {
+  it('uses the list title when the conversation snapshot is still New Chat', () => {
+    const overlayed = overlayChatgptWebConversationStatus(
+      { title: 'New chat', async_status: null, update_time: 20 },
+      {
+        title: 'Plan the weekend',
+        rawItem: { id: 'c1', title: 'Plan the weekend' },
+        asyncStatus: null,
+        updateTime: 20,
+      },
+    )
+    expect(overlayed.title).toBe('Plan the weekend')
   })
 })
 
