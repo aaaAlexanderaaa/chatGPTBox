@@ -141,7 +141,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       rules: [
         {
           test: /\.m?jsx?$/,
-          exclude: /(node_modules)/,
+          // executeScript serializes the native integrity function into the
+          // page. Babel helpers live in the extension and cannot follow it.
+          // MV3 browsers already support the syntax used by this module.
+          exclude: [/node_modules/, /\/chatgpt-web\/page-integrity\.mjs$/],
           resolve: {
             fullySpecified: false,
           },

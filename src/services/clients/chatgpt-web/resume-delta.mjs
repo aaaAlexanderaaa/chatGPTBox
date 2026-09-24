@@ -3,6 +3,7 @@ import {
   isFinalChatgptWebMessageStatus,
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
+import { canFollowChatgptWebTurnViaHttpResume } from './stream-handoff.mjs'
 
 const FORBIDDEN_PATCH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
 const STREAM_RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 502, 504])
@@ -14,7 +15,7 @@ const DELTA_SHORT_KEYS = [
 ]
 const NUMERIC_PATH_SEGMENT = /^(?:0|[1-9]\d*)$/
 
-// Nested HTTP resume (`kTt`): default MAX_RETRY_COUNT is 12.
+// Consecutive failed HTTP resumes: default MAX_RETRY_COUNT is 12.
 export const CHATGPT_WEB_STREAM_MAX_RETRIES = 12
 export const CHATGPT_WEB_STREAM_NO_DONE = 'CHATGPT_WEB_STREAM_NO_DONE'
 const STREAM_RETRY_MIN_DELAY_MS = 300
@@ -72,7 +73,7 @@ export function isRetryableChatgptWebStreamError(error) {
 function getStreamRetryDelayMs(retryCount) {
   const exponentialDelay = Math.min(
     STREAM_RETRY_MAX_DELAY_MS,
-    STREAM_RETRY_MIN_DELAY_MS * STREAM_RETRY_BACKOFF_FACTOR ** Math.max(0, retryCount - 1),
+    STREAM_RETRY_MIN_DELAY_MS * STREAM_RETRY_BACKOFF_FACTOR ** retryCount,
   )
   return Math.round(exponentialDelay * (0.5 + Math.random() * 0.5))
 }
@@ -86,6 +87,11 @@ function setResumeHeader(headers, name, value) {
     (headerName) => headerName.toLowerCase() === name.toLowerCase(),
   )
   headers[existingName || name] = value
+}
+
+function getResumeHeader(headers, name) {
+  const key = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase())
+  return key ? headers[key] : ''
 }
 
 function decodeJsonPointerSegment(segment) {
@@ -339,6 +345,7 @@ export function createChatgptWebResumeDeltaAccumulator() {
   let title = ''
   let inputMessage = null
   let handoff = null
+  let latestSnapshot = null
 
   function markAuthoritativeDone() {
     authoritativeDone = true
@@ -346,13 +353,21 @@ export function createChatgptWebResumeDeltaAccumulator() {
 
   function feedEvent(eventName, payload) {
     if (eventName === 'delta_encoding') {
+      // The official SSE reader JSON-decodes data before checking the version.
+      // Our callbacks receive wire text, so accept data: "v1" as well as bare v1.
+      let decoded = payload
+      if (typeof payload === 'string') {
+        try {
+          decoded = JSON.parse(payload)
+        } catch {
+          // Keep compatibility with streams that send the unquoted version.
+        }
+      }
       const encoding =
-        typeof payload === 'string'
-          ? payload
-          : payload && typeof payload === 'object'
-          ? payload.encoding || payload.v || payload.value
-          : ''
-      if (encoding && String(encoding).trim() && String(encoding).trim() !== 'v1') {
+        decoded && typeof decoded === 'object'
+          ? decoded.encoding || decoded.v || decoded.value
+          : decoded
+      if (typeof encoding !== 'string' || encoding.trim() !== 'v1') {
         throw new Error(`[delta] unknown delta encoding: ${encoding}`)
       }
       return false
@@ -366,20 +381,24 @@ export function createChatgptWebResumeDeltaAccumulator() {
       return false
     }
 
-    if (!eventName) {
+    if (eventName !== 'delta') {
       if (payload.type === 'message_stream_complete') markAuthoritativeDone()
       else if (payload.type === 'title_generation') {
         title = typeof payload.title === 'string' ? payload.title : title
       } else if (payload.type === 'stream_handoff') handoff = payload
       else if (payload.type === 'input_message')
         inputMessage = payload.input_message || inputMessage
+      if (payload.message) {
+        latestSnapshot = payload
+        entries.set(`message:${payload.message.id || ''}`, payload)
+        return true
+      }
       return false
     }
 
-    if (eventName !== 'delta') return false
-
     const applied = decoder.applyDelta(payload)
     if (!applied?.value || typeof applied.value !== 'object') return false
+    latestSnapshot = applied.value
     entries.set(applied.channel, applied.value)
     return true
   }
@@ -411,7 +430,13 @@ export function createChatgptWebResumeDeltaAccumulator() {
     }
   }
 
-  return { feedEvent, getAssistantMessages, getResult, markAuthoritativeDone }
+  return {
+    feedEvent,
+    getAssistantMessages,
+    getResult,
+    getLatestSnapshot: () => latestSnapshot,
+    markAuthoritativeDone,
+  }
 }
 
 function createMissingDoneError() {
@@ -427,15 +452,17 @@ export async function consumeChatgptWebResumeDeltaStream({
   signal,
   fetchSSE,
   onMessageSnapshot,
+  onDecodedEvent,
   onHandoff,
   maxRetries = CHATGPT_WEB_STREAM_MAX_RETRIES,
   waitForRetry = waitForChatgptWebStreamRetry,
+  accumulator = createChatgptWebResumeDeltaAccumulator(),
 }) {
-  const accumulator = createChatgptWebResumeDeltaAccumulator()
   const resumeHeaders = { ...headers }
   const resumeBody = { ...body }
   let offset = Number.isInteger(body?.offset) && body.offset >= 0 ? body.offset : 0
   let retryCount = 0
+  let consecutiveRetries = 0
   let finished = false
 
   while (!finished) {
@@ -452,7 +479,10 @@ export async function consumeChatgptWebResumeDeltaStream({
         onEnd(info) {
           if (info?.aborted) streamAborted = true
         },
-        onResponse() {},
+        onResponse(response) {
+          const token = response?.headers?.get('x-conduit-token')?.trim()
+          if (token) setResumeHeader(resumeHeaders, 'X-Conduit-Token', token)
+        },
         onError(error) {
           if (error?.name === 'AbortError') return
           throw error
@@ -465,6 +495,7 @@ export async function consumeChatgptWebResumeDeltaStream({
           }
           if (!shouldCountChatgptWebResumeOffsetEvent(event)) return
           offset += 1
+          consecutiveRetries = 0
 
           const eventName = event.event || ''
           if (eventName === 'delta_encoding') {
@@ -479,6 +510,7 @@ export async function consumeChatgptWebResumeDeltaStream({
             return
           }
           if (!payload || typeof payload !== 'object') return
+          if (payload.error) throw new Error(JSON.stringify(payload.error))
 
           if (payload.type === 'resume_conversation_token') {
             if (typeof payload.token === 'string' && payload.token.trim()) {
@@ -489,14 +521,11 @@ export async function consumeChatgptWebResumeDeltaStream({
             }
           }
           if (payload.type === 'stream_handoff') onHandoff?.(payload)
-          if (payload.conversation_id && payload.message) {
-            onMessageSnapshot?.({
-              conversation_id: payload.conversation_id,
-              message: payload.message,
-            })
+          if (!accumulator.feedEvent(eventName, payload)) {
+            onDecodedEvent?.(payload)
+            return
           }
-
-          if (!accumulator.feedEvent(eventName, payload)) return
+          onDecodedEvent?.(accumulator.getLatestSnapshot())
           const bestMessage = accumulator.getResult().bestMessage
           if (!bestMessage?.message) return
           onMessageSnapshot?.({
@@ -509,9 +538,20 @@ export async function consumeChatgptWebResumeDeltaStream({
       if (!accumulator.getResult().authoritativeDone) throw createMissingDoneError()
       finished = true
     } catch (error) {
-      if (retryCount >= maxRetries || !isRetryableChatgptWebStreamError(error)) throw error
+      if (
+        consecutiveRetries >= maxRetries ||
+        !isRetryableChatgptWebStreamError(error) ||
+        !canFollowChatgptWebTurnViaHttpResume({
+          conversationId: resumeBody.conversation_id,
+          conduitToken: getResumeHeader(resumeHeaders, 'x-conduit-token'),
+          offset,
+        })
+      ) {
+        throw error
+      }
       retryCount += 1
-      await waitForRetry(retryCount, signal)
+      consecutiveRetries += 1
+      await waitForRetry(consecutiveRetries, signal)
     }
   }
 

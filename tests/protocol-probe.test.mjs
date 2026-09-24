@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
@@ -29,12 +29,7 @@ import {
 
 const chatgptSpec = PROTOCOL_PROBE_SPECS.find((spec) => spec.id === 'chatgpt-web')
 
-const transportBody = [
-  'No done event received',
-  'resume_token_ttl_ms',
-  'resume_conversation_token',
-  'delta_encoding',
-].join(' ')
+const transportBody = ['No done event received', 'resume_token_ttl_ms'].join(' ')
 
 const orchestratorBody = [
   '/f/conversation/resume',
@@ -43,7 +38,7 @@ const orchestratorBody = [
   'resume_conversation_token',
 ].join(' ')
 
-const websocketBody = 'includeAllHistory last_offset'
+const websocketBody = 'includeAllHistory last_offset delta_encoding resume_conversation_token'
 
 function scriptUrl(filename, host = 'cdn.oaistatic.com') {
   return `https://${host}/assets/${filename}`
@@ -73,6 +68,23 @@ describe('protocol probe specs', () => {
     expect(resolved.files).toEqual(chatgptWebCurrent.files)
     expect(CHATGPT_WEB_SPEC_TEMPLATE.knownFilenames).toBeUndefined()
     expect(CHATGPT_WEB_SPEC_TEMPLATE.roles.every((role) => !role.knownFilenames)).toBe(true)
+  })
+
+  it('validates actual current bundle markers after delta/resume move to the WebSocket chunk', () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+    const fetched = chatgptWebCurrent.files.map(({ filename }) => ({
+      filename,
+      url: scriptUrl(filename),
+      text: readFileSync(join(repoRoot, chatgptWebCurrent.dir, filename), 'utf8'),
+    }))
+    const report = evaluateProtocolProbe({
+      spec: chatgptSpec,
+      scriptUrls: fetched.map((file) => file.url),
+      fetched,
+      scanned: true,
+    })
+    expect(report.status).toBe('ok')
+    expect(report.missingMarkers).toEqual([])
   })
 })
 

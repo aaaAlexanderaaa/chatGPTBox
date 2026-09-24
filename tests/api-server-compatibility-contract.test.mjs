@@ -1,6 +1,8 @@
 /* eslint-env node */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
+import vm from 'node:vm'
+import { getChatgptWebThinkingEffortOverride } from '../src/services/clients/chatgpt-web/thinking.mjs'
 
 const gatewaySource = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
 const bridgePageSource = fs.readFileSync(
@@ -19,6 +21,67 @@ function sourceBetween(source, start, end) {
 }
 
 describe('API gateway compatibility contract', () => {
+  it.each([
+    [
+      'handleChatgptConversationCreate',
+      'handleChatgptConversationGet',
+      'chatgpt_web_create_conversation',
+    ],
+    [
+      'handleChatgptConversationMessage',
+      'handleGrokConversationList',
+      'chatgpt_web_send_conversation_message',
+    ],
+  ])(
+    '%s forwards thinking effort and rejects invalid values before dispatch',
+    async (name, next, action) => {
+      // Run the actual handler with an in-memory bridge; no account or listening port is needed.
+      const send = vi.fn(async () => ({ conversationId: 'conversation-1' }))
+      const begin = vi.fn(() => ({ record: { operationId: 'operation-1' } }))
+      const handler = vm.runInNewContext(
+        `${sourceBetween(
+          gatewaySource,
+          `async function ${name}`,
+          `async function ${next}`,
+        )}\n${name}`,
+        {
+          getChatgptWebThinkingEffortOverride,
+          isBridgeConnected: () => true,
+          readBodyObject: async (body) => body,
+          beginWriteOperation: begin,
+          respondForControlWriteOperation: () => false,
+          sendControlRequestToBridge: send,
+          bridgeRuntimeConfig: { requestTimeoutMs: 60_000 },
+          operationLedger: { complete() {} },
+        },
+      )
+      const res = { setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn() }
+      for (const key of ['thinking_effort', 'reasoning_effort', 'thinkingEffort']) {
+        await handler(
+          { query: 'test', model: 'gpt-5-6-thinking', [key]: 'max' },
+          res,
+          'conversation-1',
+        )
+        expect(send).toHaveBeenLastCalledWith(
+          action,
+          expect.objectContaining({
+            model: 'gpt-5-6-thinking',
+            thinkingEffort: 'max',
+            query: 'test',
+          }),
+          60_000,
+        )
+        expect(res.writeHead).toHaveBeenLastCalledWith(200, expect.anything())
+      }
+      send.mockClear()
+      begin.mockClear()
+      await handler({ query: 'test', thinking_effort: 'invalid' }, res, 'conversation-1')
+      expect(res.writeHead).toHaveBeenLastCalledWith(400, expect.anything())
+      expect(send).not.toHaveBeenCalled()
+      expect(begin).not.toHaveBeenCalled()
+    },
+  )
+
   it('does not require custom headers from standard OpenAI clients', () => {
     const handler = sourceBetween(
       gatewaySource,

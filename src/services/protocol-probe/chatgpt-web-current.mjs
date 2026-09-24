@@ -5,15 +5,15 @@ export default {
   dir: 'resources/chatgpt-web/current',
   files: [
     {
-      filename: '8b34dbc2-kjj15hg4y6iyx13p.js',
+      filename: '8b34dbc2-jcq3z9svhxjfed5y.js',
       roleId: 'conversation-orchestrator',
     },
     {
-      filename: 'conversation-small-hiw4wce20lu6te81.js',
+      filename: 'conversation-small-dem1o3a5ym7cm94l.js',
       roleId: 'conversation-transport',
     },
     {
-      filename: '4813494d-hrplraurzfyvxb10.js',
+      filename: '4813494d-fyc7wvz5e3kse9ep.js',
       roleId: 'conversation-websocket',
     },
   ],

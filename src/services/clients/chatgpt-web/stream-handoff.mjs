@@ -11,17 +11,23 @@ export function pickChatgptWebResumeSseOption(handoff) {
 
   const match = handoff.options.find((option) => option.type === 'resume_sse_endpoint')
   const topicId = typeof match?.topic_id === 'string' ? match.topic_id.trim() : ''
-  return match && topicId ? { type: match.type, topicId } : null
+  return match ? { type: match.type, topicId: topicId || null } : null
 }
 
 export function canResumeChatgptWebStreamHandoffViaSse(handoff) {
   return pickChatgptWebResumeSseOption(handoff) != null
 }
 
-export function canFollowChatgptWebTurnViaHttpResume({ conversationId, conduitToken } = {}) {
+export function canFollowChatgptWebTurnViaHttpResume({
+  conversationId,
+  conduitToken,
+  offset = 0,
+  isTemporaryChat = false,
+} = {}) {
   const id = typeof conversationId === 'string' ? conversationId.trim() : ''
   const token = typeof conduitToken === 'string' ? conduitToken.trim() : ''
-  return Boolean(id && token)
+  // Both reference versions allow tokenless resume only before consuming events.
+  return Boolean(!isTemporaryChat && id && (token || offset === 0))
 }
 
 export function extractChatgptWebResumeConversationToken(payload) {
@@ -62,6 +68,7 @@ export function shouldPollChatgptWebConversationAfterStream({
   modelNeedsPolling,
 } = {}) {
   if (!hasConversationId) return false
-  if (handoff) return resumeCompleted !== true
+  if (resumeCompleted === true) return false
+  if (handoff) return true
   return modelNeedsPolling === true
 }

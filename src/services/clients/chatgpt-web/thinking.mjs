@@ -39,6 +39,18 @@ export function isChatgptWebThinkingEffort(value) {
   return THINKING_EFFORT_SET.has(value)
 }
 
+export function getChatgptWebThinkingEffortOverride(payload = {}) {
+  const value = payload.thinkingEffort ?? payload.thinking_effort ?? payload.reasoning_effort
+  if (value == null || value === '') return undefined
+  const effort = typeof value === 'string' ? value.trim() : value
+  if (!isChatgptWebThinkingEffort(effort)) {
+    throw new Error(
+      'reasoning_effort/thinking_effort must be one of: min, standard, extended, xhigh, max',
+    )
+  }
+  return effort
+}
+
 export function thinkingEffortsForChatgptWebModel(model) {
   const normalized = normalizeChatgptWebModelSlug(model)
   if (THINKING_EFFORTS_BY_SLUG[normalized]) return THINKING_EFFORTS_BY_SLUG[normalized]

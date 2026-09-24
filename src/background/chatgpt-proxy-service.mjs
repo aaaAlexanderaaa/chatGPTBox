@@ -17,6 +17,7 @@ import { t } from 'i18next'
 import { CHATGPT_WEB_DEFAULT_MODEL_KEY, CHATGPT_WEB_DEBUG_LOG_KEY } from '../config/limits.mjs'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { initSession } from '../services/init-session.mjs'
+import { getChatgptWebThinkingEffortOverride } from '../services/clients/chatgpt-web/thinking.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
 import {
   createPendingProxyCancellation,
@@ -534,6 +535,7 @@ export async function listChatgptWebModelsWithFallback() {
 // --- conversation create / send (drive the provider runtime) --------------
 
 export async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
+  const thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
   const conversationId =
     typeof payload.conversationId === 'string' ? payload.conversationId.trim() : ''
   const query = typeof payload.query === 'string' ? payload.query.trim() : ''
@@ -564,6 +566,7 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
   session.messageId = messageId
   session.parentMessageId = conversation.currentNode
   session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
+  session.chatgptWebThinkingEffortOverride = thinkingEffort
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session
@@ -639,6 +642,7 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
 }
 
 export async function createChatgptWebConversation(payload = {}) {
+  const thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
   const query = typeof payload.query === 'string' ? payload.query.trim() : ''
   const model = typeof payload.model === 'string' ? payload.model.trim() : ''
   if (!query) throw new Error('query is required')
@@ -656,6 +660,7 @@ export async function createChatgptWebConversation(payload = {}) {
       ? payload.operationId.trim()
       : crypto.randomUUID()
   session.chatgptWebModelSlugOverride = model || undefined
+  session.chatgptWebThinkingEffortOverride = thinkingEffort
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session

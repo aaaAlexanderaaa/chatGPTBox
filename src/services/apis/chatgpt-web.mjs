@@ -9,7 +9,6 @@ export {
   sendModerations,
   getChatgptWebModelCatalogs,
   getModels,
-  getRequirements,
   getArkoseToken,
   isNeedWebsocket,
   sendWebsocketConversation,

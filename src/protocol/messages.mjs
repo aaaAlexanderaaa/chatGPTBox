@@ -55,6 +55,7 @@ export const RuntimeMessage = {
   SetChatgptTab: 'SET_CHATGPT_TAB',
   ChatgptProxyRequest: 'CHATGPT_PROXY_REQUEST',
   ChatgptProxyControlRequest: 'CHATGPT_PROXY_CONTROL_REQUEST',
+  ChatgptWebPageIntegrity: 'CHATGPT_WEB_PAGE_INTEGRITY',
 
   // Grok proxy tab request relay (background -> content-script)
   GrokProxyRequest: 'GROK_PROXY_REQUEST',

@@ -64,8 +64,12 @@ vi.mock('../src/services/clients/chatgpt-web/client.mjs', () => ({
   generateAnswersWithChatgptWebApi: vi.fn(),
 }))
 
-const { shouldFallbackToChatgptProxy, createChatgptWebConversation, registerExecuteApi } =
-  await import('../src/background/chatgpt-proxy-service.mjs')
+const {
+  shouldFallbackToChatgptProxy,
+  createChatgptWebConversation,
+  sendChatgptWebConversationMessageThroughProxy,
+  registerExecuteApi,
+} = await import('../src/background/chatgpt-proxy-service.mjs')
 const {
   CHATGPT_WEB_CONVERSATION_INDEX_KEY,
   clearInvalidation,
@@ -213,6 +217,77 @@ describe('lifecycle claims — current behavior', () => {
   })
 
   describe('createChatgptWebConversation', () => {
+    it.each(['thinkingEffort', 'thinking_effort', 'reasoning_effort'])(
+      'preserves %s through both create and follow-up sessions',
+      async (key) => {
+        const sessions = []
+        registerExecuteApi(async (session, port) => {
+          sessions.push(session)
+          port.postMessage({ session: { ...session, conversationId: 'effort-id' } })
+          port.postMessage({ done: true })
+        })
+        await createChatgptWebConversation({
+          query: 'hello',
+          model: 'gpt-5-6-thinking',
+          [key]: 'max',
+        })
+        const snapshot = {
+          conversation_id: 'effort-id',
+          current_node: 'assistant-1',
+          default_model_slug: 'gpt-5-6-thinking',
+          mapping: {
+            'assistant-1': {
+              id: 'assistant-1',
+              parent: null,
+              children: [],
+              message: {
+                id: 'assistant-1',
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: ['hello'] },
+                status: 'finished_successfully',
+                end_turn: true,
+              },
+            },
+          },
+        }
+        fetch.mockResolvedValue(jsonResponse(200, snapshot))
+        await sendChatgptWebConversationMessageThroughProxy({
+          conversationId: 'effort-id',
+          query: 'follow up',
+          [key]: 'extended',
+        })
+        expect(sessions).toHaveLength(2)
+        expect(sessions[0]).toMatchObject({
+          chatgptWebModelSlugOverride: 'gpt-5-6-thinking',
+          chatgptWebThinkingEffortOverride: 'max',
+        })
+        expect(sessions[1]).toMatchObject({
+          parentMessageId: 'assistant-1',
+          chatgptWebThinkingEffortOverride: 'extended',
+        })
+      },
+    )
+
+    it('rejects an invalid thinking effort before any network request or generation', async () => {
+      const execute = vi.fn()
+      registerExecuteApi(execute)
+      await expect(
+        createChatgptWebConversation({
+          query: 'hello',
+          thinking_effort: 'invalid',
+        }),
+      ).rejects.toThrow('thinking_effort must be one of')
+      await expect(
+        sendChatgptWebConversationMessageThroughProxy({
+          conversationId: 'effort-id',
+          query: 'hello',
+          reasoning_effort: 'invalid',
+        }),
+      ).rejects.toThrow('thinking_effort must be one of')
+      expect(execute).not.toHaveBeenCalled()
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
     it('upserts a pending list stub so the Bridge owns the streamed id', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({

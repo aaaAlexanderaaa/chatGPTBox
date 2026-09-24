@@ -14,8 +14,8 @@ import { pushRecord, setAbortController } from '../../apis/shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'
 import { t } from 'i18next'
-import { sha3_512 } from 'js-sha3'
-import randomInt from 'random-int'
+import { createChatgptWebResponseDiagnostics } from './response-diagnostics.mjs'
+import { getChatgptWebPageIntegrity, buildChatgptWebPageHeaders } from './page-integrity.mjs'
 import { getModelValue } from '../../../utils/model-name-convert.mjs'
 import {
   clampChatgptWebThinkingEffort,
@@ -48,13 +48,13 @@ import {
   shouldUseChatgptWebLegacyWebsocketDispatch,
 } from './stream-handoff.mjs'
 import {
-  buildChatgptWebConversationHeaders,
+  buildChatgptWebConversationPrepareBody,
   buildChatgptWebConversationRequestBody,
   extractChatgptWebConduitTokenFromHeaders,
-  extractChatgptWebTurnstileToken,
 } from './request-wire.mjs'
 import {
   consumeChatgptWebResumeDeltaStream,
+  createChatgptWebResumeDeltaAccumulator,
   isChatgptWebResumeDoneEvent,
   shouldCountChatgptWebResumeOffsetEvent,
 } from './resume-delta.mjs'
@@ -74,7 +74,6 @@ async function request(token, method, path, data) {
   return { response, responseText }
 }
 
-const TRUSTED_CHATGPT_DESTINATION_SUFFIXES = ['chatgpt.com', 'openai.com']
 const LEGACY_CHATGPT_WEB_MODEL_SLUGS = new Set([
   'auto',
   'gpt-4',
@@ -89,6 +88,10 @@ const CHATGPT_WEB_SENSITIVE_HEADERS = new Set([
   'cookie',
   'openai-sentinel-arkose-token',
   'openai-sentinel-chat-requirements-token',
+  'openai-sentinel-chat-requirements-prepare-token',
+  'openai-sentinel-token',
+  'openai-sentinel-so-token',
+  'oai-telemetry',
   'openai-sentinel-proof-token',
   'openai-sentinel-turnstile-token',
   'chatgpt-account-id',
@@ -268,17 +271,6 @@ async function appendChatgptWebDebugLog(config, stage, payload = {}) {
   }
 }
 
-function isTrustedChatgptDestination(url) {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase()
-    return TRUSTED_CHATGPT_DESTINATION_SUFFIXES.some(
-      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
-    )
-  } catch {
-    return false
-  }
-}
-
 export async function sendMessageFeedback(token, data) {
   await request(token, 'POST', '/conversation/message_feedback', data)
 }
@@ -425,15 +417,6 @@ function resolveThinkingEffortForModel(modelSlug, config, override) {
   return clampChatgptWebThinkingEffort(modelSlug, CHATGPT_WEB_DEFAULT_THINKING_EFFORT)
 }
 
-export async function getRequirements(accessToken) {
-  const response = JSON.parse(
-    (await request(accessToken, 'POST', '/sentinel/chat-requirements')).responseText,
-  )
-  if (response) {
-    return response
-  }
-}
-
 export async function getArkoseToken(config) {
   if (!config.chatgptArkoseReqUrl)
     throw new Error(
@@ -465,61 +448,6 @@ export async function getArkoseToken(config) {
         ),
     )
   return arkoseToken
-}
-
-// https://github.com/tctien342/chatgpt-proxy/blob/9147a4345b34eece20681f257fd475a8a2c81171/src/openai.ts#L103
-// https://github.com/zatxm/aiproxy
-function generateProofToken(seed, diff, userAgent) {
-  const cores = [1, 2, 4]
-  const screens = [3008, 4010, 6000]
-  const reacts = [
-    '_reactListeningcfilawjnerp',
-    '_reactListening9ne2dfo1i47',
-    '_reactListening410nzwhan2a',
-  ]
-  const acts = ['alert', 'ontransitionend', 'onprogress']
-
-  const core = cores[randomInt(0, cores.length)]
-  const screen = screens[randomInt(0, screens.length)] + core
-  const react = reacts[randomInt(0, reacts.length)]
-  const act = acts[randomInt(0, acts.length)]
-
-  const parseTime = new Date().toString()
-
-  const config = [
-    screen,
-    parseTime,
-    4294705152,
-    0,
-    userAgent,
-    'https://tcr9i.chat.openai.com/v2/35536E1E-65B4-4D96-9D97-6ADB7EFF8147/api.js',
-    'dpl=1440a687921de39ff5ee56b92807faaadce73f13',
-    'en',
-    'en-US',
-    4294705152,
-    'plugins−[object PluginArray]',
-    react,
-    act,
-  ]
-
-  const diffLen = diff.length
-
-  for (let i = 0; i < 200000; i++) {
-    config[3] = i
-    const jsonData = JSON.stringify(config)
-    // eslint-disable-next-line no-undef
-    const base = Buffer.from(jsonData).toString('base64')
-    const hashValue = sha3_512.create().update(seed + base)
-
-    if (hashValue.hex().substring(0, diffLen) <= diff) {
-      const result = 'gAAAAAB' + base
-      return result
-    }
-  }
-
-  // eslint-disable-next-line no-undef
-  const fallbackBase = Buffer.from(`"${seed}"`).toString('base64')
-  return 'gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallbackBase
 }
 
 async function getChatgptWebAccountContext(accessToken) {
@@ -641,19 +569,28 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   const config = await getUserConfig()
   const apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
   const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
-  const [models, requirements, accountContext] = await Promise.all([
-    session.chatgptWebModelSlugOverride
-      ? Promise.resolve(undefined)
-      : getModels(accessToken).catch(() => undefined),
-    getRequirements(accessToken).catch(() => undefined),
-    usesStreamHandoffEndpoint
-      ? Promise.resolve({ sharedWebsocket: false })
-      : getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
-  ])
+  let initialContext
+  try {
+    initialContext = await Promise.all([
+      session.chatgptWebModelSlugOverride
+        ? Promise.resolve(undefined)
+        : getModels(accessToken).catch(() => undefined),
+      getChatgptWebPageIntegrity({
+        signal: controller.signal,
+        apiUrl: config.customChatGptWebApiUrl,
+        apiPath,
+      }),
+      usesStreamHandoffEndpoint
+        ? Promise.resolve({ sharedWebsocket: false })
+        : getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
+    ])
+    throwIfAborted(controller.signal)
+  } catch (error) {
+    cleanController()
+    throw error
+  }
+  const [models, pageContext, accountContext] = initialContext
   let useWebsocket = accountContext?.sharedWebsocket === true
-  // The accounts listing does not reliably identify the account selected in
-  // the ChatGPT tab. Only reuse an account id observed from a real page request.
-  const effectiveAccountId = config.chatgptAccountId || ''
   console.debug('models', models)
   let usedModel
   let modelDecision
@@ -700,35 +637,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     availableModels: Array.isArray(models) ? models : [],
   })
   console.debug('usedModel', usedModel)
-  const needArkoseToken = requirements && requirements.arkose?.required
-  let arkoseToken
-  if (needArkoseToken) arkoseToken = await getArkoseToken(config)
-
-  let proofToken
-  if (requirements?.proofofwork?.required) {
-    proofToken = generateProofToken(
-      requirements.proofofwork.seed,
-      requirements.proofofwork.difficulty,
-      navigator.userAgent,
-    )
-  }
-
   const url = `${config.customChatGptWebApiUrl}${apiPath}`
-  const shouldAttachChatgptCookies = isTrustedChatgptDestination(url)
-  let cookie
-  let oaiDeviceId
-  if (shouldAttachChatgptCookies && Browser.cookies && Browser.cookies.getAll) {
-    cookie = (await Browser.cookies.getAll({ url: 'https://chatgpt.com/' }))
-      .map((cookie) => {
-        return `${cookie.name}=${cookie.value}`
-      })
-      .join('; ')
-    const oaiCookie = await Browser.cookies.get({
-      url: 'https://chatgpt.com/',
-      name: 'oai-did',
-    })
-    oaiDeviceId = oaiCookie?.value
-  }
 
   session.messageId ||= uuidv4()
   session.wsRequestId ||= uuidv4()
@@ -761,37 +670,64 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     includedInRequestBody: Object.prototype.hasOwnProperty.call(requestBody, 'thinking_effort'),
   })
 
-  const language =
-    (typeof navigator === 'object' &&
-      typeof navigator.language === 'string' &&
-      navigator.language) ||
-    'en-US'
   const turnTraceId = uuidv4()
-  const turnstileToken = extractChatgptWebTurnstileToken(requirements)
   let resumeConduitToken = ''
+
+  if (usesStreamHandoffEndpoint) {
+    const preparePath = '/backend-api/f/conversation/prepare'
+    let prepareStatus = null
+    try {
+      const response = await fetch(`${config.customChatGptWebApiUrl}${preparePath}`, {
+        method: 'POST',
+        signal: controller.signal,
+        credentials: 'include',
+        headers: buildChatgptWebPageHeaders(pageContext, {
+          turnTraceId,
+          apiPath: preparePath,
+          accept: 'application/json',
+        }),
+        body: JSON.stringify(buildChatgptWebConversationPrepareBody(requestBody)),
+      })
+      prepareStatus = response.status
+      if (!response.ok) throw new Error('Conversation prepare failed')
+      const payload = await response.json()
+      if (typeof payload?.conduit_token !== 'string' || !payload.conduit_token.trim()) {
+        throw new Error('Conversation prepare returned no conduit token')
+      }
+      resumeConduitToken = payload.conduit_token.trim()
+      requestBody.client_prepare_state = 'success'
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        cleanController()
+        throw error
+      }
+      // Like the web client, allow submission after an optional prepare fails,
+      // but report the actual state and never reuse a captured or stale token.
+      requestBody.client_prepare_state = 'failure'
+    }
+    void appendChatgptWebDebugLog(config, 'conversation-prepare', {
+      state: requestBody.client_prepare_state,
+      status: prepareStatus,
+      hasConduitToken: Boolean(resumeConduitToken),
+    })
+  }
+
   let streamHandoff = null
   let attemptedStreamHandoffResume = false
   let streamEventOffset = 0
   let initialStreamAuthoritativeDone = false
+  const initialStreamAccumulator = createChatgptWebResumeDeltaAccumulator()
+  const responseDiagnostics = createChatgptWebResponseDiagnostics()
 
   const options = {
     method: 'POST',
     signal: controller.signal,
     credentials: 'include',
-    headers: buildChatgptWebConversationHeaders({
-      accessToken,
-      cookie,
-      oaiDeviceId,
-      language,
-      accountId: effectiveAccountId,
+    headers: buildChatgptWebPageHeaders(pageContext, {
+      conduitToken: resumeConduitToken,
       turnTraceId,
       apiPath,
-      requirementsToken: requirements?.token || '',
-      proofToken: proofToken || '',
-      turnstileToken,
-      arkoseToken,
-      needArkoseToken,
-      sessionId: session.wsRequestId,
+      integrity: true,
     }),
     body: JSON.stringify(requestBody),
   }
@@ -809,7 +745,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     appliedThinkingEffort: thinkingEffort || null,
     includedThinkingEffort: Object.prototype.hasOwnProperty.call(requestBody, 'thinking_effort'),
     useWebsocket,
-    needArkoseToken: Boolean(needArkoseToken),
+    integritySource: 'chatgpt_page_runtime',
     headers: sanitizeDebugHeaders(options.headers),
     body: sanitizeDebugRequestBody(requestBody),
   })
@@ -913,13 +849,16 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       hasConversationId: Boolean(session.conversationId),
       handoff: streamHandoff,
       resumeCompleted,
-      modelNeedsPolling: needsChatgptWebThinkingEffort(usedModel),
+      modelNeedsPolling:
+        needsChatgptWebThinkingEffort(usedModel) ||
+        (usesStreamHandoffEndpoint && !initialStreamAuthoritativeDone),
     })
   }
 
   function noteInitialStreamEvent(event) {
     if (isChatgptWebResumeDoneEvent(event)) {
       initialStreamAuthoritativeDone = true
+      initialStreamAccumulator.markAuthoritativeDone()
       return
     }
     if (shouldCountChatgptWebResumeOffsetEvent(event)) streamEventOffset += 1
@@ -933,6 +872,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       !canFollowChatgptWebTurnViaHttpResume({
         conversationId,
         conduitToken: resumeConduitToken,
+        offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
+        isTemporaryChat: historyAndTrainingDisabled === true,
       })
     ) {
       return null
@@ -945,21 +886,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       conversationId,
       followType: followOption?.type || streamHandoff?.options?.[0]?.type || 'http_resume',
       topicId: followOption?.topicId || null,
-      hasConduitToken: true,
+      hasConduitToken: Boolean(resumeConduitToken),
       transport: 'resume_sse',
       offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
     })
 
-    const resumeHeaders = buildChatgptWebConversationHeaders({
-      accessToken,
-      cookie,
-      oaiDeviceId,
-      language,
-      accountId: effectiveAccountId,
+    const resumeHeaders = buildChatgptWebPageHeaders(pageContext, {
       conduitToken: resumeConduitToken,
       turnTraceId,
       apiPath: '/backend-api/f/conversation/resume',
-      sessionId: session.wsRequestId,
     })
 
     const result = await consumeChatgptWebResumeDeltaStream({
@@ -971,8 +906,14 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       },
       signal: controller.signal,
       fetchSSE,
+      // A reconnect continues the same delta sequence. A completed handoff
+      // starts a fresh stream at offset 0 and needs a fresh decoder.
+      accumulator: initialStreamAuthoritativeDone ? undefined : initialStreamAccumulator,
       onMessageSnapshot(snapshot) {
         handleMessage(snapshot)
+      },
+      onDecodedEvent(snapshot) {
+        responseDiagnostics.observe(snapshot)
       },
       onHandoff(nextHandoff) {
         streamHandoff = nextHandoff
@@ -1001,13 +942,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         method: 'GET',
         signal: controller.signal,
         credentials: 'include',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          ...(cookie && { Cookie: cookie }),
-          ...(oaiDeviceId && { 'Oai-Device-Id': oaiDeviceId }),
-          ...(effectiveAccountId && { 'Chatgpt-Account-Id': effectiveAccountId }),
-          'Oai-Language': language,
-        },
+        headers: pageContext.baseHeaders,
       },
     )
 
@@ -1157,6 +1092,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         const canHttpResume = canFollowChatgptWebTurnViaHttpResume({
           conversationId: session.conversationId || streamHandoff?.conversation_id,
           conduitToken: resumeConduitToken,
+          offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
+          isTemporaryChat: historyAndTrainingDisabled === true,
         })
         if (canHttpResume && (streamHandoff || !initialStreamAuthoritativeDone)) {
           try {
@@ -1170,7 +1107,12 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           }
         }
 
-        if (shouldPollConversationResult(resumeResult?.completed === true)) {
+        if (
+          shouldPollConversationResult(
+            resumeResult?.completed === true ||
+              (initialStreamAuthoritativeDone && initialStreamAccumulator.getResult().completed),
+          )
+        ) {
           void appendChatgptWebDebugLog(config, 'conversation-poll-start', {
             reason,
             conversationId: session.conversationId || null,
@@ -1368,9 +1310,14 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         onEvent(event) {
           noteInitialStreamEvent(event)
         },
-        onMessage(message) {
+        onMessage(message, event) {
           console.debug('sse message', message)
           if (message.trim() === '[DONE]') return
+          if (event?.event === 'ping' || !message) return
+          if (event?.event === 'delta_encoding') {
+            initialStreamAccumulator.feedEvent('delta_encoding', message)
+            return
+          }
           if (!responseMetaLogged) {
             responseMetaLogged = true
             void appendChatgptWebDebugLog(config, 'wire-response-meta', {
@@ -1386,16 +1333,25 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             return
           }
           try {
-            handleMessage(data)
+            if (initialStreamAccumulator.feedEvent(event?.event || '', data)) {
+              handleMessage(initialStreamAccumulator.getLatestSnapshot())
+            } else {
+              handleMessage(data)
+            }
           } catch (error) {
-            void finalizeMessage('sse_message_error', markReplayUnsafe(error))
+            throw markReplayUnsafe(error)
           }
         },
         async onStart() {
           promptDispatchCommitted = true
         },
-        async onEnd() {
-          await finalizeMessage('sse_end')
+        async onEnd(info) {
+          await finalizeMessage(
+            'sse_end',
+            !info?.aborted && usesStreamHandoffEndpoint && !initialStreamAuthoritativeDone
+              ? markReplayUnsafe(new Error('No done event received'))
+              : null,
+          )
         },
         async onError(resp) {
           if (resp instanceof Error) {
@@ -1427,12 +1383,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         },
       })
     } catch (error) {
-      throw markReplayUnsafe(error)
+      // reader.read() can reject after bytes have arrived. Recover the turn
+      // with /resume; never dispatch the original prompt a second time.
+      await finalizeMessage('sse_interrupted', markReplayUnsafe(error))
     }
   }
 
   function handleMessage(data) {
     if (!data || typeof data !== 'object') return
+    responseDiagnostics.observe(data)
 
     if (data.error) {
       void appendChatgptWebDebugLog(config, 'message-error', {
@@ -1483,6 +1442,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     if (session.conversationId || session.parentMessageId) {
       emitSessionUpdate()
     }
+    if (data.message?.author?.role && data.message.author.role !== 'assistant') return
 
     const respAns = extractChatgptWebMessageText(data.message)
     const respPart = data.message?.content?.parts?.[0]
@@ -1507,10 +1467,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           )}/download`,
           {
             credentials: 'include',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              ...(cookie && { Cookie: cookie }),
-            },
+            headers: pageContext.baseHeaders,
           },
         ).then((r) => r.json().then((json) => (generatedImageUrl = json?.download_url)))
       }
@@ -1524,6 +1481,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
 
   function finishMessage() {
+    session.chatgptWebResponseDiagnostics = responseDiagnostics.snapshot()
     void appendChatgptWebDebugLog(config, 'completed', {
       selectedModel,
       model: usedModel,
@@ -1533,6 +1491,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       conversationId: session.conversationId || null,
       parentMessageId: session.parentMessageId || null,
       answerLength: answer.length,
+      responseDiagnostics: session.chatgptWebResponseDiagnostics,
     })
     pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })

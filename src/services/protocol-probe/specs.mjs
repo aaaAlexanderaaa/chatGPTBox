@@ -87,20 +87,15 @@ export const CHATGPT_WEB_SPEC_TEMPLATE = {
     },
     {
       id: 'conversation-transport',
-      label: 'SSE transport / delta / poll',
+      label: 'SSE transport / token store / poll',
       identifyAll: ['No done event received', 'resume_token_ttl_ms'],
-      requiredMarkers: [
-        'No done event received',
-        'resume_token_ttl_ms',
-        'resume_conversation_token',
-        'delta_encoding',
-      ],
+      requiredMarkers: ['No done event received', 'resume_token_ttl_ms'],
     },
     {
       id: 'conversation-websocket',
-      label: 'WebSocket topic',
+      label: 'WebSocket topic / delta / resume',
       identifyAll: ['includeAllHistory'],
-      requiredMarkers: ['includeAllHistory'],
+      requiredMarkers: ['includeAllHistory', 'delta_encoding', 'resume_conversation_token'],
     },
   ],
   searchHints: [

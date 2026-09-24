@@ -36,6 +36,7 @@ import {
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
+import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -48,6 +49,8 @@ import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 // this table, so it cannot drift from the handlers.
 export function createMessageRouter() {
   const routedHandlers = {
+    [RuntimeMessage.ChatgptWebPageIntegrity]: (_message, sender) =>
+      getChatgptWebPageIntegrityForSender(sender),
     [RuntimeMessage.Feedback]: async (message) => {
       const token = await getChatGptAccessToken()
       await sendMessageFeedback(token, message.data)

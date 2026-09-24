@@ -29,6 +29,7 @@ export function buildChatgptWebConversationRequestBody({
   parentMessageId,
   model,
   thinkingEffort = null,
+  prepareState = 'none',
   conversationId = undefined,
   timezone = null,
   timezoneOffsetMin = new Date().getTimezoneOffset(),
@@ -41,7 +42,7 @@ export function buildChatgptWebConversationRequestBody({
     action: 'next',
     conversation_id: conversationId || undefined,
     messages: [buildChatgptWebUserMessage(question, messageId)],
-    client_prepare_state: 'success',
+    client_prepare_state: prepareState,
     conversation_mode: {
       kind: 'primary_assistant',
     },
@@ -74,6 +75,14 @@ export function buildChatgptWebConversationRequestBody({
   if (websocketRequestId) requestBody.websocket_request_id = websocketRequestId
   if (thinkingEffort) requestBody.thinking_effort = thinkingEffort
   return requestBody
+}
+
+export function buildChatgptWebConversationPrepareBody(requestBody) {
+  const body = { ...requestBody, client_prepare_state: 'none' }
+  // The prepare call warms the route; it must not submit the user's message.
+  delete body.messages
+  delete body.websocket_request_id
+  return body
 }
 
 export function buildChatgptWebConversationHeaders({

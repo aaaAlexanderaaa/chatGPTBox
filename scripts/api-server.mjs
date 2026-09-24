@@ -3,7 +3,10 @@ import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
-import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
+import {
+  getChatgptWebThinkingEffortOverride,
+  needsChatgptWebThinkingEffort,
+} from '../src/services/clients/chatgpt-web/thinking.mjs'
 import {
   isBridgeRequestAuthorized as checkBridgeAuth,
   loadOrCreateBridgeToken,
@@ -1139,6 +1142,18 @@ async function handleChatgptConversationCreate(req, res) {
   }
 
   const body = await readBodyObject(req)
+  let thinkingEffort
+  try {
+    thinkingEffort = getChatgptWebThinkingEffortOverride(body)
+  } catch (error) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: error.message, type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
   const query =
     (typeof body.query === 'string' && body.query.trim()) ||
     (typeof body.message === 'string' && body.message.trim()) ||
@@ -1166,6 +1181,7 @@ async function handleChatgptConversationCreate(req, res) {
       {
         query,
         model: body.model,
+        thinkingEffort,
         operationId: operation.operationId,
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
@@ -1266,6 +1282,18 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
   }
 
   const body = await readBodyObject(req)
+  let thinkingEffort
+  try {
+    thinkingEffort = getChatgptWebThinkingEffortOverride(body)
+  } catch (error) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: error.message, type: 'invalid_request_error', retryable: false },
+      }),
+    )
+    return
+  }
   const query =
     (typeof body.query === 'string' && body.query.trim()) ||
     (typeof body.message === 'string' && body.message.trim()) ||
@@ -1295,6 +1323,7 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
         conversationId,
         query,
         model: body.model,
+        thinkingEffort,
         think: body.think === true,
         operationId: operation.operationId,
       },
