@@ -247,6 +247,10 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.0.2
+
+- Adapted ChatGPT Web to the current conversation protocol.
+
 ### v4.0.1
 
 - ChatGPT Web history can now optionally back up conversation contents from the local list, with stop/resume and a circuit breaker, still under the RPM gate.
