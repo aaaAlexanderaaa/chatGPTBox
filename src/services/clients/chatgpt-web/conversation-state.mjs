@@ -7,6 +7,30 @@ const FINAL_MESSAGE_STATUSES = new Set([
 ])
 const CHATGPT_WEB_CITATION_TOKEN_RE = /\uE200cite\uE202[^\uE201]*\uE201/g
 
+// The paginated endpoint returns the active branch in chronological order.
+// Preserve page_info: a page of ten turns must never masquerade as full history.
+export function normalizeChatgptWebConversation(conversation) {
+  if (!conversation || conversation.mapping || !Array.isArray(conversation.messages))
+    return conversation
+  const mapping = Object.create(null)
+  const root = `paginated-root:${conversation.conversation_id || ''}`
+  mapping[root] = { id: root, parent: null, children: [], message: null }
+  let parent = root
+  for (const message of conversation.messages) {
+    if (typeof message?.id !== 'string' || !message.id || mapping[message.id]) {
+      throw new Error('ChatGPT conversation page contains a missing or duplicate message ID.')
+    }
+    mapping[parent].children.push(message.id)
+    mapping[message.id] = { id: message.id, parent, children: [], message }
+    parent = message.id
+  }
+  return {
+    ...conversation,
+    mapping,
+    current_node: mapping[conversation.current_node] ? conversation.current_node : parent,
+  }
+}
+
 function normalizeConversationTitle(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
@@ -496,6 +520,7 @@ function selectChatgptWebConversationAssistantCandidate(
   conversation,
   { userMessageId, assistantMessageId } = {},
 ) {
+  conversation = normalizeChatgptWebConversation(conversation)
   const mapping = conversation?.mapping
   if (!mapping || typeof mapping !== 'object') return null
 
@@ -728,6 +753,7 @@ export function extractChatgptWebConversationQuery(
   conversation,
   { userMessageId, assistantMessageId } = {},
 ) {
+  conversation = normalizeChatgptWebConversation(conversation)
   const mapping = conversation?.mapping
   if (!mapping || typeof mapping !== 'object') return null
 
@@ -792,6 +818,7 @@ function resolveConversationPathLeafId(mapping, conversation, userMessageId) {
 // to the answer it belongs to. Every turn owns its own thinking segments, which
 // is why a conversation cannot be described by one duration.
 function extractChatgptWebConversationTurns(conversation = {}, { userMessageId } = {}) {
+  conversation = normalizeChatgptWebConversation(conversation)
   const mapping = conversation?.mapping
   if (!mapping || typeof mapping !== 'object') return []
 
@@ -833,9 +860,7 @@ function extractChatgptWebConversationTurns(conversation = {}, { userMessageId }
     // it here used to drop the only official timing the page shows.
     let thoughtDuration = summarizeChatgptWebThoughtDuration(thinkingTimings)
     if (thoughtDuration.thoughtDurationSec == null && assistantNode) {
-      thoughtDuration = summarizeChatgptWebThoughtDuration([
-        readThinkingNodeTiming(assistantNode),
-      ])
+      thoughtDuration = summarizeChatgptWebThoughtDuration([readThinkingNodeTiming(assistantNode)])
     }
 
     return {
@@ -881,6 +906,7 @@ export function extractChatgptWebConversationThinking(
   conversation,
   { userMessageId, assistantMessageId } = {},
 ) {
+  conversation = normalizeChatgptWebConversation(conversation)
   const mapping = conversation?.mapping
   if (!mapping || typeof mapping !== 'object') return []
 
@@ -939,6 +965,7 @@ export function formatChatgptWebConversationSnapshot(
   conversation = {},
   { userMessageId, assistantMessageId, think = false } = {},
 ) {
+  conversation = normalizeChatgptWebConversation(conversation)
   const result = extractChatgptWebConversationResult(conversation, {
     userMessageId,
     assistantMessageId,

@@ -5,8 +5,15 @@ frontend_redesign/
 .idea/
 .vscode/
 node_modules/
-node_modules
 build/
+# Local unpacked extension copies (the default install lives beside this repo)
+/browser-extensions/
+/browser extension/
+*.log
+# Browser captures may retain account/session data even when marked sanitized.
+*.har
+*.har.*
+/local-diagnostics/
 .DS_Store
 *.zip
 CLAUDE.md

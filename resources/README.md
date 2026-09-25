@@ -3,7 +3,7 @@
 These files are user-provided or browser-observed official ChatGPT Web production
 bundles retained as a protocol reference for the local gateway.
 
-**`chatgpt-web/current/` is the source of truth for the latest three files.**
+**`chatgpt-web/current/` is the three-bundle reference for the legacy frontend.**
 The protocol probe reads that folder (via `npm test` / `npm run build`) and
 maps each bundle to a role by protocol markers. Do not hardcode replacement
 filenames in `src/`.
@@ -15,6 +15,7 @@ filenames in `src/`.
 | `chatgpt-web/archive/` | Previous bundles you want to keep. The probe ignores this folder. |
 | `chatgpt-web/catalogs/` | Official `/models` JSON snapshots for tests. Use Windows-safe names only (no `:` or `?`). |
 | `chatgpt-web/integrity/` | Explicit native-page export contracts and supplemental official runtime snapshots, independently verified for the integrity bridge. |
+| `chatgpt-web/codex-webview/` | Credential-free manifest of the 2026-09-25 Rspack frontend. Kept alongside the legacy probe because both frontends may be served. |
 
 ## When ChatGPT ships new hashes
 
@@ -40,6 +41,10 @@ SHA-256: `45e2a6ef9f75cc56e2ed9872afa628b82e6fe985cf96111a4be24c0793926ab0`.
 Its native auth-header export is `Ctt`, while the 2026-09-23 reference uses `vtt`.
 `integrity/runtime-contracts.json` binds each checked filename to its exact exports.
 Do not assume minified exports have the same meaning after a filename change.
+
+The 2026-09-25 frontend uses a different module system and native browser
+transport. Its contract is additive; do not put its chunks into the legacy
+three-role probe. See [the new compatibility and initialization notes](../docs/chatgpt-web-2026-09-25.md).
 
 Decoded protocol, grep pointers, and the gateway implementation boundary are in
 [`docs/chatgpt-web-stream-resume.md`](../docs/chatgpt-web-stream-resume.md).

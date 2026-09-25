@@ -37,7 +37,46 @@ export function buildChatgptWebConversationRequestBody({
   historyAndTrainingDisabled = false,
   websocketRequestId = null,
   localFunctionNames = ['local.continue_in_work'],
+  profile = 'legacy',
 } = {}) {
+  if (profile === 'codex-webview') {
+    return {
+      action: 'next',
+      ...(conversationId && { conversation_id: conversationId }),
+      ...(parentMessageId &&
+        parentMessageId !== 'client-created-root' && { parent_message_id: parentMessageId }),
+      is_do_not_remember: historyAndTrainingDisabled === true,
+      model,
+      ...(thinkingEffort && { thinking_effort: thinkingEffort }),
+      ...(timezone && { timezone }),
+      timezone_offset_min: timezoneOffsetMin,
+      local_function_names: Array.isArray(localFunctionNames) ? localFunctionNames : [],
+      client_contextual_info: {
+        app_name: 'chatgpt.com',
+        app_surface: 'codex_browser',
+        has_web_push_capabilities: clientContextualInfo?.has_web_push_capabilities === true,
+        web_push_notification_permission:
+          clientContextualInfo?.web_push_notification_permission || 'default',
+      },
+      messages: [
+        {
+          author: { metadata: {}, name: null, role: 'user' },
+          channel: null,
+          content: { content_type: 'text', parts: [question] },
+          create_time: Date.now() / 1000,
+          end_turn: null,
+          id: messageId,
+          metadata: {},
+          recipient: 'all',
+          status: 'finished_successfully',
+          update_time: null,
+          weight: 1,
+        },
+      ],
+      supported_encodings: ['v1'],
+      client_prepare_state: prepareState,
+    }
+  }
   const requestBody = {
     action: 'next',
     conversation_id: conversationId || undefined,
@@ -77,12 +116,36 @@ export function buildChatgptWebConversationRequestBody({
   return requestBody
 }
 
-export function buildChatgptWebConversationPrepareBody(requestBody) {
+export function buildChatgptWebConversationPrepareBody(requestBody, profile = 'legacy') {
+  if (profile === 'codex-webview') {
+    const body = { ...requestBody }
+    const message = body.messages?.[0]
+    delete body.messages
+    delete body.client_contextual_info
+    delete body.supported_encodings
+    return {
+      ...body,
+      client_prepare_state: 'sent',
+      ...(message && { partial_query: { author: { role: 'user' }, content: message.content } }),
+    }
+  }
   const body = { ...requestBody, client_prepare_state: 'none' }
   // The prepare call warms the route; it must not submit the user's message.
   delete body.messages
   delete body.websocket_request_id
   return body
+}
+
+export function buildChatgptWebConversationInitBody(requestBody) {
+  return {
+    conversation_id: requestBody.conversation_id || null,
+    conversation_origin: null,
+    gizmo_id: null,
+    requested_default_model: requestBody.model,
+    system_hints: null,
+    timezone: requestBody.timezone,
+    timezone_offset_min: requestBody.timezone_offset_min,
+  }
 }
 
 export function buildChatgptWebConversationHeaders({

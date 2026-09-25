@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { t } from 'i18next'
 import { createChatgptWebResponseDiagnostics } from './response-diagnostics.mjs'
 import { getChatgptWebPageIntegrity, buildChatgptWebPageHeaders } from './page-integrity.mjs'
+import { createChatgptWebPageTransport } from './page-transport.mjs'
 import { getModelValue } from '../../../utils/model-name-convert.mjs'
 import {
   clampChatgptWebThinkingEffort,
@@ -50,6 +51,7 @@ import {
 import {
   buildChatgptWebConversationPrepareBody,
   buildChatgptWebConversationRequestBody,
+  buildChatgptWebConversationInitBody,
   extractChatgptWebConduitTokenFromHeaders,
 } from './request-wire.mjs'
 import {
@@ -292,12 +294,18 @@ export async function sendModerations(token, question, conversationId, messageId
   })
 }
 
-async function fetchChatgptWebModelsPayload(token, path) {
+async function fetchChatgptWebModelsPayload(token, path, transport) {
   // Deferred (medium, no current impact): keep in view, do not fix yet.
   // Failures become null, so getModels() returns [] instead of throwing.
   // Tab-proxy fallback never runs; a transient miss can persist an empty
   // chatgptWebAccountModels list.
   try {
+    if (transport) {
+      const response = await transport.fetch(`https://chatgpt.com/backend-api${path}`, {
+        signal: transport.signal,
+      })
+      return response.ok ? await response.json() : null
+    }
     const { response, responseText } = await request(token, 'GET', path)
     if (!response?.ok) return null
     return JSON.parse(responseText)
@@ -311,16 +319,16 @@ async function fetchChatgptWebModelsPayload(token, path) {
  * Chat/Latest `GET /models` (GPT-6 is `gpt-6-pro`) and Work `GET /tpp/models/`
  * (`*-wm`, `is_work_mode_model`). Keep both, but never treat Work as Chat.
  */
-export async function getChatgptWebModelCatalogs(token) {
+export async function getChatgptWebModelCatalogs(token, transport) {
   const [chatPayload, workPayload] = await Promise.all([
-    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_CHAT_MODELS_PATH),
-    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_WORK_MODELS_PATH),
+    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_CHAT_MODELS_PATH, transport),
+    fetchChatgptWebModelsPayload(token, CHATGPT_WEB_WORK_MODELS_PATH, transport),
   ])
   return mergeChatgptWebModelCatalogs(chatPayload, workPayload)
 }
 
-export async function getModels(token) {
-  const catalog = await getChatgptWebModelCatalogs(token)
+export async function getModels(token, transport) {
+  const catalog = await getChatgptWebModelCatalogs(token, transport)
   return catalog.slugs
 }
 
@@ -542,10 +550,34 @@ export async function registerWebsocket(accessToken) {
  * @param {string} accessToken
  */
 export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
-  const { controller, cleanController } = setAbortController(port, () => {
+  let pageTransport
+  let stopRequest
+  let resumeConduitToken = ''
+  const { controller, cleanController: removeController } = setAbortController(port, () => {
+    if (pageTransport?.native) {
+      if (session.conversationId) {
+        stopRequest = pageTransport
+          .fetch('https://chatgpt.com/backend-api/stop_conversation', {
+            method: 'POST',
+            headers: resumeConduitToken ? { 'X-Conduit-Token': resumeConduitToken } : {},
+            body: JSON.stringify({
+              conversation_id: session.conversationId,
+              exclude_async_types: [],
+            }),
+          })
+          .then((response) => response.text())
+          .catch(() => {})
+      }
+      return
+    }
     if (session.wsRequestId)
       stopWebsocketConversation(accessToken, session.conversationId, session.wsRequestId)
   })
+  const cleanController = () => {
+    if (stopRequest) void stopRequest.finally(() => pageTransport?.close())
+    else pageTransport?.close()
+    removeController()
+  }
   let promptDispatchStarted = false
   let promptDispatchCommitted = false
   let lastEmittedSessionSignature = ''
@@ -567,29 +599,40 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
 
   const config = await getUserConfig()
-  const apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
-  const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
-  let initialContext
+  let apiPath = config.customChatGptWebApiPath || '/backend-api/f/conversation'
+  let pageContext
   try {
-    initialContext = await Promise.all([
-      session.chatgptWebModelSlugOverride
-        ? Promise.resolve(undefined)
-        : getModels(accessToken).catch(() => undefined),
-      getChatgptWebPageIntegrity({
-        signal: controller.signal,
-        apiUrl: config.customChatGptWebApiUrl,
-        apiPath,
-      }),
-      usesStreamHandoffEndpoint
-        ? Promise.resolve({ sharedWebsocket: false })
-        : getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
-    ])
+    pageContext = await getChatgptWebPageIntegrity({
+      signal: controller.signal,
+      apiUrl: config.customChatGptWebApiUrl,
+      apiPath,
+    })
     throwIfAborted(controller.signal)
   } catch (error) {
     cleanController()
     throw error
   }
-  const [models, pageContext, accountContext] = initialContext
+  if (pageContext.profile === 'codex-webview') apiPath = '/backend-api/f/conversation'
+  const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
+  pageTransport = createChatgptWebPageTransport(pageContext)
+  const pageFetch = pageTransport.fetch
+  const [models, accountContext] = await Promise.all([
+    session.chatgptWebModelSlugOverride
+      ? undefined
+      : getModels(
+          accessToken,
+          pageContext.transport === 'native'
+            ? { fetch: pageFetch, signal: controller.signal }
+            : undefined,
+        ).catch(() => undefined),
+    usesStreamHandoffEndpoint
+      ? { sharedWebsocket: false }
+      : getChatgptWebAccountContext(accessToken).catch(() => ({ sharedWebsocket: false })),
+  ])
+  if (controller.signal.aborted) {
+    cleanController()
+    throwIfAborted(controller.signal)
+  }
   let useWebsocket = accountContext?.sharedWebsocket === true
   console.debug('models', models)
   let usedModel
@@ -641,7 +684,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   session.messageId ||= uuidv4()
   session.wsRequestId ||= uuidv4()
-  if (session.parentMessageId == null) {
+  if (session.parentMessageId == null && pageContext.profile !== 'codex-webview') {
     session.parentMessageId = 'client-created-root'
   }
   const timezone = getChatgptWebTimezone()
@@ -650,6 +693,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       ? session.chatgptWebHistoryDisabledOverride
       : config.disableWebModeHistory
   const requestBody = buildChatgptWebConversationRequestBody({
+    profile: pageContext.profile,
     question,
     messageId: session.messageId,
     parentMessageId: session.parentMessageId,
@@ -671,13 +715,31 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   })
 
   const turnTraceId = uuidv4()
-  let resumeConduitToken = ''
+
+  if (pageContext.profile === 'codex-webview') {
+    try {
+      const response = await pageFetch(
+        `${config.customChatGptWebApiUrl}/backend-api/conversation/init`,
+        {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify(buildChatgptWebConversationInitBody(requestBody)),
+        },
+      )
+      if (!response.ok)
+        throw new Error(`ChatGPT conversation initialization failed (${response.status}).`)
+      await response.json()
+    } catch (error) {
+      cleanController()
+      throw error
+    }
+  }
 
   if (usesStreamHandoffEndpoint) {
     const preparePath = '/backend-api/f/conversation/prepare'
     let prepareStatus = null
     try {
-      const response = await fetch(`${config.customChatGptWebApiUrl}${preparePath}`, {
+      const response = await pageFetch(`${config.customChatGptWebApiUrl}${preparePath}`, {
         method: 'POST',
         signal: controller.signal,
         credentials: 'include',
@@ -686,7 +748,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           apiPath: preparePath,
           accept: 'application/json',
         }),
-        body: JSON.stringify(buildChatgptWebConversationPrepareBody(requestBody)),
+        body: JSON.stringify(
+          buildChatgptWebConversationPrepareBody(requestBody, pageContext.profile),
+        ),
       })
       prepareStatus = response.status
       if (!response.ok) throw new Error('Conversation prepare failed')
@@ -905,7 +969,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
         offset: initialStreamAuthoritativeDone ? 0 : streamEventOffset,
       },
       signal: controller.signal,
-      fetchSSE,
+      fetchSSE: (resource, options) => fetchSSE(resource, { ...options, fetchImpl: pageFetch }),
       // A reconnect continues the same delta sequence. A completed handoff
       // starts a fresh stream at offset 0 and needs a fresh decoder.
       accumulator: initialStreamAuthoritativeDone ? undefined : initialStreamAccumulator,
@@ -935,16 +999,18 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   async function fetchConversationResultSnapshot() {
     throwIfAborted(controller.signal)
-
-    const response = await fetch(
-      `${config.customChatGptWebApiUrl}/backend-api/conversation/${session.conversationId}`,
-      {
-        method: 'GET',
-        signal: controller.signal,
-        credentials: 'include',
-        headers: pageContext.baseHeaders,
-      },
-    )
+    const detailPath =
+      pageContext.profile === 'codex-webview'
+        ? `/backend-api/conversations/${encodeURIComponent(
+            session.conversationId,
+          )}?num_turns=10&include_has_versions=true`
+        : `/backend-api/conversation/${encodeURIComponent(session.conversationId)}`
+    const response = await pageFetch(`${config.customChatGptWebApiUrl}${detailPath}`, {
+      method: 'GET',
+      signal: controller.signal,
+      credentials: 'include',
+      headers: pageContext.baseHeaders,
+    })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -1302,6 +1368,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     try {
       await fetchSSE(url, {
         ...options,
+        fetchImpl: pageFetch,
         async onResponse(resp) {
           promptDispatchCommitted = true
           const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
@@ -1460,7 +1527,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     ) {
       const imageAsset = respPart?.asset_pointer || ''
       if (imageAsset) {
-        fetch(
+        pageFetch(
           `${config.customChatGptWebApiUrl}/backend-api/files/${imageAsset.replace(
             'file-service://',
             '',

@@ -1,0 +1,40 @@
+{
+  "observed_on": "2026-09-25",
+  "frontend": "codex_webview",
+  "provenance": "Public script response bodies from a normal ChatGPT browser request, inspected locally. HAR not included.",
+  "sources": {
+    "runtime": {
+      "url": "https://chatgpt.com/cdn/assets/633146.03cad12214.js",
+      "sha256": "e1c8be6ea49317892798a70d98882449c009708fcd6698a49aaa38ef760c52e2"
+    },
+    "native_transport": {
+      "url": "https://chatgpt.com/cdn/assets/651083.d1c9a7b2e6.js",
+      "sha256": "fe61ad0a9b05fdf209352ca22562b4f311cdb42b4f2cd2c48045f026c405fae3"
+    },
+    "request_profile": {
+      "url": "https://chatgpt.com/cdn/assets/687863.6ee2ccf538.js",
+      "sha256": "0cfbfb34a9471e01848b07a39f6bd6bbe48b31421e83ba2bff6a572d044804b0"
+    },
+    "integrity": {
+      "url": "https://chatgpt.com/cdn/assets/592570.7e77c22883.js",
+      "sha256": "07da385bb6ada8347dcf6244628e6d9d3c548f6950a09ad0d47ab5ed828f313e"
+    },
+    "completion_service": {
+      "url": "https://chatgpt.com/cdn/assets/421899.a0eae5f5f4.js",
+      "sha256": "54feea0ceab517f626c9a906a3a60b6736dfa2ae908f5b3a6aba5631a1a40c4c"
+    },
+    "init": {
+      "url": "https://chatgpt.com/cdn/assets/498514.f27755c4fc.js",
+      "sha256": "96ab529b483124fa00509aabd9c38fc885413ffe97acbb2f9cb77e8e686035b4"
+    }
+  },
+  "modules": {
+    "request": "k29.Request",
+    "browser_auth": "OS",
+    "native_fetch": "xb.b",
+    "native_integrity_prepare": "n9O.f",
+    "native_integrity_headers": "n9O.b",
+    "completion_service": "LN",
+    "paginated_mapping": "T5C"
+  }
+}

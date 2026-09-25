@@ -14,5 +14,14 @@
     "turnstile": "Qc",
     "authHeaders": "Ctt",
     "integrityHeaders": "Uc"
+  },
+  {
+    "filename": "633146.03cad12214.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "k29",
+    "authModule": "OS",
+    "integrityModule": "n9O",
+    "fetchModule": "xb"
   }
 ]

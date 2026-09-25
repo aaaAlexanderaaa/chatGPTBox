@@ -1,8 +1,17 @@
 import { createParser } from './eventsource-parser.mjs'
 
 export async function fetchSSE(resource, options) {
-  const { onMessage, onStart, onEnd, onError, onResponse, onEvent, ...fetchOptions } = options
-  const resp = await fetch(resource, fetchOptions).catch(async (err) => {
+  const {
+    onMessage,
+    onStart,
+    onEnd,
+    onError,
+    onResponse,
+    onEvent,
+    fetchImpl = fetch,
+    ...fetchOptions
+  } = options
+  const resp = await fetchImpl(resource, fetchOptions).catch(async (err) => {
     if (fetchOptions.signal?.aborted) {
       await onEnd?.({ aborted: true })
       return null
