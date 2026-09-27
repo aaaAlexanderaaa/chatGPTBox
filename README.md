@@ -97,7 +97,10 @@ To install, grab a build from [GitHub Releases](https://github.com/aaaAlexandera
 npm ci
 npm run dev        # development build → build/chromium/, build/firefox/
 npm run build      # production build → build/*.zip
+npm run build:extension # production build and update ../browser-extensions/chatgptbox/
 ```
+
+For local updates, run `npm run build:extension`. The destination is resolved relative to the project. The script replaces the Chromium extension only after a successful build, removing stale files from previous versions. Load `../browser-extensions/chatgptbox/` once, then reload ChatGPTBox on your browser extensions page after each update. The script manages this directory; do not store personal files there.
 
 Load the extension:
 
@@ -186,10 +189,11 @@ ChatGPTBox includes a local OpenAI-compatible gateway that proxies ChatGPT Web t
 - Open `Advanced -> API Server Bridge -> Open API Server Bridge` in the extension.
 - On that page, turn on `Enable API Server Bridge`.
 - Start the local server with `npm run api-server`.
+- Set your HTTP client's API key to the value in `~/.chatgptbox/gateway-api-token`.
 - Keep the API Server page open while using the gateway.
 - Make sure you are logged in at [chatgpt.com](https://chatgpt.com).
 - Send requests to `http://127.0.0.1:18080/v1/chat/completions` by default.
-- Standard OpenAI clients work without custom headers. The gateway does not automatically replay a
+- Standard OpenAI clients work with their usual API-key setting. The gateway does not automatically replay a
   ChatGPT Web write when its result is uncertain.
 
 If you need to open the page manually, you can also run this from the extension service worker console:
@@ -213,8 +217,11 @@ Supported endpoints:
 - `GET /health`
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
+- `GET /chatgpt/conversations/:id/turns/:messageId` (local status only)
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
+
+For MCP clients, run `npm run mcp-server` after starting the API server and configure the Streamable HTTP endpoint `http://127.0.0.1:18081/mcp` with the bearer token in `~/.chatgptbox/mcp-token`. The MCP server exposes only `ask_chatgpt`; it holds the request until the final answer and polls only the extension's local turn status. See [`docs/mcp-server.md`](./docs/mcp-server.md).
 
 Gateway configuration:
 
@@ -231,7 +238,7 @@ Conversation API notes:
 - Automatic and bulk history requests use the configured RPM limit. An HTTP 429 stops automatic history activity and remains locked until the user reviews the settings and unlocks it.
 - `GET /chatgpt/conversations/:id` returns a normalized conversation snapshot. Add `think=true` to include reasoning-related nodes and `force_refresh=true` to fetch a fresh snapshot immediately.
 - `POST /chatgpt/conversations` and `POST /chatgpt/conversations/:id/messages` are custom APIs and require an `Idempotency-Key`; the provided Drafts write client generates, persists, and reuses it automatically.
-- `POST /chatgpt/conversations/:id/messages` sends a follow-up into an existing ChatGPT conversation, then refreshes the snapshot.
+- `POST /chatgpt/conversations/:id/messages` sends a follow-up into an existing ChatGPT conversation and returns an acknowledgement; use the local turn-status route to wait for the final answer.
 - `POST /chatgpt/conversations/:id/refresh` refreshes a conversation and can optionally resume pending assistant output.
 
 Full API server docs: [`docs/api-server.md`](./docs/api-server.md)

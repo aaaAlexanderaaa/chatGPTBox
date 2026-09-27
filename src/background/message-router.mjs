@@ -37,6 +37,7 @@ import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
+import { getChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -176,6 +177,8 @@ export function createMessageRouter() {
       listChatgptWebConversationsWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebGetConversation]: (message) =>
       getChatgptWebConversationWithFallback(message.data || {}),
+    [RuntimeMessage.ChatgptWebGetTurnStatus]: (message) =>
+      getChatgptWebTurnStatus(message.data || {}),
     [RuntimeMessage.ChatgptWebRefreshConversation]: (message) =>
       refreshChatgptWebConversationWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebSendConversationMessage]: (message) =>

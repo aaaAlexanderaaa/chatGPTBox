@@ -19,6 +19,7 @@ import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { initSession } from '../services/init-session.mjs'
 import { getChatgptWebThinkingEffortOverride } from '../services/clients/chatgpt-web/thinking.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
+import { recordChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
 import {
   createPendingProxyCancellation,
   getChatGptAccessToken,
@@ -570,6 +571,7 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session
+    let latestAnswer = ''
     let acknowledged = false
     let settled = false
     const finish = (fn, value) => {
@@ -585,6 +587,7 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
         latestSession = { ...latestSession, ...message.session }
         if (!acknowledged) {
           acknowledged = true
+          recordChatgptWebTurnStatus({ conversationId, messageId, status: 'running', query })
           invalidateConversation(conversationId)
           void saveChatgptWebSessionSnapshot(latestSession, {
             source: 'conversation_reply_ack',
@@ -599,13 +602,36 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
         }
       }
 
+      if (typeof message?.answer === 'string') {
+        latestAnswer = message.answer
+        if (acknowledged)
+          recordChatgptWebTurnStatus({ conversationId, messageId, text: latestAnswer })
+      }
+
       if (message?.error) {
         if (!acknowledged) {
           port.disconnect()
           rejectPromise(new Error(message.error))
           return
         }
+        recordChatgptWebTurnStatus({
+          conversationId,
+          messageId,
+          status: 'failed',
+          error: String(message.error),
+        })
         console.debug('[background] Async conversation reply error:', message.error)
+      }
+
+      if (message?.done === true && !message?.error) {
+        recordChatgptWebTurnStatus({
+          conversationId,
+          messageId,
+          status: latestAnswer ? 'completed' : 'failed',
+          text: latestAnswer,
+          thoughtDurationSec: latestSession.chatgptWebResponseDiagnostics?.reasoningDurationSeconds,
+          error: latestAnswer ? undefined : 'Conversation ended without a final answer',
+        })
       }
 
       if (message?.done === true || message?.error) {
@@ -636,6 +662,12 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
           rejectPromise(error)
           return
         }
+        recordChatgptWebTurnStatus({
+          conversationId,
+          messageId,
+          status: 'failed',
+          error: error?.message || String(error),
+        })
         console.debug('[background] Async conversation reply failed after ack:', error?.message)
       })
   })
@@ -664,6 +696,9 @@ export async function createChatgptWebConversation(payload = {}) {
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session
+    let latestAnswer = ''
+    let acknowledgedConversationId = ''
+    let acknowledgedMessageId = session.messageId
     let acknowledged = false
     let settled = false
     const createdAt = new Date().toISOString()
@@ -680,6 +715,14 @@ export async function createChatgptWebConversation(payload = {}) {
         latestSession = { ...latestSession, ...message.session }
         if (!acknowledged && latestSession.conversationId) {
           acknowledged = true
+          acknowledgedConversationId = latestSession.conversationId
+          acknowledgedMessageId = latestSession.messageId || session.messageId
+          recordChatgptWebTurnStatus({
+            conversationId: acknowledgedConversationId,
+            messageId: acknowledgedMessageId,
+            status: 'running',
+            query,
+          })
           invalidateConversation(latestSession.conversationId)
           try {
             await rememberChatgptWebCreatedConversationIndexEntry(latestSession.conversationId, {
@@ -689,10 +732,10 @@ export async function createChatgptWebConversation(payload = {}) {
             // Create still returns the streamed id if the in-memory stub cannot be recorded.
           }
           resolvePromise({
-            conversationId: latestSession.conversationId,
+            conversationId: acknowledgedConversationId,
             // The id of the user message that opened the thread, so a later GET
             // can anchor to it the same way follow-up sends do.
-            messageId: latestSession.messageId || session.messageId,
+            messageId: acknowledgedMessageId,
             defaultModel: latestSession.chatgptWebModelSlugOverride || null,
             createdAt,
             pending: true,
@@ -707,13 +750,40 @@ export async function createChatgptWebConversation(payload = {}) {
         }
       }
 
+      if (typeof message?.answer === 'string') {
+        latestAnswer = message.answer
+        if (acknowledged)
+          recordChatgptWebTurnStatus({
+            conversationId: acknowledgedConversationId,
+            messageId: acknowledgedMessageId,
+            text: latestAnswer,
+          })
+      }
+
       if (message?.error) {
         if (!acknowledged) {
           port.disconnect()
           rejectPromise(new Error(message.error))
           return
         }
+        recordChatgptWebTurnStatus({
+          conversationId: acknowledgedConversationId,
+          messageId: acknowledgedMessageId,
+          status: 'failed',
+          error: String(message.error),
+        })
         console.debug('[background] Async conversation create error:', message.error)
+      }
+
+      if (message?.done === true && !message?.error) {
+        recordChatgptWebTurnStatus({
+          conversationId: acknowledgedConversationId,
+          messageId: acknowledgedMessageId,
+          status: latestAnswer ? 'completed' : 'failed',
+          text: latestAnswer,
+          thoughtDurationSec: latestSession.chatgptWebResponseDiagnostics?.reasoningDurationSeconds,
+          error: latestAnswer ? undefined : 'Conversation ended without a final answer',
+        })
       }
 
       if (message?.done === true || message?.error) {
@@ -744,6 +814,12 @@ export async function createChatgptWebConversation(payload = {}) {
           rejectPromise(error)
           return
         }
+        recordChatgptWebTurnStatus({
+          conversationId: acknowledgedConversationId,
+          messageId: acknowledgedMessageId,
+          status: 'failed',
+          error: error?.message || String(error),
+        })
         console.debug('[background] Async conversation create failed after ack:', error?.message)
       })
   })

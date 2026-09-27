@@ -12,6 +12,12 @@ import {
   loadOrCreateBridgeToken,
 } from './lib/bridge-auth.mjs'
 import {
+  allowedClientOrigin,
+  isAllowedHost,
+  isClientAuthorized,
+  isExtensionOrigin,
+} from './lib/gateway-access.mjs'
+import {
   fingerprintOperation,
   normalizeIdempotencyKey,
   OperationLedger,
@@ -67,6 +73,7 @@ const DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
 )
 
 const BRIDGE_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-bridge-token')
+const API_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-api-token')
 const OPERATION_LEDGER_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-operations.json')
 const operationLedger = new OperationLedger({ file: OPERATION_LEDGER_FILE })
 
@@ -103,6 +110,10 @@ Options:
                     Shared secret the extension bridge must present
                     (env: CHATGPT_GATEWAY_BRIDGE_TOKEN; generated and stored in
                     ~/.chatgptbox/gateway-bridge-token when unset)
+  --api-token <token>
+                    Bearer token for client HTTP APIs
+                    (env: CHATGPT_GATEWAY_API_TOKEN; generated and stored in
+                    ~/.chatgptbox/gateway-api-token when unset)
   -h, --help        Show this help message
 
 Examples:
@@ -128,6 +139,18 @@ const {
   tokenFile: BRIDGE_TOKEN_FILE,
   configuredToken: cliArg('bridge-token', process.env.CHATGPT_GATEWAY_BRIDGE_TOKEN),
 })
+const {
+  token: API_TOKEN,
+  generated: API_TOKEN_GENERATED,
+  fromFile: API_TOKEN_FROM_FILE,
+} = loadOrCreateBridgeToken({
+  tokenFile: API_TOKEN_FILE,
+  configuredToken: cliArg('api-token', process.env.CHATGPT_GATEWAY_API_TOKEN),
+})
+const EXTRA_CLIENT_ORIGINS = (process.env.CHATGPT_GATEWAY_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
 
 function isBridgeRequestAuthorized(req, url) {
   return checkBridgeAuth(req, url, BRIDGE_TOKEN)
@@ -184,6 +207,7 @@ const SUPPORTED_THINKING_EFFORTS = new Set(['min', 'standard', 'extended', 'xhig
 // ---------------------------------------------------------------------------
 
 let bridgeWs = null
+let pairedBridgeOrigin = ''
 const pendingRequests = new Map()
 const pendingControlRequests = new Map()
 const bridgeRuntimeConfig = {
@@ -463,6 +487,7 @@ function getRequestTimeoutMs(model) {
 }
 
 function applyBridgeRuntimeConfig(msg = {}) {
+  if (isExtensionOrigin(msg.origin) && !pairedBridgeOrigin) pairedBridgeOrigin = msg.origin
   const requestTimeoutSeconds = parsePositiveInt(
     msg.requestTimeoutSeconds,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -1230,6 +1255,42 @@ async function handleChatgptConversationGet(conversationId, url, res) {
   }
 }
 
+// The MCP waiter reads only the extension's turn snapshot. It never invokes
+// the conversation GET/refresh paths, which can make a ChatGPT network call.
+async function handleChatgptTurnStatus(conversationId, messageId, res) {
+  if (!isBridgeConnected()) {
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify({ error: { message: 'Extension bridge not connected' } }))
+    return
+  }
+  try {
+    const result = await sendControlRequestToBridge('chatgpt_web_get_turn_status', {
+      conversationId,
+      messageId,
+    })
+    res.writeHead(result ? 200 : 404, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    })
+    res.end(
+      JSON.stringify(
+        result || {
+          error: {
+            code: 'turn_status_not_found',
+            message:
+              'No local turn status matches these IDs. Check the conversationId and messageId from the create or follow-up acknowledgement. If the record expired, inspect the existing conversation instead of sending a new prompt to test the connection.',
+            type: 'not_found',
+            retryable: false,
+          },
+        },
+      ),
+    )
+  } catch (error) {
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify({ error: { message: error.message } }))
+  }
+}
+
 async function handleChatgptConversationRefresh(req, res, conversationId) {
   if (!isBridgeConnected()) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
@@ -1626,6 +1687,7 @@ function handleBridgePoll(req, res, url) {
     httpBridgeActive = true
     log('HTTP polling bridge connected')
   }
+  if (isExtensionOrigin(req.headers.origin)) pairedBridgeOrigin = req.headers.origin
   httpBridgeLastSeen = Date.now()
 
   if (httpBridgeQueue.length > 0) {
@@ -1705,27 +1767,64 @@ function handleBridgeDisconnect(req, res, url) {
 // ---------------------------------------------------------------------------
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-  // X-Bridge-Token is listed because the docs offer it as a carrier; without it a
-  // browser preflight blocks the header and only ?token= / Bearer work.
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key',
-  )
-  res.setHeader(
-    'Access-Control-Expose-Headers',
-    'X-Operation-Id, X-Idempotent-Replay, x-should-retry',
-  )
-
+  res.setHeader('Cache-Control', 'no-store')
+  if (!isAllowedHost(req.headers.host, HOST, PORT)) {
+    res.writeHead(403)
+    res.end()
+    return
+  }
+  const url = new URL(req.url, `http://${HOST}:${PORT}`)
+  const origin = req.headers.origin
+  const isBridgeHttp = url.pathname.startsWith('/bridge/')
+  if (
+    origin &&
+    !allowedClientOrigin(origin, pairedBridgeOrigin, EXTRA_CLIENT_ORIGINS) &&
+    !(isBridgeHttp && isExtensionOrigin(origin))
+  ) {
+    res.writeHead(403)
+    res.end()
+    return
+  }
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key',
+    )
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'X-Operation-Id, X-Idempotent-Replay, x-should-retry',
+    )
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
     res.end()
     return
   }
-
-  const url = new URL(req.url, `http://${HOST}:${PORT}`)
+  if (
+    !isBridgeHttp &&
+    !isClientAuthorized(req, {
+      apiToken: API_TOKEN,
+      bridgeToken: BRIDGE_TOKEN,
+      pairedOrigin: pairedBridgeOrigin,
+    })
+  ) {
+    res.writeHead(401, {
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': 'Bearer',
+      'Cache-Control': 'no-store',
+    })
+    res.end(
+      JSON.stringify({
+        error: { message: 'API bearer token required', type: 'invalid_request_error' },
+      }),
+    )
+    return
+  }
   const conversationGetMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)$/)
+  const turnStatusMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)\/turns\/([^/]+)$/)
   const conversationMessageMatch = url.pathname.match(
     /^\/chatgpt\/conversations\/([^/]+)\/messages$/,
   )
@@ -1781,6 +1880,18 @@ const server = http.createServer((req, res) => {
         }
       },
     )
+  } else if (turnStatusMatch && req.method === 'GET') {
+    handleChatgptTurnStatus(
+      decodeURIComponent(turnStatusMatch[1]),
+      decodeURIComponent(turnStatusMatch[2]),
+      res,
+    ).catch((err) => {
+      logError(`Turn status error: ${err.message}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
+      }
+    })
   } else if (conversationMessageMatch && req.method === 'POST') {
     handleChatgptConversationMessage(
       req,
@@ -1907,7 +2018,7 @@ server.on('upgrade', (req, socket, head) => {
   })
 })
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   // Reaching here means the token check passed, so a replacement can only come
   // from another authenticated bridge — normally the same page reconnecting.
   if (bridgeWs && bridgeWs.readyState === 1) {
@@ -1931,6 +2042,7 @@ wss.on('connection', (ws) => {
   }
 
   bridgeWs = ws
+  pairedBridgeOrigin = isExtensionOrigin(req.headers.origin) ? req.headers.origin : ''
 
   const pingInterval = setInterval(() => {
     if (ws.readyState === 1) ws.ping()
@@ -1938,8 +2050,10 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     clearInterval(pingInterval)
+    if (bridgeWs !== ws) return
     log('Extension bridge disconnected (WebSocket)')
     bridgeWs = null
+    pairedBridgeOrigin = ''
     if (!isBridgeConnected()) {
       rejectAllPending('Extension bridge disconnected')
     }
@@ -1992,6 +2106,7 @@ server.listen(PORT, HOST, () => {
   log(`  POST http://${HOST}:${PORT}/chatgpt/conversations`)
   log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations`)
   log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations/:id`)
+  log(`  GET  http://${HOST}:${PORT}/chatgpt/conversations/:id/turns/:messageId`)
   log(`  POST http://${HOST}:${PORT}/chatgpt/conversations/:id/messages`)
   log(`  POST http://${HOST}:${PORT}/chatgpt/conversations/:id/refresh`)
   log(``)
@@ -2002,11 +2117,17 @@ server.listen(PORT, HOST, () => {
   log(`Bridge token${BRIDGE_TOKEN_GENERATED ? ' (generated)' : ''}: ${BRIDGE_TOKEN}`)
   if (BRIDGE_TOKEN_FROM_FILE) log(`  Stored in ${BRIDGE_TOKEN_FILE}`)
   log(`  Paste it into the extension's API Server page to pair the bridge.`)
+  log(
+    `API token${API_TOKEN_GENERATED ? ' (generated)' : ''}: ${
+      API_TOKEN_FROM_FILE ? `stored in ${API_TOKEN_FILE}` : 'configured via CLI/environment'
+    }`,
+  )
+  log('  Use Authorization: Bearer <API token> for client HTTP requests.')
   if (HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
     log(``)
     logError(
       `Warning: bound to ${HOST}, so this gateway is reachable from other machines. ` +
-        `Only the bridge is authenticated — the completion endpoints are not.`,
+        `Protect both the API and bridge tokens and use a trusted network.`,
     )
   }
   log(``)

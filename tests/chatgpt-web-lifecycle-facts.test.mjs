@@ -82,6 +82,9 @@ const {
 const { CHATGPT_WEB_SESSION_SNAPSHOTS_KEY } = await import(
   '../src/services/clients/chatgpt-web/thread-state.mjs'
 )
+const { CHATGPT_WEB_TURN_STATUS_KEY, getChatgptWebTurnStatus } = await import(
+  '../src/services/clients/chatgpt-web/turn-status.mjs'
+)
 const { getChatgptWebConversation, refreshChatgptWebConversation, listChatgptWebConversations } =
   await import('../src/services/clients/chatgpt-web/conversation-api.mjs')
 
@@ -217,6 +220,68 @@ describe('lifecycle claims — current behavior', () => {
   })
 
   describe('createChatgptWebConversation', () => {
+    it('keeps interim text running until the final done event', async () => {
+      let finish
+      registerExecuteApi(async (session, port) => {
+        port.postMessage({ session: { ...session, conversationId: 'turn-complete' } })
+        port.postMessage({ answer: 'partial thought', done: false })
+        await new Promise((resolve) => {
+          finish = () => {
+            port.postMessage({
+              answer: 'final response',
+              done: true,
+              session: {
+                ...session,
+                chatgptWebResponseDiagnostics: { reasoningDurationSeconds: 12 },
+              },
+            })
+            resolve()
+          }
+        })
+      })
+      const ack = await createChatgptWebConversation({ query: 'hello' })
+      expect(await getChatgptWebTurnStatus(ack)).toMatchObject({
+        status: 'running',
+        text: 'partial thought',
+      })
+      finish()
+      await vi.waitFor(async () => {
+        expect(await getChatgptWebTurnStatus(ack)).toMatchObject({
+          status: 'completed',
+          text: 'final response',
+          thoughtDurationSec: 12,
+        })
+      })
+      await vi.waitFor(() => {
+        expect(storageData[CHATGPT_WEB_TURN_STATUS_KEY]?.[ack.messageId]).toMatchObject({
+          status: 'completed',
+          text: 'final response',
+          thoughtDurationSec: 12,
+        })
+      })
+    })
+
+    it('records a post-ack error for local status readers', async () => {
+      let fail
+      registerExecuteApi(async (session, port) => {
+        port.postMessage({ session: { ...session, conversationId: 'turn-failed' } })
+        await new Promise((resolve) => {
+          fail = () => {
+            port.postMessage({ error: 'account rate limited' })
+            resolve()
+          }
+        })
+      })
+      const ack = await createChatgptWebConversation({ query: 'hello' })
+      fail()
+      await vi.waitFor(async () => {
+        expect(await getChatgptWebTurnStatus(ack)).toMatchObject({
+          status: 'failed',
+          error: 'account rate limited',
+        })
+      })
+    })
+
     it.each(['thinkingEffort', 'thinking_effort', 'reasoning_effort'])(
       'preserves %s through both create and follow-up sessions',
       async (key) => {

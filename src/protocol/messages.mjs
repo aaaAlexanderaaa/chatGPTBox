@@ -64,6 +64,7 @@ export const RuntimeMessage = {
   // ChatGPT Web conversation cache APIs (UI -> background)
   ChatgptWebListConversations: 'CHATGPT_WEB_LIST_CONVERSATIONS',
   ChatgptWebGetConversation: 'CHATGPT_WEB_GET_CONVERSATION',
+  ChatgptWebGetTurnStatus: 'CHATGPT_WEB_GET_TURN_STATUS',
   ChatgptWebRefreshConversation: 'CHATGPT_WEB_REFRESH_CONVERSATION',
   ChatgptWebSendConversationMessage: 'CHATGPT_WEB_SEND_CONVERSATION_MESSAGE',
   ChatgptWebCreateConversation: 'CHATGPT_WEB_CREATE_CONVERSATION',

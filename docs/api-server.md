@@ -24,8 +24,9 @@ npm run api-server
 ```
 
 5. Copy the `Bridge token` the server prints on startup into the `Bridge token` field on the bridge page.
-6. Keep the bridge page open.
-7. Make sure the browser is logged in at `https://chatgpt.com`.
+6. Read the separate API token from `~/.chatgptbox/gateway-api-token` and configure your HTTP client to send `Authorization: Bearer <API token>`.
+7. Keep the bridge page open.
+8. Make sure the browser is logged in at `https://chatgpt.com`.
 
 ## Bridge Authentication
 
@@ -41,7 +42,13 @@ CHATGPT_GATEWAY_BRIDGE_TOKEN=<token> npm run api-server
 
 The token is accepted as a `?token=` query parameter, an `X-Bridge-Token` header, or an `Authorization: Bearer` header.
 
-The token protects the bridge channel only. It does **not** protect the completion and conversation endpoints, which are unauthenticated and served with `Access-Control-Allow-Origin: *`. Binding to loopback keeps other machines out, but it does not keep out a web page running in your own browser: while the bridge is paired, any site you visit can `fetch()` `http://127.0.0.1:18080/v1/chat/completions` to spend your ChatGPT session, or `http://127.0.0.1:18080/chatgpt/conversations` to read your conversation list, and can read the responses cross-origin. Run the gateway only while you need it.
+The client API uses a **different** bearer token, stored in `~/.chatgptbox/gateway-api-token` or supplied with `--api-token` / `CHATGPT_GATEWAY_API_TOKEN`. Every non-bridge HTTP endpoint, including `/health` and `/v1/chat/completions`, requires it. The paired extension page can use its bridge token from its own extension origin. The gateway no longer returns wildcard CORS: it reflects only the paired extension origin or origins explicitly set in `CHATGPT_GATEWAY_ALLOWED_ORIGINS` (comma-separated). An allowed browser origin still needs the API token. Non-browser clients can send the bearer token without an `Origin` header. The server also checks the `Host` header to limit DNS rebinding when bound to loopback.
+
+For the shell examples below, load the API token first:
+
+```bash
+export CHATGPT_GATEWAY_API_TOKEN="$(cat ~/.chatgptbox/gateway-api-token)"
+```
 
 If you need to open the bridge page manually, run this in the extension service worker console:
 
@@ -56,14 +63,14 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 3. The bridge page asks the extension background to send the request through the ChatGPT Web flow.
 4. The result is streamed back in an OpenAI-compatible response shape.
 
-## Public HTTP Endpoints
+## Client HTTP Endpoints
 
 ### `POST /v1/chat/completions`
 
 OpenAI-compatible chat completions endpoint.
 
 - Supports `stream: true` and `stream: false`
-- Works with standard OpenAI clients without custom headers
+- Works with standard OpenAI clients using their API-key/Bearer-token setting
 - Requires a non-empty `messages` array
 - Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted. Chat GPT-6 Pro is `gpt-6-pro` (quota-limited); Work / TPP uses `gpt-6-astra-wm` and other `*-wm` slugs.
 - Accepts `reasoning_effort` or `thinking_effort` per request with `min`, `standard`, `extended`, `xhigh`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
@@ -73,6 +80,7 @@ Minimal request:
 
 ```bash
 curl http://127.0.0.1:18080/v1/chat/completions \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5-6-thinking",
@@ -86,6 +94,7 @@ Streaming request:
 
 ```bash
 curl http://127.0.0.1:18080/v1/chat/completions \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5-6-thinking",
@@ -106,7 +115,7 @@ Common errors:
 
 The protocol contract is:
 
-- Standard OpenAI-compatible endpoints do not require private headers or fields.
+- Standard OpenAI-compatible endpoints use the normal API-key bearer header; no additional private fields are required.
 - The gateway dispatches each inbound write request to ChatGPT Web at most once. It never
   automatically re-submits that write after a timeout, transport failure, bridge disconnect, or
   missing acknowledgement.
@@ -142,7 +151,7 @@ When the bridge is connected, this endpoint dynamically fetches the model list f
 Example:
 
 ```bash
-curl http://127.0.0.1:18080/v1/models
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" http://127.0.0.1:18080/v1/models
 ```
 
 ### `GET /status`
@@ -159,7 +168,7 @@ Example response fields:
 Example:
 
 ```bash
-curl http://127.0.0.1:18080/status
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" http://127.0.0.1:18080/status
 ```
 
 ### `GET /health`
@@ -178,7 +187,7 @@ Returns:
 Example:
 
 ```bash
-curl http://127.0.0.1:18080/health
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" http://127.0.0.1:18080/health
 ```
 
 ### `GET /chatgpt/conversations`
@@ -209,7 +218,7 @@ Query parameters:
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/chatgpt/conversations?offset=0&limit=100&order=updated&force_sync=true"
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" "http://127.0.0.1:18080/chatgpt/conversations?offset=0&limit=100&order=updated&force_sync=true"
 ```
 
 Typical response fields include:
@@ -226,6 +235,7 @@ Typical response fields include:
 Returns a normalized conversation snapshot from the local browser cache by default.
 
 When the cached list entry shows a newer `update_time` or different `async_status`, the gateway overlays the latest status immediately and attempts to fetch a fresher snapshot before responding.
+This endpoint can contact ChatGPT on a cache miss or stale snapshot. Use `GET /chatgpt/conversations/:id/turns/:messageId` for repeated local-only status checks.
 
 Optional query parameters:
 
@@ -237,7 +247,7 @@ Optional query parameters:
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>?think=true"
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" "http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>?think=true"
 ```
 
 `user_message_id` anchors the snapshot to one turn: the `messageId` returned by `POST /chatgpt/conversations` or `POST /chatgpt/conversations/:id/messages`. When the snapshot contains that user message, `message`, `query`, and the top-level thought timing describe only that turn:
@@ -274,7 +284,7 @@ Timing prefers ChatGPT's official fields: `metadata.finished_duration_sec`, then
 
 ### `POST /chatgpt/conversations`
 
-Starts a brand-new ChatGPT conversation from a user prompt and returns as soon as the gateway knows the new `conversationId`. The assistant response continues in the browser after the HTTP response returns, so this is useful for fire-and-forget tools that only need the thread created.
+Starts a brand-new ChatGPT conversation from a user prompt and returns as soon as the gateway knows the new `conversationId`. The assistant response continues in the browser after the HTTP response returns. Poll the local turn-status endpoint below for its final answer.
 
 JSON body:
 
@@ -287,7 +297,8 @@ sends the request, so retrying the same Drafts action does not create another co
 Example:
 
 ```bash
-curl -X POST http://100.104.70.122:18081/chatgpt/conversations \
+curl -X POST http://127.0.0.1:18080/chatgpt/conversations \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"Start a new thread from this note"}'
@@ -304,7 +315,7 @@ The response includes:
 
 ### `POST /chatgpt/conversations/:id/messages`
 
-Sends a follow-up user message into an existing ChatGPT conversation and returns as soon as ChatGPT acknowledges it. The answer keeps generating in the browser after the HTTP response returns, so this route never holds the connection open while a thinking model works. Collect the answer later with `GET /chatgpt/conversations/:id`.
+Sends a follow-up user message into an existing ChatGPT conversation and returns as soon as ChatGPT acknowledges it. The answer keeps generating in the browser after the HTTP response returns. Collect its final answer with the local turn-status endpoint below.
 
 JSON body:
 
@@ -319,6 +330,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/messages \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"continue from the cached thread","think":true}'
@@ -331,6 +343,15 @@ The response includes:
 - `createdAt`
 - `pending` (always `true`; the answer has not been generated yet)
 - `query`
+
+### `GET /chatgpt/conversations/:id/turns/:messageId`
+
+Reads the extension background's locally recorded status for one sent turn. It **never** calls ChatGPT. Use the `conversationId` and `messageId` from either write acknowledgement. `status` is `running`, `completed`, or `failed`; `text` can contain interim output while running, so only `completed` means the answer is final. Running turns and the newest 30 finished turns are retained. An unknown or expired turn returns `404` with guidance to check the acknowledgement IDs and inspect the existing conversation; a disconnected bridge returns `503`.
+
+```bash
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
+  http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/turns/<message-id>
+```
 
 ### `POST /chatgpt/conversations/:id/refresh`
 
@@ -350,6 +371,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/chatgpt/conversations/<conversation-id>/refresh \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"preferResume":false,"think":true}'
 ```
@@ -377,7 +399,7 @@ Query parameters:
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/grok/conversations?limit=20"
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" "http://127.0.0.1:18080/grok/conversations?limit=20"
 ```
 
 Typical response fields include:
@@ -392,7 +414,7 @@ Returns a live Grok Web conversation snapshot (messages flattened from response 
 Example:
 
 ```bash
-curl "http://127.0.0.1:18080/grok/conversations/<conversation-id>"
+curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" "http://127.0.0.1:18080/grok/conversations/<conversation-id>"
 ```
 
 The response includes fields such as:
@@ -418,6 +440,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/grok/conversations \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"Hello","model":"grok-chat-fast"}'
@@ -437,6 +460,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/grok/conversations/<conversation-id>/messages \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"query":"Follow up","previousResponseID":"<parent-response-id>"}'
@@ -450,6 +474,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/grok/conversations/<conversation-id>/refresh \
+  -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
@@ -471,6 +496,7 @@ ChatGPT Web:
 
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
+- `GET /chatgpt/conversations/:id/turns/:messageId`
 - `POST /chatgpt/conversations`
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`

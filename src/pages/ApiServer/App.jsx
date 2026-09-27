@@ -156,7 +156,13 @@ function App() {
 
   const fetchServerJson = useCallback(
     async (path, options = {}) => {
-      const response = await fetch(`${baseUrl}${path}`, options)
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Bearer ${bridgeToken}`,
+        },
+      })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
         throw new Error(
@@ -165,7 +171,7 @@ function App() {
       }
       return data
     },
-    [baseUrl],
+    [baseUrl, bridgeToken],
   )
 
   const syncBridgeConfig = useCallback(async (targetPort = proxyPort.current) => {
@@ -176,6 +182,7 @@ function App() {
         action: 'send',
         payload: JSON.stringify({
           type: 'bridge_config',
+          origin: location.origin,
           requestTimeoutSeconds: runtimeConfig.apiServerRequestTimeoutSeconds,
           thinkingRequestTimeoutSeconds: runtimeConfig.apiServerThinkingTimeoutSeconds,
         }),
@@ -364,6 +371,7 @@ function App() {
         chatgpt_web_create_conversation: RuntimeMessage.ChatgptWebCreateConversation,
         chatgpt_web_list_conversations: RuntimeMessage.ChatgptWebListConversations,
         chatgpt_web_get_conversation: RuntimeMessage.ChatgptWebGetConversation,
+        chatgpt_web_get_turn_status: RuntimeMessage.ChatgptWebGetTurnStatus,
         chatgpt_web_refresh_conversation: RuntimeMessage.ChatgptWebRefreshConversation,
         chatgpt_web_send_conversation_message: RuntimeMessage.ChatgptWebSendConversationMessage,
         chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
@@ -396,7 +404,9 @@ function App() {
           })
         }
 
-        if (response == null) {
+        if (response === null && action === 'chatgpt_web_get_turn_status') {
+          sendWs({ type: 'control_response', id, data: null })
+        } else if (response == null) {
           addLog(
             `Control ${action}: background returned no response${canRetry ? ' after retry' : ''}`,
             'error',
@@ -633,7 +643,9 @@ function App() {
 
     function checkHealth() {
       void syncBridgeConfig()
-      fetch(`${baseUrl}/health`)
+      fetch(`${baseUrl}/health`, {
+        headers: { Authorization: `Bearer ${bridgeToken}` },
+      })
         .then((r) => r.json())
         .then((h) => setServerHealth(h))
         .catch(() => setServerHealth(null))
@@ -658,7 +670,7 @@ function App() {
     runDiag()
     healthTimer.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL)
     return () => clearInterval(healthTimer.current)
-  }, [status, baseUrl, addLog, syncBridgeConfig])
+  }, [status, baseUrl, bridgeToken, addLog, syncBridgeConfig])
 
   // -----------------------------------------------------------------------
   // Auto-connect on mount

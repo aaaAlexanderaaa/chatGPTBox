@@ -97,7 +97,10 @@
 npm ci
 npm run dev        # 开发构建 → build/chromium/、build/firefox/
 npm run build      # 生产构建 → build/*.zip
+npm run build:extension # 生产构建并更新 ../browser-extensions/chatgptbox/
 ```
+
+本地更新时运行 `npm run build:extension` 即可。脚本以项目位置为基准定位目标目录，构建成功后才替换 Chromium 扩展文件，并清除旧版本遗留文件。首次加载请选择 `../browser-extensions/chatgptbox/`；后续更新只需在浏览器扩展管理页点击 ChatGPTBox 的重新加载按钮。目标目录由脚本管理，请勿在其中存放个人文件。
 
 加载扩展：
 
@@ -186,6 +189,7 @@ ChatGPTBox 包含一个本地 OpenAI 兼容网关，通过扩展代理 ChatGPT W
 - 在扩展中打开 `高级 -> API 服务桥接 -> 打开 API 服务桥接`。
 - 在该页面开启 `启用 API 服务桥接`。
 - 使用 `npm run api-server` 启动本地服务器。
+- 将 `~/.chatgptbox/gateway-api-token` 中的 API token 配置为 HTTP 客户端的 API key。
 - 使用网关时保持 API 服务页面处于打开状态。
 - 确保已登录 [chatgpt.com](https://chatgpt.com)。
 - 默认发送请求到 `http://127.0.0.1:18080/v1/chat/completions`。
@@ -211,8 +215,11 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 - `GET /health`
 - `GET /chatgpt/conversations`
 - `GET /chatgpt/conversations/:id`
+- `GET /chatgpt/conversations/:id/turns/:messageId`（只读取本地状态）
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
+
+MCP 客户端还需启动 `npm run mcp-server`，使用 Streamable HTTP 地址 `http://127.0.0.1:18081/mcp` 和 `~/.chatgptbox/mcp-token` 中的 Bearer token。MCP 服务只暴露 `ask_chatgpt`，它会等待最终答案，期间只轮询扩展里的本地轮次状态。详见 [`docs/mcp-server.md`](./docs/mcp-server.md)。
 
 网关配置：
 
@@ -228,7 +235,7 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 - 完整列表同步会逐页立即保存，不会预下载每个会话的正文。自动同步默认关闭；启用后每次只获取最新 100 个会话。
 - 自动及批量历史请求受设置中的 RPM 限制。收到 HTTP 429 后会停止并锁定所有自动历史任务，直到用户检查设置并手动解除锁定。
 - `GET /chatgpt/conversations/:id` 返回标准化的对话快照。添加 `think=true` 可包含推理相关节点，`force_refresh=true` 可立即获取最新快照。
-- `POST /chatgpt/conversations/:id/messages` 向现有 ChatGPT 对话发送后续消息，然后刷新快照。
+- `POST /chatgpt/conversations/:id/messages` 向现有 ChatGPT 对话发送后续消息并返回确认；可通过本地轮次状态接口等待最终答案。
 - `POST /chatgpt/conversations/:id/refresh` 刷新对话，可选择恢复待处理的助手输出。
 
 完整 API 服务文档：[`docs/api-server.md`](./docs/api-server.md)

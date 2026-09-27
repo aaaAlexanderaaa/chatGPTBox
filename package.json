@@ -15,6 +15,7 @@
   "homepage": "https://github.com/aaaAlexanderaaa/chatGPTBox#readme",
   "scripts": {
     "build": "node build.mjs --production",
+    "build:extension": "node scripts/build-extension.mjs",
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
     "lint": "eslint --ext .js,.mjs,.jsx .",
@@ -23,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "api-server": "node scripts/api-server.mjs",
+    "mcp-server": "node scripts/mcp-server.mjs",
     "history-viewer": "node scripts/chatgpt-history-viewer.mjs",
     "pretty": "prettier --write ./**/*.{js,mjs,jsx,json,css}",
     "stage": "run-script-os",
@@ -36,6 +38,8 @@
     "lint"
   ],
   "dependencies": {
+    "@modelcontextprotocol/node": "2.1.0",
+    "@modelcontextprotocol/server": "2.1.0",
     "@mozilla/readability": "^0.6.0",
     "@nem035/gpt-3-encoder": "^1.1.7",
     "@primer/octicons-react": "^18.3.0",
@@ -72,7 +76,8 @@
     "turndown": "^7.2.2",
     "util": "^0.12.5",
     "uuid": "^14.0.0",
-    "webextension-polyfill": "^0.12.0"
+    "webextension-polyfill": "^0.12.0",
+    "zod": "4.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.7",

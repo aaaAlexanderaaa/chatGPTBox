@@ -1,6 +1,7 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
+const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
 // Explicit default for new conversations created by this script.
 const DEFAULT_MODEL = 'gpt-5-4-thinking'
 // Set this to a model slug like 'gpt-5-4-pro' to force all sends to use that model.
@@ -28,6 +29,7 @@ function requestJson(url, method, body, idempotencyKey) {
     url,
     method,
     headers: {
+      Authorization: 'Bearer ' + API_TOKEN,
       Accept: 'application/json',
       'Content-Type': 'application/json',
       ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),

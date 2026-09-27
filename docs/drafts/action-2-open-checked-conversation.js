@@ -1,6 +1,7 @@
 /* global HTTP, app, draft */
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
+const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
 // Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
 const INCLUDE_THINKING = false
 const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
@@ -21,6 +22,7 @@ function requestJson(url, method, body) {
     url,
     method,
     headers: {
+      Authorization: 'Bearer ' + API_TOKEN,
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
