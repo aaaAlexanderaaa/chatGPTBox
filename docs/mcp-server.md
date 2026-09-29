@@ -11,6 +11,14 @@ The MCP server is a separate local HTTP service for ChatGPT Web conversations. I
 
 The MCP server reads the gateway API token from `~/.chatgptbox/gateway-api-token`. If the API gateway uses `--api-token` or `CHATGPT_GATEWAY_API_TOKEN` instead of that file, set the same `CHATGPT_GATEWAY_API_TOKEN` in the MCP server environment. The default API gateway port is 18080; override it with `--gateway-port` or `CHATGPT_GATEWAY_PORT`. Override the MCP port with `--port` or `CHATGPT_MCP_PORT`.
 
+To accept MCP clients on other devices, explicitly bind the MCP server to all IPv4 interfaces. For an API gateway already running on port 18081, start the MCP server on a different port:
+
+```bash
+npm run mcp-server -- --host 0.0.0.0 --port 18082 --gateway-port 18081
+```
+
+Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use the MCP bearer token. The `--host` option (or `CHATGPT_MCP_HOST`) defaults to `127.0.0.1`; it accepts `127.0.0.1` or `0.0.0.0`. The API gateway connection remains local to this computer. Keep the MCP token private and use a trusted network or TLS when connecting across networks; plain HTTP exposes the token to network observers.
+
 ## Tool
 
 `ask_chatgpt` creates a conversation and waits for its final answer. It is the only tool exposed by this MCP server.
@@ -31,4 +39,4 @@ If the wait times out after acknowledgement, ChatGPT may still finish in the bro
 
 ## Access control
 
-The MCP server binds to `127.0.0.1`, requires its own bearer token for every request, and validates HTTP Host and Origin headers. It does not enable browser CORS. The API gateway likewise requires its API token for client endpoints and grants browser CORS only to the paired extension origin or explicitly configured origins. Keep all three tokens private.
+The MCP server binds to `127.0.0.1` by default, requires its own bearer token for every request, and validates HTTP Host and Origin headers. With `--host 0.0.0.0`, IP-address Host headers are allowed while DNS hostnames and non-local browser origins remain rejected. It does not enable browser CORS. The API gateway likewise requires its API token for client endpoints and grants browser CORS only to the paired extension origin or explicitly configured origins. Keep all three tokens private.

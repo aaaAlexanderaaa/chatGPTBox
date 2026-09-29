@@ -23,5 +23,15 @@
     "authModule": "OS",
     "integrityModule": "n9O",
     "fetchModule": "xb"
+  },
+  {
+    "filename": "633146.681744a17f.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "k29",
+    "authModule": "OS",
+    "integrityModule": "n9O",
+    "fetchModule": "xb",
+    "fetchExport": "c"
   }
 ]

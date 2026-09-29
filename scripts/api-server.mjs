@@ -4,6 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
 import {
+  CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+  CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
+} from '../src/config/limits.mjs'
+import {
   getChatgptWebThinkingEffortOverride,
   needsChatgptWebThinkingEffort,
 } from '../src/services/clients/chatgpt-web/thinking.mjs'
@@ -198,8 +202,8 @@ const AVAILABLE_MODELS = [
   { id: 'grok-chat-heavy', name: 'Grok (Web, Heavy)' },
 ]
 
-const DEFAULT_MODEL = 'gpt-5-6-thinking'
-const DEFAULT_THINKING_EFFORT = 'max'
+const DEFAULT_MODEL = CHATGPT_WEB_DEFAULT_MODEL_SLUG
+const DEFAULT_THINKING_EFFORT = CHATGPT_WEB_DEFAULT_THINKING_EFFORT
 const SUPPORTED_THINKING_EFFORTS = new Set(['min', 'standard', 'extended', 'xhigh', 'max'])
 
 // ---------------------------------------------------------------------------

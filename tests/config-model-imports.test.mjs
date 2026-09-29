@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { ModelGroups, Models } from '../src/config/models.mjs'
+import { chatgptWebChatModelKeys, ModelGroups, Models } from '../src/config/models.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
 import { getApiModesFromConfig, getModelNameGroup } from '../src/utils/model-name-convert.mjs'
 
 describe('config model module boundaries', () => {
+  it('lists the configured default in the ChatGPT Web model picker', () => {
+    expect(chatgptWebChatModelKeys.map((key) => Models[key]?.value)).toContain(
+      CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+    )
+  })
+
   it('initializes models and converters without a barrel-import cycle', () => {
     expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb6Pro')
     expect(ModelGroups.chatgptWebModelKeys.value).toContain('chatgptWeb6AstraWork')

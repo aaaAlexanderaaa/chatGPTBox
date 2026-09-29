@@ -161,7 +161,7 @@ export async function getChatgptWebPageIntegrityInPage(
     const request = require(contract.requestModule).Request
     const auth = require(contract.authModule)
     const integrity = require(contract.integrityModule)
-    const nativeFetch = require(contract.fetchModule).b
+    const nativeFetch = require(contract.fetchModule)[contract.fetchExport || 'b']
     if (
       typeof request?.getRequestTarget !== 'function' ||
       typeof request?.safePost !== 'function' ||

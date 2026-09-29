@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { getChatgptWebThinkingEffortOverride } from '../src/services/clients/chatgpt-web/thinking.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
 
 const gatewaySource = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
 const bridgePageSource = fs.readFileSync(
@@ -20,7 +21,85 @@ function sourceBetween(source, start, end) {
   return source.slice(startIndex, endIndex)
 }
 
+function runDraftsWriteClient(content, { override = null, defaultModel = null } = {}) {
+  const requests = []
+  const draft = { content, update: vi.fn() }
+  const source = override
+    ? draftsWriteClientSource.replace(
+        'const MODEL_OVERRIDE = null',
+        `const MODEL_OVERRIDE = '${override}'`,
+      )
+    : draftsWriteClientSource
+  vm.runInNewContext(source, {
+    draft,
+    app: { displayErrorMessage: vi.fn(), displaySuccessMessage: vi.fn() },
+    HTTP: {
+      create: () => ({
+        request: (request) => {
+          requests.push(JSON.parse(JSON.stringify(request)))
+          return {
+            success: true,
+            statusCode: 200,
+            responseData: {
+              conversationId: 'conversation-1',
+              messageId: 'message-1',
+              defaultModel,
+            },
+          }
+        },
+      }),
+    },
+  })
+  return requests
+}
+
 describe('API gateway compatibility contract', () => {
+  it('uses the shared ChatGPT Web default for the standard gateway API', () => {
+    expect(gatewaySource).toContain('const DEFAULT_MODEL = CHATGPT_WEB_DEFAULT_MODEL_SLUG')
+    expect(gatewaySource).toContain(
+      'const DEFAULT_THINKING_EFFORT = CHATGPT_WEB_DEFAULT_THINKING_EFFORT',
+    )
+    expect(
+      sourceBetween(gatewaySource, 'const AVAILABLE_MODELS = [', 'const DEFAULT_MODEL ='),
+    ).toContain(`{ id: '${CHATGPT_WEB_DEFAULT_MODEL_SLUG}'`)
+  })
+
+  it('lets the gateway choose the current model for a new Drafts conversation', () => {
+    const [request] = runDraftsWriteClient('Start a conversation', {
+      defaultModel: CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+    })
+    expect(request.url).toContain('/chatgpt/conversations')
+    expect(request.data).toEqual({ query: 'Start a conversation' })
+  })
+
+  it('lets the conversation choose its model for a Drafts follow-up', () => {
+    const content = [
+      '# Existing conversation',
+      '## Waiting Reply',
+      '<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation-1","defaultModel":"gpt-5-4-thinking"} -->',
+      'Continue the conversation',
+      '<!-- chatgptbox-waiting-reply:end -->',
+    ].join('\n')
+    const [request] = runDraftsWriteClient(content)
+    expect(request.url).toContain('/chatgpt/conversations/conversation-1/messages')
+    expect(request.data).toEqual({ query: 'Continue the conversation', think: false })
+  })
+
+  it('sends an explicit Drafts model override for new conversations and follow-ups', () => {
+    const content = [
+      '## Waiting Reply',
+      '<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation-1"} -->',
+      'Continue the conversation',
+      '<!-- chatgptbox-waiting-reply:end -->',
+    ].join('\n')
+    const [createRequest] = runDraftsWriteClient('Start a conversation', {
+      override: 'gpt-6-pro',
+    })
+    const [followUpRequest] = runDraftsWriteClient(content, { override: 'gpt-6-pro' })
+    expect(createRequest.data.model).toBe('gpt-6-pro')
+    expect(followUpRequest.data.model).toBe('gpt-6-pro')
+  })
+
   it.each([
     [
       'handleChatgptConversationCreate',

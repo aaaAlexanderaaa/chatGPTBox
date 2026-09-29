@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../src/config/storage.mjs'
+import {
+  CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+} from '../src/config/limits.mjs'
 
 // getUserConfig() runs the full migration pipeline: deep-merge with defaults,
 // clamp numerics, migrate legacy ChatGPT-web model keys and removed-provider
@@ -47,6 +51,8 @@ beforeEach(() => {
 describe('getUserConfig migrations', () => {
   it('uses the current ChatGPT Web and local gateway defaults', async () => {
     const config = await getUserConfig()
+    expect(config.modelName).toBe(CHATGPT_WEB_DEFAULT_MODEL_KEY)
+    expect(config.chatgptWebEnabledModels).toEqual([CHATGPT_WEB_DEFAULT_MODEL_SLUG])
     expect(config).toMatchObject({
       modelName: 'chatgptweb/gpt-5-6-thinking',
       maxResponseTokenLength: 384000,

@@ -12,6 +12,7 @@ import {
 } from '@modelcontextprotocol/node'
 import { z } from 'zod'
 import { loadOrCreateBridgeToken, timingSafeEquals } from './lib/bridge-auth.mjs'
+import { isAllowedHost } from './lib/gateway-access.mjs'
 import {
   createConversationGateway,
   createTurnCallLimiter,
@@ -23,9 +24,13 @@ const option = (name, fallback) => {
   return index >= 0 ? process.argv[index + 1] : fallback
 }
 const port = Number(option('port', process.env.CHATGPT_MCP_PORT || 18081))
+const host = option('host', process.env.CHATGPT_MCP_HOST || '127.0.0.1')
 const gatewayPort = Number(option('gateway-port', process.env.CHATGPT_GATEWAY_PORT || 18080))
 if (![port, gatewayPort].every((value) => Number.isInteger(value) && value > 0 && value < 65536)) {
   throw new Error('Invalid MCP or API gateway port')
+}
+if (!['127.0.0.1', '0.0.0.0'].includes(host)) {
+  throw new Error('Invalid MCP host; use 127.0.0.1 or 0.0.0.0')
 }
 const tokenDir = path.join(os.homedir(), '.chatgptbox')
 const mcpTokenFile = path.join(tokenDir, 'mcp-token')
@@ -171,7 +176,14 @@ const handler = createMcpHandler(
   { responseMode: 'sse', keepAliveMs: 15_000 },
 )
 const nodeHandler = toNodeHandler(handler)
-const validateHost = localhostHostValidation()
+const validateLocalhost = localhostHostValidation()
+const validateHost = (req, res) => {
+  if (host === '127.0.0.1') return validateLocalhost(req, res)
+  if (isAllowedHost(req.headers.host, host, port)) return true
+  res.writeHead(403, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ error: 'Invalid Host header' }))
+  return false
+}
 const validateOrigin = localhostOriginValidation()
 const server = http.createServer((req, res) => {
   if (!validateHost(req, res) || !validateOrigin(req, res)) return
@@ -187,8 +199,8 @@ const server = http.createServer((req, res) => {
   void nodeHandler(req, res)
 })
 server.requestTimeout = 0
-server.listen(port, '127.0.0.1', () => {
-  console.log(`ChatGPTBox MCP: http://127.0.0.1:${port}/mcp`)
+server.listen(port, host, () => {
+  console.log(`ChatGPTBox MCP: http://${host}:${port}/mcp`)
   console.log(
     `MCP bearer token: ${mcpTokenFromFile ? mcpTokenFile : 'configured via CLI/environment'}`,
   )

@@ -5,6 +5,7 @@ import { defaultExtractor } from './extractors.mjs'
 import { clampNumericConfig } from './numeric-config.mjs'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  CHATGPT_WEB_DEFAULT_MODEL_SLUG,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
   DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
@@ -115,6 +116,8 @@ export const defaultConfig = {
   // Shared secret printed by scripts/api-server.mjs on startup; without it the
   // gateway refuses the bridge connection.
   apiServerBridgeToken: '',
+  // Separate credential for HTTP endpoints used by the bridge page itself.
+  apiServerApiToken: '',
   apiServerKeepHistory: false,
   apiServerRequestTimeoutSeconds: DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS,
   apiServerThinkingTimeoutSeconds: DEFAULT_API_SERVER_THINKING_TIMEOUT_SECONDS,
@@ -151,7 +154,7 @@ export const defaultConfig = {
   l1Providers: createDefaultL1Providers(),
   chatgptWebEnabled: true,
   grokWebEnabled: false,
-  chatgptWebEnabledModels: ['gpt-5-6-thinking'],
+  chatgptWebEnabledModels: [CHATGPT_WEB_DEFAULT_MODEL_SLUG],
   grokWebEnabledModels: [],
   showLegacyProviderNotice: false,
   showDeprecatedModels: false,
@@ -327,7 +330,7 @@ export async function getUserConfig() {
     config.l1Providers = createDefaultL1Providers()
     config.chatgptWebEnabled = true
     config.grokWebEnabled = false
-    config.chatgptWebEnabledModels = ['gpt-5-6-thinking']
+    config.chatgptWebEnabledModels = [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
     config.grokWebEnabledModels = []
     config.apiMode = null
     config.siteEngineOverrides = sanitizeSiteEngineOverrides(config.siteEngineOverrides, config)
@@ -359,7 +362,7 @@ export async function getUserConfig() {
   config.chatgptWebEnabled = config.chatgptWebEnabled !== false
   config.grokWebEnabled = config.grokWebEnabled === true
   if (!Array.isArray(config.chatgptWebEnabledModels)) {
-    config.chatgptWebEnabledModels = ['gpt-5-6-thinking']
+    config.chatgptWebEnabledModels = [CHATGPT_WEB_DEFAULT_MODEL_SLUG]
   }
   if (!Array.isArray(config.grokWebEnabledModels)) {
     config.grokWebEnabledModels = []

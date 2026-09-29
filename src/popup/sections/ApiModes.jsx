@@ -16,6 +16,7 @@ import {
   ModelGroups,
   isModelDeprecated,
 } from '../../config/models.mjs'
+import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from '../../config/limits.mjs'
 
 ApiModes.propTypes = {
   config: PropTypes.object.isRequired,
@@ -24,7 +25,7 @@ ApiModes.propTypes = {
 
 const defaultApiMode = {
   groupName: 'chatgptWebModelKeys',
-  itemName: 'chatgptweb/gpt-5-6-thinking',
+  itemName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   isCustom: false,
   displayName: '',
   customName: '',

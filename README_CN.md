@@ -251,6 +251,12 @@ ChatGPTBox 在浏览器中本地运行。仅在您配置的提供商/端点上�
 
 ## 更新日志
 
+### v4.0.3
+
+- 适配 ChatGPT 使用 Rspack 的新版网页，同时保留旧版运行时支持；补充最新已核对的网页运行时映射。
+- 增加需要身份验证的本地 MCP 桥接和轮次状态接口，并将网关 API token 与扩展 Bridge token 分开。
+- 增加 `npm run build:extension` 本机 Chromium 安装命令，修正对话时间戳排序，统一网关与 Drafts 的默认模型选择。
+
 ### v4.0.2
 
 - 适配了 ChatGPT 新的会话标准。

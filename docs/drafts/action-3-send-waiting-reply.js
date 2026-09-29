@@ -2,10 +2,9 @@
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
 const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
-// Explicit default for new conversations created by this script.
-const DEFAULT_MODEL = 'gpt-5-4-thinking'
-// Set this to a model slug like 'gpt-5-4-pro' to force all sends to use that model.
-// Leave it as null to keep using each conversation's stored default model when available.
+// Set a model slug here only when you want to force it for new conversations and replies.
+// Leave it null to use the gateway's current default for new conversations and
+// each conversation's model for replies.
 const MODEL_OVERRIDE = null
 // Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
 const INCLUDE_THINKING = false
@@ -231,10 +230,6 @@ function resolvePendingTurn(messages, anchor, conversation) {
   return { state: 'answered', index }
 }
 
-function resolveModel(defaultModel) {
-  return MODEL_OVERRIDE || defaultModel || DEFAULT_MODEL
-}
-
 function getLastMessageText(messages, role) {
   const normalizedRole = normalizeText(role).toLowerCase()
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -252,7 +247,8 @@ function renderMessages(messages) {
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
       // Prefer ChatGPT's own sentence (`Worked for 2 minutes`) when present.
-      const timing = message.thoughtDurationLabel ||
+      const timing =
+        message.thoughtDurationLabel ||
         (message.thoughtDurationText ? 'Thought: ' + message.thoughtDurationText : '')
       const heading = timing ? '### ' + role + ' (' + timing + ')' : '### ' + role
       return heading + '\n\n' + normalizeText(message.text)
@@ -448,7 +444,7 @@ try {
       'POST',
       {
         query: operation.query,
-        model: resolveModel(),
+        ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
       },
       operation.operationId,
     )
@@ -465,7 +461,7 @@ try {
         pending: true,
         asyncStatus: null,
         updateTime: sentAt,
-        defaultModel: payload.defaultModel || resolveModel(),
+        defaultModel: payload.defaultModel || MODEL_OVERRIDE || null,
         messages: [{ role: 'user', messageId: sentMessageId || null, text: operation.query }],
         thinking: [],
         message: null,
@@ -516,7 +512,7 @@ try {
         'POST',
         {
           query: waitingReply.query,
-          model: resolveModel(waitingReply.metadata.defaultModel),
+          ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
           think: INCLUDE_THINKING,
         },
         operationId,

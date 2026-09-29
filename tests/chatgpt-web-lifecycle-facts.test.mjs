@@ -390,6 +390,36 @@ describe('lifecycle claims — current behavior', () => {
       expect(saved.length).toBeGreaterThan(0)
     })
 
+    it('lists a newly created conversation ahead of 100 older ISO-dated entries', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) => {
+          const id = `older-${index}`
+          return [
+            id,
+            {
+              id,
+              updateTime: '2025-01-01T00:00:00.000Z',
+              createTime: '2025-01-01T00:00:00.000Z',
+              isArchived: false,
+              isStarred: false,
+              rawItem: { id, title: id, update_time: '2025-01-01T00:00:00.000Z' },
+            },
+          ]
+        }),
+      )
+      registerExecuteApi(async (session, port) => {
+        port.postMessage({ session: { ...session, conversationId: 'streamed-id' } })
+        port.postMessage({ done: true })
+      })
+
+      await createChatgptWebConversation({ query: 'hello' })
+      await waitForLocalCreateStub('streamed-id')
+
+      const list = await listChatgptWebConversations({ offset: 0, limit: 100 })
+      expect(list.total).toBe(101)
+      expect(list.items[0].id).toBe('streamed-id')
+    })
+
     it('returns the id even if cache writes never settle', async () => {
       storageLocal.set = async () => new Promise(() => {})
       registerExecuteApi(async (session, port) => {

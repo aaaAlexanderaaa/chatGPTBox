@@ -25,6 +25,7 @@ npm run api-server
 
 5. Copy the `Bridge token` the server prints on startup into the `Bridge token` field on the bridge page.
 6. Read the separate API token from `~/.chatgptbox/gateway-api-token` and configure your HTTP client to send `Authorization: Bearer <API token>`.
+   Paste the same API token into the bridge page's `API token` field so its Server Health and ChatGPT Conversations panels can make authenticated HTTP requests.
 7. Keep the bridge page open.
 8. Make sure the browser is logged in at `https://chatgpt.com`.
 
@@ -290,6 +291,8 @@ JSON body:
 
 - `query` or `message`
 - `model` (optional)
+
+When omitted, the extension uses its ChatGPT Web default from `src/config/limits.mjs`.
 
 Required header: `Idempotency-Key`. The Drafts client generates and persists this value before it
 sends the request, so retrying the same Drafts action does not create another conversation.

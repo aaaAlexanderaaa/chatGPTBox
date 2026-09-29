@@ -66,6 +66,8 @@ function App() {
   const [portInput, setPortInput] = useState('18080')
   const [bridgeToken, setBridgeToken] = useState('')
   const [bridgeTokenInput, setBridgeTokenInput] = useState('')
+  const [apiToken, setApiToken] = useState('')
+  const [apiTokenInput, setApiTokenInput] = useState('')
   const [status, setStatus] = useState('initializing')
   const [logs, setLogs] = useState([])
   const [requestCount, setRequestCount] = useState(0)
@@ -109,6 +111,9 @@ function App() {
       const token = config.apiServerBridgeToken || ''
       setBridgeToken(token)
       setBridgeTokenInput(token)
+      const clientToken = config.apiServerApiToken || ''
+      setApiToken(clientToken)
+      setApiTokenInput(clientToken)
       setEnabled(config.apiServerEnabled === true)
     })
   }, [])
@@ -160,18 +165,23 @@ function App() {
         ...options,
         headers: {
           ...options.headers,
-          Authorization: `Bearer ${bridgeToken}`,
+          Authorization: `Bearer ${apiToken || bridgeToken}`,
         },
       })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            'API token missing or invalid. Paste the token from ~/.chatgptbox/gateway-api-token into the API token field above and press Save.',
+          )
+        }
         throw new Error(
           data?.error?.message || `Request failed with ${response.status} ${response.statusText}`,
         )
       }
       return data
     },
-    [baseUrl, bridgeToken],
+    [baseUrl, apiToken, bridgeToken],
   )
 
   const syncBridgeConfig = useCallback(async (targetPort = proxyPort.current) => {
@@ -644,9 +654,12 @@ function App() {
     function checkHealth() {
       void syncBridgeConfig()
       fetch(`${baseUrl}/health`, {
-        headers: { Authorization: `Bearer ${bridgeToken}` },
+        headers: { Authorization: `Bearer ${apiToken || bridgeToken}` },
       })
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`Health check failed: ${r.status}`)
+          return r.json()
+        })
         .then((h) => setServerHealth(h))
         .catch(() => setServerHealth(null))
     }
@@ -670,7 +683,7 @@ function App() {
     runDiag()
     healthTimer.current = setInterval(checkHealth, HEALTH_CHECK_INTERVAL)
     return () => clearInterval(healthTimer.current)
-  }, [status, baseUrl, bridgeToken, addLog, syncBridgeConfig])
+  }, [status, baseUrl, apiToken, bridgeToken, addLog, syncBridgeConfig])
 
   // -----------------------------------------------------------------------
   // Auto-connect on mount
@@ -741,6 +754,14 @@ function App() {
     disconnect()
     if (next) scheduleReconnect()
   }, [bridgeTokenInput, port, addLog, disconnect, scheduleReconnect])
+
+  const saveApiToken = useCallback(() => {
+    const next = apiTokenInput.trim()
+    setApiToken(next)
+    setUserConfig({ apiServerApiToken: next })
+    setConversationError('')
+    addLog(next ? 'API token updated for page requests.' : 'API token cleared.')
+  }, [apiTokenInput, addLog])
 
   // -----------------------------------------------------------------------
   // Toggle enable
@@ -886,6 +907,23 @@ function App() {
             </button>
           )}
         </div>
+
+        <div className="url-row">
+          <label className="port-label">API token:</label>
+          <input
+            type="password"
+            value={apiTokenInput}
+            onChange={(e) => setApiTokenInput(e.target.value)}
+            placeholder="~/.chatgptbox/gateway-api-token"
+            className="port-input"
+            autoComplete="off"
+          />
+          {apiTokenInput.trim() !== apiToken && (
+            <button onClick={saveApiToken} className="btn-save">
+              Save
+            </button>
+          )}
+        </div>
       </section>
 
       {serverHealth && (
@@ -961,6 +999,10 @@ function App() {
             Run <code>npm run api-server{showPort ? ` -- --port ${port}` : ''}</code> in a terminal
           </li>
           <li>Copy the bridge token it prints into the field above</li>
+          <li>
+            Copy the separate API token into the API token field for health and conversation
+            requests
+          </li>
           <li>Keep this page open (it bridges the API server to ChatGPT)</li>
           <li>
             Make sure you are logged in at{' '}
@@ -975,6 +1017,7 @@ function App() {
         <details>
           <summary>Example curl command</summary>
           <pre>{`curl http://127.0.0.1:${port}/v1/chat/completions \\
+  -H "Authorization: Bearer <API token>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-5-6-thinking",
@@ -1000,13 +1043,17 @@ function App() {
               this token, so no other page can take over the channel. It is printed on startup and
               stored in <code>~/.chatgptbox/gateway-bridge-token</code>; override it with{' '}
               <code>--bridge-token &lt;token&gt;</code> or <code>CHATGPT_GATEWAY_BRIDGE_TOKEN</code>
-              . Note that it guards the bridge channel only — the gateway&apos;s completion and
-              conversation endpoints stay unauthenticated and CORS-open, so while the bridge is
-              paired any site you visit can call them. Run the gateway only while you need it.
+              . It guards the bridge connection, not ordinary API clients.
             </p>
             <p>
-              <strong>Protocol contract:</strong> Standard OpenAI-compatible requests work without
-              custom headers. Custom conversation-create and follow-up endpoints require an{' '}
+              <strong>API token:</strong> Read it from <code>~/.chatgptbox/gateway-api-token</code>{' '}
+              and paste it above for this page&apos;s Server Health and ChatGPT Conversations
+              requests. Other HTTP clients, including Drafts, must send it as{' '}
+              <code>Authorization: Bearer &lt;API token&gt;</code>. Keep it private.
+            </p>
+            <p>
+              <strong>Protocol contract:</strong> Standard OpenAI-compatible requests require an API
+              bearer token. Custom conversation-create and follow-up endpoints also require an{' '}
               <code>Idempotency-Key</code>; the Drafts client manages it automatically. The gateway
               itself never automatically re-submits an uncertain ChatGPT Web write.
             </p>

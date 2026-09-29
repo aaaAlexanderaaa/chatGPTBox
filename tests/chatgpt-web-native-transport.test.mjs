@@ -17,6 +17,9 @@ import {
 } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 
 const contract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find((entry) => entry.kind === 'rspack')
+const updatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
+  (entry) => entry.filename === '633146.681744a17f.js',
+)
 // All identities, tokens, IDs and message content below are synthetic fixtures.
 // Never replace them with values copied from a browser capture or real account.
 let page, modules, transport, events, identity
@@ -89,7 +92,10 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
-async function connect() {
+async function connect(selectedContract = contract, discovery = 'script') {
+  const runtimeUrl = `https://chatgpt.com/cdn/assets/${selectedContract.filename}`
+  document.scripts = discovery === 'preload' ? [] : [{ src: runtimeUrl }]
+  if (discovery === 'preload') document.querySelectorAll = () => [{ href: runtimeUrl }]
   const require = Object.assign((id) => modules[id], {
     m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
   })
@@ -109,6 +115,20 @@ const send = (path = '/f/conversation', options = {}) =>
   })
 
 describe('ChatGPT native page transport', () => {
+  it('uses the updated runtime transport export only for its exact release', async () => {
+    modules.xb.c = vi.fn(async () => new Response('{}'))
+    await connect(updatedContract, 'preload')
+    await (await send('/conversation/init')).text()
+    expect(modules.xb.c).toHaveBeenCalledWith(
+      '/conversation/init',
+      expect.objectContaining({ retry: 'never' }),
+      undefined,
+      expect.any(Function),
+      'request',
+    )
+    expect(modules.xb.b).not.toHaveBeenCalled()
+  })
+
   it('keeps auth and challenge tokens in MAIN and finalizes once immediately before submission', async () => {
     const context = await connect()
     expect(context).toMatchObject({

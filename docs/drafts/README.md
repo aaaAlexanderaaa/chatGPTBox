@@ -21,11 +21,14 @@ sentence on that turn's heading (`### ASSISTANT (Worked for 2 minutes 30 seconds
 rather than an estimate. If you also want the full ChatGPT
 reasoning blocks, set `INCLUDE_THINKING = true` in `action-2-open-checked-conversation.js` and
 `action-3-send-waiting-reply.js`.
-`action-3-send-waiting-reply.js` now declares its model choice explicitly:
+`action-3-send-waiting-reply.js` delegates its model choice to the gateway by default:
 
-- `DEFAULT_MODEL = 'gpt-5-4-thinking'` is the script's built-in default for new conversations.
-- `MODEL_OVERRIDE = null` means follow-up replies keep using the conversation's stored default model when one exists.
-- Set `MODEL_OVERRIDE = 'gpt-5-4-pro'` when you want this Drafts action to force GPT-5.4 Pro for both new conversations and follow-up replies.
+- `MODEL_OVERRIDE = null` omits `model` from requests. New conversations use the extension's current ChatGPT Web default; follow-up replies use the conversation's current model when available.
+- Set `MODEL_OVERRIDE` to a model slug if you want this Drafts action to force that model for both new conversations and follow-up replies.
+- The default is defined in `src/config/limits.mjs`. Updating the extension and gateway updates Drafts' default behavior without editing a copied Drafts action.
+
+If you already installed an older Action 3 in Drafts, replace its script once with the current
+`action-3-send-waiting-reply.js`; older copies still send their hardcoded model.
 
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up

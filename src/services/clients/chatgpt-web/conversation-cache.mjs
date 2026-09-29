@@ -26,12 +26,15 @@ function normalizeNullable(value) {
 }
 
 function timestampToSortableNumber(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
+  // ChatGPT list dates can be ISO strings, while local create stubs use Unix seconds.
+  const toMilliseconds = (numeric) =>
+    Math.abs(numeric) < 100_000_000_000 ? numeric * 1000 : numeric
+  if (typeof value === 'number' && Number.isFinite(value)) return toMilliseconds(value)
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return 0
     const numeric = Number(trimmed)
-    if (Number.isFinite(numeric)) return numeric
+    if (Number.isFinite(numeric)) return toMilliseconds(numeric)
     const parsed = Date.parse(trimmed)
     if (Number.isFinite(parsed)) return parsed
   }

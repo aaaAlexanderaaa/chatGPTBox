@@ -20,12 +20,55 @@ async function freePort() {
   return port
 }
 
+async function requestStatus(port, headers) {
+  return new Promise((resolve, reject) => {
+    http
+      .get({ hostname: '127.0.0.1', port, path: '/mcp', headers }, (res) => {
+        res.resume()
+        res.on('end', () => resolve(res.statusCode))
+      })
+      .on('error', reject)
+  })
+}
+
 afterAll(async () => {
   for (const child of children) child.kill()
   await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))))
 })
 
 describe('MCP HTTP conversation flow', () => {
+  it('accepts IP Host headers when explicitly bound to all IPv4 interfaces', async () => {
+    const mcpPort = await freePort()
+    const child = spawn(
+      process.execPath,
+      [mcpScript, '--host', '0.0.0.0', '--port', String(mcpPort)],
+      {
+        env: {
+          ...process.env,
+          CHATGPT_MCP_TOKEN: 'mcp-test-token',
+          CHATGPT_GATEWAY_API_TOKEN: 'gateway-test-token',
+        },
+      },
+    )
+    children.push(child)
+    await new Promise((resolve, reject) => {
+      child.stdout.on('data', (chunk) => {
+        if (String(chunk).includes(`http://0.0.0.0:${mcpPort}/mcp`)) resolve()
+      })
+      child.on('error', reject)
+      child.on('exit', (code) => reject(new Error(`MCP exited: ${code}`)))
+    })
+
+    expect(await requestStatus(mcpPort, { Host: `192.168.1.5:${mcpPort}` })).toBe(401)
+    expect(await requestStatus(mcpPort, { Host: `evil.example:${mcpPort}` })).toBe(403)
+    expect(
+      await requestStatus(mcpPort, {
+        Host: `192.168.1.5:${mcpPort}`,
+        Origin: 'http://evil.example',
+      }),
+    ).toBe(403)
+  })
+
   it('authenticates, holds a tool call, and polls only the local turn endpoint', async () => {
     let creates = 0
     let statusReads = 0

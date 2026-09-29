@@ -254,6 +254,12 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.0.3
+
+- Adapted ChatGPT Web to the native Rspack frontend while retaining legacy runtime support; added the latest verified page runtime mapping.
+- Added an authenticated local MCP bridge and local turn-status API, and separated the gateway API token from the extension bridge token.
+- Added `npm run build:extension` for local Chromium installation, corrected conversation timestamp sorting, and aligned gateway and Drafts model defaults.
+
 ### v4.0.2
 
 - Adapted ChatGPT Web to the current conversation protocol.
