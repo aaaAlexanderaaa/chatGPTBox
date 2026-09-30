@@ -63,7 +63,11 @@ export function normalizeChatgptWebConversationIndexEntry(rawItem = {}, existing
   const formatted = formatChatgptWebConversationListItem(rawItem)
   return {
     id,
-    title: formatted.title || '',
+    title: pickChatgptWebConversationTitle(
+      formatted.title,
+      existingEntry?.title,
+      existingEntry?.rawItem?.title,
+    ),
     createTime: formatted.createTime || null,
     updateTime: formatted.updateTime || null,
     asyncStatus: normalizeNullable(formatted.asyncStatus),
@@ -160,7 +164,10 @@ export function buildChatgptWebConversationListResponse(
       if (rightPrimary !== leftPrimary) return rightPrimary - leftPrimary
       return String(right?.id || '').localeCompare(String(left?.id || ''))
     })
-    .map((entry) => cloneJson(entry.rawItem || entry))
+    .map((entry) => ({
+      ...cloneJson(entry.rawItem || entry),
+      title: pickChatgptWebConversationTitle(entry.rawItem?.title, entry.title),
+    }))
 
   return {
     items: items.slice(requestedOffset, requestedOffset + requestedLimit),
@@ -495,8 +502,15 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
   const index = await getChatgptWebConversationIndex()
   const existingEntry = index[record.conversationId]
   if (existingEntry) {
+    const title = pickChatgptWebConversationTitle(
+      existingEntry.rawItem?.title,
+      existingEntry.title,
+      conversation.title,
+    )
     index[record.conversationId] = {
       ...existingEntry,
+      title,
+      ...(existingEntry.rawItem && { rawItem: { ...existingEntry.rawItem, title } }),
       pending: record.pending === true,
       asyncStatus: record.asyncStatus,
       updateTime: record.updateTime ?? existingEntry.updateTime,

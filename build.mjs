@@ -128,7 +128,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         // rehype-highlight imports `lowlight`, which must stay on the common
         // language set. Pinning the alias keeps a future lowlight major from
         // silently pulling highlight.js/lib/all into every chat surface.
-        'lowlight$': path.resolve(__dirname, 'node_modules/lowlight/lib/common.js'),
+        lowlight$: path.resolve(__dirname, 'node_modules/lowlight/lib/common.js'),
         ...(minimal
           ? { buffer: path.resolve(__dirname, 'node_modules/buffer') }
           : {
@@ -141,10 +141,10 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
       rules: [
         {
           test: /\.m?jsx?$/,
-          // executeScript serializes the native integrity function into the
+          // executeScript serializes the runtime inspection/integrity functions into the
           // page. Babel helpers live in the extension and cannot follow it.
           // MV3 browsers already support the syntax used by this module.
-          exclude: [/node_modules/, /\/chatgpt-web\/page-integrity\.mjs$/],
+          exclude: [/node_modules/, /\/chatgpt-web\/(page-integrity|runtime-inspection)\.mjs$/],
           resolve: {
             fullySpecified: false,
           },

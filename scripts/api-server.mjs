@@ -27,6 +27,10 @@ import {
   OperationLedger,
 } from './lib/operation-ledger.mjs'
 import {
+  isLegacyChatgptNotDispatchedOperation,
+  respondChatgptNotDispatched,
+} from './lib/chatgpt-write-operations.mjs'
+import {
   grokWriteOperationPath,
   matchGrokConversationRoute,
 } from './lib/grok-conversation-routes.mjs'
@@ -326,6 +330,10 @@ function beginWriteOperation(req, route, body, { requireIdempotencyKey = false }
   const fingerprintBody = { ...body }
   delete fingerprintBody.idempotency_key
   delete fingerprintBody.idempotencyKey
+  // Older builds recorded this pre-transport failure as ambiguous. It is safe
+  // to release that one proven unsent operation, including after editing a draft.
+  const previous = key && operationLedger.records.get(key)
+  if (isLegacyChatgptNotDispatchedOperation(previous)) operationLedger.abort(previous)
   return operationLedger.begin({
     key,
     fingerprint: fingerprintOperation(route, fingerprintBody),
@@ -401,13 +409,16 @@ function markOperationAmbiguous(record, error) {
 function respondForExistingOperation(
   res,
   beginResult,
-  { stream = false, completionId, model } = {},
+  { stream = false, completionId, model, control = false } = {},
 ) {
   if (beginResult.kind === 'new') return false
   const { record } = beginResult
   res.setHeader('X-Operation-Id', record.operationId)
   res.setHeader('x-should-retry', 'false')
   if (beginResult.kind === 'conflict') {
+    log(
+      `Write rejected: idempotency_key_conflict operation=${record.operationId} state=${record.state}`,
+    )
     res.writeHead(409, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify({
@@ -417,6 +428,8 @@ function respondForExistingOperation(
           code: 'idempotency_key_conflict',
           retryable: false,
           operation_id: record.operationId,
+          operation_state: record.state,
+          ...(control && record.state === 'completed' ? { operation_result: record.result } : {}),
         },
       }),
     )
@@ -481,7 +494,7 @@ function respondForControlWriteOperation(res, beginResult) {
     res.end(JSON.stringify(beginResult.error))
     return true
   }
-  return respondForExistingOperation(res, beginResult)
+  return respondForExistingOperation(res, beginResult, { control: true })
 }
 
 function getRequestTimeoutMs(model) {
@@ -1215,6 +1228,7 @@ async function handleChatgptConversationCreate(req, res) {
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (respondChatgptNotDispatched(res, operationLedger, operation, result)) return
     if (result == null || typeof result?.conversationId !== 'string' || !result.conversationId) {
       throw new Error('Conversation creation returned no conversation ID')
     }
@@ -1394,6 +1408,7 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
       },
       Math.min(60_000, bridgeRuntimeConfig.requestTimeoutMs),
     )
+    if (respondChatgptNotDispatched(res, operationLedger, operation, result)) return
     if (result == null) throw new Error('Conversation message returned no acknowledgement')
     operationLedger.complete(operation, result)
     res.writeHead(200, { 'Content-Type': 'application/json' })

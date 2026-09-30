@@ -275,6 +275,23 @@ describe('ChatGPT integrity bridge boundaries', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('marks an initial page-verification rejection as proven unsent', async () => {
+    vi.spyOn(Browser.runtime, 'sendMessage').mockResolvedValue({
+      ok: false,
+      code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+      message: 'Unsupported runtime',
+    })
+    await expect(
+      getChatgptWebPageIntegrity({
+        apiUrl: 'https://chatgpt.com',
+        apiPath: '/backend-api/f/conversation',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+      chatgptWebNotDispatched: true,
+    })
+  })
+
   it('honors cancellation while the page is still completing verification', async () => {
     vi.spyOn(Browser.runtime, 'sendMessage').mockReturnValue(new Promise(() => {}))
     const controller = new AbortController()

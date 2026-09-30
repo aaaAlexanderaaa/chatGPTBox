@@ -611,7 +611,10 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
       if (message?.error) {
         if (!acknowledged) {
           port.disconnect()
-          rejectPromise(new Error(message.error))
+          const error = new Error(message.error)
+          if (message.dispatched === false) error.chatgptWebNotDispatched = true
+          error.code = message.errorCode
+          rejectPromise(error)
           return
         }
         recordChatgptWebTurnStatus({
@@ -763,7 +766,10 @@ export async function createChatgptWebConversation(payload = {}) {
       if (message?.error) {
         if (!acknowledged) {
           port.disconnect()
-          rejectPromise(new Error(message.error))
+          const error = new Error(message.error)
+          if (message.dispatched === false) error.chatgptWebNotDispatched = true
+          error.code = message.errorCode
+          rejectPromise(error)
           return
         }
         recordChatgptWebTurnStatus({

@@ -287,7 +287,8 @@ function renderMessages(messages) {
     .map((message) => {
       const role = message.role ? message.role.toUpperCase() : 'UNKNOWN'
       // Prefer ChatGPT's own sentence (`Worked for 2 minutes`) when present.
-      const timing = message.thoughtDurationLabel ||
+      const timing =
+        message.thoughtDurationLabel ||
         (message.thoughtDurationText ? 'Thought: ' + message.thoughtDurationText : '')
       const heading = timing ? '### ' + role + ' (' + timing + ')' : '### ' + role
       return heading + '\n\n' + normalizeText(message.text)
@@ -335,6 +336,8 @@ function renderWaitingReplyBlock(conversation, draftReply, existingMetadata, anc
       : ''
   if (pendingReply && existingOperationId) {
     metadata.operationId = existingOperationId
+    if (existingMetadata.operationRequest)
+      metadata.operationRequest = existingMetadata.operationRequest
   }
   // The turn marker stays until the snapshot shows that turn answered. Whether
   // the conversation reports itself as pending is not the signal: right after a

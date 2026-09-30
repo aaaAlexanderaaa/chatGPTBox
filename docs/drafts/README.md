@@ -27,13 +27,27 @@ reasoning blocks, set `INCLUDE_THINKING = true` in `action-2-open-checked-conver
 - Set `MODEL_OVERRIDE` to a model slug if you want this Drafts action to force that model for both new conversations and follow-up replies.
 - The default is defined in `src/config/limits.mjs`. Updating the extension and gateway updates Drafts' default behavior without editing a copied Drafts action.
 
-If you already installed an older Action 3 in Drafts, replace its script once with the current
-`action-3-send-waiting-reply.js`; older copies still send their hardcoded model.
+For the September 30 recovery update, replace both Action 2 and Action 3 with the current
+scripts. Keep your existing `BASE_URL` and `API_TOKEN` values when replacing them.
+Older Action 3 copies may also still send their hardcoded model.
 
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up
 request, then reuses that ID if the action is retried after an uncertain result. No manual header or
 ID setup is required in Drafts.
+
+The saved ID also keeps the original request parameters. Retrying the same question uses those
+parameters even if model/thinking settings changed afterwards. Get preserves both the ID and
+the saved request while unsent text remains.
+
+If an edited question encounters an ID belonging to a confirmed successful send, Action 3
+recovers that original acknowledgement and leaves the edited question in Waiting Reply.
+Run Get before sending the edited question. This recovery does not dispatch a second question.
+If the previous result is still uncertain, the ID is kept and the action asks you to inspect the
+conversation. A failure explicitly marked `dispatched: false` releases the saved ID, so a later
+manual send can use the edited request. The gateway likewise releases only that proven unsent
+operation. It also repairs historical records containing the exact old runtime rejection message
+when the key is next used; timeouts and stream parsing failures remain protected.
 
 Files:
 

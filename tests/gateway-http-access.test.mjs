@@ -31,6 +31,27 @@ afterAll(() => {
 describe('API gateway HTTP access', () => {
   it('requires client auth and reflects only configured browser origins', async () => {
     const port = await freePort()
+    fs.mkdirSync(path.join(home, '.chatgptbox'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, '.chatgptbox', 'gateway-operations.json'),
+      JSON.stringify({
+        version: 1,
+        operations: [
+          {
+            key: 'legacy-runtime',
+            clientKey: 'legacy-runtime',
+            operationId: 'legacy-operation',
+            fingerprint: 'old-request',
+            state: 'ambiguous',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            result: null,
+            error:
+              'Uncaught Error: The loaded ChatGPT page runtime is not supported. Refresh the proxy tab and check for a ChatGPTBox protocol update.',
+          },
+        ],
+      }),
+    )
     child = spawn(process.execPath, [script, '--port', String(port)], {
       env: {
         ...process.env,
@@ -99,10 +120,47 @@ describe('API gateway HTTP access', () => {
     })
     expect(otherExtension.status).toBe(403)
 
+    let writeDispatches = 0
     bridge.on('message', (raw) => {
       const message = JSON.parse(String(raw))
       if (message.type === 'control_request' && message.action === 'chatgpt_web_get_turn_status') {
         bridge.send(JSON.stringify({ type: 'control_response', id: message.id, data: null }))
+      }
+      if (
+        message.type === 'control_request' &&
+        message.action === 'chatgpt_web_create_conversation'
+      ) {
+        writeDispatches += 1
+        const query = message.payload.query
+        if (query === 'unsent') {
+          bridge.send(
+            JSON.stringify({
+              type: 'control_response',
+              id: message.id,
+              data: {
+                dispatched: false,
+                error: 'Unsupported runtime',
+                code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+              },
+            }),
+          )
+        } else if (query === 'uncertain') {
+          bridge.send(
+            JSON.stringify({
+              type: 'control_error',
+              id: message.id,
+              error: 'Acknowledgement lost',
+            }),
+          )
+        } else {
+          bridge.send(
+            JSON.stringify({
+              type: 'control_response',
+              id: message.id,
+              data: { conversationId: 'conversation-1', messageId: 'message-1', query },
+            }),
+          )
+        }
       }
     })
     const missing = await fetch(
@@ -113,6 +171,40 @@ describe('API gateway HTTP access', () => {
     expect(await missing.json()).toMatchObject({
       error: { code: 'turn_status_not_found', retryable: false },
     })
+
+    const write = (key, query) =>
+      fetch(`http://127.0.0.1:${port}/chatgpt/conversations`, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer api-test-token',
+          'Content-Type': 'application/json',
+          'Idempotency-Key': key,
+        },
+        body: JSON.stringify({ query }),
+      })
+    const unsent = await write('draft-unsent', 'unsent')
+    expect(unsent.status).toBe(503)
+    expect(await unsent.json()).toMatchObject({ error: { dispatched: false, retryable: false } })
+    expect((await write('draft-unsent', 'edited')).status).toBe(200)
+    const conflict = await write('draft-unsent', 'edited again')
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({
+      error: {
+        code: 'idempotency_key_conflict',
+        operation_state: 'completed',
+        operation_result: { query: 'edited', messageId: 'message-1' },
+      },
+    })
+    expect(writeDispatches).toBe(2)
+
+    const ambiguous = await write('draft-uncertain', 'uncertain')
+    expect(ambiguous.status).toBe(409)
+    expect(await ambiguous.json()).toMatchObject({ error: { code: 'ambiguous_dispatch' } })
+    expect((await write('draft-uncertain', 'edited')).status).toBe(409)
+    expect(writeDispatches).toBe(3)
+
+    expect((await write('legacy-runtime', 'edited legacy request')).status).toBe(200)
+    expect(writeDispatches).toBe(4)
     bridge.close()
   }, 30_000)
 })

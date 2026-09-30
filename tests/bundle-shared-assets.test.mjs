@@ -32,7 +32,7 @@ describe('production bundle sharing invariants', () => {
   it('pins lowlight to the common language set', () => {
     const build = read('build.mjs')
     expect(build).toMatch(
-      /(['"])lowlight\$\1:\s*path\.resolve\(__dirname,\s*'node_modules\/lowlight\/lib\/common\.js'\)/,
+      /(?:lowlight\$|(['"])lowlight\$\1):\s*path\.resolve\(__dirname,\s*'node_modules\/lowlight\/lib\/common\.js'\)/,
     )
   })
 

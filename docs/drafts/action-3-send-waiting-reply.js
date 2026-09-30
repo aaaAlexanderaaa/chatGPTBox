@@ -11,7 +11,7 @@ const INCLUDE_THINKING = false
 const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
 const WAITING_REPLY_END = '<!-- chatgptbox-waiting-reply:end -->'
 const WAITING_REPLY_HEADING = '## Waiting Reply'
-const NEW_OPERATION_RE = /\n?<!-- chatgptbox-new-operation:([^ ]+) -->\s*$/
+const NEW_OPERATION_RE = /\n?<!-- chatgptbox-new-operation:([^ ]+)(?: (\{.*\}))? -->\s*$/
 const USER_HEADING_RE = /^### USER\s*$/gm
 const PENDING_ANSWER_HEADING = '### ASSISTANT (pending)'
 const PENDING_ANSWER_HEADING_RE = /^### ASSISTANT \(pending\)\s*$/gm
@@ -49,6 +49,33 @@ function requestJson(url, method, body, idempotencyKey) {
     response.error ||
     'HTTP request failed'
 
+  const conflict = payload.error
+  if (response.statusCode === 409 && conflict && conflict.code === 'idempotency_key_conflict') {
+    const receipt = conflict.operation_result
+    if (
+      conflict.operation_state === 'completed' &&
+      receipt &&
+      typeof receipt.conversationId === 'string' &&
+      receipt.conversationId.trim() &&
+      typeof receipt.messageId === 'string' &&
+      receipt.messageId.trim() &&
+      typeof receipt.query === 'string' &&
+      receipt.query.trim()
+    ) {
+      // Recover the already accepted turn. The edited question is kept locally;
+      // this action must not silently send it with a fresh operation ID.
+      return { ...receipt, recoveredOperation: true }
+    }
+    fail(
+      'The previous send has a different request and its result is not confirmed. ' +
+        'Run Get and check the conversation before sending again. The saved send ID was kept.',
+    )
+  }
+
+  if (conflict && conflict.dispatched === false && idempotencyKey) {
+    clearDraftOperation(idempotencyKey)
+  }
+
   if (!response.success) {
     fail(serverMessage)
   }
@@ -69,22 +96,60 @@ function makeOperationId() {
   )
 }
 
-function prepareNewConversationOperation(content) {
+function clearDraftOperation(operationId) {
+  const content = draft.content || ''
+  const match = content.match(NEW_OPERATION_RE)
+  if (match && match[1] === operationId) {
+    draft.content = content.replace(NEW_OPERATION_RE, '').trim() + '\n'
+    draft.update()
+    return
+  }
+  const waitingReply = findWaitingReply(content)
+  if (!waitingReply || waitingReply.metadata.operationId !== operationId) return
+  const metadata = { ...waitingReply.metadata }
+  delete metadata.operationId
+  delete metadata.operationRequest
+  draft.content = content.replace(
+    WAITING_REPLY_START_RE,
+    '<!-- chatgptbox-waiting-reply:start ' + JSON.stringify(metadata) + ' -->',
+  )
+  draft.update()
+}
+
+function prepareNewConversationOperation(content, requestBody) {
   const match = content.match(NEW_OPERATION_RE)
   if (match) {
-    return { query: content.replace(NEW_OPERATION_RE, '').trim(), operationId: match[1] }
+    let originalRequest
+    try {
+      originalRequest = match[2] ? JSON.parse(match[2]) : null
+    } catch {
+      fail('Saved send request is invalid JSON')
+    }
+    return {
+      operationId: match[1],
+      requestBody:
+        originalRequest && originalRequest.query === requestBody.query
+          ? originalRequest
+          : requestBody,
+    }
   }
 
   const operationId = makeOperationId()
-  draft.content = content.trim() + '\n\n<!-- chatgptbox-new-operation:' + operationId + ' -->\n'
+  draft.content =
+    content.trim() +
+    '\n\n<!-- chatgptbox-new-operation:' +
+    operationId +
+    ' ' +
+    JSON.stringify(requestBody) +
+    ' -->\n'
   draft.update()
-  return { query: content.trim(), operationId }
+  return { operationId, requestBody }
 }
 
-function persistWaitingReplyOperation(content, waitingReply) {
+function persistWaitingReplyOperation(content, waitingReply, requestBody) {
   if (waitingReply.metadata.operationId) return waitingReply.metadata.operationId
   const operationId = makeOperationId()
-  const nextMetadata = { ...waitingReply.metadata, operationId }
+  const nextMetadata = { ...waitingReply.metadata, operationId, operationRequest: requestBody }
   draft.content = content.replace(
     WAITING_REPLY_START_RE,
     '<!-- chatgptbox-waiting-reply:start ' + JSON.stringify(nextMetadata) + ' -->',
@@ -92,6 +157,15 @@ function persistWaitingReplyOperation(content, waitingReply) {
   draft.update()
   waitingReply.metadata = nextMetadata
   return operationId
+}
+
+function retainEditedQuestion(content, query) {
+  if (!query) return content
+  const match = content.match(WAITING_REPLY_START_RE)
+  const start = match && content.indexOf(match[0]) + match[0].length
+  const end = match && content.indexOf(WAITING_REPLY_END, start)
+  if (!match || end < 0) fail('Waiting reply block is missing')
+  return content.slice(0, start) + '\n' + query + '\n' + content.slice(end)
 }
 
 function findWaitingReply(content) {
@@ -438,14 +512,15 @@ try {
       fail('Write the note content first')
     }
 
-    const operation = prepareNewConversationOperation(noteContent)
+    const query = noteContent.replace(NEW_OPERATION_RE, '').trim()
+    const operation = prepareNewConversationOperation(noteContent, {
+      query,
+      ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
+    })
     const payload = requestJson(
       BASE_URL + '/chatgpt/conversations',
       'POST',
-      {
-        query: operation.query,
-        ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
-      },
+      operation.requestBody,
       operation.operationId,
     )
     // The note becomes a one-turn transcript with a pending placeholder, the same
@@ -454,6 +529,8 @@ try {
     // ChatGPT message id and must not be stored as one.
     const sentMessageId = typeof payload.messageId === 'string' ? payload.messageId : ''
     const sentAt = payload.createdAt || new Date().toISOString()
+    const sentQuery = payload.recoveredOperation ? payload.query : operation.requestBody.query
+    const editedQuery = payload.recoveredOperation && sentQuery !== query ? query : ''
     draft.content = renderConversation(
       {
         title: 'Pending Conversation',
@@ -462,16 +539,19 @@ try {
         asyncStatus: null,
         updateTime: sentAt,
         defaultModel: payload.defaultModel || MODEL_OVERRIDE || null,
-        messages: [{ role: 'user', messageId: sentMessageId || null, text: operation.query }],
+        messages: [{ role: 'user', messageId: sentMessageId || null, text: sentQuery }],
         thinking: [],
         message: null,
         query: '',
       },
-      { messageId: sentMessageId, sentAt, query: operation.query },
+      { messageId: sentMessageId, sentAt, query: sentQuery },
     )
+    draft.content = retainEditedQuestion(draft.content, editedQuery)
     draft.update()
     app.displaySuccessMessage(
-      'Created conversation ' + payload.conversationId + '. Run Get to collect the answer.',
+      (payload.recoveredOperation ? 'Recovered the previous send to ' : 'Created conversation ') +
+        payload.conversationId +
+        '. Run Get to collect the answer before sending any edited question.',
     )
   } else {
     const conversationId = waitingReply.metadata.conversationId
@@ -506,26 +586,48 @@ try {
           (stillWaiting ? '. Still waiting for the answer; run Get again later.' : ''),
       )
     } else {
-      const operationId = persistWaitingReplyOperation(draft.content || '', waitingReply)
+      const currentRequest = {
+        query: waitingReply.query,
+        ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
+        think: INCLUDE_THINKING,
+      }
+      const operationId = persistWaitingReplyOperation(
+        draft.content || '',
+        waitingReply,
+        currentRequest,
+      )
+      const savedRequest = waitingReply.metadata.operationRequest
+      const requestBody =
+        savedRequest && savedRequest.query === waitingReply.query ? savedRequest : currentRequest
       const payload = requestJson(
         BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(conversationId) + '/messages',
         'POST',
-        {
-          query: waitingReply.query,
-          ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
-          think: INCLUDE_THINKING,
-        },
+        requestBody,
         operationId,
       )
 
       // The Drafts idempotency key is not a ChatGPT message id; without a real id
       // from the gateway, Get falls back to matching the question text.
-      draft.content = recordSentTurn(draft.content || '', waitingReply, {
-        messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
-        sentAt: payload.createdAt || new Date().toISOString(),
-      })
+      if (payload.conversationId && payload.conversationId !== conversationId)
+        fail('The saved send belongs to another conversation. Run Get before sending again.')
+      const sentQuery = payload.recoveredOperation ? payload.query : waitingReply.query
+      const editedQuery =
+        payload.recoveredOperation && sentQuery !== waitingReply.query ? waitingReply.query : ''
+      draft.content = recordSentTurn(
+        draft.content || '',
+        { ...waitingReply, query: sentQuery },
+        {
+          messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
+          sentAt: payload.createdAt || new Date().toISOString(),
+        },
+      )
+      draft.content = retainEditedQuestion(draft.content, editedQuery)
       draft.update()
-      app.displaySuccessMessage('Sent to ' + conversationId + '. Run Get to collect the answer.')
+      app.displaySuccessMessage(
+        (payload.recoveredOperation ? 'Recovered the previous send to ' : 'Sent to ') +
+          conversationId +
+          '. Run Get to collect the answer before sending any edited question.',
+      )
     }
   }
 } catch (error) {

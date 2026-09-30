@@ -33,6 +33,10 @@ export async function getChatGptAccessToken() {
 
 export function handlePortError(session, port, err) {
   console.error(err)
+  if (err.chatgptWebNotDispatched === true) {
+    port.postMessage({ error: err.message, errorCode: err.code, dispatched: false })
+    return
+  }
   if (err.message) {
     if (!err.message.includes('aborted')) {
       if (

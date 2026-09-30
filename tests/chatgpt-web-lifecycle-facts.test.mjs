@@ -220,6 +220,20 @@ describe('lifecycle claims — current behavior', () => {
   })
 
   describe('createChatgptWebConversation', () => {
+    it('preserves a proven pre-transport failure through the in-memory port', async () => {
+      registerExecuteApi(async (_session, port) => {
+        port.postMessage({
+          error: 'Unsupported runtime',
+          errorCode: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+          dispatched: false,
+        })
+      })
+      await expect(createChatgptWebConversation({ query: 'hello' })).rejects.toMatchObject({
+        message: 'Unsupported runtime',
+        code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+        chatgptWebNotDispatched: true,
+      })
+    })
     it('keeps interim text running until the final done event', async () => {
       let finish
       registerExecuteApi(async (session, port) => {
@@ -603,6 +617,53 @@ describe('lifecycle claims — current behavior', () => {
       })
 
       expect(result.title).toBe('Plan the weekend')
+    })
+
+    it('repairs an old list placeholder from a cached detail title without contacting ChatGPT', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'old-title': {
+          id: 'old-title',
+          title: 'new chat',
+          rawItem: { id: 'old-title', title: 'new chat' },
+          isArchived: false,
+          isStarred: false,
+        },
+      }
+      storageData['chatgptWebConversationSnapshot:old-title'] = {
+        conversationId: 'old-title',
+        snapshot: { conversation_id: 'old-title', title: 'Generated title', mapping: {} },
+      }
+      const result = await listChatgptWebConversations({ limit: 2 })
+      expect(result.items[0].title).toBe('Generated title')
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('saves generated detail titles into both list title fields and preserves them against placeholders', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'new-title': {
+          id: 'new-title',
+          title: 'new chat',
+          rawItem: { id: 'new-title', title: 'new chat' },
+          isArchived: false,
+          isStarred: false,
+        },
+      }
+      await saveChatgptWebConversationSnapshot({
+        conversation_id: 'new-title',
+        title: 'Generated title',
+        mapping: {},
+        async_status: null,
+      })
+      const entry = (await getChatgptWebConversationIndex())['new-title']
+      expect(entry.title).toBe('Generated title')
+      expect(entry.rawItem.title).toBe('Generated title')
+      await saveChatgptWebConversationSnapshot({
+        conversation_id: 'new-title',
+        title: 'New Chat',
+        mapping: {},
+        async_status: null,
+      })
+      expect((await listChatgptWebConversations()).items[0].title).toBe('Generated title')
     })
 
     it('softens access-denied on get the same way as refresh', async () => {

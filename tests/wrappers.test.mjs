@@ -103,6 +103,21 @@ describe('createPendingProxyCancellation', () => {
 })
 
 describe('handlePortError', () => {
+  it('preserves a proven unsent verification failure and leaves other errors unclassified', () => {
+    const port = { postMessage: vi.fn() }
+    const error = Object.assign(new Error('Verification failed'), {
+      code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+      chatgptWebNotDispatched: true,
+    })
+    handlePortError({}, port, error)
+    expect(port.postMessage).toHaveBeenLastCalledWith({
+      error: error.message,
+      errorCode: error.code,
+      dispatched: false,
+    })
+    handlePortError({}, port, new Error('Acknowledgement lost'))
+    expect(port.postMessage).toHaveBeenLastCalledWith({ error: 'Acknowledgement lost' })
+  })
   it('maps captcha failures to a Bing-free key', () => {
     const port = fakePort()
     handlePortError({}, port, new Error('CaptchaChallenge from provider'))

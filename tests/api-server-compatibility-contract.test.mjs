@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { getChatgptWebThinkingEffortOverride } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
+import { respondChatgptNotDispatched } from '../scripts/lib/chatgpt-write-operations.mjs'
 
 const gatewaySource = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
 const bridgePageSource = fs.readFileSync(
@@ -132,6 +133,7 @@ describe('API gateway compatibility contract', () => {
           sendControlRequestToBridge: send,
           bridgeRuntimeConfig: { requestTimeoutMs: 60_000 },
           operationLedger: { complete() {} },
+          respondChatgptNotDispatched,
         },
       )
       const res = { setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn() }
@@ -206,11 +208,8 @@ describe('API gateway compatibility contract', () => {
   })
 
   it('implements the custom conversation idempotency contract in the Drafts client', () => {
-    expect(draftsWriteClientSource).toContain("'Idempotency-Key': idempotencyKey")
-    expect(draftsWriteClientSource).toContain('prepareNewConversationOperation(noteContent)')
-    expect(draftsWriteClientSource).toContain(
-      "persistWaitingReplyOperation(draft.content || '', waitingReply)",
-    )
+    const [request] = runDraftsWriteClient('Start a conversation')
+    expect(request.headers['Idempotency-Key']).toMatch(/^drafts-/)
   })
 
   it('only retries read-only bridge control actions', () => {

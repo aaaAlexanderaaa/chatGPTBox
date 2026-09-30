@@ -43,6 +43,7 @@
     "@mozilla/readability": "^0.6.0",
     "@nem035/gpt-3-encoder": "^1.1.7",
     "@primer/octicons-react": "^18.3.0",
+    "acorn": "8.16.0",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "countries-list": "^2.6.1",

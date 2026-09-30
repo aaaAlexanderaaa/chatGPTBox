@@ -95,17 +95,20 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
-async function connect(selectedContract = contract, discovery = 'script') {
+async function connect(
+  selectedContract = contract,
+  discovery = 'script',
+  contracts = CHATGPT_WEB_INTEGRITY_RUNTIMES,
+) {
   const runtimeUrl = `https://chatgpt.com/cdn/assets/${selectedContract.filename}`
   document.scripts = discovery === 'preload' ? [] : [{ src: runtimeUrl }]
   if (discovery === 'preload') document.querySelectorAll = () => [{ href: runtimeUrl }]
   const require = Object.assign((id) => modules[id], {
     m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
   })
-  const context = await getChatgptWebPageIntegrityInPage(
-    CHATGPT_WEB_INTEGRITY_RUNTIMES,
-    async () => ({ __webpack_require__: require }),
-  )
+  const context = await getChatgptWebPageIntegrityInPage(contracts, async () => ({
+    __webpack_require__: require,
+  }))
   expect(context.ok).toBe(true)
   transport = createChatgptWebPageTransport(context)
   return context
@@ -118,6 +121,49 @@ const send = (path = '/f/conversation', options = {}) =>
   })
 
 describe('ChatGPT native page transport', () => {
+  it('preflights an automatically verified release with a read-only request and no challenge or question', async () => {
+    modules.xb.b.mockResolvedValue(
+      new Response('{"models":[]}', { headers: { 'content-type': 'application/json' } }),
+    )
+    const dynamic = {
+      ...contract,
+      filename: '633146.unknown-hash.js',
+      capabilityCheck: {
+        fetchSource: Function.prototype.toString.call(modules.xb.b),
+        prepareSource: Function.prototype.toString.call(modules.n9O.f),
+        headersSource: Function.prototype.toString.call(modules.n9O.b),
+        preflight: true,
+      },
+    }
+    await connect(dynamic, 'preload', [dynamic])
+    expect(modules.xb.b).toHaveBeenCalledTimes(1)
+    expect(modules.xb.b).toHaveBeenCalledWith(
+      '/models',
+      expect.objectContaining({ method: 'GET', retry: 'never' }),
+      undefined,
+      expect.any(Function),
+      'request',
+    )
+    expect(modules.n9O.f).not.toHaveBeenCalled()
+    expect(modules.k29.Request.safePost).not.toHaveBeenCalled()
+  })
+
+  it('rejects a function changed between discovery and connection before reading account state or sending', async () => {
+    const dynamic = {
+      ...contract,
+      capabilityCheck: { fetchSource: 'different function', prepareSource: '', headersSource: '' },
+    }
+    const require = Object.assign((id) => modules[id], {
+      m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
+    })
+    expect(
+      await getChatgptWebPageIntegrityInPage([dynamic], async () => ({
+        __webpack_require__: require,
+      })),
+    ).toMatchObject({ ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' })
+    expect(modules.OS.loadBrowserChatGptAuth).not.toHaveBeenCalled()
+    expect(modules.xb.b).not.toHaveBeenCalled()
+  })
   it('uses the updated runtime transport export only for its exact release', async () => {
     modules.xb.c = vi.fn(async () => new Response('{}'))
     await connect(updatedContract, 'preload')

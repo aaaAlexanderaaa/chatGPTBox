@@ -49,6 +49,15 @@ import { getChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-st
 // settings-card diagnose) with an instant undefined. Membership comes from
 // this table, so it cannot drift from the handlers.
 export function createMessageRouter() {
+  const controlWrite = async (write, payload) => {
+    try {
+      return await write(payload)
+    } catch (error) {
+      if (error.chatgptWebNotDispatched === true)
+        return { dispatched: false, error: error.message, code: error.code }
+      throw error
+    }
+  }
   const routedHandlers = {
     [RuntimeMessage.ChatgptWebPageIntegrity]: (_message, sender) =>
       getChatgptWebPageIntegrityForSender(sender),
@@ -182,9 +191,9 @@ export function createMessageRouter() {
     [RuntimeMessage.ChatgptWebRefreshConversation]: (message) =>
       refreshChatgptWebConversationWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebSendConversationMessage]: (message) =>
-      sendChatgptWebConversationMessageThroughProxy(message.data || {}),
+      controlWrite(sendChatgptWebConversationMessageThroughProxy, message.data || {}),
     [RuntimeMessage.ChatgptWebCreateConversation]: (message) =>
-      createChatgptWebConversation(message.data || {}),
+      controlWrite(createChatgptWebConversation, message.data || {}),
     [RuntimeMessage.ChatgptWebSyncConversations]: (message) =>
       syncChatgptWebConversationCacheWithFallback({
         includeArchived: message?.data?.includeArchived === true,

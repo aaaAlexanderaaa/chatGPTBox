@@ -33,6 +33,8 @@ import {
   formatChatgptWebConversationSnapshot,
   isPendingChatgptWebConversation,
   selectChatgptWebRefreshResult,
+  isPlaceholderChatgptWebConversationTitle,
+  pickChatgptWebConversationTitle,
 } from './conversation-state.mjs'
 import { applyResumePatch, consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
 import { buildChatgptWebConversationHeaders } from './request-wire.mjs'
@@ -806,7 +808,7 @@ export async function listChatgptWebConversations({
     }
   }
 
-  return buildChatgptWebConversationListResponse(
+  const result = buildChatgptWebConversationListResponse(
     index,
     {
       offset,
@@ -817,6 +819,16 @@ export async function listChatgptWebConversations({
     },
     meta,
   )
+  // Old caches may already contain a generated detail title while the list still
+  // contains a create placeholder. Repair the response using local records only.
+  await Promise.all(
+    result.items.map(async (item) => {
+      if (!isPlaceholderChatgptWebConversationTitle(item.title)) return
+      const record = await getCachedChatgptWebConversationRecord(item.id || item.conversation_id)
+      item.title = pickChatgptWebConversationTitle(record?.snapshot?.title, item.title)
+    }),
+  )
+  return result
 }
 
 export async function getChatgptWebConversation({

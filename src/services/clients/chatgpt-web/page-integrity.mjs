@@ -2,8 +2,8 @@ import Browser from 'webextension-polyfill'
 import { RuntimeMessage } from '../../../protocol/messages.mjs'
 import runtimeContracts from '../../../../resources/chatgpt-web/integrity/runtime-contracts.json'
 
-// These exports belong to this exact reference bundle. Do not apply minified
-// export names to an unknown release, or download a stale bundle into the page.
+// Known mappings are a fast path. The background can also supply a mapping
+// discovered from this page's public module code and verified by capabilities.
 export const CHATGPT_WEB_INTEGRITY_RUNTIMES = Object.freeze(
   runtimeContracts.map((contract) => Object.freeze(contract)),
 )
@@ -30,6 +30,7 @@ export async function getChatgptWebPageIntegrityInPage(
       ...[...document.querySelectorAll('link[rel="modulepreload"]')].map((node) => node.href),
       ...performance.getEntriesByType('resource').map((entry) => entry.name),
     ]
+    const seenRuntimeUrls = new Set()
     const candidates = [...new Set(urls)].flatMap((raw) => {
       try {
         const url = new URL(raw)
@@ -45,7 +46,9 @@ export async function getChatgptWebPageIntegrityInPage(
         const contract = contracts.find((entry) =>
           url.pathname.endsWith(`/assets/${entry.filename}`),
         )
-        return contract ? [{ url: raw, contract }] : []
+        if (!contract || seenRuntimeUrls.has(url.origin + url.pathname)) return []
+        seenRuntimeUrls.add(url.origin + url.pathname)
+        return [{ url: raw, contract }]
       } catch {
         return []
       }
@@ -161,6 +164,8 @@ export async function getChatgptWebPageIntegrityInPage(
     const request = require(contract.requestModule).Request
     const auth = require(contract.authModule)
     const integrity = require(contract.integrityModule)
+    const prepareIntegrity = integrity[contract.integrityPrepareExport || 'f']
+    const makeIntegrityHeaders = integrity[contract.integrityHeadersExport || 'b']
     const nativeFetch = require(contract.fetchModule)[contract.fetchExport || 'b']
     if (
       typeof request?.getRequestTarget !== 'function' ||
@@ -168,8 +173,8 @@ export async function getChatgptWebPageIntegrityInPage(
       typeof auth.loadBrowserChatGptAuth !== 'function' ||
       typeof auth.getBrowserChatGptAuthSnapshot !== 'function' ||
       typeof auth.isSameBrowserRequestAuthContext !== 'function' ||
-      typeof integrity.f !== 'function' ||
-      typeof integrity.b !== 'function' ||
+      typeof prepareIntegrity !== 'function' ||
+      typeof makeIntegrityHeaders !== 'function' ||
       typeof nativeFetch !== 'function'
     ) {
       return failure(
@@ -177,6 +182,17 @@ export async function getChatgptWebPageIntegrityInPage(
         'The ChatGPT native transport API has changed.',
       )
     }
+    const check = contract.capabilityCheck
+    if (
+      check &&
+      (Function.prototype.toString.call(nativeFetch) !== check.fetchSource ||
+        Function.prototype.toString.call(prepareIntegrity) !== check.prepareSource ||
+        Function.prototype.toString.call(makeIntegrityHeaders) !== check.headersSource)
+    )
+      return failure(
+        'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+        'The ChatGPT transport changed during capability verification. Reload the proxy tab.',
+      )
     const identity = await auth.loadBrowserChatGptAuth()
     checkDeadline()
     if (!identity?.accessToken || !identity.userId || !identity.accountId) {
@@ -196,6 +212,61 @@ export async function getChatgptWebPageIntegrityInPage(
       }
     }
     assertCurrent()
+    if (check?.preflight) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 12000)
+      try {
+        const target = request.getRequestTarget('/models', {
+          additionalHeaders: { 'ChatGPT-Account-ID': identity.accountId },
+        })
+        const response = await nativeFetch(
+          target.url,
+          {
+            method: 'GET',
+            headers: target.headers,
+            signal: controller.signal,
+            expectedIdentity: { accountId: identity.accountId, userId: identity.userId },
+            retry: 'never',
+          },
+          undefined,
+          assertCurrent,
+          'request',
+        )
+        assertCurrent()
+        checkDeadline()
+        if (response?.status === 401)
+          return failure('UNAUTHORIZED', 'Sign in to ChatGPT in the proxy tab first.')
+        if (
+          typeof response?.headers?.get !== 'function' ||
+          typeof response?.json !== 'function' ||
+          (response.body && typeof response.body.getReader !== 'function')
+        )
+          return failure(
+            'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+            'ChatGPT native transport did not return an HTTP response.',
+          )
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => {})
+          return failure(
+            'CHATGPT_WEB_INTEGRITY_FAILED',
+            `ChatGPT read-only transport check failed (${response.status}). No question was submitted.`,
+          )
+        }
+        const models = await response.json()
+        if (
+          !models ||
+          !['models', 'categories', 'versions'].some((key) => Array.isArray(models[key]))
+        )
+          return failure(
+            'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+            'ChatGPT model catalog has an unsupported response format.',
+          )
+        assertCurrent()
+      } finally {
+        clearTimeout(timeout)
+        controller.abort()
+      }
+    }
     const channel = crypto.randomUUID()
     const active = new Map()
     let submitted = false
@@ -226,7 +297,7 @@ export async function getChatgptWebPageIntegrityInPage(
         retry: 'never',
         additionalHeaders: { 'ChatGPT-Account-ID': identity.accountId },
       }
-      const prepared = await integrity.f((p) =>
+      const prepared = await prepareIntegrity((p) =>
         request.safePost('/sentinel/chat-requirements/prepare', {
           ...options,
           requestBody: { p },
@@ -257,7 +328,11 @@ export async function getChatgptWebPageIntegrityInPage(
       assertCurrent()
       if (!isToken(finalized?.token) || finalized.force_login)
         throw new Error('ChatGPT browser verification was not finalized.')
-      return integrity.b({ ...req, ...finalized }, prepared.proofToken, prepared.turnstileToken)
+      return makeIntegrityHeaders(
+        { ...req, ...finalized },
+        prepared.proofToken,
+        prepared.turnstileToken,
+      )
     }
     async function receive(event) {
       const message = event.data
@@ -452,6 +527,9 @@ export async function getChatgptWebPageIntegrity({ signal, apiUrl, apiPath }) {
           'ChatGPT page verification is unavailable. Reload the extension and proxy tab.',
       )
       error.code = result?.code || 'CHATGPT_WEB_INTEGRITY_UNAVAILABLE'
+      // The transport channel has not been opened, so no question can have left
+      // this document. Preserve this fact through the bridge's error messages.
+      error.chatgptWebNotDispatched = true
       throw error
     }
     return result
