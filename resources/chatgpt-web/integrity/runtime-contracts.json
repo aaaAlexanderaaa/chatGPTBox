@@ -33,5 +33,15 @@
     "integrityModule": "n9O",
     "fetchModule": "xb",
     "fetchExport": "c"
+  },
+  {
+    "filename": "633146.36cd53e1c6.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "k29",
+    "authModule": "OS",
+    "integrityModule": "n9O",
+    "fetchModule": "Wk",
+    "fetchExport": "c"
   }
 ]

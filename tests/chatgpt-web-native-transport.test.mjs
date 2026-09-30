@@ -20,6 +20,9 @@ const contract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find((entry) => entry.kind === '
 const updatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
   (entry) => entry.filename === '633146.681744a17f.js',
 )
+const relocatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
+  (entry) => entry.filename === '633146.36cd53e1c6.js',
+)
 // All identities, tokens, IDs and message content below are synthetic fixtures.
 // Never replace them with values copied from a browser capture or real account.
 let page, modules, transport, events, identity
@@ -127,6 +130,22 @@ describe('ChatGPT native page transport', () => {
       'request',
     )
     expect(modules.xb.b).not.toHaveBeenCalled()
+  })
+
+  it('uses the relocated network module without calling the old module for the new release', async () => {
+    modules.xb.c = vi.fn(async () => new Response('wrong module'))
+    modules.Wk = { c: vi.fn(async () => new Response('{}')) }
+    await connect(relocatedContract, 'preload')
+    await (await send('/conversation/init')).text()
+    expect(modules.Wk.c).toHaveBeenCalledWith(
+      '/conversation/init',
+      expect.objectContaining({ retry: 'never' }),
+      undefined,
+      expect.any(Function),
+      'request',
+    )
+    expect(modules.xb.b).not.toHaveBeenCalled()
+    expect(modules.xb.c).not.toHaveBeenCalled()
   })
 
   it('keeps auth and challenge tokens in MAIN and finalizes once immediately before submission', async () => {
