@@ -254,6 +254,14 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.1.0
+
+- Added GPT-6 Chat model support and made GPT-6 Thinking the default for new conversations; aligned model and thinking-effort handling across the extension, gateway, and Drafts.
+- Render supported ChatGPT native visual answers as portable HTML, including cards, grids, tables, and safe citation links, with Markdown fallback for unsupported layouts.
+- Fixed long-answer recovery to select the completed merged answer from the same turn, preserve the continuation message, and avoid sending the user's question again. Gateway SSE keeps the connection alive and emits the complete answer after final metadata arrives.
+- Added the repository's `chatgpt-web-adapt` maintenance skill with compatibility checks and deployment guidance. This is a development skill, separate from runtime skills under `Agents -> Skills`.
+- Includes the previously unreleased v4.0.3 improvements: native Rspack compatibility, an authenticated local MCP bridge and turn-status API, separate gateway/bridge tokens, and `npm run build:extension` for local Chromium installation.
+
 ### v4.0.3
 
 - Adapted ChatGPT Web to the native Rspack frontend while retaining legacy runtime support; added the latest verified page runtime mapping.

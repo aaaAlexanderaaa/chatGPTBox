@@ -73,7 +73,7 @@ OpenAI-compatible chat completions endpoint.
 - Supports `stream: true` and `stream: false`
 - Works with standard OpenAI clients using their API-key/Bearer-token setting
 - Requires a non-empty `messages` array
-- Defaults to model `gpt-5-6-thinking` with `max` thinking effort if `model` and effort are omitted. Chat GPT-6 Pro is `gpt-6-pro` (quota-limited); Work / TPP uses `gpt-6-astra-wm` and other `*-wm` slugs.
+- Defaults to model `gpt-6-thinking` with `xhigh` thinking effort (sent as `max` for Chat Thinking) if `model` and effort are omitted. Explicit per-request overrides are preserved. Chat GPT-6 Pro is `gpt-6-pro` (quota-limited); Work / TPP uses `gpt-6-astra-wm` and other `*-wm` slugs.
 - Accepts `reasoning_effort` or `thinking_effort` per request with `min`, `standard`, `extended`, `xhigh`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
 - Any model slug is passed through directly to ChatGPT's backend, including `auto` (which enables web search) and new model slugs not yet in the extension's local config
 
@@ -84,7 +84,7 @@ curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-6-thinking",
+    "model": "gpt-6-thinking",
     "reasoning_effort": "max",
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": false
@@ -98,7 +98,7 @@ curl http://127.0.0.1:18080/v1/chat/completions \
   -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5-6-thinking",
+    "model": "gpt-6-thinking",
     "reasoning_effort": "max",
     "messages": [{"role": "user", "content": "Summarize this page"}],
     "stream": true
