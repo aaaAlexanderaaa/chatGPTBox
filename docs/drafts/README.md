@@ -31,6 +31,15 @@ For the September 30 recovery update, replace both Action 2 and Action 3 with th
 scripts. Keep your existing `BASE_URL` and `API_TOKEN` values when replacing them.
 Older Action 3 copies may also still send their hardcoded model.
 
+For the October 8 GPT-6 visualization update, replace both Action 2 and Action 3 again,
+preserving your `BASE_URL` and `API_TOKEN`. The gateway now converts native card, grid,
+table, relationship and citation components into portable HTML. Drafts keeps that HTML in
+the transcript; use Markdown Preview to see the layout. Hidden answer fragments are omitted
+in favor of the complete merged answer. A finished fragment with `endTurn: false` or
+`isFinal: false` keeps the pending marker and does not clear the awaited turn.
+The extension interprets static component construction rather than executing model-generated
+JavaScript. Components outside the supported set use the official Markdown fallback.
+
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up
 request, then reuses that ID if the action is retried after an uncertain result. No manual header or

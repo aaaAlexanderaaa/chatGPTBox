@@ -5,8 +5,10 @@ import { CHATGPT_WEB_DEFAULT_MODEL_KEY } from './limits.mjs'
 // Predicates (isUsing*Model) live in predicates.mjs and consume the arrays
 // exported here.
 
-// Chat / Latest picker (`GET /models`). Default stays 5.6 Thinking; Pro is listed but not default.
+// Chat / Latest picker (`GET /models`). Default is GPT-6 Thinking.
 export const chatgptWebChatModelKeys = [
+  'chatgptWeb6Thinking',
+  'chatgptWeb6Auto',
   'chatgptWeb56Thinking',
   'chatgptWeb56Auto',
   'chatgptWeb56Instant',
@@ -420,6 +422,8 @@ export const Models = {
   grokWebExpert: { value: 'grok-chat-expert', desc: 'Grok (Web, Expert)' },
   grokWebHeavy: { value: 'grok-chat-heavy', desc: 'Grok (Web, Heavy)' },
 
+  chatgptWeb6Thinking: { value: 'gpt-6-thinking', desc: 'ChatGPT (Web, GPT-6 Thinking)' },
+  chatgptWeb6Auto: { value: 'gpt-6', desc: 'ChatGPT (Web, GPT-6)' },
   chatgptWeb6Pro: { value: 'gpt-6-pro', desc: 'ChatGPT (Web, GPT-6 Pro)' },
   chatgptWeb56Thinking: { value: 'gpt-5-6-thinking', desc: 'ChatGPT (Web, GPT-5.6 Thinking)' },
   chatgptWeb56Auto: { value: 'gpt-5-6', desc: 'ChatGPT (Web, GPT-5.6)' },

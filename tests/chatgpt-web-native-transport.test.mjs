@@ -23,6 +23,9 @@ const updatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
 const relocatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
   (entry) => entry.filename === '633146.36cd53e1c6.js',
 )
+const gpt6Contract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
+  (entry) => entry.filename === '633146.67e864aeea.js',
+)
 // All identities, tokens, IDs and message content below are synthetic fixtures.
 // Never replace them with values copied from a browser capture or real account.
 let page, modules, transport, events, identity
@@ -121,6 +124,30 @@ const send = (path = '/f/conversation', options = {}) =>
   })
 
 describe('ChatGPT native page transport', () => {
+  it('uses the GPT-6 release modules with native verification, identity checks, and no retry', async () => {
+    modules.Kwu = modules.k29
+    modules.Qd = modules.OS
+    modules.lXE = modules.n9O
+    modules.wl = { c: vi.fn(async () => new Response('{}')) }
+    await connect(gpt6Contract, 'preload')
+    await (await send()).text()
+    expect(modules.wl.c).toHaveBeenCalledWith(
+      '/f/conversation',
+      expect.objectContaining({
+        method: 'POST',
+        expectedIdentity: { accountId: 'account', userId: 'user' },
+        retry: 'never',
+      }),
+      undefined,
+      expect.any(Function),
+      'stream',
+    )
+    expect(modules.lXE.f).toHaveBeenCalledTimes(1)
+    expect(modules.Kwu.Request.safePost).toHaveBeenCalledWith(
+      '/sentinel/chat-requirements/finalize',
+      expect.objectContaining({ retry: 'never' }),
+    )
+  })
   it('preflights an automatically verified release with a read-only request and no challenge or question', async () => {
     modules.xb.b.mockResolvedValue(
       new Response('{"models":[]}', { headers: { 'content-type': 'application/json' } }),

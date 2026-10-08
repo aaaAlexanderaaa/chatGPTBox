@@ -16,11 +16,13 @@ const THINKING_EFFORT_SET = new Set(CHATGPT_WEB_THINKING_EFFORTS)
 
 /**
  * Chat Pro lanes only advertise a subset of efforts.
- * Chat Thinking has no `xhigh` (that gear is Work-only).
+ * Chat Thinking advertises `max` for the page's Extra High setting;
+ * normalize the configured `xhigh` to that wire value.
  * Work (`*-wm`) keeps the full slider, including `xhigh` on `/tpp/models/`.
  */
 const CHAT_THINKING_EFFORTS = Object.freeze(['min', 'standard', 'extended', 'max'])
 const THINKING_EFFORTS_BY_SLUG = Object.freeze({
+  'gpt-6-thinking': CHAT_THINKING_EFFORTS,
   'gpt-6-pro': Object.freeze(['standard']),
   'gpt-5-6-pro': Object.freeze(['standard']),
   'gpt-5-5-pro': Object.freeze(['standard', 'extended']),

@@ -208,7 +208,7 @@ function App() {
 
   const handleRequest = useCallback(
     async (data) => {
-      const { id, model, messages, stream, thinkingEffort } = data
+      const { id, model, messages, thinkingEffort } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
       const isGrokRequest = isGrokEngineKey(modelKey)
@@ -245,7 +245,10 @@ function App() {
             modelName: modelKey,
             apiMode: apiMode || null,
             conversationRecords: [],
-            chatgptWebIncrementalOutput: stream === true,
+            // GenUI metadata and citations may arrive after plain text. The
+            // OpenAI stream can only append, so publish the completed snapshot.
+            // The gateway keeps the SSE connection alive while we wait.
+            chatgptWebIncrementalOutput: false,
             chatgptWebThinkingEffortOverride:
               typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
           })
@@ -1020,8 +1023,8 @@ function App() {
   -H "Authorization: Bearer <API token>" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-5-6-thinking",
-    "reasoning_effort": "max",
+    "model": "gpt-6-thinking",
+    "reasoning_effort": "xhigh",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": false
   }'`}</pre>

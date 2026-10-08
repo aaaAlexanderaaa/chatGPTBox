@@ -2,10 +2,10 @@
 // lengths, and conversation polling. Pure constants — no imports.
 
 // Fallback for extension, gateway, and clients that omit a model.
-export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-5-6-thinking'
+export const CHATGPT_WEB_DEFAULT_MODEL_SLUG = 'gpt-6-thinking'
 export const CHATGPT_WEB_DEFAULT_MODEL_KEY = `chatgptweb/${CHATGPT_WEB_DEFAULT_MODEL_SLUG}`
 export const CHATGPT_WEB_DEFAULT_SELECTION = CHATGPT_WEB_DEFAULT_MODEL_KEY
-export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'max'
+export const CHATGPT_WEB_DEFAULT_THINKING_EFFORT = 'xhigh'
 export const CHATGPT_WEB_DEBUG_LOG_KEY = 'chatgptWebDebugLog'
 export const MAX_RESPONSE_TOKEN_LENGTH_LIMIT = 384000
 export const MAX_CONVERSATION_CONTEXT_LENGTH_LIMIT = 200

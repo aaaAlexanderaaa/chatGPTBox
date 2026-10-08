@@ -103,3 +103,59 @@ Action 2 在 Get 时同时保留发送标识和对应请求参数。已安装的
 网关在原有 18081 端口重启且桥接健康。最近两个受影响会话的 list/get 均返回真实标题。
 HTTP 集成测试验证了明确未发送的释放、已成功请求的确认恢复、旧版运行时记录修复，
 以及不确定结果不会触发第二次发送。
+
+## 2026-10-08 GPT-6 Chat 适配
+
+已登录账号的 Chat 目录新增 `gpt-6`、`gpt-6-instant` 和 `gpt-6-thinking`。
+扩展与网关默认改为标准 Chat `gpt-6-thinking`，思考设置默认 `xhigh`。
+官网 Chat 页面显示的 Extra High 在实际请求中使用 `thinking_effort: max`；
+Chat 目录仍列 `min`、`standard`、`extended`、`max`，因此扩展将配置的 `xhigh`
+映射为官网的 `max`。Work 模型继续保留其独立的 `xhigh` 参数。
+
+当前公开运行时为 `633146.67e864aeea.js`。请求、账号、完整性模块分别移到
+`Kwu`、`Qd`、`lXE`，原生发送函数移到 `wl.c`。发送函数的参数和身份检查保持兼容，
+底层 fetch 现在由 `y3u.a` 包装，以 WeakMap 保存网络诊断；该包装只调用一次 fetch。
+`retry: never` 仍返回首次响应，不进入认证恢复重发。此次增加该文件的准确模块映射，
+保留原生校验和未知实现的能力检查，不复制账号凭据或校验结果。
+
+验证：1010 项测试、lint 和生产构建通过。最终 Chromium 构建已更新并重载到 Brave；
+设置页确认默认引擎为 `chatgptweb/gpt-6-thinking`，Thinking effort 为 `xhigh`。
+
+### GPT-6 原生可视化与真实长任务验证
+
+使用原样问题“整理一下最近5天的值得关注的新闻。可视化”，通过 Brave 扩展发送一次，
+生成约 385 秒。实际参数为 `gpt-6-thinking`、`thinking_effort: max`；最终仍发送
+`message_stream_complete` 与 `[DONE]`，并产生 `end_turn: true` 的可见合并答案。
+简短确认回复不能验证这条链路。
+
+新版答案使用 `metadata.model_dil_v2` 携带组件构造、常量和已解析引用；原始文本混有
+`grid`、`box`、`table-row`、`Cite` 等新语法。静态解析组件构造并输出通用 HTML，
+保留卡片、网格、事件表、关系图和引用链接，供扩展、网关和 Drafts Markdown Preview 使用。
+不运行生成的 JavaScript、hooks 或事件处理器；不支持的组件保留官网 Markdown 回退。
+
+流中的 `is_message_fragment` / `is_visually_hidden_from_conversation` 分片不再覆盖完整
+`is_merged_message` 答案。明确 `end_turn: false` 的 `finished_successfully` 消息不视为
+整轮完成；Drafts 两份 Get/Send 脚本保留同样的等待判断。
+
+最终构建通过网关读取这次真实新闻会话，返回 HTTP 200、`pending: false` 和完整
+可见合并答案。Brave 独立聊天页确认卡片、八行事件表、关系图及答案结尾正常展示；
+Drafts Get 脚本使用同一真实响应验证保留 HTML 和结尾内容。本机未安装 Drafts，
+因此未在 Drafts 应用中验证 Markdown Preview，已有动作需要替换仓库中的两份脚本。
+
+### 2026-10-09 独立评估后的修复与部署复核
+
+修复两项恢复和输出问题：可视化元数据晚于正文到达时，API 桥接页等待完整答案再
+向网关输出，避免已经发送的纯文本被 HTML 替换；`stream: true` 等待期间仍有 SSE
+心跳，完成后发送正文、`stop` 和 `[DONE]`。扩展聊天界面仍可接收中间快照。
+恢复查询的非终态消息锚点可被当前分支、同一用户轮次的最终答案取代，不跨分支或
+跨轮次替换，也保留显式定位已完成答案的行为。
+
+新增 9 项回归，覆盖首流、resume、历史轮询中的晚到元数据，执行真实 API 桥接页
+请求处理器，并检查锚点切换边界。全量 1049 项测试、lint 和生产构建通过。
+已更新 Brave 实际加载的扩展目录，重载扩展、重新打开桥接页并刷新代理页。
+网关和 MCP 沿用原配置重启；复核网关健康及桥接连接、MCP 初始化及 `ask_chatgpt`
+工具列表均成功，认证令牌未更换。
+
+通过新运行态只读刷新已有新闻可视化会话，来源为 network，返回 HTTP 200、
+`pending: false`、`isFinal: true`，保留网格、八行事件表、引用和答案尾部。
+本轮没有发送新的长任务，也没有更新或复验 Drafts 应用中的动作副本。

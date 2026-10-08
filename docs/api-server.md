@@ -136,6 +136,12 @@ gateway may POST it again with an event `offset` (up to 12 times). After resume 
 exhausted or resume cannot start, recovery falls back to the existing conversation poll
 timeout/interval.
 
+ChatGPT Web may attach visualization metadata or resolve citations after the first text arrives.
+Its `stream: true` responses therefore keep the SSE connection alive with heartbeat comments,
+then send the complete answer as a content delta followed by `stop` and `[DONE]`. This avoids
+publishing text that would later need to be replaced by HTML. The extension's own chat display
+can still receive intermediate snapshots.
+
 Once streaming has begun, an error event closes the stream without a success `stop` or `[DONE]`.
 Non-monotonic final snapshots are reported as errors instead of silently returning truncated text.
 

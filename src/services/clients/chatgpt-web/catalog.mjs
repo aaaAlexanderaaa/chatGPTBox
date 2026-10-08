@@ -2,7 +2,7 @@ import { isChatgptWebWorkModelSlug } from './thinking.mjs'
 
 const MODELS_QUERY = 'supports_model_picker_upgrade_presets=true'
 
-/** Chat / Latest picker. Official GPT-6 here is `gpt-6-pro`. */
+/** Chat / Latest picker, including GPT-6 Auto, Thinking, and Pro. */
 export const CHATGPT_WEB_CHAT_MODELS_PATH = `/models?${MODELS_QUERY}`
 
 /**

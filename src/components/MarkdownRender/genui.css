@@ -1,0 +1,220 @@
+.chatgptbox-genui {
+  container-type: inline-size;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.chatgptbox-genui-text {
+  margin: 8px 0;
+}
+.chatgptbox-genui-caption {
+  font-size: 12px;
+  color: #657080;
+}
+.chatgptbox-genui-title {
+  margin: 4px 0;
+  line-height: 1.25;
+}
+.chatgptbox-genui-grid {
+  display: grid;
+  margin: 16px 0;
+}
+.chatgptbox-genui-box {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chatgptbox-genui-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+.chatgptbox-genui-border {
+  border: 1px solid #d8dee8;
+}
+.chatgptbox-genui-radius-sm {
+  border-radius: 4px;
+}
+.chatgptbox-genui-radius-md {
+  border-radius: 8px;
+}
+.chatgptbox-genui-radius-lg {
+  border-radius: 12px;
+}
+.chatgptbox-genui-size-2xs {
+  font-size: 11px;
+}
+.chatgptbox-genui-size-xs {
+  font-size: 12px;
+}
+.chatgptbox-genui-size-sm {
+  font-size: 14px;
+}
+.chatgptbox-genui-size-md {
+  font-size: 16px;
+}
+.chatgptbox-genui-size-lg {
+  font-size: 20px;
+}
+.chatgptbox-genui-size-xl {
+  font-size: 24px;
+}
+.chatgptbox-genui-size-2xl {
+  font-size: 30px;
+}
+.chatgptbox-genui-weight-medium {
+  font-weight: 500;
+}
+.chatgptbox-genui-weight-semibold {
+  font-weight: 600;
+}
+.chatgptbox-genui-weight-bold {
+  font-weight: 700;
+}
+.chatgptbox-genui-color-secondary {
+  color: #657080;
+}
+.chatgptbox-genui-color-tertiary {
+  color: #788496;
+}
+.chatgptbox-genui-tabular {
+  font-variant-numeric: tabular-nums;
+}
+.chatgptbox-genui-flex {
+  flex: 1;
+}
+.chatgptbox-genui-align-center {
+  align-items: center;
+}
+.chatgptbox-genui-align-start {
+  align-items: flex-start;
+}
+.chatgptbox-genui-align-end {
+  align-items: flex-end;
+}
+.chatgptbox-genui-justify-between {
+  justify-content: space-between;
+}
+.chatgptbox-genui-justify-center {
+  justify-content: center;
+}
+.chatgptbox-genui-justify-start {
+  justify-content: flex-start;
+}
+.chatgptbox-genui-columns-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.chatgptbox-genui-columns-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.chatgptbox-genui-columns-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.chatgptbox-genui-columns-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.chatgptbox-genui-columns-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.chatgptbox-genui-columns-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.chatgptbox-genui-gap-0 {
+  gap: 0;
+}
+.chatgptbox-genui-gap-1 {
+  gap: 4px;
+}
+.chatgptbox-genui-gap-2 {
+  gap: 8px;
+}
+.chatgptbox-genui-gap-3 {
+  gap: 12px;
+}
+.chatgptbox-genui-gap-4 {
+  gap: 16px;
+}
+.chatgptbox-genui-padding-0 {
+  padding: 0;
+}
+.chatgptbox-genui-padding-1 {
+  padding: 4px;
+}
+.chatgptbox-genui-padding-2 {
+  padding: 8px;
+}
+.chatgptbox-genui-padding-3 {
+  padding: 12px;
+}
+.chatgptbox-genui-padding-4 {
+  padding: 16px;
+}
+.chatgptbox-genui-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+.chatgptbox-genui-table-cell {
+  padding: 12px;
+  border-bottom: 1px solid #d8dee8;
+  vertical-align: top;
+}
+@container (max-width: 420px) {
+  .chatgptbox-genui-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.chatgptbox-genui-gap-5 {
+  gap: 20px;
+}
+.chatgptbox-genui-padding-5 {
+  padding: 20px;
+}
+
+.chatgptbox-genui-gap-6 {
+  gap: 24px;
+}
+.chatgptbox-genui-padding-6 {
+  padding: 24px;
+}
+
+.chatgptbox-genui-gap-7 {
+  gap: 28px;
+}
+.chatgptbox-genui-padding-7 {
+  padding: 28px;
+}
+
+.chatgptbox-genui-gap-8 {
+  gap: 32px;
+}
+.chatgptbox-genui-padding-8 {
+  padding: 32px;
+}
+
+.chatgptbox-genui-gap-9 {
+  gap: 36px;
+}
+.chatgptbox-genui-padding-9 {
+  padding: 36px;
+}
+
+.chatgptbox-genui-gap-10 {
+  gap: 40px;
+}
+.chatgptbox-genui-padding-10 {
+  padding: 40px;
+}
+
+.chatgptbox-genui-gap-11 {
+  gap: 44px;
+}
+.chatgptbox-genui-padding-11 {
+  padding: 44px;
+}
+
+.chatgptbox-genui-gap-12 {
+  gap: 48px;
+}
+.chatgptbox-genui-padding-12 {
+  padding: 48px;
+}

@@ -1,4 +1,5 @@
 import './mykatex.min.css'
+import './genui.css'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeHighlight from 'rehype-highlight'

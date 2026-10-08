@@ -316,7 +316,7 @@ async function fetchChatgptWebModelsPayload(token, path, transport) {
 
 /**
  * Official ChatGPT issues two catalog requests:
- * Chat/Latest `GET /models` (GPT-6 is `gpt-6-pro`) and Work `GET /tpp/models/`
+ * Chat/Latest `GET /models` (Auto, Thinking, Pro) and Work `GET /tpp/models/`
  * (`*-wm`, `is_work_mode_model`). Keep both, but never treat Work as Chat.
  */
 export async function getChatgptWebModelCatalogs(token, transport) {
@@ -815,6 +815,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   })
 
   let answer = ''
+  let answerIsGenui = false
   let generationPrefixAnswer = ''
   let generatedImageUrl = ''
   let responseMetaLogged = false
@@ -866,6 +867,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     source = 'unknown',
   } = {}) {
     if (!answer || !shouldEmitIncrementalAnswer) return
+    // Each GenUI snapshot closes its HTML tags. Buffer it until finishMessage
+    // so the gateway never has to replace content already sent as text deltas.
+    if (answerIsGenui) return
 
     const normalizedChannel = typeof channel === 'string' ? channel.trim().toLowerCase() : ''
 
@@ -1077,7 +1081,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
       if (result?.messageId) {
         lastAssistantMessageId = result.messageId
-        session.parentMessageId = result.messageId
+        session.parentMessageId = result.continuationMessageId || result.messageId
         emitSessionUpdate()
       }
       if (result?.status) {
@@ -1085,6 +1089,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       }
       if (typeof result?.text === 'string' && result.text) {
         const nextAnswer = withRichContent(result.text)
+        answerIsGenui = result.isGenui === true
         if (nextAnswer !== answer) {
           answer = nextAnswer
           emitIntermediateAnswerSnapshot({
@@ -1497,10 +1502,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       session.conversationId = data.conversation_id
       promptDispatchCommitted = true
     }
+    if (
+      data.message?.metadata?.is_message_fragment ||
+      data.message?.metadata?.is_visually_hidden_from_conversation
+    )
+      return
     if (data.message?.author?.role === 'assistant') {
       lastAssistantMessageId = data.message.id || lastAssistantMessageId
       if (data.message?.id) {
-        session.parentMessageId = data.message.id
+        session.parentMessageId = data.message.metadata?.continuation_message_id || data.message.id
         promptDispatchCommitted = true
       }
       lastAssistantStatus =
@@ -1517,6 +1527,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     const messageChannel = typeof data.message?.channel === 'string' ? data.message.channel : null
     if (contentType === 'text' && respAns) {
       answer = withRichContent(respAns)
+      answerIsGenui = Boolean(data.message?.metadata?.model_dil_v2)
     } else if (contentType === 'code' && data.message?.status === 'in_progress') {
       const generationText = '\n\n' + t('Generating...')
       if (answer && !answer.endsWith(generationText)) generationPrefixAnswer = answer

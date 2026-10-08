@@ -1,3 +1,6 @@
+import { renderChatgptWebGenui } from './genui.mjs'
+import { normalizeChatgptWebReferenceText } from './reference-text.mjs'
+
 const PENDING_MESSAGE_STATUSES = new Set(['in_progress', 'pending', 'streaming', 'queued'])
 const FINAL_MESSAGE_STATUSES = new Set([
   'finished_successfully',
@@ -5,7 +8,6 @@ const FINAL_MESSAGE_STATUSES = new Set([
   'completed',
   'complete',
 ])
-const CHATGPT_WEB_CITATION_TOKEN_RE = /\uE200cite\uE202[^\uE201]*\uE201/g
 
 // The paginated endpoint returns the active branch in chronological order.
 // Preserve page_info: a page of ten turns must never masquerade as full history.
@@ -134,160 +136,6 @@ function flattenMessagePart(part) {
     return part.segments.map((entry) => flattenMessagePart(entry)).join('')
   }
   return ''
-}
-
-function cleanupChatgptWebReferenceArtifacts(text) {
-  if (typeof text !== 'string' || !text) return ''
-  return text.replace(CHATGPT_WEB_CITATION_TOKEN_RE, '')
-}
-
-function collectReferenceUrls(reference) {
-  const items = Array.isArray(reference?.items) ? reference.items : []
-  const primary = items[0]
-  if (!primary) return []
-
-  const urls = []
-  const primaryUrl = typeof primary.url === 'string' ? primary.url.trim() : ''
-  const primaryTitle = typeof primary.title === 'string' ? primary.title.trim() : ''
-  const primaryAttr = typeof primary.attribution === 'string' ? primary.attribution.trim() : ''
-  if (primaryUrl)
-    urls.push({ url: primaryUrl, title: primaryTitle || primaryUrl, attribution: primaryAttr })
-
-  const sw = Array.isArray(primary.supporting_websites) ? primary.supporting_websites : []
-  for (const site of sw) {
-    if (!site) continue
-    const sUrl = typeof site.url === 'string' ? site.url.trim() : ''
-    const sTitle = typeof site.title === 'string' ? site.title.trim() : ''
-    const sAttr = typeof site.attribution === 'string' ? site.attribution.trim() : ''
-    if (sUrl) urls.push({ url: sUrl, title: sTitle || sUrl, attribution: sAttr })
-  }
-  return urls
-}
-
-function normalizeChatgptWebReferenceText(text, contentReferences = []) {
-  let nextText = typeof text === 'string' ? text : ''
-  if (!nextText) return ''
-
-  const refs = Array.isArray(contentReferences) ? contentReferences.filter(Boolean) : []
-  if (!refs.length) return cleanupChatgptWebReferenceArtifacts(nextText)
-
-  // Build global deduplicated reference index (url -> sequential number)
-  const urlToIndex = new Map()
-  const indexedRefs = [] // [{url, title, attribution}] — 1-based via position+1
-
-  function getOrAddRef(url, title, attribution) {
-    const key = url.replace(/\?utm_source=chatgpt\.com$/, '')
-    if (urlToIndex.has(key)) return urlToIndex.get(key)
-    const idx = indexedRefs.length + 1
-    urlToIndex.set(key, idx)
-    indexedRefs.push({ url: key, title, attribution: attribution || '' })
-    return idx
-  }
-
-  // First pass: register all URLs so numbering is stable (sorted by start_idx)
-  const sortedRefs = refs
-    .filter((r) => r?.type === 'grouped_webpages' || r?.type === 'nav_list')
-    .sort((a, b) => (a.start_idx ?? Infinity) - (b.start_idx ?? Infinity))
-
-  for (const ref of sortedRefs) {
-    if (ref.type === 'grouped_webpages') {
-      for (const u of collectReferenceUrls(ref)) getOrAddRef(u.url, u.title, u.attribution)
-    } else if (ref.type === 'nav_list') {
-      const items = Array.isArray(ref.items) ? ref.items : []
-      for (const item of items) {
-        if (!item) continue
-        const url = typeof item.url === 'string' ? item.url.trim() : ''
-        const title = typeof item.title === 'string' ? item.title.trim() : ''
-        const attr = typeof item.attribution === 'string' ? item.attribution.trim() : ''
-        if (url) getOrAddRef(url, title, attr)
-      }
-    }
-  }
-
-  // Build replacements
-  const replacements = []
-  for (const ref of refs) {
-    const matchedText = typeof ref.matched_text === 'string' ? ref.matched_text : ''
-    if (!matchedText || !matchedText.trim()) continue
-
-    let replacement = ''
-    if (ref.type === 'grouped_webpages') {
-      const urls = collectReferenceUrls(ref)
-      if (urls.length) {
-        const indices = urls.map((u) => getOrAddRef(u.url, u.title))
-        const unique = [...new Set(indices)]
-        replacement = unique
-          .map((i) => {
-            const r = indexedRefs[i - 1]
-            const label = r.attribution || r.title
-            return `[${label}][${i}]`
-          })
-          .join(' ')
-      } else {
-        replacement = typeof ref.alt === 'string' ? ref.alt : ''
-      }
-    } else if (ref.type === 'nav_list') {
-      const items = Array.isArray(ref.items) ? ref.items : []
-      const links = items
-        .filter((item) => item && typeof item.url === 'string')
-        .map((item) => {
-          const url = item.url.trim()
-          const title = typeof item.title === 'string' ? item.title.trim() : url
-          return `- [${title}](${url})`
-        })
-      replacement = links.length ? '\n' + links.join('\n') + '\n' : ''
-    } else if (ref.type === 'sources_footnote') {
-      replacement = ''
-    } else {
-      replacement = typeof ref.alt === 'string' ? ref.alt : ''
-    }
-
-    replacements.push({
-      matchedText,
-      replacement,
-      start: Number.isInteger(ref.start_idx) ? ref.start_idx : null,
-      end: Number.isInteger(ref.end_idx) ? ref.end_idx : null,
-    })
-  }
-
-  // Sort by start descending so index-based replacements don't shift
-  replacements.sort((left, right) => {
-    const leftStart = Number.isInteger(left.start) ? left.start : -1
-    const rightStart = Number.isInteger(right.start) ? right.start : -1
-    return rightStart - leftStart
-  })
-
-  for (const { matchedText, replacement, start, end } of replacements) {
-    const canReplaceByRange =
-      Number.isInteger(start) &&
-      Number.isInteger(end) &&
-      start >= 0 &&
-      end >= start &&
-      end <= nextText.length &&
-      nextText.slice(start, end) === matchedText
-
-    if (canReplaceByRange) {
-      nextText = `${nextText.slice(0, start)}${replacement}${nextText.slice(end)}`
-      continue
-    }
-
-    if (nextText.includes(matchedText)) {
-      nextText = nextText.split(matchedText).join(replacement)
-    }
-  }
-
-  nextText = cleanupChatgptWebReferenceArtifacts(nextText)
-
-  // Append reference-style link definitions
-  if (indexedRefs.length > 0) {
-    const defs = indexedRefs.map((r, i) => {
-      const escaped = r.title.replace(/"/g, '\\"')
-      return `[${i + 1}]: <${r.url}> "${escaped}"`
-    })
-    nextText = nextText.trimEnd() + '\n\n' + defs.join('\n')
-  }
-
-  return nextText
 }
 
 function getNodeContentType(node) {
@@ -451,6 +299,11 @@ function shouldExposeThinkingNode(node) {
 function isUserVisibleAssistantNode(node) {
   const message = node?.message
   if (!message || message.author?.role !== 'assistant') return false
+  if (
+    message.metadata?.is_visually_hidden_from_conversation ||
+    message.metadata?.is_message_fragment
+  )
+    return false
   const contentType = getNodeContentType(node)
   if (contentType === 'thoughts') return false
   if (contentType === 'reasoning_recap') return false
@@ -544,30 +397,64 @@ function selectChatgptWebConversationAssistantCandidate(
     candidates.push(...pathNodes)
   }
 
-  const candidate = dedupeNodes(candidates).sort((left, right) => {
-    const scoreDelta =
-      scoreAssistantNode(right, { currentNodeId, assistantMessageId, pathNodeIds }) -
-      scoreAssistantNode(left, { currentNodeId, assistantMessageId, pathNodeIds })
-    if (scoreDelta !== 0) return scoreDelta
+  // A stream can stop on commentary before the final message is created. Its
+  // recovery anchor must yield to a completed successor on the selected path,
+  // but never to a sibling branch or a later user turn.
+  const completedSuccessors = new Set()
+  const anchor = getMappingNode(mapping, assistantMessageId)
+  if (anchor && !isFinalChatgptWebAssistantMessage(anchor.message)) {
+    const selectedPath = buildAncestorPath(
+      mapping,
+      resolveConversationPathLeafId(mapping, conversation, userMessageId),
+    )
+    const anchorIndex = selectedPath.findIndex((node) => nodeHasId(node, assistantMessageId))
+    const successors = anchorIndex >= 0 ? selectedPath.slice(0, anchorIndex) : []
+    if (!successors.some((node) => getMessageRole(node) === 'user')) {
+      for (const node of successors) {
+        if (
+          isUserVisibleAssistantNode(node) &&
+          isFinalChatgptWebAssistantMessage(node.message) &&
+          getNodeText(node)
+        )
+          completedSuccessors.add(node.id)
+      }
+    }
+  }
 
-    // Among nodes that tie on every signal above, the newer one wins, and only
-    // then does the longer one. Timestamps are compared rather than subtracted
-    // because a node without one reads as -Infinity.
-    const leftTime = getNodeTimestamp(left)
-    const rightTime = getNodeTimestamp(right)
-    if (leftTime !== rightTime) return rightTime > leftTime ? 1 : -1
+  const candidate = dedupeNodes(candidates)
+    .filter(
+      (node) =>
+        !node.message?.metadata?.is_message_fragment &&
+        !node.message?.metadata?.is_visually_hidden_from_conversation,
+    )
+    .sort((left, right) => {
+      const completedDelta =
+        Number(completedSuccessors.has(right.id)) - Number(completedSuccessors.has(left.id))
+      if (completedDelta !== 0) return completedDelta
+      const scoreDelta =
+        scoreAssistantNode(right, { currentNodeId, assistantMessageId, pathNodeIds }) -
+        scoreAssistantNode(left, { currentNodeId, assistantMessageId, pathNodeIds })
+      if (scoreDelta !== 0) return scoreDelta
 
-    const textDelta = getNodeText(right).length - getNodeText(left).length
-    if (textDelta !== 0) return textDelta
-    return String(right?.id || '').localeCompare(String(left?.id || ''))
-  })[0]
+      // Among nodes that tie on every signal above, the newer one wins, and only
+      // then does the longer one. Timestamps are compared rather than subtracted
+      // because a node without one reads as -Infinity.
+      const leftTime = getNodeTimestamp(left)
+      const rightTime = getNodeTimestamp(right)
+      if (leftTime !== rightTime) return rightTime > leftTime ? 1 : -1
+
+      const textDelta = getNodeText(right).length - getNodeText(left).length
+      if (textDelta !== 0) return textDelta
+      return String(right?.id || '').localeCompare(String(left?.id || ''))
+    })[0]
 
   return candidate || null
 }
 
-function formatConversationMessageNode(node) {
+function formatConversationMessageNode(node, conversation) {
   const message = getNodeMessage(node)
   if (!message) return null
+  const text = extractChatgptWebMessageText(message)
 
   return {
     messageId: message.id || node?.id || null,
@@ -577,7 +464,9 @@ function formatConversationMessageNode(node) {
     contentType: message.content?.content_type || '',
     createTime: message.create_time || null,
     updateTime: message.update_time || null,
-    text: extractChatgptWebMessageText(message),
+    text,
+    endTurn: message.end_turn ?? null,
+    isFinal: isFinalChatgptWebAssistantMessage(message, { conversation, text }),
   }
 }
 
@@ -628,10 +517,7 @@ function isVisibleConversationMessageNode(node) {
 
   const role = message.author?.role || ''
   if (role === 'user') return true
-  if (role !== 'assistant') return false
-
-  const contentType = message.content?.content_type || ''
-  return contentType !== 'thoughts' && contentType !== 'reasoning_recap'
+  return isUserVisibleAssistantNode(node)
 }
 
 function formatThinkingNode(node) {
@@ -678,6 +564,8 @@ export function flattenChatgptWebMessageText(content) {
 
 export function extractChatgptWebMessageText(message) {
   if (!message || typeof message !== 'object') return ''
+  const visual = renderChatgptWebGenui(message)
+  if (visual) return visual
   return normalizeChatgptWebReferenceText(
     flattenChatgptWebMessageText(message.content),
     message?.metadata?.content_references,
@@ -713,6 +601,28 @@ export function isFinalChatgptWebMessageStatus(status) {
   )
 }
 
+export function isFinalChatgptWebAssistantMessage(message, { conversation, text } = {}) {
+  if (
+    !message ||
+    message.author?.role !== 'assistant' ||
+    message.end_turn === false ||
+    isPendingChatgptWebMessageStatus(message.status)
+  )
+    return false
+  if (
+    message.metadata?.is_message_fragment ||
+    message.metadata?.is_visually_hidden_from_conversation
+  )
+    return false
+  return (
+    message.end_turn === true ||
+    isFinalChatgptWebMessageStatus(message.status) ||
+    (hasConversationAsyncStatusField(conversation) &&
+      !isPendingChatgptWebConversation(conversation) &&
+      Boolean(text ?? extractChatgptWebMessageText(message)))
+  )
+}
+
 export function extractChatgptWebConversationResult(
   conversation,
   { userMessageId, assistantMessageId } = {},
@@ -727,19 +637,16 @@ export function extractChatgptWebConversationResult(
   const text = extractChatgptWebMessageText(message)
   const status = typeof message.status === 'string' ? message.status : ''
   const pending = isPendingChatgptWebConversation(conversation)
-  const hasAsyncStatusField = hasConversationAsyncStatusField(conversation)
-  const isFinal =
-    !pending &&
-    Boolean(
-      isFinalChatgptWebMessageStatus(status) || message.end_turn || (hasAsyncStatusField && text),
-    )
+  const isFinal = !pending && isFinalChatgptWebAssistantMessage(message, { conversation, text })
 
   return {
     messageId: message.id || candidate.id || null,
+    continuationMessageId: message.metadata?.continuation_message_id || null,
     status,
     text,
     channel: message.channel || null,
     contentType: message.content?.content_type || '',
+    isGenui: Boolean(message.metadata?.model_dil_v2),
     asyncStatus:
       conversation?.asyncStatus !== undefined
         ? conversation.asyncStatus
@@ -882,14 +789,14 @@ function findChatgptWebConversationTurnByMessageId(turns, messageId) {
   )
 }
 
-function toChatgptWebConversationMessages(turns = []) {
+function toChatgptWebConversationMessages(turns = [], conversation) {
   const messages = []
 
   for (const turn of turns) {
-    const userMessage = formatConversationMessageNode(turn.userNode)
+    const userMessage = formatConversationMessageNode(turn.userNode, conversation)
     if (userMessage?.text) messages.push(userMessage)
 
-    const assistantMessage = formatConversationMessageNode(turn.assistantNode)
+    const assistantMessage = formatConversationMessageNode(turn.assistantNode, conversation)
     if (assistantMessage?.text) messages.push({ ...assistantMessage, ...turn.thoughtDuration })
   }
 
@@ -899,6 +806,7 @@ function toChatgptWebConversationMessages(turns = []) {
 export function extractChatgptWebConversationMessages(conversation = {}, { userMessageId } = {}) {
   return toChatgptWebConversationMessages(
     extractChatgptWebConversationTurns(conversation, { userMessageId }),
+    conversation,
   )
 }
 
@@ -975,7 +883,7 @@ export function formatChatgptWebConversationSnapshot(
     assistantMessageId,
   })
   const turns = extractChatgptWebConversationTurns(conversation, { userMessageId })
-  const messages = toChatgptWebConversationMessages(turns)
+  const messages = toChatgptWebConversationMessages(turns, conversation)
   // Anchor the top-level timing to the turn that produced `message`, so the
   // snapshot never reports a duration belonging to a different answer. Per-turn
   // values stay on `messages`.

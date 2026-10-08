@@ -1,6 +1,6 @@
 import {
   extractChatgptWebMessageText,
-  isFinalChatgptWebMessageStatus,
+  isFinalChatgptWebAssistantMessage,
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
 import { canFollowChatgptWebTurnViaHttpResume } from './stream-handoff.mjs'
@@ -291,6 +291,11 @@ function createChatgptWebDeltaV1Decoder() {
 function summarizeAssistantMessage(entry, order) {
   const message = entry?.message
   if (!message || message.author?.role !== 'assistant') return null
+  if (
+    message.metadata?.is_message_fragment ||
+    message.metadata?.is_visually_hidden_from_conversation
+  )
+    return null
 
   const text = extractChatgptWebMessageText(message)
   const thoughts = Array.isArray(message.content?.thoughts)
@@ -315,7 +320,7 @@ function summarizeAssistantMessage(entry, order) {
     contentType: message.content?.content_type || '',
     endTurn: message.end_turn === true,
     isPending: isPendingChatgptWebMessageStatus(status),
-    isFinal: isFinalChatgptWebMessageStatus(status) || Boolean(text && message.end_turn),
+    isFinal: isFinalChatgptWebAssistantMessage(message),
     text,
     textLength: text.length,
     thoughts,
@@ -349,6 +354,15 @@ export function createChatgptWebResumeDeltaAccumulator() {
 
   function markAuthoritativeDone() {
     authoritativeDone = true
+  }
+
+  function recordSnapshot(key, snapshot) {
+    latestSnapshot = snapshot
+    // Hidden deltas still advance the decoder and resume offset, but must not
+    // replace the visible answer and its completion evidence on this channel.
+    const metadata = snapshot.message?.metadata
+    if (metadata?.is_message_fragment || metadata?.is_visually_hidden_from_conversation) return
+    entries.set(key, snapshot)
   }
 
   function feedEvent(eventName, payload) {
@@ -389,8 +403,7 @@ export function createChatgptWebResumeDeltaAccumulator() {
       else if (payload.type === 'input_message')
         inputMessage = payload.input_message || inputMessage
       if (payload.message) {
-        latestSnapshot = payload
-        entries.set(`message:${payload.message.id || ''}`, payload)
+        recordSnapshot(`message:${payload.message.id || ''}`, payload)
         return true
       }
       return false
@@ -398,8 +411,7 @@ export function createChatgptWebResumeDeltaAccumulator() {
 
     const applied = decoder.applyDelta(payload)
     if (!applied?.value || typeof applied.value !== 'object') return false
-    latestSnapshot = applied.value
-    entries.set(applied.channel, applied.value)
+    recordSnapshot(applied.channel, applied.value)
     return true
   }
 

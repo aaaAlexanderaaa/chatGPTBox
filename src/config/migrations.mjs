@@ -47,7 +47,7 @@ const LegacyChatgptWebModelKeyMap = {
   chatgptPlus4Mobile: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   // Migrate the legacy 5.1 Thinking default to the current ChatGPT Web default.
   chatgptWeb51Thinking: CHATGPT_WEB_DEFAULT_MODEL_KEY,
-  // Guessed Chat GPT-6 keys from an earlier catalog mix-up; default stays 5.6 Thinking.
+  // Historical GPT-6 aliases resolve to the current Chat Thinking default.
   chatgptWeb6Astra: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptWeb6Thinking: CHATGPT_WEB_DEFAULT_MODEL_KEY,
   chatgptWeb6: CHATGPT_WEB_DEFAULT_MODEL_KEY,

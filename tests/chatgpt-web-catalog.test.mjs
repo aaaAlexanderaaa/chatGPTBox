@@ -53,6 +53,21 @@ const WORK_TPP = {
 }
 
 describe('chatgpt-web model catalogs', () => {
+  it('recognizes the new GPT-6 Chat default and Thinking rows without treating them as Work', () => {
+    const catalog = classifyChatgptWebModelsPayload({
+      title: 'Latest',
+      default_model_slug: 'gpt-6',
+      models: [
+        { slug: 'gpt-6', reasoning_type: 'auto', is_work_mode_model: false },
+        { slug: 'gpt-6-thinking', reasoning_type: 'reasoning', is_work_mode_model: false },
+        { slug: 'gpt-6-pro', reasoning_type: 'pro', is_work_mode_model: false },
+        { slug: 'gpt-6-astra-wm', reasoning_type: 'reasoning', is_work_mode_model: true },
+      ],
+    })
+    expect(catalog.kind).toBe('chat')
+    expect(catalog.chatSlugs).toEqual(['gpt-6', 'gpt-6-thinking', 'gpt-6-pro'])
+    expect(catalog.workSlugs).toEqual(['gpt-6-astra-wm'])
+  })
   it('treats Latest as Chat and keeps gpt-6-pro out of Work', () => {
     const catalog = classifyChatgptWebModelsPayload(CHAT_LATEST)
     expect(catalog.kind).toBe('chat')

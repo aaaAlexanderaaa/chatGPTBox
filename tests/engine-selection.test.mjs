@@ -37,7 +37,7 @@ describe('engine selection', () => {
   })
 
   it('current-engine default is ChatGPT Web, not TokenDance', () => {
-    expect(DEFAULT_ENGINE_SELECTION).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(DEFAULT_ENGINE_SELECTION).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('omits L1 providers that have no enabled models', () => {
@@ -86,7 +86,7 @@ describe('engine selection', () => {
         l1Providers: createDefaultL1Providers(),
         chatgptWebEnabled: true,
       }),
-    ).toBe('chatgptweb/gpt-5-6-thinking')
+    ).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('keeps a known L1 selection', () => {

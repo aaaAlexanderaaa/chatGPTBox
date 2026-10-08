@@ -169,6 +169,8 @@ function isBridgeRequestAuthorized(req, url) {
 // ---------------------------------------------------------------------------
 
 const AVAILABLE_MODELS = [
+  { id: 'gpt-6-thinking', name: 'GPT-6 Thinking (Chat)' },
+  { id: 'gpt-6', name: 'GPT-6 (Chat)' },
   { id: 'gpt-5-6-thinking', name: 'GPT-5.6 Thinking (Chat)' },
   { id: 'gpt-6-pro', name: 'GPT-6 Pro (Chat)' },
   { id: 'gpt-5-6', name: 'GPT-5.6 (Chat)' },

@@ -37,13 +37,13 @@ describe('pickDefaultChatgptWebKey', () => {
     ).toBe('chatgptweb/gpt-5-6-thinking')
   })
 
-  it('prefers gpt-5-6-thinking when present in the catalog', () => {
+  it('prefers standard GPT-6 Thinking ahead of Pro and older models', () => {
     expect(
       pickDefaultChatgptWebKey({
         currentKey: 'chatgptweb/missing',
-        availableSlugs: ['gpt-5-4-auto', 'gpt-5-6-thinking'],
+        availableSlugs: ['gpt-6-pro', 'gpt-5-6-thinking', 'gpt-6-thinking'],
       }),
-    ).toBe('chatgptweb/gpt-5-6-thinking')
+    ).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('unknown catalog keeps the current key', () => {

@@ -1044,7 +1044,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
 
         <SettingRow label={t('Thinking effort')} hint={t('Sent with ChatGPT Web thinking models')}>
           <select
-            value={config.chatgptWebThinkingEffort || 'max'}
+            value={config.chatgptWebThinkingEffort || 'xhigh'}
             onChange={(event) => updateConfig({ chatgptWebThinkingEffort: event.target.value })}
             className={TEXT_INPUT_CLASS}
           >

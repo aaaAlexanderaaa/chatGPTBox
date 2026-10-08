@@ -1,5 +1,11 @@
+/* eslint-env node */
+import fs from 'node:fs'
+import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Browser from 'webextension-polyfill'
+import { initSession } from '../src/services/init-session.mjs'
+import { slugToModelKey, isGrokEngineKey } from '../src/pages/ApiServer/model-slug.mjs'
+import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
 import {
   canFollowChatgptWebTurnViaHttpResume,
@@ -120,6 +126,53 @@ function createSession(model) {
     conversationId: null,
     autoClean: false,
   }
+}
+
+// Execute the real bridge request handler without mounting the settings page.
+// Its session options and answer forwarding are part of the streaming contract.
+async function createApiBridgeRequest() {
+  const source = fs.readFileSync(new URL('../src/pages/ApiServer/App.jsx', import.meta.url), 'utf8')
+  const handlerSource = source.slice(
+    source.indexOf('const handleRequest = useCallback('),
+    source.indexOf('const handleControlRequest = useCallback('),
+  )
+  const wire = []
+  let session
+  let receive
+  const handleRequest = vm.runInNewContext(`${handlerSource}\nhandleRequest`, {
+    useCallback: (handler) => handler,
+    initSession,
+    slugToModelKey,
+    isGrokEngineKey,
+    needsChatgptWebThinkingEffort,
+    modelNameToApiMode: () => null,
+    formatMessages: (messages) => messages.at(-1).content,
+    findStoredChatgptWebApiThreadContinuation: async () => null,
+    getUserConfig: async () => ({ apiServerKeepHistory: true }),
+    saveChatgptWebSessionSnapshot: async () => {},
+    saveChatgptWebApiThread: async () => {},
+    addLog() {},
+    setRequestCount() {},
+    sendWs: (message) => wire.push(message),
+    Browser: {
+      runtime: {
+        connect: () => ({
+          onMessage: { addListener: (listener) => (receive = listener) },
+          onDisconnect: { addListener() {} },
+          postMessage: (message) => (session = message.session),
+          disconnect() {},
+        }),
+      },
+    },
+  })
+  await handleRequest({
+    id: 'request-1',
+    operationId: 'user-1',
+    model: 'gpt-6-thinking',
+    messages: [{ role: 'user', content: 'hello' }],
+    stream: true,
+  })
+  return { session, wire, receive }
 }
 
 function assistantMessageDelta(text, extra = {}) {
@@ -806,6 +859,7 @@ describe('ChatGPT Web client handoff integration', () => {
     initialResponse,
     resumeResponse,
     prepareResponse = () => new Response(JSON.stringify({ conduit_token: 'prepared-conduit' })),
+    conversationResponse,
   ) {
     Browser.cookies.getAll = vi.fn(async () => [])
     Browser.cookies.get = vi.fn(async () => null)
@@ -814,11 +868,346 @@ describe('ChatGPT Web client handoff integration', () => {
       if (url.endsWith('/f/conversation/prepare')) return prepareResponse()
       if (url.endsWith('/f/conversation')) return initialResponse()
       if (url.endsWith('/f/conversation/resume') && resumeResponse) return resumeResponse()
+      if (url.endsWith('/conversation/conv-1') && conversationResponse)
+        return conversationResponse()
       throw new Error(`Unexpected request (including polling): ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
   }
+
+  function genuiDelta(text, { fallback = false } = {}) {
+    const delta = assistantMessageDelta(text)
+    delta.v.conversation_id = 'conv-1'
+    delta.v.message.metadata = {
+      model_dil_v2: {
+        code: fallback
+          ? 'DIL.render(__dil.jsx("chart",null));'
+          : 'DIL.render(__dil.jsx(__dil.Fragment,null,__dil.jsx("text",null,__dilConstants["0"]),__dil.jsx(Cite,{__resolutionId:"source"})));',
+        constants: { 0: text },
+        fallbackMarkdown: text,
+      },
+    }
+    return delta
+  }
+
+  function chunkedSseResponse(events, headers = {}) {
+    const bytes = new TextEncoder().encode(events.join(''))
+    let offset = 0
+    return new Response(
+      new ReadableStream({
+        pull(controller) {
+          if (offset >= bytes.length) return controller.close()
+          controller.enqueue(bytes.slice(offset, offset + 37))
+          offset += 37
+        },
+      }),
+      { headers: { 'Content-Type': 'text/event-stream', ...headers } },
+    )
+  }
+
+  it.each(['initial', 'resume', 'poll'])(
+    'keeps the gateway stream valid when GenUI metadata arrives late via %s',
+    async (transport) => {
+      const first = assistantMessageDelta('News summary')
+      first.v.conversation_id = 'conv-1'
+      const final = genuiDelta('News summary').v.message
+      final.status = 'finished_successfully'
+      final.end_turn = true
+      const initial = [`event: delta\ndata: ${JSON.stringify(first)}\n\n`]
+      const updates = [
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'add',
+          p: '/message/metadata',
+          v: final.metadata,
+        })}\n\n`,
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'patch',
+          p: '/message',
+          v: [
+            { o: 'replace', p: '/status', v: 'finished_successfully' },
+            { o: 'replace', p: '/end_turn', v: true },
+          ],
+        })}\n\n`,
+        'data: [DONE]\n\n',
+      ]
+      const snapshot = completedConversationSnapshot('News summary')
+      snapshot.mapping['assistant-1'].message = final
+      mockConversationStreams(
+        () =>
+          chunkedSseResponse(
+            transport === 'initial'
+              ? [...initial, ...updates]
+              : transport === 'poll'
+              ? [...initial, 'data: [DONE]\n\n']
+              : initial,
+          ),
+        () => chunkedSseResponse(updates),
+        undefined,
+        () => new Response(JSON.stringify(snapshot)),
+      )
+      const bridge = await createApiBridgeRequest()
+      const port = createTestPort([])
+      port.postMessage = bridge.receive
+      const { generateAnswersWithChatgptWebApi } = await import(
+        '../src/services/clients/chatgpt-web/client.mjs'
+      )
+      await generateAnswersWithChatgptWebApi(port, 'hello', bridge.session, 'token')
+      // The gateway converts this single completed snapshot to content, stop,
+      // and [DONE], without ever having published the incompatible raw text.
+      expect(bridge.wire).toHaveLength(1)
+      expect(bridge.wire[0]).toMatchObject({ type: 'done', id: 'request-1' })
+      expect(bridge.wire[0].answer).toContain('chatgptbox-genui')
+      expect(bridge.wire[0].answer).toContain('News summary')
+    },
+  )
+
+  it('recovers the final merged answer after a stream stops on commentary', async () => {
+    const first = assistantMessageDelta('Gathering the news', {
+      id: 'commentary',
+      channel: 'commentary',
+    })
+    first.v.conversation_id = 'conv-1'
+    const final = genuiDelta('Complete merged answer').v.message
+    final.status = 'finished_successfully'
+    final.end_turn = true
+    final.metadata.is_merged_message = true
+    final.metadata.continuation_message_id = 'tail'
+    const snapshot = completedConversationSnapshot('Complete merged answer')
+    snapshot.current_node = 'tail'
+    snapshot.mapping['user-1'].children = ['commentary']
+    snapshot.mapping.commentary = {
+      id: 'commentary',
+      parent: 'user-1',
+      children: ['assistant-1'],
+      message: { ...first.v.message, status: 'finished_successfully' },
+    }
+    Object.assign(snapshot.mapping['assistant-1'], {
+      parent: 'commentary',
+      children: ['tail'],
+      message: final,
+    })
+    snapshot.mapping.tail = {
+      id: 'tail',
+      parent: 'assistant-1',
+      children: [],
+      message: { ...final, id: 'tail', metadata: { is_message_fragment: true } },
+    }
+    const fetchMock = mockConversationStreams(
+      () =>
+        chunkedSseResponse([
+          `event: delta\ndata: ${JSON.stringify(first)}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      undefined,
+      undefined,
+      () => new Response(JSON.stringify(snapshot)),
+    )
+    const bridge = await createApiBridgeRequest()
+    const port = createTestPort([])
+    port.postMessage = bridge.receive
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(port, 'hello', bridge.session, 'token')
+    expect(bridge.wire).toHaveLength(1)
+    expect(bridge.wire[0]).toMatchObject({ type: 'done' })
+    expect(bridge.wire[0].answer).toContain('Complete merged answer')
+    expect(bridge.session.parentMessageId).toBe('tail')
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/conversation/conv-1')),
+    ).toHaveLength(2)
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/f/conversation')),
+    ).toHaveLength(1)
+  })
+
+  it.each([
+    ['initial', false],
+    ['resume', false],
+    ['initial', true],
+    ['resume', true],
+  ])(
+    'buffers evolving GenUI until %s completion (Markdown fallback: %s)',
+    async (transport, fallback) => {
+      const initial = [
+        'event: delta_encoding\ndata: "v1"\n\n',
+        `event: delta\ndata: ${JSON.stringify(genuiDelta('新闻', { fallback }))}\n\n`,
+        `data: ${JSON.stringify({ type: 'title_generation', title: 'News summary' })}\n\n`,
+      ]
+      const updates = [
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'append',
+          p: fallback
+            ? '/message/metadata/model_dil_v2/fallbackMarkdown'
+            : '/message/metadata/model_dil_v2/constants/0',
+          v: ' summary',
+        })}\n\n`,
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'patch',
+          p: '/message',
+          v: [
+            { o: 'replace', p: '/status', v: 'finished_successfully' },
+            { o: 'replace', p: '/end_turn', v: true },
+          ],
+        })}\n\n`,
+        `data: ${JSON.stringify({ type: 'message_stream_complete' })}\n\n`,
+        // Citation resolution can still change the HTML after end_turn arrives.
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'add',
+          p: '/message/metadata/model_dil_v2/appData',
+          v: {
+            opGenui: {
+              componentResults: {
+                source: {
+                  safe_urls: ['https://example.com/news'],
+                  state: { items: [{ url: 'https://example.com/news', source_label: 'Example' }] },
+                },
+              },
+            },
+          },
+        })}\n\n`,
+        'data: [DONE]\n\n',
+      ]
+      const fetchMock = mockConversationStreams(
+        () => chunkedSseResponse(transport === 'initial' ? [...initial, ...updates] : initial),
+        () => chunkedSseResponse(updates),
+      )
+      const messages = []
+      const session = createSession('gpt-6-thinking')
+      session.chatgptWebIncrementalOutput = true
+      const { generateAnswersWithChatgptWebApi } = await import(
+        '../src/services/clients/chatgpt-web/client.mjs'
+      )
+      await generateAnswersWithChatgptWebApi(createTestPort(messages), 'hello', session, 'token')
+      const answers = messages.filter((message) => typeof message.answer === 'string')
+      expect(answers).toHaveLength(1)
+      expect(answers[0]).toMatchObject({ done: true })
+      expect(answers[0].answer).toContain('新闻 summary')
+      if (!fallback) expect(answers[0].answer).toContain('href="https://example.com/news"')
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/f/conversation')),
+      ).toHaveLength(1)
+    },
+  )
+
+  it.each([
+    ['initial', false],
+    ['initial', true],
+    ['resume', false],
+  ])(
+    'retains the merged answer across hidden deltas (%s, temporary chat: %s)',
+    async (transport, temporaryChat) => {
+      const visible = genuiDelta('Complete merged answer')
+      visible.v.message.status = 'finished_successfully'
+      visible.v.message.end_turn = true
+      visible.v.message.metadata.is_merged_message = true
+      visible.v.message.metadata.continuation_message_id = 'tail'
+      const hidden = {
+        ...visible.v.message,
+        id: 'tail',
+        metadata: { is_message_fragment: true, is_visually_hidden_from_conversation: true },
+        content: { content_type: 'text', parts: ['Only the tail'] },
+      }
+      const completed = [
+        `event: delta\ndata: ${JSON.stringify(visible)}\n\n`,
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'replace',
+          p: '/message',
+          v: hidden,
+        })}\n\n`,
+        `event: delta\ndata: ${JSON.stringify({
+          o: 'append',
+          p: '/message/content/parts/0',
+          v: ' updated',
+        })}\n\n`,
+        'data: [DONE]\n\n',
+      ]
+      const fetchMock = mockConversationStreams(
+        () =>
+          chunkedSseResponse(
+            transport === 'initial'
+              ? completed
+              : [`event: delta\ndata: ${JSON.stringify(genuiDelta('Starting answer'))}\n\n`],
+          ),
+        () => chunkedSseResponse(completed),
+      )
+      const messages = []
+      const session = createSession('gpt-6-thinking')
+      session.chatgptWebHistoryDisabledOverride = temporaryChat
+      session.chatgptWebIncrementalOutput = true
+      const { generateAnswersWithChatgptWebApi } = await import(
+        '../src/services/clients/chatgpt-web/client.mjs'
+      )
+      await generateAnswersWithChatgptWebApi(createTestPort(messages), 'hello', session, 'token')
+      const answers = messages.filter((message) => typeof message.answer === 'string')
+      expect(answers).toHaveLength(1)
+      expect(answers[0]).toMatchObject({ done: true })
+      expect(answers[0].answer).toContain('Complete merged answer')
+      expect(answers[0].answer).not.toContain('Only the tail')
+      expect(session.parentMessageId).toBe('tail')
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/f/conversation')),
+      ).toHaveLength(1)
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/conversation/conv-1')),
+      ).toHaveLength(0)
+    },
+  )
+
+  it('buffers evolving GenUI recovered through conversation polling', async () => {
+    const partial = genuiDelta('Hello').v
+    const final = genuiDelta('Hello world').v.message
+    final.status = 'finished_successfully'
+    final.end_turn = true
+    const snapshots = [
+      pendingConversationSnapshot('Hello'),
+      completedConversationSnapshot('Hello world'),
+    ]
+    snapshots[0].mapping['assistant-1'].message = partial.message
+    snapshots[1].mapping['assistant-1'].message = final
+    let polls = 0
+    mockConversationStreams(
+      () => chunkedSseResponse([`data: ${JSON.stringify(partial)}\n\n`, 'data: [DONE]\n\n']),
+      undefined,
+      undefined,
+      () => new Response(JSON.stringify(snapshots[Math.min(polls++, 1)])),
+    )
+    const messages = []
+    const session = createSession('gpt-6-thinking')
+    session.chatgptWebIncrementalOutput = true
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(createTestPort(messages), 'hello', session, 'token')
+    const answers = messages.filter((message) => typeof message.answer === 'string')
+    expect(answers).toHaveLength(1)
+    expect(answers[0]).toMatchObject({ done: true })
+    expect(answers[0].answer).toContain('Hello world')
+    expect(polls).toBeGreaterThan(1)
+  })
+
+  it('still emits incremental plain-text answers when streaming is requested', async () => {
+    mockConversationStreams(() =>
+      chunkedSseResponse([
+        `data: ${JSON.stringify(assistantMessageDelta('Hello').v)}\n\n`,
+        `data: ${JSON.stringify(finalDelta('Hello world').v)}\n\n`,
+        'data: [DONE]\n\n',
+      ]),
+    )
+    const messages = []
+    const session = createSession('gpt-6-thinking')
+    session.chatgptWebIncrementalOutput = true
+    const { generateAnswersWithChatgptWebApi } = await import(
+      '../src/services/clients/chatgpt-web/client.mjs'
+    )
+    await generateAnswersWithChatgptWebApi(createTestPort(messages), 'hello', session, 'token')
+    expect(messages.filter((message) => message.done === false)).toEqual([
+      { answer: 'Hello', done: false, session: null },
+      { answer: 'Hello world', done: false, session: null },
+    ])
+    expect(messages.at(-1)).toMatchObject({ answer: 'Hello world', done: true })
+  })
 
   it('prepares the selected model and effort before sending exactly one user message', async () => {
     const fetchMock = mockConversationStreams(() =>

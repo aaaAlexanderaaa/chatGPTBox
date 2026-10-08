@@ -229,6 +229,7 @@ function hasFinishedAssistantAfter(messages, index) {
   return messages.slice(index + 1).some((message) => {
     if (normalizeText(message && message.role).toLowerCase() !== 'assistant') return false
     if (!normalizeText(message && message.text)) return false
+    if (message.isFinal === false || message.endTurn === false) return false
     return !isPendingMessageStatus(message && message.status)
   })
 }

@@ -6,6 +6,7 @@ import {
   isChatgptWebWorkModelSlug,
   needsChatgptWebThinkingEffort,
   requiresChatgptWebExtendedThinkingEffort,
+  thinkingEffortsForChatgptWebModel,
 } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import {
   extractChatgptWebMessageText,
@@ -28,6 +29,21 @@ import {
 // The websocket singleton and network paths are intentionally not tested here.
 
 describe('chatgpt-web thinking predicates', () => {
+  it('uses standard Chat GPT-6 and maps xhigh to the observed Extra High wire value', () => {
+    expect(isChatgptWebThinkingModelSlug('gpt-6-thinking')).toBe(true)
+    expect(isChatgptWebWorkModelSlug('gpt-6-thinking')).toBe(false)
+    expect(needsChatgptWebThinkingEffort('gpt-6-thinking')).toBe(true)
+    expect(needsChatgptWebThinkingEffort('gpt-6')).toBe(false)
+    expect(thinkingEffortsForChatgptWebModel('gpt-6-thinking')).toEqual([
+      'min',
+      'standard',
+      'extended',
+      'max',
+    ])
+    expect(clampChatgptWebThinkingEffort('gpt-6-thinking', 'xhigh')).toBe('max')
+    expect(clampChatgptWebThinkingEffort('gpt-6-thinking', 'standard')).toBe('standard')
+    expect(clampChatgptWebThinkingEffort('gpt-6-pro', 'xhigh')).toBe('standard')
+  })
   it('flags slugs ending in -thinking', () => {
     expect(isChatgptWebThinkingModelSlug('gpt-5-6-thinking')).toBe(true)
     expect(isChatgptWebThinkingModelSlug('gpt-5-5-thinking')).toBe(true)

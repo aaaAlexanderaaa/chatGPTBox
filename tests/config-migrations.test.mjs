@@ -54,7 +54,7 @@ describe('getUserConfig migrations', () => {
     expect(config.modelName).toBe(CHATGPT_WEB_DEFAULT_MODEL_KEY)
     expect(config.chatgptWebEnabledModels).toEqual([CHATGPT_WEB_DEFAULT_MODEL_SLUG])
     expect(config).toMatchObject({
-      modelName: 'chatgptweb/gpt-5-6-thinking',
+      modelName: 'chatgptweb/gpt-6-thinking',
       maxResponseTokenLength: 384000,
       maxConversationContextLength: 64,
       l1Providers: expect.arrayContaining([expect.objectContaining({ id: 'tokendance' })]),
@@ -68,7 +68,7 @@ describe('getUserConfig migrations', () => {
       apiServerThinkingTimeoutSeconds: 2700,
       customChatGptWebApiUrl: 'https://chatgpt.com',
       customChatGptWebApiPath: '/backend-api/f/conversation',
-      chatgptWebThinkingEffort: 'max',
+      chatgptWebThinkingEffort: 'xhigh',
       chatgptWebConversationPollTimeoutSeconds: 2700,
       chatgptWebConversationPollIntervalSeconds: 10,
       chatgptWebHistorySyncEnabled: false,
@@ -88,32 +88,32 @@ describe('getUserConfig migrations', () => {
     })
   })
 
-  it('migrates a guessed Work GPT-6 key to Chat GPT-6 Pro', async () => {
+  it('migrates a historical GPT-6 alias to the standard Chat Thinking default', async () => {
     store.set('modelName', 'chatgptWeb6Astra')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
-    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('migrates a legacy chatgptWeb model key to the current default', async () => {
     store.set('modelName', 'chatgptFree35')
     const config = await getUserConfig()
     // chatgptFree35 is in LegacyChatgptWebModelKeyMap -> current default key.
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
     // migration should have been persisted.
-    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('migrates a chatgptWebModelKeys-<legacy-slug> name to the default', async () => {
     store.set('modelName', 'chatgptWebModelKeys-gpt-4o')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('does not import old vendor API provider selections', async () => {
     store.set('modelName', 'chatgptApi5_4')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
     expect(config.l1Providers[0].id).toBe('tokendance')
     expect(config.showLegacyProviderNotice).toBe(true)
   })
@@ -172,9 +172,9 @@ describe('getUserConfig migrations', () => {
     store.set('apiMode', { groupName: 'chatgptApiModelKeys', itemName: 'chatgptApi5_4' })
     store.set('chatgptWebEnabled', true)
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
     expect(config.apiMode).toBeNull()
-    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-6-thinking')
     expect(store.get('apiMode')).toBeNull()
   })
 
@@ -213,8 +213,8 @@ describe('getUserConfig migrations', () => {
     // selection must not survive as an unroutable model.
     store.set('modelName', 'bingFreeSydney')
     const config = await getUserConfig()
-    expect(config.modelName).toBe('chatgptweb/gpt-5-6-thinking')
-    expect(store.get('modelName')).toBe('chatgptweb/gpt-5-6-thinking')
+    expect(config.modelName).toBe('chatgptweb/gpt-6-thinking')
+    expect(store.get('modelName')).toBe('chatgptweb/gpt-6-thinking')
   })
 
   it('resets a removed-provider apiMode item to the default', async () => {
@@ -226,8 +226,8 @@ describe('getUserConfig migrations', () => {
   it('normalizes the chatgptWebThinkingEffort away from unknown values', async () => {
     store.set('chatgptWebThinkingEffort', 'bogus')
     const config = await getUserConfig()
-    // Unknown value falls back to the default ('max').
-    expect(config.chatgptWebThinkingEffort).toBe('max')
+    // Unknown value falls back to the default ('xhigh').
+    expect(config.chatgptWebThinkingEffort).toBe('xhigh')
   })
 
   it('keeps official ChatGPT Web thinking efforts', async () => {
