@@ -1,4 +1,4 @@
-import { renderChatgptWebGenui } from './genui.mjs'
+import { renderChatgptWebGenuiResult } from './genui.mjs'
 import { normalizeChatgptWebReferenceText } from './reference-text.mjs'
 
 const PENDING_MESSAGE_STATUSES = new Set(['in_progress', 'pending', 'streaming', 'queued'])
@@ -454,7 +454,7 @@ function selectChatgptWebConversationAssistantCandidate(
 function formatConversationMessageNode(node, conversation) {
   const message = getNodeMessage(node)
   if (!message) return null
-  const text = extractChatgptWebMessageText(message)
+  const { text, rendering } = extractChatgptWebMessagePresentation(message)
 
   return {
     messageId: message.id || node?.id || null,
@@ -465,6 +465,7 @@ function formatConversationMessageNode(node, conversation) {
     createTime: message.create_time || null,
     updateTime: message.update_time || null,
     text,
+    ...(rendering ? { rendering } : {}),
     endTurn: message.end_turn ?? null,
     isFinal: isFinalChatgptWebAssistantMessage(message, { conversation, text }),
   }
@@ -562,14 +563,25 @@ export function flattenChatgptWebMessageText(content) {
   return parts.map((part) => flattenMessagePart(part)).join('')
 }
 
-export function extractChatgptWebMessageText(message) {
-  if (!message || typeof message !== 'object') return ''
-  const visual = renderChatgptWebGenui(message)
-  if (visual) return visual
-  return normalizeChatgptWebReferenceText(
+export function extractChatgptWebMessagePresentation(message) {
+  if (!message || typeof message !== 'object') return { text: '' }
+  const visual = renderChatgptWebGenuiResult(message)
+  if (visual?.text) {
+    const { text, ...rendering } = visual
+    return { text, rendering }
+  }
+  const text = normalizeChatgptWebReferenceText(
     flattenChatgptWebMessageText(message.content),
     message?.metadata?.content_references,
   )
+  if (!visual) return { text }
+  const rendering = { ...visual }
+  delete rendering.text
+  return { text, rendering }
+}
+
+export function extractChatgptWebMessageText(message) {
+  return extractChatgptWebMessagePresentation(message).text
 }
 
 export function isPendingChatgptWebConversation(
@@ -634,7 +646,7 @@ export function extractChatgptWebConversationResult(
   if (!candidate || getMessageRole(candidate) !== 'assistant') return null
 
   const message = candidate.message || {}
-  const text = extractChatgptWebMessageText(message)
+  const { text, rendering } = extractChatgptWebMessagePresentation(message)
   const status = typeof message.status === 'string' ? message.status : ''
   const pending = isPendingChatgptWebConversation(conversation)
   const isFinal = !pending && isFinalChatgptWebAssistantMessage(message, { conversation, text })
@@ -644,6 +656,7 @@ export function extractChatgptWebConversationResult(
     continuationMessageId: message.metadata?.continuation_message_id || null,
     status,
     text,
+    ...(rendering ? { rendering } : {}),
     channel: message.channel || null,
     contentType: message.content?.content_type || '',
     isGenui: Boolean(message.metadata?.model_dil_v2),

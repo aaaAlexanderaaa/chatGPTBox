@@ -10,6 +10,7 @@ import remarkBreaks from 'remark-breaks'
 import { Pre } from './Pre'
 import { Hyperlink } from './Hyperlink'
 import { sanitizeMarkdownTree } from './sanitize-markdown-tree.mjs'
+import { GenuiChart } from './GenuiChart'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -196,6 +197,7 @@ export function MarkdownRender(props) {
           [sanitizeMarkdownTree, { allowKatexStyles: true }],
         ]}
         components={{
+          div: GenuiChart,
           a: Hyperlink,
           pre: Pre,
           think: ThinkComponent,

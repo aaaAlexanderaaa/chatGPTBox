@@ -98,6 +98,99 @@ function conversationWithVisibleFragment() {
 }
 
 describe('GPT-6 native visualization', () => {
+  function mappedVisualMessage() {
+    const message = visualMessage()
+    const dil = message.metadata.model_dil_v2
+    dil.constants = {
+      legend: [
+        { label: 'Group A', color: '#60A5FA', value: 20.5 },
+        { label: 'Group B', color: '#0D9488', value: 79.5 },
+      ],
+    }
+    dil.code =
+      'DIL.render(__dil.jsx(__dil.Fragment,null,__dil.jsx("box",{direction:"row",height:"16px",clip:true},__dilConstants["legend"].map(d=>__dil.jsx("box",{background:d.color,flex:d.value}))),__dil.jsx("grid",{columns:2},__dilSafe(()=>__dilConstants["legend"].map(d=>__dil.jsx("grid-item",null,__dil.jsx("text",null,d.label))),[])),__dil.jsx("table",null,__dil.jsx("table-row",null,__dil.jsx("table-cell",{header:true},"Category"))),__dil.jsx("list",{marker:"number"},__dil.jsx("list-item",null,"Conclusion")),__dil.jsx(Link,{url:"https://example.com/news",title:"Report",__resolutionId:"source"})));'
+    return message
+  }
+
+  it('keeps a static data legend, proportional bar, numbered list and safe source link together', () => {
+    const html = renderChatgptWebGenui(mappedVisualMessage())
+    expect(html).toContain('chatgptbox-genui-grid')
+    expect(html).toContain('Group A')
+    expect(html).toContain('Group B')
+    expect(html).toContain('flex-grow:20.5;flex-basis:0')
+    expect(html).toContain('flex-grow:79.5;flex-basis:0')
+    expect(html).toContain('background-color:#60A5FA')
+    expect(html).toContain('height:16px')
+    expect(html).toContain('<ol ')
+    expect(html).toContain('<th ')
+    expect(html).toContain('chatgptbox-genui-table-scroll')
+    expect(html).toContain('href="https://example.com/news">Report</a>')
+  })
+
+  it.each([
+    '[{label:"Data"}].map(d=>fetch("https://example.com"))',
+    '[{label:"Data"}].map(d=>d.constructor)',
+    'Array.from([1]).map(d=>__dil.jsx("text",null,d))',
+    '__dilConstants["many"].map(d=>__dil.jsx("text",null,d))',
+  ])('does not execute or expand unsupported map expressions (%s)', (expression) => {
+    const message = mappedVisualMessage()
+    message.metadata.model_dil_v2.constants.many = Array(513).fill('Data')
+    message.metadata.model_dil_v2.code = `DIL.render(__dil.jsx("text",null,${expression}));`
+    message.metadata.model_dil_v2.fallbackMarkdown = 'Readable fallback'
+    expect(decodeChatgptWebGenui(message.metadata.model_dil_v2)).toBeNull()
+    expect(renderChatgptWebGenui(message)).toBe('Readable fallback')
+  })
+
+  it('does not turn unapproved Link URLs or unsafe bar styling into active content', () => {
+    const message = mappedVisualMessage()
+    message.metadata.model_dil_v2.code =
+      'DIL.render(__dil.jsx(__dil.Fragment,null,__dil.jsx(Link,{url:"https://unapproved.example",title:"<img src=x onerror=alert(1)>",__resolutionId:"source"}),__dil.jsx("box",{background:"url(https://example.com/tracker)",height:"99999px",flex:"1;position:fixed"})));'
+    const html = renderChatgptWebGenui(message)
+    expect(html).not.toContain('href=')
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('background-color:')
+    expect(html).not.toContain('99999px')
+    expect(html).not.toContain('position:fixed')
+  })
+
+  it.each([false, true])(
+    'retains bar proportions and colors through the actual Markdown sanitizer (%s)',
+    (allowKatexStyles) => {
+      const html = renderChatgptWebGenui(mappedVisualMessage())
+      const processor = unified()
+        .use(remarkParse)
+        .use(remarkRehype, { allowDangerousHtml: true })
+        .use(rehypeRaw)
+        .use(sanitizeMarkdownTree, { allowKatexStyles })
+      const tree = processor.runSync(processor.parse(html))
+      const boxes = []
+      function collect(node) {
+        if (node.properties?.className?.includes('chatgptbox-genui-box')) boxes.push(node)
+        node.children?.forEach(collect)
+      }
+      collect(tree)
+      expect(boxes[0].properties.style).toContain('flex-direction:row')
+      expect(boxes[0].properties.style).toContain('height:16px')
+      expect(boxes[1].properties.style).toContain('flex-grow:20.5')
+      expect(boxes[1].properties.style).toContain('background-color:#60A5FA')
+      expect(boxes[2].properties.style).toContain('flex-grow:79.5')
+    },
+  )
+
+  it('bounds forged GenUI box styles and keeps arbitrary HTML styles stripped', () => {
+    const forged =
+      '<div class="chatgptbox-genui"><div class="chatgptbox-genui-box" style="height:16px;flex-grow:20.5;background-color:#60A5FA;position:fixed;width:100vw;top:-999px;background-image:url(https://example.com/tracker);height:99999px"></div><div style="height:16px">ordinary</div></div>'
+    const processor = unified()
+      .use(remarkParse)
+      .use(remarkRehype, { allowDangerousHtml: true })
+      .use(rehypeRaw)
+      .use(sanitizeMarkdownTree)
+    const tree = processor.runSync(processor.parse(forged))
+    const box = tree.children[0].children[0]
+    expect(box.properties.style).toBe('height:16px;flex-grow:20.5;background-color:#60A5FA')
+    expect(tree.children[0].children[1].properties.style).toBeUndefined()
+  })
+
   it.each(['same turn', 'later turn', 'sibling branch', 'completed anchor', 'pending successor'])(
     'replaces a recovery anchor only with a completed answer on the same path (%s)',
     (scenario) => {

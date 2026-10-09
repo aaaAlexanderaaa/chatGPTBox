@@ -34,11 +34,74 @@ Older Action 3 copies may also still send their hardcoded model.
 For the October 8 GPT-6 visualization update, replace both Action 2 and Action 3 again,
 preserving your `BASE_URL` and `API_TOKEN`. The gateway now converts native card, grid,
 table, relationship and citation components into portable HTML. Drafts keeps that HTML in
-the transcript; use Markdown Preview to see the layout. Hidden answer fragments are omitted
+the transcript; use the HTML Preview template below to see the layout. Hidden answer fragments are omitted
 in favor of the complete merged answer. A finished fragment with `endTurn: false` or
 `isFinal: false` keeps the pending marker and does not clear the awaited turn.
 The extension interprets static component construction rather than executing model-generated
 JavaScript. Components outside the supported set use the official Markdown fallback.
+
+## HTML Preview
+
+For iPhone, iPad and Mac, use the self-contained **ChatGPTBox Preview** action:
+open [`chatgptbox-preview.draftsAction`](./chatgptbox-preview.draftsAction) in Drafts and
+import it. Its single HTML Preview step contains the complete template, styles and
+packaged chart runtime. Drafts synchronizes actions through its existing iCloud sync;
+after the action and conversation have synchronized, viewing them requires no network
+connection, CDN, local gateway, or separate resource files. Get and Send still need
+the configured gateway. No API token is stored in the preview action.
+
+The action JSON follows the structure of the
+[official Preview action](https://actions.getdrafts.com/a/1Ct). Native import and sync
+still need verification on devices with Drafts installed; browser validation alone
+does not verify Drafts' importer or iCloud behavior. If importing the action file is
+unavailable, create an action named **ChatGPTBox Preview**, add one **HTML Preview**
+step, and use **Import** to load the HTML template below. Leave **Hide interface** off.
+
+Use [`chatgptbox-preview.html`](./chatgptbox-preview.html) as the template for a Drafts
+**HTML Preview** action step. Import the file with the step's **Import** button, or paste
+its full contents into the template field. For Mac/iPad live preview, save the file in
+`iCloud Drive/Drafts/Library/Templates` and select it in the preview window. These are
+the [official custom-template options](https://docs.getdrafts.com/docs/editor/previews).
+
+The template uses Drafts' `%%[[draft]]%%` Markdown conversion and includes its styles
+and chart JavaScript inline. It works offline, supports light/dark appearance, stacks cards and charts on narrow
+screens, and lets wide tables scroll within the answer. It does not load external scripts,
+fonts, or stylesheets. Keep HTML content enabled in your Markdown parser; do not escape
+or strip the gateway's `chatgptbox-genui` HTML. The built-in Markdown previews do not
+supply the responsive GenUI and theme rules used here. Gateway metadata stays in the
+editable note but is hidden from this template's reading view.
+
+The October 9 renderer update also preserves static array-generated legends, numbered
+lists, safe source links, and proportional colored bars. Update/reload the extension to
+receive these structures through the gateway, then run Get again on the existing note.
+Action 2 and Action 3 already preserve the returned HTML; their scripts need no further
+changes for this preview update. A template cannot restore layouts from an older gateway
+response that has already fallen back to Markdown.
+
+The October 9 offline chart update adds bar, line, area, scatter and pie charts to the
+same template. Hover/tap shows values, supported legends toggle series, and scrollable
+charts support local panning/zooming. **图表数据** opens the complete source values;
+without JavaScript, the table remains open. Missing observations remain gaps and
+negative values retain their sign. Unsupported native chart properties still use the
+official Markdown fallback. Get an existing conversation again after updating the
+extension to obtain its chart descriptors; Action 2 and Action 3 need no script changes.
+
+Maintain `chatgptbox-preview.source.html`, the shared CSS, and the chart runtime as
+separate sources. `npm run sync-drafts-preview` generates the complete HTML and action
+package; extension builds do this automatically. The regression suite checks both
+generated files. The build also protects JavaScript from Drafts' template delimiters
+and emits a CSP hash allowing only that exact packaged script. Update the imported
+preview action after rebuilding; an extension update does not update Drafts' copy.
+See [renderer contracts and supported components](../chatgpt-web-genui.md).
+
+The HTML Preview action works on all three platforms. The separate live preview window
+is available on Mac and iPad, not iPhone. To use that window, place the same complete
+HTML file in `iCloud Drive/Drafts/Library/Templates`; it needs no `Library/Previews`
+assets. This file uses iCloud Drive file synchronization, separate from Drafts' action
+sync, and must be downloaded on the device for offline use. The action is the primary
+cross-platform preview; the live window is optional.
+
+## Send and recovery
 
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up
@@ -63,6 +126,8 @@ Files:
 - `action-1-list-conversations.js`
 - `action-2-open-checked-conversation.js`
 - `action-3-send-waiting-reply.js`
+- `chatgptbox-preview.html`
+- `chatgptbox-preview.draftsAction`
 
 Suggested Drafts action names:
 

@@ -36,7 +36,7 @@ import {
 } from './websocket-state.mjs'
 import {
   extractChatgptWebConversationResult,
-  extractChatgptWebMessageText,
+  extractChatgptWebMessagePresentation,
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
 import {
@@ -816,6 +816,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   let answer = ''
   let answerIsGenui = false
+  let answerRendering = null
   let generationPrefixAnswer = ''
   let generatedImageUrl = ''
   let responseMetaLogged = false
@@ -1090,6 +1091,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       if (typeof result?.text === 'string' && result.text) {
         const nextAnswer = withRichContent(result.text)
         answerIsGenui = result.isGenui === true
+        answerRendering = result.rendering || null
         if (nextAnswer !== answer) {
           answer = nextAnswer
           emitIntermediateAnswerSnapshot({
@@ -1521,13 +1523,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     }
     if (data.message?.author?.role && data.message.author.role !== 'assistant') return
 
-    const respAns = extractChatgptWebMessageText(data.message)
+    const presentation = extractChatgptWebMessagePresentation(data.message)
+    const respAns = presentation.text
     const respPart = data.message?.content?.parts?.[0]
     const contentType = data.message?.content?.content_type
     const messageChannel = typeof data.message?.channel === 'string' ? data.message.channel : null
     if (contentType === 'text' && respAns) {
       answer = withRichContent(respAns)
       answerIsGenui = Boolean(data.message?.metadata?.model_dil_v2)
+      answerRendering = presentation.rendering || null
     } else if (contentType === 'code' && data.message?.status === 'in_progress') {
       const generationText = '\n\n' + t('Generating...')
       if (answer && !answer.endsWith(generationText)) generationPrefixAnswer = answer
@@ -1560,6 +1564,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   function finishMessage() {
     session.chatgptWebResponseDiagnostics = responseDiagnostics.snapshot()
+    if (answerRendering) session.chatgptWebRendering = answerRendering
+    else delete session.chatgptWebRendering
     void appendChatgptWebDebugLog(config, 'completed', {
       selectedModel,
       model: usedModel,

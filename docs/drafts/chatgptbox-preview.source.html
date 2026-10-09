@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+    <title>ChatGPTBox</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #fff;
+        --ink: #1f2328;
+        --muted: #657080;
+        --line: #d8dee8;
+        --surface: #f5f7fa;
+        --link: #1765b5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow-wrap: anywhere;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 28px 24px 72px;
+      }
+      h1, h2, h3, h4 { line-height: 1.35; }
+      h1 { font-size: 1.65rem; margin: 0 0 20px; }
+      h2 { font-size: 1.25rem; margin: 32px 0 16px; }
+      h3 { font-size: 1.1rem; margin: 24px 0 12px; }
+      main > h3 {
+        border-top: 1px solid var(--line);
+        padding-top: 20px;
+        color: var(--muted);
+        font-size: .9rem;
+      }
+      /* Keep gateway metadata in the editable note, outside the reading view. */
+      main > p:has(~ h2:first-of-type), main > h2:first-of-type { display: none; }
+      p, ul, ol { margin: 12px 0; }
+      li + li { margin-top: 8px; }
+      a { color: var(--link); text-underline-offset: 3px; }
+      a:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+      blockquote {
+        margin: 16px 0;
+        padding: 4px 16px;
+        border-left: 3px solid var(--line);
+        color: var(--muted);
+      }
+      pre {
+        padding: 16px;
+        overflow: auto;
+        background: var(--surface);
+        border-radius: 8px;
+      }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+      :not(pre) > code { background: var(--surface); padding: 2px 5px; border-radius: 4px; }
+      hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+      img { max-width: 100%; height: auto; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: .9rem;
+      }
+      th, td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+        text-align: left;
+      }
+      th { font-weight: 600; }
+      main > table { display: block; overflow-x: auto; }
+      /* chatgptbox-genui-styles:start */
+/* chatgptbox-genui-styles:end */
+      .chatgptbox-genui-table-cell > .chatgptbox-genui-text { margin: 0; }
+      @media (max-width: 480px) {
+        main { padding: 20px 16px 48px; }
+        h1 { font-size: 1.4rem; }
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #15191e;
+          --ink: #e8edf2;
+          --muted: #a3aebb;
+          --line: #3c4653;
+          --surface: #242b35;
+          --link: #83baff;
+        }
+      }
+      @media print {
+        :root { --page: #fff; --ink: #111; --muted: #555; --line: #ddd; --surface: #f5f5f5; }
+        main { max-width: none; padding: 0; }
+        a { color: inherit; }
+        .chatgptbox-genui-table-scroll, main > table { overflow: visible; }
+        .chatgptbox-genui-table { min-width: 0; }
+        tr, .chatgptbox-genui-box { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>%%[[draft]]%%</main>
+  </body>
+</html>

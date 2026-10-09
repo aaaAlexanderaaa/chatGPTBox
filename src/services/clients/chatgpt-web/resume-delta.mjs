@@ -1,5 +1,5 @@
 import {
-  extractChatgptWebMessageText,
+  extractChatgptWebMessagePresentation,
   isFinalChatgptWebAssistantMessage,
   isPendingChatgptWebMessageStatus,
 } from './conversation-state.mjs'
@@ -297,7 +297,7 @@ function summarizeAssistantMessage(entry, order) {
   )
     return null
 
-  const text = extractChatgptWebMessageText(message)
+  const { text, rendering } = extractChatgptWebMessagePresentation(message)
   const thoughts = Array.isArray(message.content?.thoughts)
     ? message.content.thoughts
         .map((thought) => {
@@ -322,6 +322,7 @@ function summarizeAssistantMessage(entry, order) {
     isPending: isPendingChatgptWebMessageStatus(status),
     isFinal: isFinalChatgptWebAssistantMessage(message),
     text,
+    ...(rendering ? { rendering } : {}),
     textLength: text.length,
     thoughts,
     thoughtCount: thoughts.length,

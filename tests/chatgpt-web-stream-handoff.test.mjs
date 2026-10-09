@@ -7,6 +7,8 @@ import { initSession } from '../src/services/init-session.mjs'
 import { slugToModelKey, isGrokEngineKey } from '../src/pages/ApiServer/model-slug.mjs'
 import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
+import { staticComponentsMessage } from './fixtures/genui-components.mjs'
+import { chartComponentsMessage } from './fixtures/genui-charts.mjs'
 import {
   canFollowChatgptWebTurnViaHttpResume,
   canResumeChatgptWebStreamHandoffViaSse,
@@ -912,6 +914,17 @@ describe('ChatGPT Web client handoff integration', () => {
       const first = assistantMessageDelta('News summary')
       first.v.conversation_id = 'conv-1'
       const final = genuiDelta('News summary').v.message
+      const staticMessage = staticComponentsMessage().metadata.model_dil_v2
+      const chartMessage = chartComponentsMessage().metadata.model_dil_v2
+      final.metadata = {
+        model_dil_v2: {
+          ...staticMessage,
+          constants: { ...staticMessage.constants, ...chartMessage.constants },
+          code: `DIL.render(__dil.jsx(__dil.Fragment,null,${staticMessage.code
+            .trim()
+            .slice(11, -2)},${chartMessage.code.trim().slice(11, -2)}));`,
+        },
+      }
       final.status = 'finished_successfully'
       final.end_turn = true
       const initial = [`event: delta\ndata: ${JSON.stringify(first)}\n\n`]
@@ -958,7 +971,15 @@ describe('ChatGPT Web client handoff integration', () => {
       expect(bridge.wire).toHaveLength(1)
       expect(bridge.wire[0]).toMatchObject({ type: 'done', id: 'request-1' })
       expect(bridge.wire[0].answer).toContain('chatgptbox-genui')
-      expect(bridge.wire[0].answer).toContain('News summary')
+      expect(bridge.wire[0].answer).toContain('Alpha')
+      expect(bridge.wire[0].answer).toContain('Beta')
+      expect(bridge.wire[0].answer).toContain('End of component demonstration')
+      expect(bridge.wire[0].answer.match(/data-chatgptbox-chart=/g)).toHaveLength(6)
+      expect(bridge.wire[0].answer).toContain('End of chart demonstration')
+      expect(bridge.session.chatgptWebRendering).toMatchObject({
+        format: 'html',
+        status: 'rendered',
+      })
     },
   )
 

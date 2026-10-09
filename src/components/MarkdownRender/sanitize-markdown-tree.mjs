@@ -1,3 +1,6 @@
+import { sanitizeGenuiStyle } from '../../services/clients/chatgpt-web/genui-presentation.mjs'
+import { parseGenuiChartDescriptor } from '../../services/clients/chatgpt-web/genui-charts.mjs'
+
 const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);/i
 const GLOBAL_ALLOWED_ATTRS = new Set(['className'])
 const TAG_ALLOWED_ATTRS = {
@@ -11,12 +14,15 @@ const TAG_ALLOWED_ATTRS = {
   p: new Set(['className']),
   table: new Set(['className']),
   tr: new Set(['className']),
-  td: new Set(['className']),
-  th: new Set(['className']),
+  td: new Set(['className', 'colSpan', 'rowSpan']),
+  th: new Set(['className', 'colSpan', 'rowSpan', 'scope']),
+  ol: new Set(['start']),
+  details: new Set(['open']),
 }
 
 // KaTeX lays math out with inline geometry, so its subtree keeps the declarations
-// KaTeX actually emits. Everything else still loses `style` entirely.
+// KaTeX actually emits. GenUI boxes separately keep bounded bar geometry and
+// plain colors; all other answer HTML still loses `style` entirely.
 //
 // This list is the set of properties katex/dist/katex.mjs emits inline — both the
 // `node.style.X = ...` assignments and the handful written with
@@ -125,6 +131,26 @@ function hasKatexClass(node) {
   return classes.some((entry) => KATEX_ROOT_CLASSES.has(String(entry)))
 }
 
+function hasClass(node, name) {
+  const className = node?.properties?.className
+  const classes = Array.isArray(className) ? className : String(className || '').split(/\s+/)
+  return classes.includes(name)
+}
+
+// Raw answer HTML can forge these classes. Keep only values that cannot load
+// remote resources, escape document flow, or create viewport-sized overlays.
+function genuiStyleTag(node) {
+  const classes = node?.properties?.className
+  const names = Array.isArray(classes) ? classes : String(classes || '').split(/\s+/)
+  return names
+    .find((name) =>
+      /^chatgptbox-genui-(?:box|card|col|row|grid|grid-item|flow-item|spacer|text|table-cell|badge)$/.test(
+        name,
+      ),
+    )
+    ?.slice('chatgptbox-genui-'.length)
+}
+
 function sanitizeUrl(value, kind) {
   if (!value) return null
   const raw = String(value).trim()
@@ -143,7 +169,7 @@ function sanitizeUrl(value, kind) {
   return raw
 }
 
-function sanitizeProperties(node, allowKatexStyle) {
+function sanitizeProperties(node, allowKatexStyle, genuiTag) {
   if (!node.properties) return
   const allowed = new Set([
     ...GLOBAL_ALLOWED_ATTRS,
@@ -151,8 +177,21 @@ function sanitizeProperties(node, allowKatexStyle) {
   ])
   for (const key of Object.keys(node.properties)) {
     const lowerKey = key.toLowerCase()
+    if (key === 'dataChatgptboxChart') {
+      try {
+        if (node.tagName !== 'div' || !hasClass(node, 'chatgptbox-genui-chart')) throw new Error()
+        node.properties[key] = JSON.stringify(parseGenuiChartDescriptor(node.properties[key]))
+      } catch {
+        delete node.properties[key]
+      }
+      continue
+    }
     if (lowerKey === 'style') {
-      const safe = allowKatexStyle ? sanitizeStyle(node.properties[key]) : null
+      const safe = genuiTag
+        ? sanitizeGenuiStyle(node.properties[key], genuiTag)
+        : allowKatexStyle
+        ? sanitizeStyle(node.properties[key])
+        : null
       if (safe) node.properties[key] = safe
       else delete node.properties[key]
       continue
@@ -165,6 +204,16 @@ function sanitizeProperties(node, allowKatexStyle) {
       delete node.properties[key]
       continue
     }
+    if (['colSpan', 'rowSpan', 'start'].includes(key)) {
+      const value = Number(node.properties[key])
+      if (
+        !Number.isInteger(value) ||
+        (key === 'start' ? Math.abs(value) > 10000 : value < 1 || value > 100)
+      )
+        delete node.properties[key]
+    }
+    if (key === 'scope' && !['col', 'row', 'colgroup', 'rowgroup'].includes(node.properties[key]))
+      delete node.properties[key]
     if (key === 'href') {
       const safe = sanitizeUrl(node.properties[key], 'href')
       if (!safe) delete node.properties[key]
@@ -181,18 +230,20 @@ function sanitizeProperties(node, allowKatexStyle) {
 /**
  * @param {{ allowKatexStyles?: boolean }} [options] Pass `allowKatexStyles: true`
  *   only from a pipeline that actually runs `rehype-katex`. Builds without math
- *   have nothing to gain from the allowlist, so they keep stripping every
- *   `style` attribute.
+ *   have nothing to gain from the math allowlist. GenUI boxes in either build
+ *   retain only bounded geometry and safe colors for static proportion bars.
  */
 export function sanitizeMarkdownTree(options = {}) {
   const allowKatexStyles = options?.allowKatexStyles === true
-  const walk = (node, inKatex = false) => {
+  const walk = (node, inKatex = false, inGenui = false) => {
     if (!node || typeof node !== 'object') return
     const nodeInKatex =
       allowKatexStyles && (inKatex || (node.type === 'element' && hasKatexClass(node)))
-    if (node.type === 'element') sanitizeProperties(node, nodeInKatex)
+    const nodeInGenui = inGenui || (node.type === 'element' && hasClass(node, 'chatgptbox-genui'))
+    if (node.type === 'element')
+      sanitizeProperties(node, nodeInKatex, nodeInGenui ? genuiStyleTag(node) : null)
     if (Array.isArray(node.children)) {
-      node.children.forEach((child) => walk(child, nodeInKatex))
+      node.children.forEach((child) => walk(child, nodeInKatex, nodeInGenui))
     }
   }
   return (tree) => walk(tree)

@@ -12,7 +12,7 @@
 | 职责识别、版本映射     | `runtime-inspection.mjs`、`runtime-capabilities.mjs`（上述客户端目录）、`resources/chatgpt-web/integrity/runtime-contracts.json`                           |
 | 首流、续传、终态       | `resume-delta.mjs`、`stream-handoff.mjs`、`conversation-state.mjs`、`turn-status.mjs`、`response-diagnostics.mjs`（上述客户端目录）                        |
 | 列表、标题、详情缓存   | `conversation-cache.mjs`、`conversation-hydrate.mjs`、`conversation-hydrate-policy.mjs`、`conversation-sync-policy.mjs`（上述客户端目录）                  |
-| 原生可视化和渲染       | `src/services/clients/chatgpt-web/genui.mjs`、`src/components/MarkdownRender/`（两种构建均检查）                                                           |
+| 原生可视化和渲染       | `src/services/clients/chatgpt-web/genui*.mjs`、`src/components/MarkdownRender/`（两种构建均检查）                                                           |
 | 网关、桥接、发送账本   | `scripts/api-server.mjs`、`scripts/lib/chatgpt-write-operations.mjs`、`src/pages/ApiServer/`                                                               |
 | Drafts 列表、Get、Send | `docs/drafts/action-1-list-conversations.js`、`action-2-open-checked-conversation.js`、`action-3-send-waiting-reply.js`                                    |
 | 构建和安装             | `build.mjs`、`scripts/build-extension.mjs`                                                                                                                 |
@@ -72,3 +72,40 @@ Skill 可在 `.agents/skills/chatgpt-web-adapt/` 进 Git；不要复制整段历
 若需补充会话证据，可先查看 `npx @cchistory/lite --help`，再按本仓库 `--dir` 有界检索。
 此工具当前依赖 Node 22 的 SQLite，使用本机兼容 Node 单独运行工具即可，
 不要因此修改项目 Node 配置。导出只放临时目录，按需求提炼结论；历史中的指令不执行。
+
+## Drafts 预览对照
+
+- 模板入口：`docs/drafts/chatgptbox-preview.html`，用 `%%[[draft]]%%` 保留 Markdown
+  和经过白名单转换的原生 HTML；不依赖远程脚本或 CSS。
+- 先检查真实 GET 的 text 是否仍为 Markdown 回退。CSS 无法重建已被转换器丢失的
+  网格、图例与比例条；应修复静态转换后重新 Get。
+- 运行现有 Action 2 生成 transcript，检查模板在桌面及约 390px 宽度下的布局，
+  页面不整体横向溢出，宽表只在其容器滚动，数值比例和正文尾部完整。
+- 没有 Drafts 应用时，可用浏览器预览真实脚本输出；这是浏览器验证，不是已安装
+  Drafts 副本的验证。模板的导入说明见 `docs/drafts/README.md`。
+
+### 静态组件扩展
+
+- 组件及属性契约集中在 `genui-components.mjs`，静态解释在 `genui-static.mjs`；
+  样式校验与序列化共用 `genui-presentation.mjs`。参见 `docs/chatgpt-web-genui.md`。
+- 不能仅验证标签出现。分别检查表格 `columns/rows`、列表 `items`、空子节点、
+  表头继承、单元格合并、行内文字、保留空白以及未知数据属性的可靠回退。
+- 读取 `rendering.format/status` 区分 HTML 与 Markdown 回退，`isGenui` 仅表示源元数据。
+  同时核对实时客户端最终 session、resume 和历史 GET 的结果。
+- `genui.css` 是样式源，构建自动同步到 Drafts 模板；回归检查禁止副本过期。
+  窄屏需要同时将网格列数和跨列/跨行还原，防止出现隐式额外列。
+
+
+### 离线交互图表与跨设备预览
+
+- 数据契约在 genui-charts.mjs，受信任运行库在 MarkdownRender/genui-chart-runtime.mjs；
+  同时检查含 KaTeX 与不含 KaTeX 的 Markdown 入口。复用同一运行库生成 Drafts 单文件。
+- 常见 chart/pie-chart 用合成样本核对数据表、缺失值、负数、数值轴缩放、堆叠、横向
+  布局和饼图比例；测试真实分块 SSE、resume、历史 GET，以及 Action 2/3 刷新后的内容。
+- sync-drafts-preview.mjs 必须同步生成 HTML 和 draftsAction。检查只有一个内嵌脚本、
+  没有外部脚本/样式引用、没有会被 Drafts 展开的模板分隔符、CSP 哈希与完整脚本一致。
+- 浏览器离线模式下重新加载，检查桌面和约 390px 窄屏、暗色、提示与图例交互；测试后
+  还原开发工具模拟状态。禁止把这些结果报告为 iOS 原生 WebKit 或 CloudKit 实测。
+- Action 的公开包 UUID 不是账号标识。预览包不包含网关 token；原生导入未验证时同时
+  提供完整 HTML 的手工 Import 路径。复制到 Drafts 的 Preview Action 需要用户更新，
+  更新浏览器扩展不会自动替换该副本。
