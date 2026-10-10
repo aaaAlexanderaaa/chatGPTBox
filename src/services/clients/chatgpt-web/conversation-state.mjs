@@ -865,7 +865,10 @@ export function formatChatgptWebConversationListItem(item = {}) {
     createTime: item.create_time || null,
     updateTime: item.update_time || null,
     asyncStatus: item.async_status ?? null,
-    pending: isPendingChatgptWebConversation(item, { allowUntitledListItem: true }),
+    pending:
+      typeof item.pending === 'boolean'
+        ? item.pending
+        : isPendingChatgptWebConversation(item, { allowUntitledListItem: true }),
     isArchived: item.is_archived === true,
     isStarred: item.is_starred === true,
     workspaceId: item.workspace_id || null,

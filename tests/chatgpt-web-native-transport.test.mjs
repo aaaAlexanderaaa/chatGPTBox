@@ -26,6 +26,9 @@ const relocatedContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
 const gpt6Contract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
   (entry) => entry.filename === '633146.67e864aeea.js',
 )
+const generationContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
+  (entry) => entry.filename === '633146.4de433ac01.js',
+)
 // All identities, tokens, IDs and message content below are synthetic fixtures.
 // Never replace them with values copied from a browser capture or real account.
 let page, modules, transport, events, identity
@@ -123,7 +126,87 @@ const send = (path = '/f/conversation', options = {}) =>
     ...options,
   })
 
+function useGenerationRuntime(generation = 7) {
+  modules.Kwu = modules.k29
+  modules.Qd = {
+    loadBrowserChatGptAuth: modules.OS.loadBrowserChatGptAuth,
+    getBrowserChatGptAuthSnapshot: modules.OS.getBrowserChatGptAuthSnapshot,
+    getBrowserChatGptAuthGeneration: vi.fn(() => generation),
+    isBrowserWorkspaceSwitchPending: vi.fn(() => false),
+  }
+  modules.lXE = modules.n9O
+  modules.wl = { c: vi.fn(async () => new Response('{}')) }
+}
+
 describe('ChatGPT native page transport', () => {
+  it('uses the October 10 auth generation without the removed token-context export and sends once', async () => {
+    useGenerationRuntime()
+    const context = await connect(generationContract, 'preload')
+    expect(context).toMatchObject({ ok: true, transport: 'native', baseHeaders: {} })
+    await (await send()).text()
+    await expect(send()).rejects.toThrow()
+    expect(modules.wl.c).toHaveBeenCalledTimes(1)
+    expect(modules.wl.c).toHaveBeenCalledWith(
+      '/f/conversation',
+      expect.objectContaining({
+        expectedIdentity: { accountId: 'account', userId: 'user' },
+        retry: 'never',
+        signal: expect.any(AbortSignal),
+      }),
+      undefined,
+      expect.any(Function),
+      'stream',
+    )
+    expect(JSON.stringify(events)).not.toContain(identity.accessToken)
+  })
+
+  it.each(['generation', 'token', 'account', 'user', 'workspace-switch'])(
+    'refuses a changed October 10 %s before verification or submission',
+    async (changed) => {
+      useGenerationRuntime()
+      await connect(generationContract)
+      if (changed === 'generation') modules.Qd.getBrowserChatGptAuthGeneration.mockReturnValue(8)
+      if (changed === 'token') identity = { ...identity, accessToken: 'rotated-token' }
+      if (changed === 'account') identity = { ...identity, accountId: 'another-account' }
+      if (changed === 'user') identity = { ...identity, userId: 'another-user' }
+      if (changed === 'workspace-switch')
+        modules.Qd.isBrowserWorkspaceSwitchPending.mockReturnValue(true)
+      await expect(send()).rejects.toThrow()
+      expect(modules.wl.c).not.toHaveBeenCalled()
+      expect(modules.lXE.f).not.toHaveBeenCalled()
+    },
+  )
+
+  it('refuses auth changes during native verification before the conversation POST', async () => {
+    useGenerationRuntime()
+    await connect(generationContract)
+    modules.lXE.f.mockImplementation(async () => {
+      modules.Qd.getBrowserChatGptAuthGeneration.mockReturnValue(8)
+      return { chatRequirements: { prepare_token: 'prepared' } }
+    })
+    await expect(send()).rejects.toThrow()
+    expect(modules.wl.c).not.toHaveBeenCalled()
+    expect(modules.Kwu.Request.safePost).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, NaN, -1, 1.5])(
+    'rejects an invalid native auth generation %s',
+    async (value) => {
+      useGenerationRuntime()
+      modules.Qd.getBrowserChatGptAuthGeneration.mockReturnValue(value)
+      document.scripts = [{ src: `https://chatgpt.com/cdn/assets/${generationContract.filename}` }]
+      const require = Object.assign((id) => modules[id], {
+        m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
+      })
+      expect(
+        await getChatgptWebPageIntegrityInPage([generationContract], async () => ({
+          __webpack_require__: require,
+        })),
+      ).toMatchObject({ ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' })
+      expect(modules.wl.c).not.toHaveBeenCalled()
+    },
+  )
+
   it('uses the GPT-6 release modules with native verification, identity checks, and no retry', async () => {
     modules.Kwu = modules.k29
     modules.Qd = modules.OS

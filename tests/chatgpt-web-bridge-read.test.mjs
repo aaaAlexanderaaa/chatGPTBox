@@ -42,6 +42,16 @@ describe('extractChatgptWebConversationListItems', () => {
 })
 
 describe('formatChatgptWebConversationListItem', () => {
+  it('keeps a confirmed completed untitled conversation ready', () => {
+    const out = formatChatgptWebConversationListItem({
+      id: 'untitled-complete',
+      title: 'New chat',
+      async_status: null,
+      pending: false,
+    })
+    expect(out.pending).toBe(false)
+  })
+
   it('maps the upstream item fields to the bridge list shape', () => {
     const out = formatChatgptWebConversationListItem({
       id: 'c1',

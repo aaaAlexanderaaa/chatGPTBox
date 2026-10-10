@@ -167,12 +167,15 @@ export async function getChatgptWebPageIntegrityInPage(
     const prepareIntegrity = integrity[contract.integrityPrepareExport || 'f']
     const makeIntegrityHeaders = integrity[contract.integrityHeadersExport || 'b']
     const nativeFetch = require(contract.fetchModule)[contract.fetchExport || 'b']
+    const generationContext = contract.authContext === 'generation'
     if (
       typeof request?.getRequestTarget !== 'function' ||
       typeof request?.safePost !== 'function' ||
       typeof auth.loadBrowserChatGptAuth !== 'function' ||
       typeof auth.getBrowserChatGptAuthSnapshot !== 'function' ||
-      typeof auth.isSameBrowserRequestAuthContext !== 'function' ||
+      (generationContext
+        ? typeof auth.getBrowserChatGptAuthGeneration !== 'function'
+        : typeof auth.isSameBrowserRequestAuthContext !== 'function') ||
       typeof prepareIntegrity !== 'function' ||
       typeof makeIntegrityHeaders !== 'function' ||
       typeof nativeFetch !== 'function'
@@ -198,6 +201,15 @@ export async function getChatgptWebPageIntegrityInPage(
     if (!identity?.accessToken || !identity.userId || !identity.accountId) {
       return failure('UNAUTHORIZED', 'Sign in to ChatGPT in the proxy tab first.')
     }
+    // The October 10 runtime removed token-context comparison. Its native auth
+    // generation changes on session updates; pin both generation and token so
+    // an identity change cannot cross this transport channel's lifetime.
+    const authGeneration = generationContext ? auth.getBrowserChatGptAuthGeneration() : null
+    if (generationContext && (!Number.isSafeInteger(authGeneration) || authGeneration < 0))
+      return failure(
+        'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+        'The ChatGPT native authentication generation is unavailable. Reload the proxy tab.',
+      )
     const expectedIdentity = { accountId: identity.accountId, userId: identity.userId }
     const assertCurrent = () => {
       const current = auth.getBrowserChatGptAuthSnapshot()
@@ -206,7 +218,10 @@ export async function getChatgptWebPageIntegrityInPage(
         auth.isBrowserWorkspaceSwitchPending?.() ||
         current.accountId !== identity.accountId ||
         current.userId !== identity.userId ||
-        !auth.isSameBrowserRequestAuthContext(identity.accessToken, current.accessToken)
+        (generationContext
+          ? auth.getBrowserChatGptAuthGeneration() !== authGeneration ||
+            current.accessToken !== identity.accessToken
+          : !auth.isSameBrowserRequestAuthContext(identity.accessToken, current.accessToken))
       ) {
         throw new Error('ChatGPT account or session changed. Retry in the current account.')
       }

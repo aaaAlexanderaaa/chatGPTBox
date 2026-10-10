@@ -166,7 +166,12 @@ export function buildChatgptWebConversationListResponse(
     })
     .map((entry) => ({
       ...cloneJson(entry.rawItem || entry),
+      id: entry.id,
       title: pickChatgptWebConversationTitle(entry.rawItem?.title, entry.title),
+      create_time: entry.createTime ?? entry.rawItem?.create_time ?? null,
+      update_time: entry.updateTime ?? entry.rawItem?.update_time ?? null,
+      async_status: normalizeNullable(entry.asyncStatus),
+      pending: entry.pending === true,
     }))
 
   return {
@@ -495,6 +500,47 @@ export async function upsertChatgptWebCreatedConversationIndexEntry(conversation
   return entry
 }
 
+let turnIndexWriteQueue = Promise.resolve()
+
+export async function updateChatgptWebConversationTurnIndex({
+  conversationId,
+  messageId,
+  status,
+} = {}) {
+  if (!conversationId || !messageId || !['running', 'completed'].includes(status)) return
+  const run = turnIndexWriteQueue.then(async () => {
+    const index = await getChatgptWebConversationIndex()
+    const entry = index[conversationId]
+    if (!entry) return
+    // A delayed completion from an earlier turn must not clear a newer send.
+    if (status === 'completed' && entry.localTurnMessageId !== messageId) return
+    const pending = status === 'running'
+    const asyncStatus = pending ? 'in_progress' : null
+    const updateTime = new Date().toISOString()
+    index[conversationId] = {
+      ...entry,
+      localTurnMessageId: messageId,
+      pending,
+      asyncStatus,
+      updateTime,
+      rawItem: {
+        ...entry.rawItem,
+        id: conversationId,
+        title: entry.title,
+        pending,
+        async_status: asyncStatus,
+        update_time: updateTime,
+      },
+    }
+    await setChatgptWebConversationIndex(index)
+    // The list status is known, but the cached body may still belong to the
+    // preceding turn. Fetch that body on the next read instead of fabricating it.
+    invalidateConversation(conversationId)
+  })
+  turnIndexWriteQueue = run.catch(() => {})
+  return run
+}
+
 export async function saveChatgptWebConversationSnapshot(conversation, options = {}) {
   const record = createChatgptWebConversationSnapshotRecord(conversation, options)
   await setCachedChatgptWebConversationRecord(record)
@@ -510,7 +556,14 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
     index[record.conversationId] = {
       ...existingEntry,
       title,
-      ...(existingEntry.rawItem && { rawItem: { ...existingEntry.rawItem, title } }),
+      rawItem: {
+        ...existingEntry.rawItem,
+        id: record.conversationId,
+        title,
+        pending: record.pending === true,
+        async_status: record.asyncStatus,
+        update_time: record.updateTime ?? existingEntry.updateTime,
+      },
       pending: record.pending === true,
       asyncStatus: record.asyncStatus,
       updateTime: record.updateTime ?? existingEntry.updateTime,

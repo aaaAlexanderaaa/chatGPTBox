@@ -55,5 +55,18 @@
     "integrityHeadersExport": "b",
     "fetchModule": "wl",
     "fetchExport": "c"
+  },
+  {
+    "filename": "633146.4de433ac01.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "Kwu",
+    "authModule": "Qd",
+    "authContext": "generation",
+    "integrityModule": "lXE",
+    "integrityPrepareExport": "f",
+    "integrityHeadersExport": "b",
+    "fetchModule": "wl",
+    "fetchExport": "c"
   }
 ]

@@ -159,3 +159,29 @@ Drafts Get 脚本使用同一真实响应验证保留 HTML 和结尾内容。本
 通过新运行态只读刷新已有新闻可视化会话，来源为 network，返回 HTTP 200、
 `pending: false`、`isFinal: true`，保留网格、八行事件表、引用和答案尾部。
 本轮没有发送新的长任务，也没有更新或复验 Drafts 应用中的动作副本。
+
+### 2026-10-10 Drafts Reply Conversation 的运行时识别失败
+
+官网代理页已加载 `633146.4de433ac01.js`。请求、账户、完整性与网络模块仍分别为
+`Kwu`、`Qd`、`lXE`、`wl.c`，但账户模块删除了 `isSameBrowserRequestAuthContext`。
+旧映射未包含该版本，能力识别又要求已删除的导出，因此在正式发送之前返回
+`Could not identify a unique compatible ChatGPT request, account, verification and network transport`。
+官网聊天可以正常使用；这条错误不表示账户失效或 Drafts 无法连上网关。
+
+新增该公开版本的准确映射，使用原生 `getBrowserChatGptAuthGeneration` 固定认证状态。
+连接及每次发送前仍核对账户、用户、工作区切换、认证版本和当前 token；认证状态改变时
+停止提交。旧版本继续使用原来的上下文比较。官网 `wl.c` 仍在首次发送前检查
+`expectedIdentity` 并调用传入的断言，传递取消 signal；`retry: never` 直接返回首次响应。
+底层 `y3u.a` 包装仍只调用一次 fetch，不放宽未知运行时的识别规则。
+
+新增 11 项合成回归，覆盖新版连接、正式提交一次、账户/用户/token/认证版本变化、
+工作区切换、校验期间状态变化与无效版本号。全量 1123 项测试、lint 和生产构建通过；
+生产包中的 MAIN 注入函数在独立环境中确认自包含。Brave 实际加载目录已更新并重载，
+代理页刷新后通过已安装扩展建立原生通道，只读 `/backend-api/models` 返回 HTTP 200。
+原有 18081 网关进程与认证配置保留，API Server 桥接页面已恢复连接且健康。
+通过本机 Tailscale 地址访问 18081 的健康接口也返回 HTTP 200，桥接处于 connected。
+
+Drafts 经 Tailscale 访问 18081 时，网关监听所有 IPv4 接口；运行时检查只针对专用
+`chatgpt.com/?chatgptbox_proxy=1` 顶层页面，账户请求监听只覆盖该浏览器的 ChatGPT
+会话接口，不进行网段扫描。此次未改变 Drafts Action 2/3 契约，没有发送新的用户问题，
+也未在用户的 Drafts 设备上验证完整发送流程。

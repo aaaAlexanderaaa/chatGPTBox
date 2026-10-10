@@ -213,6 +213,8 @@ The cache uses incremental upserts:
 
 The response still uses the upstream-style list shape (`items`, `total`, `limit`, `offset`), but the source is the local browser cache rather than a fresh upstream proxy call.
 
+Each item also includes an explicit `pending` flag. A locally accepted create or follow-up marks its conversation pending; a successful final answer clears it for that exact turn. Stream errors and partial text do not count as completion. Saving a fresh conversation detail updates the list status and timestamp too. The bridge page follows these cache changes, and `Refresh Conversation` updates the selected badge immediately. `Refresh List` reads the local list; use `force_sync=true` when you need a new upstream list sync.
+
 Query parameters:
 
 - `offset`
@@ -242,6 +244,7 @@ Typical response fields include:
 Returns a normalized conversation snapshot from the local browser cache by default.
 
 When the cached list entry shows a newer `update_time` or different `async_status`, the gateway overlays the latest status immediately and attempts to fetch a fresher snapshot before responding.
+After a successful detail fetch, the fetched status takes precedence over the index captured before the request, and `cache.stale` is `false`.
 This endpoint can contact ChatGPT on a cache miss or stale snapshot. Use `GET /chatgpt/conversations/:id/turns/:messageId` for repeated local-only status checks.
 
 Optional query parameters:

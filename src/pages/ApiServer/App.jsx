@@ -15,6 +15,7 @@ import {
 import {
   exportConversationCache,
   importConversationCache,
+  CHATGPT_WEB_CONVERSATION_INDEX_KEY,
 } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
@@ -461,6 +462,29 @@ function App() {
     }
   }, [addLog, fetchServerJson])
 
+  useEffect(() => {
+    const updateListStatus = (changes, area) => {
+      const index = changes[CHATGPT_WEB_CONVERSATION_INDEX_KEY]?.newValue
+      if (area !== 'local' || !index) return
+      setConversationList((items) =>
+        items.map((item) => {
+          const entry = index[item.id]
+          return entry
+            ? {
+                ...item,
+                title: entry.title || item.title,
+                updateTime: entry.updateTime || item.updateTime,
+                pending: entry.pending === true,
+                asyncStatus: entry.asyncStatus ?? null,
+              }
+            : item
+        }),
+      )
+    }
+    Browser.storage.onChanged.addListener(updateListStatus)
+    return () => Browser.storage.onChanged.removeListener(updateListStatus)
+  }, [])
+
   const refreshConversation = useCallback(async () => {
     const conversationId = conversationIdInput.trim()
     if (!conversationId) {
@@ -484,6 +508,22 @@ function App() {
         },
       )
       setConversationPayload(data)
+      const refreshed = data?.conversation
+      if (refreshed) {
+        setConversationList((items) =>
+          items.map((item) =>
+            item.id === conversationId
+              ? {
+                  ...item,
+                  title: refreshed.title || item.title,
+                  updateTime: refreshed.updateTime || item.updateTime,
+                  pending: data.pending === true,
+                  asyncStatus: data.asyncStatus ?? null,
+                }
+              : item,
+          ),
+        )
+      }
       addLog(
         `Conversation ${conversationId.slice(0, 8)}... refreshed: pending=${
           data?.pending === true

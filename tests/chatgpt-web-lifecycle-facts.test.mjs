@@ -78,6 +78,7 @@ const {
   invalidateConversation,
   isChatgptWebConversationSnapshotStale,
   saveChatgptWebConversationSnapshot,
+  updateChatgptWebConversationTurnIndex,
 } = await import('../src/services/clients/chatgpt-web/conversation-cache.mjs')
 const { CHATGPT_WEB_SESSION_SNAPSHOTS_KEY } = await import(
   '../src/services/clients/chatgpt-web/thread-state.mjs'
@@ -102,6 +103,10 @@ function jsonResponse(status, payload) {
 }
 
 const originalStorageSet = storageLocal.set
+// Lazy imports made by queued background callbacks can resolve the polyfill
+// alias directly. Keep those reads on the same storage fixture as static imports.
+const { default: browserAlias } = await vi.importActual('webextension-polyfill')
+const originalAliasStorage = browserAlias.storage.local
 
 async function waitForLocalCreateStub(conversationId) {
   await vi.waitFor(async () => {
@@ -112,6 +117,7 @@ async function waitForLocalCreateStub(conversationId) {
 
 describe('lifecycle claims — current behavior', () => {
   beforeEach(() => {
+    browserAlias.storage.local = storageLocal
     Object.keys(storageData).forEach((key) => delete storageData[key])
     clearInvalidation()
     storageLocal.set = originalStorageSet
@@ -122,6 +128,7 @@ describe('lifecycle claims — current behavior', () => {
   })
 
   afterEach(() => {
+    browserAlias.storage.local = originalAliasStorage
     storageLocal.set = originalStorageSet
     vi.unstubAllGlobals()
     clearInvalidation()
@@ -217,6 +224,146 @@ describe('lifecycle claims — current behavior', () => {
       const index = await getChatgptWebConversationIndex()
       expect(index['created-1'].snapshotCachedAt).toBe('2026-01-01T00:00:01.000Z')
     })
+
+    it('publishes finished snapshot status through a previously pending raw list item', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'finished-list': {
+          id: 'finished-list',
+          title: 'Named conversation',
+          isArchived: false,
+          isStarred: false,
+          updateTime: 10,
+          pending: true,
+          asyncStatus: 'in_progress',
+          rawItem: {
+            id: 'finished-list',
+            title: 'Named conversation',
+            update_time: 10,
+            async_status: 'in_progress',
+          },
+        },
+      }
+      await saveChatgptWebConversationSnapshot({
+        conversation_id: 'finished-list',
+        title: 'Named conversation',
+        update_time: 20,
+        async_status: null,
+        mapping: {},
+      })
+
+      const list = await listChatgptWebConversations()
+      expect(list.items[0]).toMatchObject({ async_status: null, update_time: 20, pending: false })
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('uses the freshly fetched completion instead of the pre-fetch pending index', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'fresh-completion': {
+          id: 'fresh-completion',
+          title: 'Named conversation',
+          updateTime: 10,
+          pending: true,
+          asyncStatus: 'in_progress',
+        },
+      }
+      fetch.mockResolvedValue(
+        jsonResponse(200, {
+          conversation_id: 'fresh-completion',
+          title: 'Named conversation',
+          update_time: 20,
+          async_status: null,
+          current_node: 'answer',
+          mapping: {
+            question: {
+              id: 'question',
+              parent: null,
+              message: {
+                id: 'question',
+                author: { role: 'user' },
+                content: { parts: ['Question'] },
+              },
+            },
+            answer: {
+              id: 'answer',
+              parent: 'question',
+              message: {
+                id: 'answer',
+                author: { role: 'assistant' },
+                content: { parts: ['Complete answer'] },
+                status: 'finished_successfully',
+                end_turn: true,
+              },
+            },
+          },
+        }),
+      )
+      const result = await getChatgptWebConversation({ conversationId: 'fresh-completion' })
+      expect(result).toMatchObject({
+        pending: false,
+        asyncStatus: null,
+        updateTime: 20,
+        message: { isFinal: true, text: 'Complete answer' },
+        cache: { source: 'network', stale: false },
+      })
+    })
+  })
+
+  describe('updateChatgptWebConversationTurnIndex', () => {
+    it('does not let an earlier completion clear a newer running turn', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        'overlapping-turns': { id: 'overlapping-turns', isArchived: false, isStarred: false },
+      }
+      await updateChatgptWebConversationTurnIndex({
+        conversationId: 'overlapping-turns',
+        messageId: 'old',
+        status: 'running',
+      })
+      await updateChatgptWebConversationTurnIndex({
+        conversationId: 'overlapping-turns',
+        messageId: 'new',
+        status: 'running',
+      })
+      await updateChatgptWebConversationTurnIndex({
+        conversationId: 'overlapping-turns',
+        messageId: 'old',
+        status: 'completed',
+      })
+      expect((await listChatgptWebConversations()).items[0]).toMatchObject({ pending: true })
+      await updateChatgptWebConversationTurnIndex({
+        conversationId: 'overlapping-turns',
+        messageId: 'new',
+        status: 'completed',
+      })
+      expect((await listChatgptWebConversations()).items[0]).toMatchObject({ pending: false })
+    })
+
+    it('retains simultaneous status updates for different conversations', async () => {
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        left: { id: 'left', isArchived: false, isStarred: false },
+        right: { id: 'right', isArchived: false, isStarred: false },
+      }
+      await Promise.all(
+        ['left', 'right'].map((conversationId) =>
+          updateChatgptWebConversationTurnIndex({
+            conversationId,
+            messageId: conversationId,
+            status: 'running',
+          }),
+        ),
+      )
+      await Promise.all(
+        ['left', 'right'].map((conversationId) =>
+          updateChatgptWebConversationTurnIndex({
+            conversationId,
+            messageId: conversationId,
+            status: 'completed',
+          }),
+        ),
+      )
+      expect(
+        (await listChatgptWebConversations()).items.every((item) => item.pending === false),
+      ).toBe(true)
+    })
   })
 
   describe('createChatgptWebConversation', () => {
@@ -258,6 +405,9 @@ describe('lifecycle claims — current behavior', () => {
         status: 'running',
         text: 'partial thought',
       })
+      await vi.waitFor(async () => {
+        expect((await listChatgptWebConversations()).items[0]).toMatchObject({ pending: true })
+      })
       finish()
       await vi.waitFor(async () => {
         expect(await getChatgptWebTurnStatus(ack)).toMatchObject({
@@ -273,6 +423,14 @@ describe('lifecycle claims — current behavior', () => {
           thoughtDurationSec: 12,
         })
       })
+      await vi.waitFor(async () => {
+        const list = await listChatgptWebConversations()
+        expect(list.items.find((item) => item.id === ack.conversationId)).toMatchObject({
+          async_status: null,
+          pending: false,
+        })
+      })
+      expect(fetch).not.toHaveBeenCalled()
     })
 
     it('records a post-ack error for local status readers', async () => {
@@ -495,7 +653,7 @@ describe('lifecycle claims — current behavior', () => {
       expect(index['streamed-id']).toMatchObject({
         id: 'streamed-id',
         title: 'Already synced',
-        pending: false,
+        pending: true,
       })
       expect(index['streamed-id'].localCreateAck).not.toBe(true)
     })
@@ -509,6 +667,58 @@ describe('lifecycle claims — current behavior', () => {
         /query is required/,
       )
       expect(called).toBe(false)
+    })
+  })
+
+  describe('sendChatgptWebConversationMessageThroughProxy', () => {
+    it('moves an existing conversation from ready to pending and back on final completion', async () => {
+      const conversationId = 'follow-up-status'
+      storageData[CHATGPT_WEB_CONVERSATION_INDEX_KEY] = {
+        [conversationId]: {
+          id: conversationId,
+          title: 'Existing conversation',
+          isArchived: false,
+          isStarred: false,
+          updateTime: 10,
+        },
+      }
+      fetch.mockResolvedValue(
+        jsonResponse(200, {
+          conversation_id: conversationId,
+          title: 'Existing conversation',
+          update_time: 10,
+          async_status: null,
+          current_node: 'previous-answer',
+          mapping: {},
+        }),
+      )
+      let finish
+      registerExecuteApi(async (session, port) => {
+        port.postMessage({ session })
+        port.postMessage({ answer: 'Interim text' })
+        await new Promise((resolve) => {
+          finish = () => {
+            port.postMessage({ answer: 'Final answer', done: true })
+            resolve()
+          }
+        })
+      })
+      const ack = await sendChatgptWebConversationMessageThroughProxy({
+        conversationId,
+        query: 'Follow-up question',
+      })
+      await vi.waitFor(async () => {
+        expect((await listChatgptWebConversations()).items[0]).toMatchObject({ pending: true })
+      })
+      finish()
+      expect(await getChatgptWebTurnStatus(ack)).toMatchObject({ status: 'completed' })
+      await vi.waitFor(async () => {
+        expect((await listChatgptWebConversations()).items[0]).toMatchObject({ pending: false })
+      })
+      const index = await getChatgptWebConversationIndex()
+      const cached = await getCachedChatgptWebConversationRecord(conversationId)
+      expect(isChatgptWebConversationSnapshotStale(index[conversationId], cached)).toBe(true)
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -757,14 +967,13 @@ describe('lifecycle claims — source facts', () => {
 
   it('create ack remembers the stub before returning the id', () => {
     const start = createServiceSource.indexOf('export async function createChatgptWebConversation')
-    const fn = createServiceSource.slice(start, start + 3600)
+    const fn = createServiceSource.slice(start, createServiceSource.indexOf('\n// ---', start))
     expect(fn.indexOf('rememberChatgptWebCreatedConversationIndexEntry')).toBeGreaterThan(-1)
     expect(fn.indexOf('rememberChatgptWebCreatedConversationIndexEntry')).toBeLessThan(
       fn.indexOf('resolvePromise({'),
     )
-    expect(fn.indexOf('resolvePromise({')).toBeLessThan(
-      fn.indexOf('upsertChatgptWebCreatedConversationIndexEntry'),
-    )
+    expect(fn.indexOf('await rememberIndex')).toBeLessThan(fn.indexOf('resolvePromise({'))
+    expect(fn.slice(0, fn.indexOf('resolvePromise({'))).not.toContain('await indexUpdate')
     expect(fn).toContain("source: 'conversation_create_ack'")
     expect(fn).not.toContain('saveChatgptWebConversationSnapshot')
   })

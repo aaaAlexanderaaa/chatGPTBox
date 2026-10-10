@@ -850,6 +850,7 @@ export async function getChatgptWebConversation({
   const stale = isChatgptWebConversationSnapshotStale(indexEntry, cachedRecord)
   let snapshot = cachedRecord?.snapshot || null
   let cacheSource = snapshot ? 'cache' : 'network'
+  let cachedAt = cachedRecord?.cachedAt || null
   let refreshError = null
   let refreshAttempted = false
 
@@ -861,6 +862,8 @@ export async function getChatgptWebConversation({
         forceRefresh ? 'get_force_refresh' : stale ? 'get_stale_refresh' : 'get_cache_miss',
       )
       cacheSource = 'network'
+      cachedAt =
+        (await getCachedChatgptWebConversationRecord(normalizedConversationId))?.cachedAt || null
     } catch (error) {
       refreshError = error
       if (!snapshot) {
@@ -889,7 +892,14 @@ export async function getChatgptWebConversation({
     }
   }
 
-  const effectiveSnapshot = overlayChatgptWebConversationStatus(snapshot, indexEntry)
+  // A successful GET is newer evidence than the index captured before it.
+  const effectiveSnapshot =
+    cacheSource === 'network'
+      ? {
+          ...snapshot,
+          title: pickChatgptWebConversationTitle(snapshot.title, indexEntry?.title),
+        }
+      : overlayChatgptWebConversationStatus(snapshot, indexEntry)
   const formatted = formatChatgptWebConversationSnapshot(effectiveSnapshot, {
     userMessageId,
     assistantMessageId,
@@ -900,10 +910,10 @@ export async function getChatgptWebConversation({
     ...formatted,
     cache: {
       source: cacheSource,
-      stale: stale || Boolean(refreshError),
+      stale: cacheSource === 'network' ? false : stale || Boolean(refreshError),
       refreshAttempted,
       refreshError: refreshError?.message || null,
-      cachedAt: cachedRecord?.cachedAt || null,
+      cachedAt,
       listSyncedAt: meta?.lastSyncAt || null,
     },
   }
