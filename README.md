@@ -254,6 +254,12 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.1.1
+
+- Fixed completed conversations remaining pending in API Server Bridge: synchronize list status for the exact turn, prefer fresh conversation details over stale cache status, and update badges after completion or refresh.
+- Adapted the latest ChatGPT native runtime to its authentication-generation checks while preserving account/session validation and single-submit behavior.
+- Expanded portable ChatGPT visual answers with more components and interactive charts; added an offline Drafts preview with bundled chart rendering and styles.
+
 ### v4.1.0
 
 - Added GPT-6 Chat model support and made GPT-6 Thinking the default for new conversations; aligned model and thinking-effort handling across the extension, gateway, and Drafts.
