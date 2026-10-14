@@ -3,6 +3,7 @@ import {
   isPendingChatgptWebConversation,
   pickChatgptWebConversationTitle,
 } from './conversation-state.mjs'
+import { getChatgptWebConversationHistoryInfo } from './conversation-pages.mjs'
 
 export const CHATGPT_WEB_CONVERSATION_INDEX_KEY = 'chatgptWebConversationIndex'
 export const CHATGPT_WEB_CONVERSATION_META_KEY = 'chatgptWebConversationMeta'
@@ -213,10 +214,20 @@ export function createChatgptWebConversationSnapshotRecord(
   }
 }
 
-export function isChatgptWebConversationSnapshotStale(indexEntry, snapshotRecord) {
+export function isChatgptWebConversationSnapshotStale(
+  indexEntry,
+  snapshotRecord,
+  { requireComplete = true } = {},
+) {
   const id = normalizeConversationId(indexEntry?.id || snapshotRecord?.conversationId)
   if (allInvalidated) return true
   if (id && invalidatedConversationIds.has(id)) return true
+  if (
+    requireComplete &&
+    snapshotRecord?.snapshot &&
+    !getChatgptWebConversationHistoryInfo(snapshotRecord.snapshot).complete
+  )
+    return true
 
   if (!indexEntry || typeof indexEntry !== 'object') return snapshotRecord == null
   if (!snapshotRecord || typeof snapshotRecord !== 'object') return true
@@ -570,6 +581,8 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
       snapshotCachedAt: record.cachedAt,
       snapshotUpdateTime: record.updateTime,
       snapshotAsyncStatus: record.asyncStatus,
+      snapshotHistoryComplete: getChatgptWebConversationHistoryInfo(conversation).complete,
+      snapshotHistoryScope: getChatgptWebConversationHistoryInfo(conversation).scope,
     }
     await setChatgptWebConversationIndex(index)
   }

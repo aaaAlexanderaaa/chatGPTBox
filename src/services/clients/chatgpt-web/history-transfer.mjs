@@ -2,6 +2,7 @@ import {
   CHATGPT_WEB_CONVERSATION_INDEX_KEY,
   CHATGPT_WEB_CONVERSATION_META_KEY,
   CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX,
+  normalizeChatgptWebConversationIndexEntry,
 } from './conversation-cache.mjs'
 import {
   CHATGPT_WEB_API_THREADS_KEY,
@@ -10,6 +11,8 @@ import {
   MAX_CHATGPT_WEB_SESSION_SNAPSHOTS,
   normalizeChatgptWebBridgeMessages,
 } from './thread-state.mjs'
+
+import { getChatgptWebConversationHistoryInfo } from './conversation-pages.mjs'
 
 export const CHATGPT_WEB_HISTORY_EXPORT_SCOPE = 'chatgpt-web-history'
 export const CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION = 2
@@ -272,7 +275,8 @@ function getSnapshotRichness(record) {
   if (!isPlainObject(record)) return 0
   const snapshot = isPlainObject(record.snapshot) ? record.snapshot : null
   return (
-    countObjectKeys(snapshot) * 100 + (snapshot?.mapping ? countObjectKeys(snapshot.mapping) : 0)
+    countObjectKeys(snapshot) * 100 +
+    (snapshot?.mapping ? countObjectKeys(snapshot.mapping) : snapshot?.messages?.length || 0)
   )
 }
 
@@ -290,6 +294,44 @@ function normalizeConversationSnapshotRecord(record = {}, fallbackConversationId
   }
 }
 
+function getSnapshotRevisionTimestamp(record) {
+  const value = record.updateTime ?? record.snapshot?.update_time ?? record.snapshot?.updateTime
+  if (typeof value === 'number' || (typeof value === 'string' && value.trim())) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric
+  }
+  return toSortableTimestamp(value)
+}
+
+function compareConversationSnapshotRecords(existing, incoming) {
+  const existingRevision = getSnapshotRevisionTimestamp(existing)
+  const incomingRevision = getSnapshotRevisionTimestamp(incoming)
+  if (existingRevision > 0 && incomingRevision > 0) {
+    if (existingRevision !== incomingRevision) return existingRevision - incomingRevision
+    if (isPlainObject(existing.snapshot) && isPlainObject(incoming.snapshot)) {
+      // Download time does not make an interrupted copy of the same server
+      // revision more useful than history that has already been downloaded.
+      const existingHistory = getChatgptWebConversationHistoryInfo(existing.snapshot)
+      const incomingHistory = getChatgptWebConversationHistoryInfo(incoming.snapshot)
+      const completeness = Number(existingHistory.complete) - Number(incomingHistory.complete)
+      if (completeness) return completeness
+      if (existingHistory.complete && existingHistory.scope !== incomingHistory.scope) {
+        return existingHistory.scope === 'conversation_tree' ? 1 : -1
+      }
+      const messageCount = existingHistory.loadedMessageCount - incomingHistory.loadedMessageCount
+      if (messageCount) return messageCount
+    }
+  }
+  // Older exports can lack a server revision. Preserve their existing
+  // timestamp/richness ordering, and use it to break equal-coverage ties.
+  return compareByTimestampAndRichness(
+    Math.max(toSortableTimestamp(existing.updateTime), toSortableTimestamp(existing.cachedAt)),
+    Math.max(toSortableTimestamp(incoming.updateTime), toSortableTimestamp(incoming.cachedAt)),
+    getSnapshotRichness(existing),
+    getSnapshotRichness(incoming),
+  )
+}
+
 function mergeConversationSnapshotRecord(existingRecord = {}, incomingRecord = {}) {
   const normalizedExisting = normalizeConversationSnapshotRecord(existingRecord)
   const normalizedIncoming = normalizeConversationSnapshotRecord(
@@ -299,52 +341,15 @@ function mergeConversationSnapshotRecord(existingRecord = {}, incomingRecord = {
   if (!normalizedExisting) return normalizedIncoming
   if (!normalizedIncoming) return normalizedExisting
 
-  const existingFreshness = Math.max(
-    toSortableTimestamp(normalizedExisting.updateTime),
-    toSortableTimestamp(normalizedExisting.cachedAt),
-  )
-  const incomingFreshness = Math.max(
-    toSortableTimestamp(normalizedIncoming.updateTime),
-    toSortableTimestamp(normalizedIncoming.cachedAt),
-  )
-  const existingRichness = getSnapshotRichness(normalizedExisting)
-  const incomingRichness = getSnapshotRichness(normalizedIncoming)
   const preferredIsIncoming =
-    compareByTimestampAndRichness(
-      existingFreshness,
-      incomingFreshness,
-      existingRichness,
-      incomingRichness,
-    ) <= 0
+    compareConversationSnapshotRecords(normalizedExisting, normalizedIncoming) <= 0
   const preferred = preferredIsIncoming ? normalizedIncoming : normalizedExisting
   const fallback = preferred === normalizedIncoming ? normalizedExisting : normalizedIncoming
 
   return {
+    ...preferred,
     conversationId: preferred.conversationId || fallback.conversationId,
-    cachedAt:
-      pickMaxTimestampValue(normalizedExisting.cachedAt, normalizedIncoming.cachedAt) ||
-      preferred.cachedAt ||
-      fallback.cachedAt ||
-      null,
     source: pickNonEmptyString(preferred.source, fallback.source) || null,
-    updateTime:
-      pickMaxTimestampValue(normalizedExisting.updateTime, normalizedIncoming.updateTime) ||
-      preferred.updateTime ||
-      fallback.updateTime ||
-      null,
-    asyncStatus: chooseValueFromNewer(
-      normalizedExisting.asyncStatus,
-      normalizedIncoming.asyncStatus,
-      existingFreshness,
-      incomingFreshness,
-    ),
-    pending:
-      chooseValueFromNewer(
-        normalizedExisting.pending,
-        normalizedIncoming.pending,
-        existingFreshness,
-        incomingFreshness,
-      ) === true,
     snapshot: cloneJson(preferred.snapshot || fallback.snapshot || null),
   }
 }
@@ -683,6 +688,10 @@ function collectSnapshotKeys(data = {}) {
 
 export function summarizeChatgptHistoryExport(data = {}) {
   const filtered = filterChatgptHistoryStorageData(data)
+  const snapshots = collectSnapshotKeys(filtered).map((key) => filtered[key]?.snapshot)
+  const partialSnapshotCount = snapshots.filter(
+    (snapshot) => snapshot && !getChatgptWebConversationHistoryInfo(snapshot).complete,
+  ).length
   return {
     ...summarizeChatgptHistoryStorageData(filtered),
     ...summarizeChatgptHistoryLibrary(
@@ -690,11 +699,31 @@ export function summarizeChatgptHistoryExport(data = {}) {
       collectSnapshotKeys(filtered),
       filtered[CHATGPT_WEB_CONVERSATION_META_KEY],
     ),
+    partialSnapshotCount,
+    currentBranchSnapshotCount: snapshots.filter((snapshot) => Array.isArray(snapshot?.messages))
+      .length,
   }
 }
 
 export function normalizeImportPayload(payload = {}) {
   if (!isPlainObject(payload)) return {}
+  // Keep backups made by the former API Server "Export Cache" button readable.
+  if (
+    payload.version === 1 &&
+    isPlainObject(payload.data?.index) &&
+    isPlainObject(payload.data?.snapshots)
+  ) {
+    return {
+      [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: payload.data.index,
+      [CHATGPT_WEB_CONVERSATION_META_KEY]: payload.data.meta || {},
+      ...Object.fromEntries(
+        Object.entries(payload.data.snapshots).map(([id, record]) => [
+          `${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}${id}`,
+          record,
+        ]),
+      ),
+    }
+  }
   if (payload.scope === CHATGPT_WEB_HISTORY_EXPORT_SCOPE && isPlainObject(payload.storage)) {
     return filterChatgptHistoryStorageData(payload.storage)
   }
@@ -721,21 +750,21 @@ function assertSameHistoryExportId(payloads = []) {
 }
 
 export function getCompactJsonSize(value) {
-  return JSON.stringify(value).length
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
 }
 
 function createStorageSizeAccountant() {
   const valueSizes = new Map()
   return {
     remember(key, value) {
-      valueSizes.set(key, JSON.stringify(value).length)
+      valueSizes.set(key, getCompactJsonSize(value))
     },
     sizeOf(keys) {
       if (keys.length === 0) return 2
       let size = 1
       for (let index = 0; index < keys.length; index += 1) {
         if (index > 0) size += 1
-        size += JSON.stringify(keys[index]).length + 1 + (valueSizes.get(keys[index]) || 0)
+        size += getCompactJsonSize(keys[index]) + 1 + (valueSizes.get(keys[index]) || 0)
       }
       return size + 1
     },
@@ -789,7 +818,7 @@ function createHistoryExportId() {
 
 function estimateVolumeEnvelopeOverhead({ exportedAt, exportId, summary }) {
   return (
-    JSON.stringify({
+    getCompactJsonSize({
       scope: CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
       schemaVersion: CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION,
       exportedAt,
@@ -797,7 +826,7 @@ function estimateVolumeEnvelopeOverhead({ exportedAt, exportId, summary }) {
       volume: { index: 1, count: 1 },
       storage: {},
       summary,
-    }).length - 2
+    }) - 2
   )
 }
 
@@ -917,9 +946,51 @@ export async function getChatgptHistoryLibraryStats() {
 
 export async function buildChatgptHistoryExportVolumes({
   maxVolumeBytes = DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES,
+  conversationIds,
 } = {}) {
   const storage = await getBrowserStorage()
-  const historyData = await readChatgptHistoryStorageData(storage)
+  let historyData
+  if (conversationIds !== undefined) {
+    if (
+      !Array.isArray(conversationIds) ||
+      !conversationIds.length ||
+      conversationIds.some((id) => typeof id !== 'string' || !id.trim())
+    ) {
+      throw new Error('Select at least one conversation to export')
+    }
+    const ids = [...new Set(conversationIds.map((id) => id.trim()))]
+    const selected = await readStorageEntries(
+      storage,
+      ids.map((id) => `${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}${id}`),
+    )
+    const catalog = await storage.get([CHATGPT_WEB_CONVERSATION_INDEX_KEY])
+    const index = catalog[CHATGPT_WEB_CONVERSATION_INDEX_KEY] || {}
+    const entries = Object.create(null)
+    for (const id of ids) {
+      const record = selected[`${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}${id}`]
+      if (!record?.snapshot) throw new Error('Conversation body is not cached')
+      if (
+        (record.conversationId && record.conversationId !== id) ||
+        (record.snapshot.conversation_id && record.snapshot.conversation_id !== id)
+      ) {
+        throw new Error('Conversation response ID does not match')
+      }
+      entries[id] =
+        index[id] ||
+        normalizeChatgptWebConversationIndexEntry({
+          id,
+          title: record.snapshot.title,
+          create_time: record.snapshot.create_time,
+          update_time: record.snapshot.update_time,
+          async_status: record.snapshot.async_status,
+          is_archived: record.snapshot.is_archived,
+          is_starred: record.snapshot.is_starred,
+        })
+    }
+    historyData = { [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: entries, ...selected }
+  } else {
+    historyData = await readChatgptHistoryStorageData(storage)
+  }
   const summary = summarizeChatgptHistoryExport(historyData)
   const exportId = createHistoryExportId()
   const exportedAt = new Date().toISOString()

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setImmediate as nextEventLoop } from 'node:timers/promises'
 
 const storageData = {}
 const storageListeners = new Set()
@@ -84,6 +85,25 @@ function jsonResponse(status, payload) {
   }
 }
 
+// Native page timeouts start after the RPM gate. Drive the asynchronous job
+// through every scheduled slot, including ticks with no pending timeout.
+async function settleWithTimers(task) {
+  let settled = false
+  task.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  while (!settled) {
+    await nextEventLoop()
+    await vi.runAllTimersAsync()
+  }
+  return await task
+}
+
 function seedIndex(entries) {
   storageData.chatgptWebConversationIndex = entries
 }
@@ -148,11 +168,10 @@ describe('ChatGPT history content backup engine', () => {
     )
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversation/stale')
+    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversations/stale?')
     expect(meta.hydrateState).toMatchObject({
       status: 'complete',
       hydrated: 1,
@@ -162,6 +181,138 @@ describe('ChatGPT history content backup engine', () => {
     expect(storageData['chatgptWebConversationSnapshot:stale'].source).toBe('hydrate')
   })
 
+  it('checkpoints native pages and retries the older page after a 502', async () => {
+    seedIndex({ native: { id: 'native', title: 'Native', updateTime: 2, asyncStatus: null } })
+    const newest = {
+      conversation_id: 'native',
+      update_time: 2,
+      current_node: 'new',
+      messages: [{ id: 'new', author: { role: 'user' }, content: { parts: ['new'] } }],
+      page_info: { has_previous_page: true, start_cursor: 'older' },
+    }
+    fetch
+      .mockResolvedValueOnce(jsonResponse(200, newest))
+      .mockImplementationOnce(async () => {
+        expect(
+          storageData['chatgptWebConversationSnapshot:native'].snapshot.page_info.has_previous_page,
+        ).toBe(true)
+        return jsonResponse(502, { message: 'Bad Gateway' })
+      })
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          messages: [{ id: 'old', author: { role: 'user' }, content: { parts: ['old'] } }],
+          page_info: { has_previous_page: false, start_cursor: 'old' },
+        }),
+      )
+    const hydrate = runChatgptWebConversationHydrate({ retryCount: 1 })
+    const meta = await settleWithTimers(hydrate)
+    expect(meta.hydrateState).toMatchObject({ hydrated: 1, failed: 0 })
+    expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      '/backend-api/conversations/native',
+      '/backend-api/conversations/native/messages',
+      '/backend-api/conversations/native/messages',
+    ])
+    expect(
+      storageData['chatgptWebConversationSnapshot:native'].snapshot.messages.map(
+        (message) => message.id,
+      ),
+    ).toEqual(['old', 'new'])
+    expect(meta.requestStats.detail).toBe(3)
+  })
+
+  it('gives each page its own timeout after waiting for the request slot', async () => {
+    seedIndex({ native: { id: 'native', updateTime: 2, asyncStatus: null } })
+    getUserConfig.mockResolvedValue({
+      chatgptWebHistorySyncEnabled: true,
+      chatgptWebHistorySyncRpm: 1,
+      apiServerRequestTimeoutSeconds: 30,
+      customChatGptWebApiUrl: 'https://chatgpt.com',
+    })
+    let count = 0
+    fetch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          const first = count++ === 0
+          setTimeout(
+            () =>
+              resolve(
+                jsonResponse(200, {
+                  conversation_id: 'native',
+                  update_time: 2,
+                  messages: [
+                    {
+                      id: first ? 'new' : 'old',
+                      author: { role: 'user' },
+                      content: { parts: ['text'] },
+                    },
+                  ],
+                  page_info: { has_previous_page: first, start_cursor: first ? 'older' : 'old' },
+                }),
+              ),
+            20_000,
+          )
+        }),
+    )
+    const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
+    expect((await settleWithTimers(hydrate)).hydrateState).toMatchObject({ hydrated: 1, failed: 0 })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('resumes an incomplete cached page but starts fresh for a forced refresh', async () => {
+    const partial = {
+      conversation_id: 'native',
+      update_time: 2,
+      messages: [{ id: 'new', author: { role: 'user' }, content: { parts: ['new'] } }],
+      page_info: { has_previous_page: true, start_cursor: 'older' },
+    }
+    seedIndex({ native: { id: 'native', updateTime: 2, asyncStatus: null } })
+    storageData['chatgptWebConversationSnapshot:native'] = {
+      conversationId: 'native',
+      updateTime: 2,
+      asyncStatus: null,
+      snapshot: partial,
+    }
+    fetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        messages: [{ id: 'old', author: { role: 'user' }, content: { parts: ['old'] } }],
+        page_info: { has_previous_page: false },
+      }),
+    )
+    const resumed = await getChatgptWebConversation({ conversationId: 'native' })
+    expect(fetch.mock.calls[0][0]).toContain('/conversations/native/messages?before=older')
+    expect(resumed.history).toMatchObject({ complete: true, loadedMessageCount: 2 })
+    storageData['chatgptWebConversationSnapshot:native'].snapshot = partial
+    fetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        ...partial,
+        messages: [{ id: 'changed', author: { role: 'user' }, content: { parts: ['changed'] } }],
+        page_info: { has_previous_page: false },
+      }),
+    )
+    const refreshed = await getChatgptWebConversation({
+      conversationId: 'native',
+      forceRefresh: true,
+    })
+    expect(fetch.mock.calls[1][0]).toContain('/conversations/native?')
+    expect(refreshed.messages[0].text).toBe('changed')
+  })
+
+  it('reports partial history when an older page fails during an on-demand read', async () => {
+    fetch
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          conversation_id: 'native',
+          messages: [{ id: 'new', author: { role: 'user' }, content: { parts: ['new'] } }],
+          page_info: { has_previous_page: true, start_cursor: 'older' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(502, { message: 'Bad Gateway' }))
+    const result = await getChatgptWebConversation({ conversationId: 'native' })
+    expect(result.history).toMatchObject({ complete: false, nextCursor: 'older' })
+    expect(result.cache).toMatchObject({ stale: true, refreshError: 'Bad Gateway' })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it('retries a failed body once, then skips that conversation id', async () => {
     seedIndex({
       bad: { id: 'bad', title: 'Bad', createTime: 1, updateTime: 2, isArchived: false },
@@ -169,8 +320,7 @@ describe('ChatGPT history content backup engine', () => {
     fetch.mockResolvedValue(jsonResponse(500, { message: 'upstream failed' }))
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 1 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(meta.hydrateState.status).toBe('complete')
@@ -199,8 +349,7 @@ describe('ChatGPT history content backup engine', () => {
     }
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch).not.toHaveBeenCalled()
     expect(meta.hydrateState.skippedFailed).toBe(1)
@@ -221,8 +370,7 @@ describe('ChatGPT history content backup engine', () => {
     fetch.mockResolvedValue(jsonResponse(500, { message: 'upstream failed' }))
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch).toHaveBeenCalledTimes(5)
     expect(meta.hydrateState.status).toBe('circuit_open')
@@ -273,7 +421,7 @@ describe('ChatGPT history content backup engine', () => {
     const assertion = expect(hydrate).resolves.toMatchObject({
       hydrateState: { failed: 1 },
     })
-    await vi.advanceTimersByTimeAsync(30_000)
+    await settleWithTimers(hydrate)
     await assertion
     expect(storageData.chatgptWebConversationMeta.hydrateFailures.huge.conversationId).toBe('huge')
   })
@@ -292,8 +440,7 @@ describe('ChatGPT history content backup engine', () => {
     seedFreshSnapshot('same', 2)
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch).not.toHaveBeenCalled()
     expect(meta.hydrateState.skippedFresh).toBe(1)
@@ -322,13 +469,12 @@ describe('ChatGPT history content backup engine', () => {
       refreshListFirst: true,
       retryCount: 0,
     })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(fetch.mock.calls.every((call) => !String(call[0]).includes('/conversations?'))).toBe(
       true,
     )
-    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversation/a')
+    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversations/a')
     expect(meta.hydrateState.status).toBe('complete')
     expect(meta.hydrateState.hydrated).toBe(1)
   })
@@ -367,12 +513,11 @@ describe('ChatGPT history content backup engine', () => {
       refreshListFirst: true,
       retryCount: 0,
     })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(meta.hydrateState.status).toBe('paused')
     expect(
-      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversation/')),
+      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversations/')),
     ).toBe(true)
   })
 
@@ -439,11 +584,10 @@ describe('ChatGPT history content backup engine', () => {
 
     await stopChatgptWebConversationHydrate()
     const retry = retryChatgptWebHydrateFailure('bad')
-    await vi.runAllTimersAsync()
-    const meta = await retry
+    const meta = await settleWithTimers(retry)
 
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversation/bad')
+    expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversations/bad')
     expect(meta.hydrateFailures.bad).toBeUndefined()
     expect(meta.hydrateState.status).toBe('paused')
   })
@@ -494,8 +638,7 @@ describe('ChatGPT history content backup engine', () => {
     )
 
     const retry = retryChatgptWebHydrateFailure('bad')
-    await vi.runAllTimersAsync()
-    const meta = await retry
+    const meta = await settleWithTimers(retry)
 
     expect(meta.hydrateState.status).toBe('circuit_open')
     expect(meta.hydrateState.candidateIds).toEqual(['bad', 'later'])
@@ -571,8 +714,7 @@ describe('ChatGPT history content backup engine', () => {
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
     await vi.advanceTimersByTimeAsync(10)
     await stopChatgptWebConversationHydrate()
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(meta.hydrateState.status).toBe('paused')
     expect(fetch).not.toHaveBeenCalled()
@@ -598,7 +740,7 @@ describe('ChatGPT history content backup engine', () => {
       },
     })
     fetch.mockImplementation(async (url) => {
-      if (String(url).includes('/backend-api/conversation/a')) {
+      if (String(url).includes('/backend-api/conversations/a')) {
         await stopChatgptWebConversationHydrate()
         return jsonResponse(500, { message: 'upstream failed' })
       }
@@ -606,14 +748,13 @@ describe('ChatGPT history content backup engine', () => {
     })
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(meta.hydrateState.status).toBe('paused')
     expect(meta.hydrateState.nextIndex).toBe(0)
     expect(meta.hydrateFailures?.a).toBeUndefined()
     expect(
-      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversation/b')),
+      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversations/b')),
     ).toBe(true)
   })
 
@@ -637,7 +778,7 @@ describe('ChatGPT history content backup engine', () => {
       },
     })
     fetch.mockImplementation(async (url) => {
-      if (String(url).includes('/backend-api/conversation/a')) {
+      if (String(url).includes('/backend-api/conversations/a')) {
         await stopChatgptWebConversationHydrate()
         return jsonResponse(200, { conversation_id: 'a', title: 'A', mapping: {}, update_time: 3 })
       }
@@ -645,15 +786,14 @@ describe('ChatGPT history content backup engine', () => {
     })
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(meta.hydrateState.status).toBe('paused')
     expect(meta.hydrateState.hydrated).toBe(1)
     expect(meta.hydrateState.nextIndex).toBe(1)
     expect(storageData['chatgptWebConversationSnapshot:a'].source).toBe('hydrate')
     expect(
-      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversation/b')),
+      fetch.mock.calls.every((call) => !String(call[0]).includes('/backend-api/conversations/b')),
     ).toBe(true)
   })
 
@@ -698,8 +838,7 @@ describe('ChatGPT history content backup engine', () => {
 
     await stopChatgptWebConversationHydrate()
     release?.(jsonResponse(200, { conversation_id: 'a', title: 'A', mapping: {}, update_time: 2 }))
-    await vi.runAllTimersAsync()
-    await hydrate
+    await settleWithTimers(hydrate)
   })
 
   it('marks an orphaned running job as paused when no worker is alive', async () => {
@@ -761,8 +900,7 @@ describe('ChatGPT history content backup engine', () => {
     )
 
     const hydrate = runChatgptWebConversationHydrate({ retryCount: 0 })
-    await vi.runAllTimersAsync()
-    const meta = await hydrate
+    const meta = await settleWithTimers(hydrate)
 
     expect(meta.hydrateState.status).toBe('complete')
     expect(meta.hydrateState.hydrated).toBe(1)
@@ -789,8 +927,7 @@ describe('ChatGPT history content backup engine', () => {
     fetch.mockResolvedValue(jsonResponse(200, { items, total: 100 }))
 
     const sync = syncChatgptWebConversationCache({ mode: 'incremental', automatic: true })
-    await vi.runAllTimersAsync()
-    await sync
+    await settleWithTimers(sync)
 
     expect(String(fetch.mock.calls[0][0])).toContain('limit=100')
     expect(storageData.chatgptWebConversationMeta.syncState.status).toBe('complete')

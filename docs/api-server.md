@@ -268,6 +268,10 @@ curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" "http://127.0.0.1:180
 
 Without `user_message_id` the snapshot follows `current_node` as before.
 
+Native paginated reads pass the requested message ID as `include_message_id` when selecting the branch. If both message IDs are provided, `assistant_message_id` takes precedence so a specific regenerated answer can be retrieved. A cached branch missing either requested ID is not reused.
+
+An older-history download failure does not discard successfully downloaded messages or overwrite their status with an older list entry. The response retains those messages, reports `history.complete: false`, and exposes the failure in `cache.refreshError`; this is usable answer evidence, but not a complete history backup.
+
 The response includes fields such as:
 
 - `conversationId`
@@ -368,6 +372,8 @@ curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \
 ### `POST /chatgpt/conversations/:id/refresh`
 
 Fetches the conversation snapshot again and, when the conversation is still pending, optionally calls the ChatGPT resume stream to pull newer assistant output.
+
+If a later history page fails, refresh returns the successful checkpoint and can still attempt resume. Inspect `conversation.history.complete` and `conversation.cache.refreshError` for incomplete history. If the initial page fails, refresh reports the error rather than substituting a previously cached answer.
 
 Optional JSON body:
 

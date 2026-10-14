@@ -1,5 +1,6 @@
 import { renderChatgptWebGenuiResult } from './genui.mjs'
 import { normalizeChatgptWebReferenceText } from './reference-text.mjs'
+import { getChatgptWebConversationHistoryInfo } from './conversation-pages.mjs'
 
 const PENDING_MESSAGE_STATUSES = new Set(['in_progress', 'pending', 'streaming', 'queued'])
 const FINAL_MESSAGE_STATUSES = new Set([
@@ -75,12 +76,12 @@ function getNodeMessage(node) {
   return node?.message && typeof node.message === 'object' ? node.message : null
 }
 
-function buildAncestorPath(mapping, startNodeId, maxDepth = 256) {
+function buildAncestorPath(mapping, startNodeId) {
   const path = []
   const visited = new Set()
   let cursor = startNodeId
 
-  while (cursor && !visited.has(cursor) && path.length < maxDepth) {
+  while (cursor && !visited.has(cursor)) {
     visited.add(cursor)
     const node = getMappingNode(mapping, cursor)
     if (!node) break
@@ -91,17 +92,17 @@ function buildAncestorPath(mapping, startNodeId, maxDepth = 256) {
   return path
 }
 
-function buildRootPath(mapping, startNodeId, maxDepth = 256) {
-  return buildAncestorPath(mapping, startNodeId, maxDepth).reverse()
+function buildRootPath(mapping, startNodeId) {
+  return buildAncestorPath(mapping, startNodeId).reverse()
 }
 
-function collectAssistantDescendants(mapping, startNodeId, maxNodes = 256) {
+function collectAssistantDescendants(mapping, startNodeId) {
   const queue = [startNodeId]
   const visited = new Set()
   const assistants = []
 
-  while (queue.length > 0 && visited.size < maxNodes) {
-    const nodeId = queue.shift()
+  for (let index = 0; index < queue.length; index += 1) {
+    const nodeId = queue[index]
     if (!nodeId || visited.has(nodeId)) continue
     visited.add(nodeId)
 
@@ -703,11 +704,11 @@ function nodeHasId(node, nodeId) {
 
 // Follows the newest child at each step, which is how ChatGPT orders sibling
 // branches, so the returned leaf is the most recent tail below `startNodeId`.
-function findNewestLeafNodeId(mapping, startNodeId, maxDepth = 256) {
+function findNewestLeafNodeId(mapping, startNodeId) {
   const visited = new Set()
   let cursor = startNodeId
 
-  while (cursor && !visited.has(cursor) && visited.size < maxDepth) {
+  while (cursor && !visited.has(cursor)) {
     visited.add(cursor)
     const node = getMappingNode(mapping, cursor)
     const children = Array.isArray(node?.children) ? node.children : []
@@ -925,6 +926,7 @@ export function formatChatgptWebConversationSnapshot(
     query: query?.text || '',
     queryMessage: query,
     messages,
+    history: getChatgptWebConversationHistoryInfo(conversation),
     thoughtDurationSec: thoughtDuration.thoughtDurationSec,
     thoughtDurationText: thoughtDuration.thoughtDurationText,
     thoughtDurationLabel: thoughtDuration.thoughtDurationLabel,

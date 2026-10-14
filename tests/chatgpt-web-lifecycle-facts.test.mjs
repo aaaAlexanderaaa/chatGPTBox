@@ -734,7 +734,7 @@ describe('lifecycle claims — current behavior', () => {
         ACCESS_DENIED,
       )
       expect(fetch).toHaveBeenCalledTimes(1)
-      expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversation/foreign-id')
+      expect(String(fetch.mock.calls[0][0])).toContain('/backend-api/conversations/foreign-id?')
     })
 
     it('returns pending instead of throwing when a locally created stub is not readable yet', async () => {

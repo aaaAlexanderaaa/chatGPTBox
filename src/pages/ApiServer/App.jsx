@@ -12,11 +12,12 @@ import {
   extractChatgptWebConversationListItems,
   formatChatgptWebConversationListItem,
 } from '../../services/clients/chatgpt-web/conversation-state.mjs'
+import { CHATGPT_WEB_CONVERSATION_INDEX_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
-  exportConversationCache,
-  importConversationCache,
-  CHATGPT_WEB_CONVERSATION_INDEX_KEY,
-} from '../../services/clients/chatgpt-web/conversation-cache.mjs'
+  exportChatgptHistoryData,
+  importChatgptHistoryData,
+} from '../../services/clients/chatgpt-web/history-transfer.mjs'
+import { downloadChatgptHistoryVolumes } from '../../popup/file-transfer.mjs'
 import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
 import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
 import {
@@ -30,6 +31,7 @@ import { useConfig } from '../../hooks/use-config.mjs'
 import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
 import { applyDocumentAppearance } from '../../utils/appearance.mjs'
 import './styles.css'
+import ChatgptHistoryBrowser from '../../components/ChatgptHistoryBrowser/index.jsx'
 
 const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
@@ -80,6 +82,7 @@ function App() {
   const [conversationRefreshLoading, setConversationRefreshLoading] = useState(false)
   const [conversationError, setConversationError] = useState('')
   const [conversationPayload, setConversationPayload] = useState(null)
+  const [historyTransferBusy, setHistoryTransferBusy] = useState(false)
 
   const proxyPort = useRef(null)
   const reconnectTimer = useRef(null)
@@ -825,42 +828,44 @@ function App() {
   }, [enabled, addLog, connect, disconnect])
 
   const handleExportCache = useCallback(async () => {
+    setHistoryTransferBusy(true)
     try {
-      const cache = await exportConversationCache()
-      const blob = new Blob([JSON.stringify(cache, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `chatgpt-web-cache-${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      addLog('Conversation cache exported successfully')
+      const result = await exportChatgptHistoryData()
+      const download = await downloadChatgptHistoryVolumes(result)
+      if (!download.cancelled) {
+        addLog(
+          `Conversation cache exported: ${download.count} volumes, ${result.summary.partialSnapshotCount} partial snapshots, ${result.summary.currentBranchSnapshotCount} current-branch snapshots`,
+        )
+      }
     } catch (err) {
       addLog(`Failed to export cache: ${err.message}`, 'error')
+    } finally {
+      setHistoryTransferBusy(false)
     }
   }, [addLog])
 
   const handleImportCache = useCallback(
     async (e) => {
-      const file = e.target.files[0]
-      if (!file) return
+      const input = e.target
+      const files = Array.from(input.files || [])
+      if (!files.length) return
+      setHistoryTransferBusy(true)
       try {
-        const reader = new FileReader()
-        reader.onload = async (event) => {
-          try {
-            const data = JSON.parse(event.target.result)
-            const result = await importConversationCache(data)
-            addLog(`Conversation cache imported successfully: ${result.count} conversations`)
-            void loadConversationList()
-          } catch (err) {
-            addLog(`Failed to import cache: ${err.message}`, 'error')
-          }
+        const payloads = []
+        for (const file of files) {
+          payloads.push(JSON.parse(await file.text()))
         }
-        reader.readAsText(file)
+        const result = await importChatgptHistoryData(payloads)
+        addLog(
+          `Conversation cache imported successfully: ${result.after.conversationCount} conversations`,
+        )
+        void loadConversationList()
       } catch (err) {
-        addLog(`Failed to read file: ${err.message}`, 'error')
+        addLog(`Failed to import cache: ${err.message}`, 'error')
+      } finally {
+        input.value = ''
+        setHistoryTransferBusy(false)
       }
-      e.target.value = ''
     },
     [addLog, loadConversationList],
   )
@@ -1122,114 +1127,125 @@ function App() {
       <section className="api-server-conversations">
         <h3>ChatGPT Conversations</h3>
         <p className="conversation-subtitle">
-          Manually inspect cached ChatGPT conversations, reasoning data, and follow-up endpoints
-          through the local API server.
+          {t(
+            'Browse the local conversation list, preview messages, and export a selected conversation.',
+          )}
         </p>
+        <ChatgptHistoryBrowser />
 
-        <div className="conversation-toolbar">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => void loadConversationList()}
-            disabled={conversationListLoading || status !== 'connected'}
-          >
-            {conversationListLoading ? 'Loading…' : 'Refresh List'}
-          </button>
+        <details className="conversation-help">
+          <summary>{t('API diagnostics and full cache backup')}</summary>
+          <div className="conversation-toolbar">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void loadConversationList()}
+              disabled={conversationListLoading || status !== 'connected'}
+            >
+              {conversationListLoading ? 'Loading…' : 'Refresh List'}
+            </button>
 
-          <button type="button" className="btn-secondary" onClick={() => void handleExportCache()}>
-            Export Cache
-          </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void handleExportCache()}
+              disabled={historyTransferBusy}
+            >
+              Export Cache
+            </button>
 
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Import Cache
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            onChange={handleImportCache}
-            style={{ display: 'none' }}
-          />
-
-          <input
-            type="text"
-            value={conversationIdInput}
-            onChange={(event) => setConversationIdInput(event.target.value)}
-            placeholder="Conversation ID"
-            className="conversation-input"
-          />
-
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => void refreshConversation()}
-            disabled={conversationRefreshLoading || status !== 'connected'}
-          >
-            {conversationRefreshLoading ? 'Refreshing…' : 'Refresh Conversation'}
-          </button>
-        </div>
-
-        {conversationError && <div className="conversation-error">{conversationError}</div>}
-
-        <div className="conversation-grid">
-          <div className="conversation-list">
-            {conversationList.length === 0 ? (
-              <div className="conversation-empty">No conversation list loaded yet.</div>
-            ) : (
-              conversationList.map((item) => {
-                const active = item.id === selectedConversationId
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`conversation-item ${active ? 'conversation-item-active' : ''}`}
-                    onClick={() => {
-                      setConversationIdInput(item.id || '')
-                      setConversationPayload(item.rawItem || item)
-                    }}
-                  >
-                    <div className="conversation-item-top">
-                      <span className="conversation-title">{item.title || 'Untitled'}</span>
-                      <span
-                        className={`conversation-badge ${
-                          item.pending ? 'conversation-badge-pending' : 'conversation-badge-ready'
-                        }`}
-                      >
-                        {item.pending ? `pending (${item.asyncStatus ?? '...'})` : 'ready'}
-                      </span>
-                    </div>
-                    <div className="conversation-meta">{item.id}</div>
-                    <div className="conversation-meta">
-                      Updated: {item.updateTime || item.createTime || 'unknown'}
-                    </div>
-                  </button>
-                )
-              })
-            )}
-          </div>
-
-          <div className="conversation-details">
-            {conversationPayload?.text && (
-              <div className="conversation-preview">
-                <div className="conversation-preview-label">Extracted Text</div>
-                <pre>{conversationPayload.text}</pre>
-              </div>
-            )}
-
-            <textarea
-              readOnly
-              rows={16}
-              value={conversationPayload ? JSON.stringify(conversationPayload, null, 2) : ''}
-              placeholder="Conversation details will appear here"
-              className="conversation-json"
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={historyTransferBusy}
+            >
+              Import Cache
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              multiple
+              onChange={handleImportCache}
+              style={{ display: 'none' }}
             />
-          </div>
-        </div>
 
+            <input
+              type="text"
+              value={conversationIdInput}
+              onChange={(event) => setConversationIdInput(event.target.value)}
+              placeholder="Conversation ID"
+              className="conversation-input"
+            />
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void refreshConversation()}
+              disabled={conversationRefreshLoading || status !== 'connected'}
+            >
+              {conversationRefreshLoading ? 'Refreshing…' : 'Refresh Conversation'}
+            </button>
+          </div>
+
+          {conversationError && <div className="conversation-error">{conversationError}</div>}
+
+          <div className="conversation-grid">
+            <div className="conversation-list">
+              {conversationList.length === 0 ? (
+                <div className="conversation-empty">No conversation list loaded yet.</div>
+              ) : (
+                conversationList.map((item) => {
+                  const active = item.id === selectedConversationId
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`conversation-item ${active ? 'conversation-item-active' : ''}`}
+                      onClick={() => {
+                        setConversationIdInput(item.id || '')
+                        setConversationPayload(item.rawItem || item)
+                      }}
+                    >
+                      <div className="conversation-item-top">
+                        <span className="conversation-title">{item.title || 'Untitled'}</span>
+                        <span
+                          className={`conversation-badge ${
+                            item.pending ? 'conversation-badge-pending' : 'conversation-badge-ready'
+                          }`}
+                        >
+                          {item.pending ? `pending (${item.asyncStatus ?? '...'})` : 'ready'}
+                        </span>
+                      </div>
+                      <div className="conversation-meta">{item.id}</div>
+                      <div className="conversation-meta">
+                        Updated: {item.updateTime || item.createTime || 'unknown'}
+                      </div>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="conversation-details">
+              {conversationPayload?.text && (
+                <div className="conversation-preview">
+                  <div className="conversation-preview-label">Extracted Text</div>
+                  <pre>{conversationPayload.text}</pre>
+                </div>
+              )}
+
+              <textarea
+                readOnly
+                rows={16}
+                value={conversationPayload ? JSON.stringify(conversationPayload, null, 2) : ''}
+                placeholder="Conversation details will appear here"
+                className="conversation-json"
+              />
+            </div>
+          </div>
+        </details>
         <details className="conversation-help">
           <summary>Example commands</summary>
           <pre>{`curl http://127.0.0.1:${port}/status

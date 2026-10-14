@@ -5,8 +5,8 @@
 
 export const CHATGPT_HISTORY_VOLUME_DOWNLOAD_DELAY_MS = 400
 
-function downloadTextFile(text, filename) {
-  const blob = new Blob([text], { type: 'application/json' })
+export function downloadTextFile(text, filename, { type = 'application/json' } = {}) {
+  const blob = new Blob([text], { type })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -31,37 +31,15 @@ export function buildChatgptHistoryVolumeFilename(exportedAt, volumeIndex, volum
   return `chatgptbox-chatgpt-history-${stamp}-part${part}-of-${of}.json`
 }
 
-async function writeTextFilesToDirectory(directoryHandle, files = []) {
-  for (const file of files) {
-    const handle = await directoryHandle.getFileHandle(file.filename, { create: true })
-    const writable = await handle.createWritable()
-    try {
-      await writable.write(file.contents)
-    } finally {
-      await writable.close()
-    }
-  }
-}
-
 export async function downloadChatgptHistoryVolumes(
   exportResult,
   { delayMs = CHATGPT_HISTORY_VOLUME_DOWNLOAD_DELAY_MS } = {},
 ) {
   const volumes = Array.isArray(exportResult) ? exportResult : exportResult?.volumes || []
-  const files = volumes.map((volume) => {
-    const index = Number(volume?.volume?.index) || 1
-    const count = Number(volume?.volume?.count) || volumes.length || 1
-    return {
-      filename: buildChatgptHistoryVolumeFilename(volume?.exportedAt, index, count),
-      contents: JSON.stringify(volume),
-    }
-  })
-
+  let directoryHandle = null
   if (typeof window.showDirectoryPicker === 'function') {
     try {
-      const directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
-      await writeTextFilesToDirectory(directoryHandle, files)
-      return { method: 'directory', count: files.length, cancelled: false }
+      directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
     } catch (error) {
       if (error?.name === 'AbortError') {
         return { method: 'directory', count: 0, cancelled: true }
@@ -70,11 +48,34 @@ export async function downloadChatgptHistoryVolumes(
     }
   }
 
-  for (let index = 0; index < files.length; index += 1) {
-    downloadTextFile(files[index].contents, files[index].filename)
-    if (index < files.length - 1) await sleep(delayMs)
+  // Serialize and release one volume at a time, including directory exports.
+  // Previously every volume's JSON string stayed in memory until all writes ended.
+  for (let index = 0; index < volumes.length; index += 1) {
+    const volume = volumes[index]
+    const filename = buildChatgptHistoryVolumeFilename(
+      volume?.exportedAt,
+      Number(volume?.volume?.index) || index + 1,
+      Number(volume?.volume?.count) || volumes.length || 1,
+    )
+    const contents = JSON.stringify(volume)
+    if (directoryHandle) {
+      const handle = await directoryHandle.getFileHandle(filename, { create: true })
+      const writable = await handle.createWritable()
+      try {
+        await writable.write(contents)
+      } finally {
+        await writable.close()
+      }
+    } else {
+      downloadTextFile(contents, filename)
+    }
+    if (index < volumes.length - 1) await sleep(delayMs)
   }
-  return { method: 'download', count: files.length, cancelled: false }
+  return {
+    method: directoryHandle ? 'directory' : 'download',
+    count: volumes.length,
+    cancelled: false,
+  }
 }
 
 function pickJsonFilesInternal({ multiple = false } = {}) {

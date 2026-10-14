@@ -360,6 +360,8 @@
           conv.defaultModel,
           conv.missingSnapshot ? '缺正文' : `${(conv.messages || []).length} 条消息`,
           conv.mappingNodeCount ? `${conv.mappingNodeCount} nodes` : '',
+          conv.history?.scope === 'current_branch' ? '当前分支' : '',
+          conv.history?.complete === false ? '部分缓存：更早消息尚未下载' : '',
           formatTime(conv.updateTime),
         ].filter(Boolean)
         $('meta').textContent = bits.join(' · ')

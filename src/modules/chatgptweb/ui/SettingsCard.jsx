@@ -36,6 +36,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
     exportHistory,
     importHistory,
     getHistoryLibraryStats,
+    ChatgptHistoryBrowser,
     thinkingEfforts = ['min', 'standard', 'extended', 'xhigh', 'max'],
   } = kit
 
@@ -407,7 +408,11 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
       const volumeLine = t('Exported {{volumeCount}} ChatGPT history volume files', {
         volumeCount: summary.volumeCount || 1,
       })
-      setHistoryTransferMessage(`${exportedLine} ${volumeLine}`)
+      const coverageLine = t(
+        'History coverage: {{partialSnapshotCount}} partial, {{currentBranchSnapshotCount}} current branch',
+        summary,
+      )
+      setHistoryTransferMessage(`${exportedLine} ${volumeLine} ${coverageLine}`)
       void loadHistoryLibraryStats()
     } catch (error) {
       setHistoryTransferError(t(error?.message || String(error)))
@@ -509,6 +514,15 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
                     missingBodyCount: historyLibraryStats.missingBodyCount || 0,
                     missingActiveBodyCount: historyLibraryStats.missingActiveBodyCount || 0,
                     missingArchivedBodyCount: historyLibraryStats.missingArchivedBodyCount || 0,
+                  },
+                )}
+              </div>
+              <div>
+                {t(
+                  'History coverage: {{partialSnapshotCount}} partial, {{currentBranchSnapshotCount}} current branch',
+                  {
+                    partialSnapshotCount: historyLibraryStats.partialSnapshotCount || 0,
+                    currentBranchSnapshotCount: historyLibraryStats.currentBranchSnapshotCount || 0,
                   },
                 )}
               </div>
@@ -1159,6 +1173,7 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
 
       {!isPopupMode && (
         <SettingSection title={t('ChatGPT History Backup')}>
+          {ChatgptHistoryBrowser && <ChatgptHistoryBrowser />}
           <p className="text-xs text-muted-foreground">
             {t(
               'Exports and imports the plugin-local ChatGPT conversation cache and continuation state, including raw conversation JSON snapshots. Import merges by conversation ID, session ID, and continuation thread key; it does not delete existing history that is missing from the file or the currently logged-in account.',

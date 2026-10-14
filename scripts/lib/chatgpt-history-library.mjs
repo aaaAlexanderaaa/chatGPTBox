@@ -8,6 +8,7 @@ import {
   formatChatgptWebConversationSnapshot,
   pickChatgptWebConversationTitle,
 } from '../../src/services/clients/chatgpt-web/conversation-state.mjs'
+export { conversationToMarkdown } from '../../src/services/clients/chatgpt-web/conversation-export.mjs'
 import {
   CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
   CHATGPT_WEB_HISTORY_MIXED_EXPORT_IDS_ERROR,
@@ -235,29 +236,6 @@ export function formatLibraryConversation(storageData, conversationId, { think =
       ? Object.keys(record.snapshot.mapping).length
       : 0,
   }
-}
-
-export function conversationToMarkdown(conversation) {
-  const title = conversation?.title || 'Untitled'
-  const lines = [`# ${title}`, '']
-  if (conversation?.conversationId) lines.push(`- ID: \`${conversation.conversationId}\``)
-  if (conversation?.defaultModel) lines.push(`- Model: ${conversation.defaultModel}`)
-  if (conversation?.createTime) lines.push(`- Created: ${conversation.createTime}`)
-  if (conversation?.updateTime) lines.push(`- Updated: ${conversation.updateTime}`)
-  lines.push('')
-  if (conversation?.missingSnapshot) {
-    lines.push('_This conversation is in the list index but has no cached body._')
-    return `${lines.join('\n')}\n`
-  }
-  for (const message of conversation?.messages || []) {
-    const heading = message.role === 'user' ? 'User' : 'Assistant'
-    lines.push(`## ${heading}`)
-    if (message.thoughtDurationLabel) lines.push(`_${message.thoughtDurationLabel}_`)
-    lines.push('')
-    lines.push(message.text || '')
-    lines.push('')
-  }
-  return `${lines.join('\n').trim()}\n`
 }
 
 function collectSearchableStrings(value, parts, limit) {

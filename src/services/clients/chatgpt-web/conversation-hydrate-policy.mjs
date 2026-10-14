@@ -1,4 +1,5 @@
 import { CHATGPT_WEB_HISTORY_HYDRATE_CIRCUIT_THRESHOLD } from '../../../config/limits.mjs'
+import { getChatgptWebConversationHistoryInfo } from './conversation-pages.mjs'
 
 export const CHATGPT_WEB_HYDRATE_ORDERS = Object.freeze([
   'updated',
@@ -64,6 +65,7 @@ export function buildHydrateCandidateIds(entries, { order, includeArchived, offs
 export function needsHydrateConversationBody(indexEntry, snapshotRecord) {
   const snapshot = snapshotRecord?.snapshot
   if (!snapshot || typeof snapshot !== 'object') return true
+  if (!getChatgptWebConversationHistoryInfo(snapshot).complete) return true
   const indexUpdateTime = timestampToHydrateSortableNumber(indexEntry?.updateTime)
   const snapshotUpdateTime = timestampToHydrateSortableNumber(
     snapshotRecord?.updateTime ?? snapshot.update_time ?? snapshot.updateTime,

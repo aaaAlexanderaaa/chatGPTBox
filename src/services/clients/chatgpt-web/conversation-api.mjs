@@ -10,6 +10,7 @@ import { initSession } from '../../init-session.mjs'
 import { saveChatgptWebSessionSnapshot } from './thread-state.mjs'
 import {
   buildChatgptWebConversationListResponse,
+  createChatgptWebConversationSnapshotRecord,
   getCachedChatgptWebConversationRecord,
   getChatgptWebConversationIndex,
   getChatgptWebConversationMeta,
@@ -38,6 +39,7 @@ import {
 } from './conversation-state.mjs'
 import { applyResumePatch, consumeChatgptWebResumeDeltaStream } from './resume-delta.mjs'
 import { buildChatgptWebConversationHeaders } from './request-wire.mjs'
+import { loadChatgptWebConversationPages } from './conversation-pages.mjs'
 
 export { applyResumePatch }
 
@@ -85,6 +87,18 @@ function parsePositiveInt(value, fallback, min, max) {
 
 function normalizeConversationId(conversationId) {
   return typeof conversationId === 'string' ? conversationId.trim() : ''
+}
+
+function snapshotIncludesMessage(snapshot, messageId) {
+  if (!messageId) return true
+  if (Array.isArray(snapshot?.messages)) {
+    return snapshot.messages.some((message) => message?.id === messageId)
+  }
+  const mapping = snapshot?.mapping || {}
+  return (
+    Object.prototype.hasOwnProperty.call(mapping, messageId) ||
+    Object.values(mapping).some((node) => node?.id === messageId || node?.message?.id === messageId)
+  )
 }
 
 function createDefaultRequestStats() {
@@ -350,13 +364,17 @@ async function fetchChatgptWebJson(
       errorPayload = null
     }
     const error = new Error(
-      errorPayload?.detail?.message ||
+      (typeof errorPayload?.detail === 'string' && errorPayload.detail) ||
+        errorPayload?.detail?.message ||
+        (typeof errorPayload?.error === 'string' && errorPayload.error) ||
+        errorPayload?.error?.message ||
         errorPayload?.message ||
         errorText ||
         `ChatGPT request failed with ${response.status} ${response.statusText}`,
     )
     error.status = response.status
-    error.code = errorPayload?.detail?.code || errorPayload?.code || null
+    error.code =
+      errorPayload?.detail?.code || errorPayload?.error?.code || errorPayload?.code || null
     throw error
   }
 
@@ -438,19 +456,7 @@ async function fetchChatgptWebConversationListPageFromNetwork({
 async function fetchChatgptWebConversationSnapshotFromNetwork(
   conversationId,
   historyRequest = null,
-  { signal } = {},
-) {
-  const normalizedConversationId = normalizeConversationId(conversationId)
-  if (!normalizedConversationId) throw new Error('conversationId is required')
-  return await fetchChatgptWebJson(
-    `/backend-api/conversation/${encodeURIComponent(normalizedConversationId)}`,
-    { historyRequest, signal },
-  )
-}
-
-export async function fetchChatgptWebConversationSnapshotForHydrate(
-  conversationId,
-  { shouldAbort } = {},
+  { source = 'unknown', resumePartial = true, includeMessageId, onSnapshot } = {},
 ) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
@@ -458,57 +464,106 @@ export async function fetchChatgptWebConversationSnapshotForHydrate(
   const timeoutSeconds =
     parseInt(config.apiServerRequestTimeoutSeconds, 10) ||
     DEFAULT_API_SERVER_REQUEST_TIMEOUT_SECONDS
-  const timeoutMs = Math.max(1, timeoutSeconds) * 1000
-  const controller = new AbortController()
-  const timer = setTimeout(() => {
-    controller.abort()
-  }, timeoutMs)
-
-  try {
-    const snapshot = await fetchChatgptWebConversationSnapshotFromNetwork(
-      normalizedConversationId,
-      {
-        kind: 'detail',
-        automatic: false,
-        reason: 'hydrate',
-        limited: true,
-        respectListPause: false,
-        shouldAbort,
-      },
-      { signal: controller.signal },
+  let snapshot = null
+  if (resumePartial) {
+    const [record, index] = await Promise.all([
+      getCachedChatgptWebConversationRecord(normalizedConversationId),
+      getChatgptWebConversationIndex(),
+    ])
+    if (
+      Array.isArray(record?.snapshot?.messages) &&
+      record.snapshot.page_info?.has_previous_page === true &&
+      snapshotIncludesMessage(record.snapshot, includeMessageId) &&
+      !isChatgptWebConversationSnapshotStale(index[normalizedConversationId], record, {
+        requireComplete: false,
+      })
     )
-    await saveChatgptWebConversationSnapshot(snapshot, {
-      cachedAt: new Date().toISOString(),
-      source: 'hydrate',
-    })
-    return snapshot
-  } catch (error) {
-    if (controller.signal.aborted) {
-      const timeoutError = new Error(
-        `Conversation snapshot timed out after ${timeoutSeconds} seconds`,
-      )
-      timeoutError.code = 'CHATGPT_HISTORY_HYDRATE_TIMEOUT'
-      timeoutError.cause = error
-      throw timeoutError
-    }
-    throw error
-  } finally {
-    clearTimeout(timer)
+      snapshot = record.snapshot
   }
+
+  return await loadChatgptWebConversationPages({
+    conversationId: normalizedConversationId,
+    includeMessageId,
+    snapshot,
+    shouldAbort: historyRequest?.shouldAbort,
+    async onSnapshot(page) {
+      // An anchored response can exclude the server's current node. Keep that
+      // alternate branch available to this read without replacing the shared
+      // current-branch cache or publishing its status to the conversation list.
+      const alternateBranch =
+        includeMessageId &&
+        Array.isArray(page.messages) &&
+        page.current_node &&
+        !snapshotIncludesMessage(page, page.current_node)
+      const record = alternateBranch
+        ? createChatgptWebConversationSnapshotRecord(page, { source, cachedAt: null })
+        : await saveChatgptWebConversationSnapshot(page, { source })
+      await onSnapshot?.(record)
+    },
+    async fetchPage(path) {
+      if (historyRequest?.limited !== false) {
+        await waitForHistoryRequestSlot(historyRequest?.rpm, {
+          respectListPause: historyRequest?.respectListPause !== false,
+          shouldAbort: historyRequest?.shouldAbort,
+        })
+      }
+      // Each native page gets its own timeout, after the RPM wait. A long
+      // conversation must not time out merely because it has many pages.
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutSeconds) * 1000)
+      try {
+        return await fetchChatgptWebJson(path, {
+          historyRequest: { ...historyRequest, limited: false },
+          signal: controller.signal,
+        })
+      } catch (error) {
+        if (!controller.signal.aborted) throw error
+        const timeoutError = new Error(
+          `Conversation page timed out after ${timeoutSeconds} seconds`,
+        )
+        timeoutError.code = 'CHATGPT_HISTORY_HYDRATE_TIMEOUT'
+        timeoutError.cause = error
+        throw timeoutError
+      } finally {
+        clearTimeout(timer)
+      }
+    },
+  })
 }
 
-async function cacheChatgptWebConversationSnapshotById(conversationId, source = 'unknown') {
-  const snapshot = await fetchChatgptWebConversationSnapshotFromNetwork(conversationId, {
-    kind: 'detail',
-    automatic: false,
-    reason: source,
-    limited: false,
-  })
-  await saveChatgptWebConversationSnapshot(snapshot, {
-    cachedAt: new Date().toISOString(),
-    source,
-  })
-  return snapshot
+export async function fetchChatgptWebConversationSnapshotForHydrate(
+  conversationId,
+  { shouldAbort } = {},
+) {
+  return await fetchChatgptWebConversationSnapshotFromNetwork(
+    conversationId,
+    {
+      kind: 'detail',
+      automatic: false,
+      reason: 'hydrate',
+      limited: true,
+      respectListPause: false,
+      shouldAbort,
+    },
+    { source: 'hydrate' },
+  )
+}
+
+async function cacheChatgptWebConversationSnapshotById(
+  conversationId,
+  source = 'unknown',
+  { resumePartial = true, includeMessageId, onSnapshot } = {},
+) {
+  return await fetchChatgptWebConversationSnapshotFromNetwork(
+    conversationId,
+    {
+      kind: 'detail',
+      automatic: false,
+      reason: source,
+      limited: false,
+    },
+    { source, resumePartial, includeMessageId, onSnapshot },
+  )
 }
 
 export async function syncChatgptWebConversationCache({
@@ -840,6 +895,8 @@ export async function getChatgptWebConversation({
 } = {}) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
+  userMessageId = normalizeConversationId(userMessageId)
+  assistantMessageId = normalizeConversationId(assistantMessageId)
 
   const [index, meta, cachedRecord] = await Promise.all([
     getChatgptWebConversationIndex(),
@@ -847,12 +904,16 @@ export async function getChatgptWebConversation({
     getCachedChatgptWebConversationRecord(normalizedConversationId),
   ])
   const indexEntry = index[normalizedConversationId] || null
-  const stale = isChatgptWebConversationSnapshotStale(indexEntry, cachedRecord)
-  let snapshot = cachedRecord?.snapshot || null
+  const missingAnchor =
+    !snapshotIncludesMessage(cachedRecord?.snapshot, userMessageId) ||
+    !snapshotIncludesMessage(cachedRecord?.snapshot, assistantMessageId)
+  const stale = missingAnchor || isChatgptWebConversationSnapshotStale(indexEntry, cachedRecord)
+  let snapshot = missingAnchor ? null : cachedRecord?.snapshot || null
   let cacheSource = snapshot ? 'cache' : 'network'
   let cachedAt = cachedRecord?.cachedAt || null
   let refreshError = null
   let refreshAttempted = false
+  let networkRecord = null
 
   if (forceRefresh || !snapshot || stale) {
     refreshAttempted = true
@@ -860,12 +921,26 @@ export async function getChatgptWebConversation({
       snapshot = await cacheChatgptWebConversationSnapshotById(
         normalizedConversationId,
         forceRefresh ? 'get_force_refresh' : stale ? 'get_stale_refresh' : 'get_cache_miss',
+        {
+          resumePartial: !forceRefresh && !missingAnchor,
+          includeMessageId: assistantMessageId || userMessageId,
+          onSnapshot: (record) => {
+            networkRecord = record
+          },
+        },
       )
       cacheSource = 'network'
-      cachedAt =
-        (await getCachedChatgptWebConversationRecord(normalizedConversationId))?.cachedAt || null
+      cachedAt = networkRecord?.cachedAt || null
     } catch (error) {
       refreshError = error
+      // Pages fetched by this request are newer evidence than the pre-fetch
+      // index, even if an older page fails. Never overlay that old status on a
+      // successfully downloaded answer, or substitute an unrelated cache write.
+      if (networkRecord) {
+        snapshot = networkRecord.snapshot
+        cachedAt = networkRecord.cachedAt
+        cacheSource = 'network'
+      }
       if (!snapshot) {
         const stub = await getLocalCreatedConversationStub(normalizedConversationId)
         if (stub && isChatgptWebConversationNotReadyError(error)) {
@@ -910,7 +985,7 @@ export async function getChatgptWebConversation({
     ...formatted,
     cache: {
       source: cacheSource,
-      stale: cacheSource === 'network' ? false : stale || Boolean(refreshError),
+      stale: Boolean(refreshError) || (cacheSource === 'network' ? false : stale),
       refreshAttempted,
       refreshError: refreshError?.message || null,
       cachedAt,
@@ -1017,24 +1092,49 @@ export async function refreshChatgptWebConversation({
 } = {}) {
   const normalizedConversationId = normalizeConversationId(conversationId)
   if (!normalizedConversationId) throw new Error('conversationId is required')
+  userMessageId = normalizeConversationId(userMessageId)
+  assistantMessageId = normalizeConversationId(assistantMessageId)
   let snapshot
+  let networkRecord = null
+  let refreshError = null
   try {
     snapshot = await cacheChatgptWebConversationSnapshotById(
       normalizedConversationId,
       'explicit_refresh',
+      {
+        resumePartial: false,
+        includeMessageId: assistantMessageId || userMessageId,
+        onSnapshot: (record) => {
+          networkRecord = record
+        },
+      },
     )
   } catch (error) {
-    const stub = await getLocalCreatedConversationStub(normalizedConversationId)
-    if (stub && isChatgptWebConversationNotReadyError(error)) {
-      return formatLocalCreateStubRefresh(normalizedConversationId, stub, error)
+    if (networkRecord) {
+      snapshot = networkRecord.snapshot
+      refreshError = error
+    } else {
+      const stub = await getLocalCreatedConversationStub(normalizedConversationId)
+      if (stub && isChatgptWebConversationNotReadyError(error)) {
+        return formatLocalCreateStubRefresh(normalizedConversationId, stub, error)
+      }
+      throw error
     }
-    throw error
   }
-  const conversation = formatChatgptWebConversationSnapshot(snapshot, {
-    userMessageId,
-    assistantMessageId,
-    think,
-  })
+  const conversation = {
+    ...formatChatgptWebConversationSnapshot(snapshot, {
+      userMessageId,
+      assistantMessageId,
+      think,
+    }),
+    cache: {
+      source: 'network',
+      stale: Boolean(refreshError),
+      refreshAttempted: true,
+      refreshError: refreshError?.message || null,
+      cachedAt: networkRecord?.cachedAt || null,
+    },
+  }
 
   const normalizedConduitToken = typeof conduitToken === 'string' ? conduitToken.trim() : ''
   let resume = null

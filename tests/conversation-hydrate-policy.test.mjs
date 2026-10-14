@@ -76,6 +76,18 @@ describe('conversation hydrate policy', () => {
     expect(needsHydrateConversationBody({ updateTime: 10 }, null)).toBe(true)
   })
 
+  it('keeps incomplete native pages eligible even when the list timestamp is unchanged', () => {
+    expect(
+      needsHydrateConversationBody(
+        { updateTime: 10 },
+        {
+          updateTime: 10,
+          snapshot: { messages: [], page_info: { has_previous_page: true, start_cursor: 'older' } },
+        },
+      ),
+    ).toBe(true)
+  })
+
   it('never treats a mismatched Resume as a new crawl', () => {
     const state = {
       status: 'paused',

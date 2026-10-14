@@ -81,6 +81,42 @@ async function writeVolumes(payloads) {
 }
 
 describe('ChatGPT history viewer library', () => {
+  it('exports all 300 turns from a legacy full-tree snapshot to Markdown', () => {
+    const turns = Array.from({ length: 300 }, (_, index) => [
+      { role: 'user', text: `question ${index + 1}` },
+      { role: 'assistant', text: `answer ${index + 1}` },
+    ]).flat()
+    const conversation = formatLibraryConversation(
+      {
+        'chatgptWebConversationSnapshot:long': { snapshot: mappingFromTurns('long', turns) },
+      },
+      'long',
+    )
+    const markdown = conversationToMarkdown(conversation)
+    expect(conversation.messages).toHaveLength(600)
+    expect(markdown).toContain('question 1\n')
+    expect(markdown).toContain('answer 300\n')
+  })
+
+  it('labels partial current-branch Markdown exports', () => {
+    const conversation = formatLibraryConversation(
+      {
+        'chatgptWebConversationSnapshot:partial': {
+          snapshot: {
+            conversation_id: 'partial',
+            messages: [
+              { id: 'latest', author: { role: 'user' }, content: { parts: ['latest question'] } },
+            ],
+            page_info: { has_previous_page: true, start_cursor: 'older' },
+          },
+        },
+      },
+      'partial',
+    )
+    expect(conversationToMarkdown(conversation)).toContain('current conversation branch')
+    expect(conversationToMarkdown(conversation)).toContain('History is incomplete')
+  })
+
   it('discovers and merges synthetic volume files', async () => {
     const alpha = mappingFromTurns('alpha', [
       { role: 'user', text: 'hello from alpha' },

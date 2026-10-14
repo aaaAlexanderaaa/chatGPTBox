@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { Buffer } from 'node:buffer'
 import Browser from 'webextension-polyfill'
 import { buildChatgptHistoryVolumeFilename } from '../src/popup/file-transfer.mjs'
 import {
@@ -13,6 +14,8 @@ import {
   getChatgptHistoryLibraryStats,
   importChatgptHistoryData,
   listChatgptHistoryStorageKeys,
+  getCompactJsonSize,
+  summarizeChatgptHistoryExport,
   packChatgptHistoryStorageIntoVolumeMaps,
   summarizeChatgptHistoryLibrary,
 } from '../src/services/clients/chatgpt-web/history-transfer.mjs'
@@ -48,6 +51,28 @@ function makeIndexEntry(id, extra = {}) {
     title: extra.title || id,
     isArchived: extra.isArchived === true,
     updateTime: extra.updateTime || '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function makeNativeSnapshot({
+  messageIds = ['old', 'new'],
+  complete = true,
+  updateTime = 10,
+  cachedAt = '2026-10-13T00:00:00.000Z',
+} = {}) {
+  return {
+    ...makeSnapshot('native', {
+      cachedAt,
+      snapshot: {
+        conversation_id: 'native',
+        update_time: updateTime,
+        messages: messageIds.map((id) => ({ id })),
+        page_info: { has_previous_page: !complete, start_cursor: complete ? null : 'older' },
+      },
+    }),
+    updateTime,
+    asyncStatus: null,
+    pending: false,
   }
 }
 
@@ -124,6 +149,44 @@ beforeEach(() => {
 })
 
 describe('ChatGPT history volume packing helpers', () => {
+  it('measures non-ASCII history in UTF-8 bytes', () => {
+    expect(getCompactJsonSize({ text: '中文😀' })).toBe(
+      Buffer.byteLength(JSON.stringify({ text: '中文😀' })),
+    )
+  })
+
+  it('counts incomplete native snapshots separately and preserves their cursors on import', async () => {
+    const partial = {
+      conversation_id: 'native',
+      current_node: 'new',
+      messages: [{ id: 'new', author: { role: 'user' }, content: { parts: ['new'] } }],
+      page_info: { has_previous_page: true, start_cursor: 'older' },
+    }
+    const storage = {
+      chatgptWebConversationIndex: { native: makeIndexEntry('native') },
+      [snapshotKey('native')]: makeSnapshot('native', { snapshot: partial }),
+    }
+    expect(summarizeChatgptHistoryExport(storage)).toMatchObject({
+      partialSnapshotCount: 1,
+      currentBranchSnapshotCount: 1,
+    })
+    const volumes = buildChatgptHistoryVolumePayloads(storage)
+    await importChatgptHistoryData(volumes)
+    expect(store.get(snapshotKey('native')).snapshot).toEqual(partial)
+  })
+
+  it('imports the former API Server cache backup without losing the snapshots', async () => {
+    await importChatgptHistoryData({
+      version: 1,
+      data: {
+        index: { legacy: makeIndexEntry('legacy') },
+        meta: {},
+        snapshots: { legacy: makeSnapshot('legacy', { body: 'legacy body' }) },
+      },
+    })
+    expect(store.get(snapshotKey('legacy')).snapshot.mapping.legacy.content).toBe('legacy body')
+  })
+
   it('packs five small snapshots into multiple volumes with shared exportId', () => {
     const storage = {
       chatgptWebConversationIndex: {
@@ -196,6 +259,62 @@ describe('ChatGPT history volume packing helpers', () => {
 })
 
 describe('ChatGPT history export/import volumes', () => {
+  it('exports only selected IDs without unrelated bodies, continuation state, or metadata', async () => {
+    seedLibrary({
+      conversations: [
+        { id: 'a', body: 'selected body' },
+        { id: 'private-other', body: 'other private body' },
+      ],
+      meta: { accountSetting: 'unrelated' },
+      sessionSnapshots: { session: { conversationId: 'private-other' } },
+      apiThreads: [{ conversationId: 'private-other' }],
+    })
+    const result = await exportChatgptHistoryData({
+      conversationIds: ['a'],
+      maxVolumeBytes: Infinity,
+    })
+    const storage = collectedStorage(result.volumes)
+    expect(Object.keys(storage).sort()).toEqual(
+      ['chatgptWebConversationIndex', snapshotKey('a')].sort(),
+    )
+    expect(Object.keys(storage.chatgptWebConversationIndex)).toEqual(['a'])
+    expect(result.summary).toMatchObject({
+      conversationCount: 1,
+      snapshotCount: 1,
+      sessionSnapshotCount: 0,
+      apiThreadCount: 0,
+    })
+    expect(JSON.stringify(result)).not.toContain('private-other')
+    expect(getCalls.filter(Array.isArray).flat()).not.toContain(snapshotKey('private-other'))
+    await importChatgptHistoryData(result.volumes)
+    expect(store.has(snapshotKey('private-other'))).toBe(true)
+  })
+
+  it('can export a conversation opened by ID before it has a list entry', async () => {
+    seedLibrary({
+      extraSnapshots: [
+        {
+          id: 'by-id',
+          snapshot: { conversation_id: 'by-id', title: 'Direct conversation', mapping: {} },
+        },
+      ],
+    })
+    const result = await exportChatgptHistoryData({ conversationIds: ['by-id'] })
+    expect(collectedStorage(result.volumes).chatgptWebConversationIndex['by-id'].title).toBe(
+      'Direct conversation',
+    )
+  })
+
+  it('rejects an empty selection instead of exporting the whole library', async () => {
+    seedLibrary({ conversations: [{ id: 'a' }] })
+    await expect(exportChatgptHistoryData({ conversationIds: [] })).rejects.toThrow(
+      'Select at least one',
+    )
+    await expect(exportChatgptHistoryData({ conversationIds: ['not-cached'] })).rejects.toThrow(
+      'body is not cached',
+    )
+  })
+
   it('exports multiple volumes from storage without calling get(null)', async () => {
     seedLibrary({
       conversations: ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, body: `${id}-body-extra` })),
@@ -348,6 +467,98 @@ describe('ChatGPT history library stats', () => {
     expect(stats.extraSnapshotCount).toBe(1)
     expect(stats.lastHydrateAt).toBe('2026-02-02T00:00:00.000Z')
     expect(getCalls.some((keys) => keys == null)).toBe(false)
+  })
+})
+
+describe('history snapshot import coverage', () => {
+  it.each([false, true])(
+    'preserves the complete copy at the same server revision (complete incoming: %s)',
+    async (completeIncoming) => {
+      const complete = makeNativeSnapshot()
+      const partial = makeNativeSnapshot({
+        messageIds: ['new'],
+        complete: false,
+        cachedAt: '2026-10-14T00:00:00.000Z',
+      })
+      store.set(snapshotKey('native'), completeIncoming ? partial : complete)
+
+      const result = await importChatgptHistoryData({
+        [snapshotKey('native')]: completeIncoming ? complete : partial,
+      })
+
+      expect(store.get(snapshotKey('native'))).toEqual(complete)
+      expect(result.after.partialSnapshotCount).toBe(0)
+    },
+  )
+
+  it('keeps the partial copy containing more downloaded messages', async () => {
+    const longer = makeNativeSnapshot({ complete: false })
+    const shorter = makeNativeSnapshot({
+      messageIds: ['new'],
+      complete: false,
+      cachedAt: '2026-10-14T00:00:00.000Z',
+    })
+    store.set(snapshotKey('native'), longer)
+
+    await importChatgptHistoryData({ [snapshotKey('native')]: shorter })
+
+    expect(store.get(snapshotKey('native'))).toEqual(longer)
+  })
+
+  it('retains a complete legacy tree over a later current-branch copy', async () => {
+    const tree = makeNativeSnapshot()
+    tree.snapshot = {
+      conversation_id: 'native',
+      update_time: 10,
+      mapping: { root: { message: { id: 'old' } }, leaf: { message: { id: 'new' } } },
+    }
+    store.set(snapshotKey('native'), tree)
+
+    await importChatgptHistoryData({
+      [snapshotKey('native')]: makeNativeSnapshot({ cachedAt: '2026-10-14T00:00:00.000Z' }),
+    })
+
+    expect(store.get(snapshotKey('native'))).toEqual(tree)
+  })
+
+  it.each([false, true])(
+    'prefers a newer server revision even with fewer messages and an older download time (incoming: %s)',
+    async (newerIncoming) => {
+      const older = makeNativeSnapshot({ cachedAt: '2026-10-14T00:00:00.000Z' })
+      const newer = makeNativeSnapshot({ messageIds: ['changed'], complete: false, updateTime: 11 })
+      store.set(snapshotKey('native'), newerIncoming ? older : newer)
+
+      await importChatgptHistoryData({
+        [snapshotKey('native')]: newerIncoming ? newer : older,
+      })
+
+      expect(store.get(snapshotKey('native'))).toEqual(newer)
+    },
+  )
+
+  it('compares equivalent ISO and Unix server timestamps before coverage', async () => {
+    const complete = makeNativeSnapshot({ updateTime: '2026-10-13T00:00:00.000Z' })
+    const partial = makeNativeSnapshot({
+      messageIds: ['new'],
+      complete: false,
+      updateTime: Date.parse(complete.updateTime) / 1000,
+      cachedAt: '2026-10-14T00:00:00.000Z',
+    })
+    store.set(snapshotKey('native'), complete)
+
+    await importChatgptHistoryData({ [snapshotKey('native')]: partial })
+
+    expect(store.get(snapshotKey('native'))).toEqual(complete)
+  })
+
+  it('uses download time when server revision and coverage are equal', async () => {
+    const existing = makeNativeSnapshot()
+    const incoming = makeNativeSnapshot({ cachedAt: '2026-10-14T00:00:00.000Z' })
+    store.set(snapshotKey('native'), existing)
+
+    await importChatgptHistoryData({ [snapshotKey('native')]: incoming })
+
+    expect(store.get(snapshotKey('native'))).toEqual(incoming)
   })
 })
 

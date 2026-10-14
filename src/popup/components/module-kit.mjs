@@ -35,6 +35,7 @@ import {
   MIN_CHATGPT_WEB_HISTORY_SYNC_RPM,
 } from '../../config/limits.mjs'
 import { CHATGPT_WEB_CONVERSATION_META_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
+import ChatgptHistoryBrowser from '../../components/ChatgptHistoryBrowser/index.jsx'
 import { CHATGPT_WEB_THINKING_EFFORTS } from '../../services/clients/chatgpt-web/thinking.mjs'
 import { downloadChatgptHistoryVolumes, pickJsonFiles } from '../file-transfer.mjs'
 import {
@@ -50,6 +51,7 @@ export function buildModuleKit() {
     ToggleRow,
     ToggleSwitch,
     Divider,
+    ChatgptHistoryBrowser,
     parseIntWithClamp,
     parseFloatWithClamp,
     limits: {
