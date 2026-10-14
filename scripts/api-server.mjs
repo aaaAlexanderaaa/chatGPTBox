@@ -2,6 +2,9 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
+import { ImageAttachmentStore, normalizeGatewayImageMessages } from './lib/image-attachments.mjs'
+import { ImageSendOperations } from './lib/image-send-operations.mjs'
+import { normalizeChatgptProjectId } from '../src/services/clients/chatgpt-web/image-content.mjs'
 import { WebSocketServer } from 'ws'
 import {
   CHATGPT_WEB_DEFAULT_MODEL_SLUG,
@@ -80,10 +83,22 @@ const DEFAULT_THINKING_REQUEST_TIMEOUT_SECONDS = parsePositiveInt(
   7200,
 )
 
-const BRIDGE_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-bridge-token')
-const API_TOKEN_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-api-token')
-const OPERATION_LEDGER_FILE = path.join(os.homedir(), '.chatgptbox', 'gateway-operations.json')
+const GATEWAY_DATA_DIR = path.resolve(
+  cliArg(
+    'data-dir',
+    process.env.CHATGPT_GATEWAY_DATA_DIR || path.join(os.homedir(), '.chatgptbox'),
+  ),
+)
+const BRIDGE_TOKEN_FILE = path.join(GATEWAY_DATA_DIR, 'gateway-bridge-token')
+const API_TOKEN_FILE = path.join(GATEWAY_DATA_DIR, 'gateway-api-token')
+const OPERATION_LEDGER_FILE = path.join(GATEWAY_DATA_DIR, 'gateway-operations.json')
 const operationLedger = new OperationLedger({ file: OPERATION_LEDGER_FILE })
+const attachmentStore = new ImageAttachmentStore(path.join(GATEWAY_DATA_DIR, 'gateway-attachments'))
+const imageSendOperations = new ImageSendOperations({
+  ledger: operationLedger,
+  attachments: attachmentStore,
+  dispatch: (...args) => sendControlRequestToBridge(...args),
+})
 
 function rejectUnauthorizedBridge(res) {
   res.writeHead(401, { 'Content-Type': 'application/json' })
@@ -122,6 +137,8 @@ Options:
                     Bearer token for client HTTP APIs
                     (env: CHATGPT_GATEWAY_API_TOKEN; generated and stored in
                     ~/.chatgptbox/gateway-api-token when unset)
+  --data-dir <path>  Directory for gateway tokens, send records and photo staging
+                    (env: CHATGPT_GATEWAY_DATA_DIR; default: ~/.chatgptbox)
   -h, --help        Show this help message
 
 Examples:
@@ -249,7 +266,16 @@ function logError(msg) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', (chunk) => chunks.push(chunk))
+    let size = 0
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size > 48 * 1024 * 1024) {
+        chunks.length = 0
+        reject(new Error('Request body exceeds 48 MiB'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => resolve(Buffer.concat(chunks).toString()))
     req.on('error', reject)
   })
@@ -688,7 +714,23 @@ async function handleChatCompletions(req, res) {
   }
 
   const model = body.model || DEFAULT_MODEL
-  const messages = body.messages
+  let messages = body.messages
+  let images = []
+  let projectId
+  try {
+    projectId = normalizeChatgptProjectId(body.project_id || body.projectId)
+    if (Array.isArray(messages)) ({ messages, images } = normalizeGatewayImageMessages(messages))
+    if ((images.length || projectId) && model.startsWith('grok'))
+      throw new Error('Image and Project inputs currently require ChatGPT Web')
+  } catch (error) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        error: { message: error.message, type: 'invalid_request_error', dispatched: false },
+      }),
+    )
+    return
+  }
   const stream = body.stream === true
   const requestedThinkingEffort = body.thinking_effort || body.reasoning_effort
   const thinkingEffort =
@@ -885,6 +927,8 @@ async function handleChatCompletions(req, res) {
       model,
       messages,
       stream,
+      images,
+      projectId,
       thinkingEffort,
       operationId: operation.operationId,
     })
@@ -940,6 +984,8 @@ async function handleChatCompletions(req, res) {
           model,
           messages,
           stream,
+          images,
+          projectId,
           thinkingEffort,
           operationId: operation.operationId,
         })
@@ -1170,6 +1216,77 @@ async function handleChatgptConversationList(url, res) {
   }
 }
 
+function sendJson(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+  res.end(JSON.stringify(data))
+}
+
+async function handleAttachmentUpload(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req))
+    sendJson(res, 201, attachmentStore.put(body))
+  } catch (error) {
+    sendJson(res, 400, { error: { message: error.message, dispatched: false } })
+  }
+}
+
+function handlePreparedSend(req, res, body, payload) {
+  if (
+    !body.attachments &&
+    !body.attachment_ids &&
+    !body.project_id &&
+    !body.projectId &&
+    body.async !== true
+  )
+    return false
+  try {
+    const attachmentIds = body.attachments || body.attachment_ids || []
+    if (
+      !Array.isArray(attachmentIds) ||
+      attachmentIds.length > 4 ||
+      attachmentIds.some((id) => typeof id !== 'string' || !/^img-[a-f0-9]{64}$/.test(id))
+    )
+      throw new Error('attachments must contain up to 4 gateway image IDs')
+    const projectId = normalizeChatgptProjectId(body.project_id || body.projectId)
+    const route = payload.conversationId
+      ? `/chatgpt/conversations/${payload.conversationId}/messages`
+      : '/chatgpt/conversations'
+    const begin = beginWriteOperation(req, route, body, { requireIdempotencyKey: true })
+    if (begin.kind === 'missing') {
+      sendJson(res, 400, begin.error)
+      return true
+    }
+    if (begin.kind === 'conflict' || (begin.kind === 'existing' && !begin.record.phase)) {
+      respondForControlWriteOperation(res, begin)
+      return true
+    }
+    const record = begin.record
+    imageSendOperations.start(
+      record,
+      { ...payload, attachmentIds, projectId },
+      payload.conversationId
+        ? 'chatgpt_web_send_conversation_message'
+        : 'chatgpt_web_create_conversation',
+    )
+    res.setHeader('X-Operation-Id', record.operationId)
+    sendJson(res, 202, imageSendOperations.snapshot(record))
+  } catch (error) {
+    sendJson(res, 400, { error: { message: error.message, dispatched: false } })
+  }
+  return true
+}
+
+async function handleChatgptProjects(url, res) {
+  try {
+    const result = await sendControlRequestToBridge('chatgpt_web_list_projects', {
+      cursor: url.searchParams.get('cursor') || undefined,
+    })
+    sendJson(res, 200, result)
+  } catch (error) {
+    sendJson(res, 503, { error: { message: error.message } })
+  }
+}
+
 async function handleChatgptConversationCreate(req, res) {
   if (!isBridgeConnected()) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
@@ -1212,6 +1329,7 @@ async function handleChatgptConversationCreate(req, res) {
     )
     return
   }
+  if (handlePreparedSend(req, res, body, { query, model: body.model, thinkingEffort })) return
   const operationBegin = beginWriteOperation(req, '/chatgpt/conversations', body, {
     requireIdempotencyKey: true,
   })
@@ -1390,6 +1508,16 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
     return
   }
   const route = `/chatgpt/conversations/${conversationId}/messages`
+  if (
+    handlePreparedSend(req, res, body, {
+      query,
+      conversationId,
+      model: body.model,
+      thinkingEffort,
+      think: body.think === true,
+    })
+  )
+    return
   const operationBegin = beginWriteOperation(req, route, body, {
     requireIdempotencyKey: true,
   })
@@ -1787,7 +1915,7 @@ function handleBridgeDisconnect(req, res, url) {
 // HTTP server
 // ---------------------------------------------------------------------------
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   if (!isAllowedHost(req.headers.host, HOST, PORT)) {
     res.writeHead(403)
@@ -1845,6 +1973,8 @@ const server = http.createServer((req, res) => {
     return
   }
   const conversationGetMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)$/)
+  const operationGetMatch = url.pathname.match(/^\/chatgpt\/operations\/([^/]+)$/)
+  const attachmentGetMatch = url.pathname.match(/^\/chatgpt\/attachments\/([^/]+)$/)
   const turnStatusMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)\/turns\/([^/]+)$/)
   const conversationMessageMatch = url.pathname.match(
     /^\/chatgpt\/conversations\/([^/]+)\/messages$/,
@@ -1854,7 +1984,41 @@ const server = http.createServer((req, res) => {
   )
   const grokRoute = matchGrokConversationRoute(url.pathname)
 
-  if (url.pathname === '/v1/models' && req.method === 'GET') {
+  if (url.pathname === '/chatgpt/attachments' && req.method === 'POST') {
+    await handleAttachmentUpload(req, res)
+  } else if (attachmentGetMatch && req.method === 'GET') {
+    try {
+      sendJson(res, 200, attachmentStore.info(attachmentStore.get(attachmentGetMatch[1])))
+    } catch (error) {
+      sendJson(res, 404, { error: { message: error.message } })
+    }
+  } else if (operationGetMatch && req.method === 'GET') {
+    let id
+    try {
+      id = decodeURIComponent(operationGetMatch[1])
+    } catch {
+      sendJson(res, 400, { error: { message: 'Invalid operation ID' } })
+      return
+    }
+    const record =
+      operationLedger.records.get(id) ||
+      [...operationLedger.records.values()].find((item) => item.operationId === id)
+    sendJson(
+      res,
+      record ? 200 : 404,
+      record
+        ? imageSendOperations.snapshot(record)
+        : {
+            error: {
+              message:
+                'Operation is unknown or expired. Inspect the original conversation before creating a new send ID.',
+              retryable: false,
+            },
+          },
+    )
+  } else if (url.pathname === '/chatgpt/projects' && req.method === 'GET') {
+    await handleChatgptProjects(url, res)
+  } else if (url.pathname === '/v1/models' && req.method === 'GET') {
     handleModels(res).catch((err) => {
       logError(`Model list error: ${err.message}`)
       if (!res.headersSent) {

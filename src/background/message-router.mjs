@@ -32,6 +32,8 @@ import {
   listChatgptWebConversationsWithFallback,
   listChatgptWebModelsWithFallback,
   getChatgptWebConversationWithFallback,
+  uploadChatgptWebImagesViaProxy,
+  listChatgptWebProjectsViaProxy,
 } from './chatgpt-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
@@ -59,6 +61,10 @@ export function createMessageRouter() {
     }
   }
   const routedHandlers = {
+    [RuntimeMessage.ChatgptWebListProjects]: (message) =>
+      listChatgptWebProjectsViaProxy(message.data),
+    [RuntimeMessage.ChatgptWebUploadImages]: (message) =>
+      uploadChatgptWebImagesViaProxy(message.data),
     [RuntimeMessage.ChatgptWebPageIntegrity]: (_message, sender) =>
       getChatgptWebPageIntegrityForSender(sender),
     [RuntimeMessage.Feedback]: async (message) => {

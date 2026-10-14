@@ -66,6 +66,104 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 
 ## Client HTTP Endpoints
 
+### Image inputs and ChatGPT Projects
+
+The bridge accepts up to four JPEG, PNG or WebP images per request, each no larger
+than 8 MiB. These limits apply to this gateway, independently of the official
+OpenAI API. Remote image URLs and arbitrary file attachments are not supported.
+
+For an OpenAI-compatible client, pass the usual user content array to
+`POST /v1/chat/completions`:
+
+```json
+{
+  "messages": [{
+    "role": "user",
+    "content": [
+      { "type": "text", "text": "Describe this meal and give approximate portions." },
+      { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,<IMAGE_BYTES>" } }
+    ]
+  }],
+  "stream": false
+}
+```
+
+The gateway validates the bytes and dimensions, then sends the images to the
+extension. The signed upload URL comes from ChatGPT; authentication stays in the
+ChatGPT page. The extension waits for `file.processing.file_ready` for the exact
+file before constructing a `multimodal_text` user message. A transferred file or
+an ended processing stream alone does not count as readiness. Signed blob uploads
+omit cookies and never receive the ChatGPT page's authentication headers.
+
+For Drafts and clients that need resumable preparation, first stage the image:
+
+```text
+POST /chatgpt/attachments
+Authorization: Bearer <API token>
+Content-Type: application/json
+
+{"name":"lunch.jpg","data_url":"data:image/jpeg;base64,<IMAGE_BYTES>"}
+```
+
+Alternatively use `{"name":"lunch.jpg","mime_type":"image/jpeg","base64":"<IMAGE_BYTES>"}`.
+The `201` response contains `id`, `name`, `mimeType`, dimensions, size and
+`expiresAt`, but never the photo bytes. Identical bytes produce the same attachment
+ID, so a lost upload acknowledgement can be retried. Staging works even while the
+extension is disconnected. `GET /chatgpt/attachments/:id` reads this metadata.
+
+Then send to a new or existing conversation, using the same custom endpoints and
+required `Idempotency-Key` as text sends:
+
+```text
+POST /chatgpt/conversations
+Idempotency-Key: <one ID for this meal>
+
+{"query":"Analyze this meal; give ranges and uncertainties.","attachments":["img-<SHA256>"],"project_id":"<Project ID>"}
+```
+
+`POST /chatgpt/conversations/:id/messages` accepts the same attachment fields.
+Requests containing attachments, a Project, or `async: true` return `202` with
+an `operationId` immediately. Read `GET /chatgpt/operations/:operationId` (or use
+the original idempotency key in place of the operation ID) until `phase` is
+`accepted`. Its `result.conversationId` and `result.messageId` then use the existing
+conversation and turn-status read APIs. `accepted` means the message was
+acknowledged; it does not mean the answer is complete.
+
+| Phase | Meaning | Recovery |
+| --- | --- | --- |
+| `preparing`, `uploading` | No user message has been submitted | Get reads progress; repeated Send keeps the same operation |
+| `interrupted`, `failed` with `dispatched: false` | Preparation stopped before submission | Explicit Send with the same key/request resumes preparation |
+| `sending` | The only message write is in flight | Wait and read the operation |
+| `accepted` | An acknowledgement is available | Read the exact conversation/message from `result` |
+| `ambiguous` | Submission may have succeeded | Inspect the original conversation; never submit a replacement automatically |
+
+The gateway persists the submission boundary before forwarding the message. A
+restart during upload permits explicit preparation recovery; a restart during
+submission is uncertain and cannot replay the message. Keep the text, attachment
+IDs, Project and model unchanged for a retry. Changed photos are a different
+request even if the accompanying text is identical. Operation lookup is an
+authenticated local read and does not contact ChatGPT.
+
+`GET /chatgpt/projects` lists accessible owned Projects with a pagination cursor;
+pass `?cursor=...` for later pages. `project_id` selects an existing Project when
+creating a conversation, including text-only conversations. An existing
+conversation inherits its Project; an explicit conflicting Project is rejected
+before submission. The extension verifies the selected resource is a Project and
+passes its identity through conversation initialization, preparation and sending.
+This does not create, move, share or change Project instructions.
+
+Staged photos stay under `~/.chatgptbox/gateway-attachments` with private file
+permissions. They expire after seven days; expired files are removed on a later
+upload. Storage is capped at 256 MiB. The HTTP request limit is 48 MiB.
+`--data-dir <path>` / `CHATGPT_GATEWAY_DATA_DIR` selects a different directory for
+tokens, operations and staging, useful for an isolated test instance. These photos
+are staging copies, not a permanent photo library. Missing or expired photos fail
+before the message write. Retain the original until the message is acknowledged.
+
+The standard completion endpoint waits for the final answer and keeps its
+existing retry contract. The custom operation API above is the recovery path for
+Drafts; its preparation state is not inferred from conversation `pending` flags.
+
 ### `POST /v1/chat/completions`
 
 OpenAI-compatible chat completions endpoint.

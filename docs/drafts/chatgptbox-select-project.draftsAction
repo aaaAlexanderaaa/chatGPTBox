@@ -1,0 +1,26 @@
+{
+  "uuid": "A089F640-4F68-4810-AF68-98B46A271777",
+  "name": "ChatGPTBox Select Project",
+  "steps": [
+    {
+      "uuid": "11C70D68-AE8C-4581-9D0C-C59EBD0F0913",
+      "type": "script",
+      "platforms": 3,
+      "isEnabled": true,
+      "data": {
+        "script": "/* global HTTP, Prompt, app, draft */\nconst BASE_URL = 'http://127.0.0.1:18080'\nconst API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'\nconst PHOTO_METADATA_RE = /<!-- chatgptbox-photos:(\\{.*\\}) -->/\ntry {\n  if (\n    /<!-- chatgptbox-(?:waiting-reply:start|photo-operation:|new-operation:)/.test(\n      draft.content || '',\n    )\n  )\n    throw new Error(\n      'Choose a Project on a new draft before its first send. An existing conversation keeps its current Project.',\n    )\n  const projects = [{ id: null, name: '不使用 Project' }]\n  let cursor,\n    pages = 0\n  const seen = new Set()\n  do {\n    const response = HTTP.create().request({\n      url: BASE_URL + '/chatgpt/projects' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''),\n      method: 'GET',\n      headers: { Authorization: 'Bearer ' + API_TOKEN },\n    })\n    if (!response.success || response.statusCode >= 400)\n      throw new Error(\n        response.responseData?.error?.message || response.error || 'Could not read Projects',\n      )\n    for (const project of response.responseData.projects || []) {\n      if (!seen.has(project.id)) {\n        seen.add(project.id)\n        projects.push(project)\n      }\n    }\n    cursor = response.responseData.cursor\n    pages++\n  } while (cursor && pages < 10)\n  if (cursor)\n    throw new Error('Project list is too large. Select a Project by its ID in the API request.')\n  const match = (draft.content || '').match(PHOTO_METADATA_RE)\n  const metadata = match ? JSON.parse(match[1]) : { images: [], pendingPhotos: [] }\n  const selected = Math.max(\n    0,\n    projects.findIndex((project) => project.id === metadata.projectId),\n  )\n  const prompt = Prompt.create()\n  prompt.title = '选择 ChatGPT Project'\n  prompt.addPicker('project', 'Project', [projects.map((project) => project.name)], [selected])\n  prompt.addButton('保存')\n  if (prompt.show()) {\n    const project = projects[prompt.fieldValues.project[0]]\n    metadata.projectId = project.id\n    metadata.projectName = project.name\n    const marker = '<!-- chatgptbox-photos:' + JSON.stringify(metadata) + ' -->'\n    draft.content = match\n      ? draft.content.replace(PHOTO_METADATA_RE, () => marker)\n      : (draft.content || '').trimEnd() + '\\n\\n' + marker + '\\n'\n    draft.update()\n    app.displaySuccessMessage('Project: ' + project.name)\n  }\n} catch (error) {\n  app.displayErrorMessage(error.message || String(error))\n  throw error\n}\n",
+        "allowAsync": "false"
+      }
+    }
+  ],
+  "shouldConfirm": false,
+  "disposition": 0,
+  "groupDisposition": 0,
+  "logLevel": 1,
+  "notificationType": 1,
+  "tintColor": "green",
+  "keyUseIcon": true,
+  "icon": "folder",
+  "visibility": 480,
+  "assignTags": []
+}

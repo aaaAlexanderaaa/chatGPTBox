@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src blob: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>添加餐食照片</title>
+    <style>
+      html {
+        color-scheme: light dark;
+        font: 17px system-ui;
+      }
+      body {
+        max-width: 640px;
+        margin: auto;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      p {
+        line-height: 1.6;
+      }
+      input,
+      button {
+        font: inherit;
+      }
+      button {
+        padding: 12px 18px;
+        margin: 8px 6px 0 0;
+        border-radius: 10px;
+        border: 1px solid #888;
+      }
+      #photos {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 20px 0;
+      }
+      img {
+        width: 140px;
+        height: 140px;
+        object-fit: cover;
+        border-radius: 12px;
+      }
+      #error {
+        color: #c33;
+      }
+      button:disabled {
+        opacity: 0.4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>添加餐食照片</h1>
+    <p>选择最多 4 张照片。照片会缩小后保存到本机，发送分析请运行 Send。</p>
+    <input id="files" type="file" accept="image/*" multiple />
+    <div id="photos"></div>
+    <p id="error" role="alert"></p>
+    <button id="add" disabled>添加照片</button><button id="cancel">取消</button>
+    <script>
+      let images = []
+      let selection = 0
+      document.getElementById('files').addEventListener('change', async (event) => {
+        const add = document.getElementById('add'),
+          error = document.getElementById('error'),
+          photos = document.getElementById('photos')
+        add.disabled = true
+        error.textContent = ''
+        photos.replaceChildren()
+        images = []
+        const current = ++selection,
+          captured = []
+        const files = Array.from(event.target.files || [])
+        if (files.length > 4) {
+          error.textContent = '最多选择 4 张照片。'
+          return
+        }
+        try {
+          for (const file of files) {
+            if (file.size > 32 * 1024 * 1024) throw new Error('照片过大，请先缩小后再选择。')
+            const url = URL.createObjectURL(file),
+              img = new Image()
+            try {
+              await new Promise((resolve, reject) => {
+                img.onload = resolve
+                img.onerror = () => reject(new Error('无法读取照片，请使用 JPEG、PNG 或 WebP。'))
+                img.src = url
+              })
+              if (current !== selection) return
+              const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight))
+              const canvas = document.createElement('canvas')
+              canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
+              canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+              const ctx = canvas.getContext('2d')
+              ctx.fillStyle = '#fff'
+              ctx.fillRect(0, 0, canvas.width, canvas.height)
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+              if (dataUrl.length > 11184812) throw new Error('照片压缩后仍超过 8 MiB。')
+              captured.push({ name: file.name.replace(/\.[^.]+$/, '') + '.jpg', data_url: dataUrl })
+              const thumbnail = document.createElement('img')
+              thumbnail.src = dataUrl
+              thumbnail.alt = file.name
+              photos.appendChild(thumbnail)
+            } finally {
+              URL.revokeObjectURL(url)
+            }
+          }
+          if (current === selection) {
+            images = captured
+            add.disabled = !images.length
+          }
+        } catch (err) {
+          if (current === selection) {
+            error.textContent = err.message
+            images = []
+          }
+        }
+      })
+      document.getElementById('add').addEventListener('click', () => {
+        if (!images.length) return
+        Drafts.send('chatgptboxPhotos', images)
+        Drafts.continue()
+      })
+      document.getElementById('cancel').addEventListener('click', () => Drafts.cancel())
+    </script>
+  </body>
+</html>

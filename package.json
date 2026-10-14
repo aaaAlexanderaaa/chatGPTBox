@@ -22,6 +22,7 @@
     "lint:fix": "eslint --ext .js,.mjs,.jsx . --fix",
     "sync-protocol-reference": "node scripts/sync-protocol-reference.mjs",
     "sync-drafts-preview": "node scripts/sync-drafts-preview.mjs",
+    "sync-drafts-photos": "node scripts/sync-drafts-photos.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "api-server": "node scripts/api-server.mjs",

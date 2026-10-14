@@ -128,6 +128,7 @@ describe('API gateway compatibility contract', () => {
           getChatgptWebThinkingEffortOverride,
           isBridgeConnected: () => true,
           readBodyObject: async (body) => body,
+          handlePreparedSend: () => false,
           beginWriteOperation: begin,
           respondForControlWriteOperation: () => false,
           sendControlRequestToBridge: send,

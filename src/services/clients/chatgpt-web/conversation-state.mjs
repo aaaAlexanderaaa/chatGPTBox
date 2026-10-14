@@ -465,6 +465,18 @@ function formatConversationMessageNode(node, conversation) {
     createTime: message.create_time || null,
     updateTime: message.update_time || null,
     text,
+    ...(message.author?.role === 'user' && message.content?.content_type === 'multimodal_text'
+      ? {
+          attachments: (message.content.parts || [])
+            .filter((part) => part?.content_type === 'image_asset_pointer')
+            .map((part) => ({
+              kind: 'image',
+              width: part.width,
+              height: part.height,
+              assetPointer: part.asset_pointer,
+            })),
+        }
+      : {}),
     ...(rendering ? { rendering } : {}),
     endTurn: message.end_turn ?? null,
     isFinal: isFinalChatgptWebAssistantMessage(message, { conversation, text }),
@@ -918,6 +930,7 @@ export function formatChatgptWebConversationSnapshot(
       conversation.asyncStatus !== undefined ? conversation.asyncStatus : conversation.async_status,
     pending: isPendingChatgptWebConversation(conversation),
     defaultModel: conversation.default_model_slug || null,
+    projectId: conversation.gizmo_id || null,
     safeUrlCount: Array.isArray(conversation.safe_urls) ? conversation.safe_urls.length : 0,
     blockedUrlCount: Array.isArray(conversation.blocked_urls)
       ? conversation.blocked_urls.length
