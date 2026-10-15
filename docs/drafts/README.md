@@ -138,6 +138,15 @@ Set those actions' `BASE_URL` and `API_TOKEN` to match your current gateway.
    to that exact message and collects its answer as before. Later meals can be
    attached to the waiting-reply block after the previous answer has been read.
 
+The 2026-10-15 date compatibility fix updates **Get**, **Send**, and **Attach Photos**.
+Drafts extends `Date.parse`, which may return `null` for ISO timestamps containing
+milliseconds. The actions now use `new Date(value).getTime()` so a fresh Project
+send, with or without photos, is not mistaken for a send older than seven days.
+If a newly created send stopped with “This send is older than the gateway recovery
+window”, update those actions, keep the saved send marker, and run **Send** again;
+it reuses the same send ID and original request. Truly old or invalid timestamps
+still block replay. Preserve your existing gateway address, token, and overrides.
+
 The picker uses Drafts' documented
 [HTML Preview forms and `Drafts.send`](https://docs.getdrafts.com/docs/actions/html-forms)
 to return image data to the action script. The chooser/camera behavior depends on

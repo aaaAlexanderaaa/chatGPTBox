@@ -19,7 +19,7 @@ const sources = Object.fromEntries(
 const photo = {
   id: 'img-' + 'a'.repeat(64),
   name: 'lunch.jpg',
-  expiresAt: '2099-01-01',
+  expiresAt: '2099-01-01T00:00:00.000Z',
   path: '/local-photo.json',
 }
 const photoMarker = (metadata = { images: [photo], pendingPhotos: [], projectId: 'project-1' }) =>
@@ -38,7 +38,7 @@ function run(action, content, responses, extras = {}) {
     app = { displayErrorMessage: vi.fn(), displaySuccessMessage: vi.fn() }
   let error
   try {
-    vm.runInNewContext(sources[action], {
+    const runtime = vm.createContext({
       draft,
       app,
       HTTP: {
@@ -68,6 +68,8 @@ function run(action, content, responses, extras = {}) {
         },
       },
     })
+    if (extras.dateSetup) vm.runInContext(extras.dateSetup, runtime)
+    vm.runInContext(sources[action], runtime)
   } catch (caught) {
     error = caught
   }
@@ -110,6 +112,69 @@ describe('Drafts photo sends', () => {
         .pendingPhotos,
     ).toEqual([])
   })
+  it.each([false, true])(
+    'sends and retries a Project message when the Drafts date parser returns null (photos=%s)',
+    (hasPhotos) => {
+      const content =
+        'Lunch\n\n' +
+        photoMarker({
+          images: hasPhotos ? [photo] : [],
+          pendingPhotos: [],
+          projectId: 'g-p-synthetic',
+        })
+      const extras = { dateSetup: 'Date.parse = () => null' }
+      const first = run(3, content, [ok({ phase: 'preparing' }, 202)], extras)
+      expect(first.error).toBeUndefined()
+      expect(first.requests).toHaveLength(1)
+      expect(first.requests[0]).toMatchObject({
+        method: 'POST',
+        data: {
+          query: 'Lunch',
+          project_id: 'g-p-synthetic',
+          attachments: hasPhotos ? [photo.id] : [],
+        },
+      })
+      const retry = run(3, first.draft.content, [ok({ phase: 'uploading' }, 202)], extras)
+      expect(retry.error).toBeUndefined()
+      expect(retry.requests).toHaveLength(1)
+      expect(retry.requests[0]).toEqual(first.requests[0])
+      expect(job(retry.draft.content)).toEqual(job(first.draft.content))
+    },
+  )
+  it('refreshes an expired photo even when the Drafts date parser returns null', () => {
+    const expiredPhoto = { ...photo, expiresAt: '2000-01-01T00:00:00.000Z' }
+    const result = run(
+      3,
+      'Lunch\n\n' + photoMarker({ images: [expiredPhoto], pendingPhotos: [] }),
+      [ok(photo, 201), ok({ phase: 'preparing' }, 202)],
+      {
+        dateSetup: 'Date.parse = () => null',
+        files: new Map([[photo.path, { name: photo.name, data_url: 'synthetic' }]]),
+      },
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.requests.map((request) => new URL(request.url).pathname)).toEqual([
+      '/chatgpt/attachments',
+      '/chatgpt/conversations',
+    ])
+    expect(result.requests[1].data.attachments).toEqual([photo.id])
+  })
+  it.each(['2000-01-01T00:00:00.000Z', 'invalid', null])(
+    'preserves the send ID and prevents replay for an old or invalid saved time (%s)',
+    (createdAt) => {
+      const sent = run(3, 'Lunch\n\n' + photoMarker(), [ok({ phase: 'sending' }, 202)])
+      const operation = { ...job(sent.draft.content), createdAt }
+      const content = sent.draft.content.replace(
+        /<!-- chatgptbox-photo-operation:(\{.*\}) -->/,
+        '<!-- chatgptbox-photo-operation:' + JSON.stringify(operation) + ' -->',
+      )
+      const retry = run(3, content, [], { dateSetup: 'Date.parse = () => null' })
+      expect(retry.error).toBeDefined()
+      expect(retry.error.message).toMatch(/recovery window|saved send time/i)
+      expect(retry.requests).toEqual([])
+      expect(job(retry.draft.content)).toEqual(operation)
+    },
+  )
   it('persists the operation before Send and reuses its exact text, images and Project after a lost response', () => {
     const first = run(3, note(), [
       { success: false, statusCode: 500, responseData: { error: { message: 'Response lost' } } },

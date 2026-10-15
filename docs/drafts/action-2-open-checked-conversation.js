@@ -450,9 +450,11 @@ function photoPrompt(content, waitingReply) {
 
 function stagePhotoFiles(metadata) {
   const pending = metadata.pendingPhotos || []
-  const expired = (metadata.images || []).filter(
-    (image) => Date.parse(image.expiresAt) <= Date.now(),
-  )
+  // Drafts extends Date.parse and may return null for ISO timestamps with milliseconds.
+  const expired = (metadata.images || []).filter((image) => {
+    const expiresAt = new Date(image.expiresAt).getTime()
+    return !Number.isFinite(expiresAt) || expiresAt <= Date.now()
+  })
   if (!pending.length && !expired.length) return metadata
   const fm = FileManager.createLocal()
   for (const photo of expired) {
@@ -598,7 +600,12 @@ function sendPhotoOperation(content, waitingReply) {
     draft.update()
   }
   stagePhotoFiles(readPhotoMetadata(draft.content || ''))
-  if (Date.now() - Date.parse(job.createdAt) >= 7 * 24 * 60 * 60 * 1000)
+  const createdAt = typeof job.createdAt === 'string' ? new Date(job.createdAt).getTime() : NaN
+  if (!Number.isFinite(createdAt))
+    fail(
+      'The saved send time is invalid. Run Get or inspect the original conversation; its send ID was kept.',
+    )
+  if (Date.now() - createdAt >= 7 * 24 * 60 * 60 * 1000)
     fail(
       'This send is older than the gateway recovery window. Inspect the original conversation; its send ID was kept.',
     )
