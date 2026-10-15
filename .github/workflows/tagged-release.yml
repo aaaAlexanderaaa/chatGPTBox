@@ -1,5 +1,11 @@
 name: tagged-release
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v4.1.2)"
+        required: true
+        default: "v4.1.2"
   push:
     tags:
       - "v*"
@@ -9,14 +15,17 @@ permissions:
   contents: "write"
 env:
   GH_TOKEN: ${{ github.token }}
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build_and_release:
     runs-on: ubuntu-latest
 
     steps:
-      - run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+      - run: echo "VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Verify frozen release version
         run: |
@@ -40,7 +49,7 @@ jobs:
           if [ ! -s /tmp/release-notes.md ]; then echo "Release ${{ env.VERSION }}" > /tmp/release-notes.md; fi
 
       - run: |
-          gh release create ${{github.ref_name}} -d -F /tmp/release-notes.md -t ${{github.ref_name}}
+          gh release create ${{ env.RELEASE_TAG }} -d -F /tmp/release-notes.md -t ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-node@v5
         with:
@@ -50,10 +59,10 @@ jobs:
       - run: npm run build
 
       - run: |
-          gh release upload ${{github.ref_name}} build/chromium.zip
-          gh release upload ${{github.ref_name}} build/firefox.zip
-          gh release upload ${{github.ref_name}} build/chromium-without-katex-and-tiktoken.zip
-          gh release upload ${{github.ref_name}} build/firefox-without-katex-and-tiktoken.zip
+          gh release upload ${{ env.RELEASE_TAG }} build/chromium.zip
+          gh release upload ${{ env.RELEASE_TAG }} build/firefox.zip
+          gh release upload ${{ env.RELEASE_TAG }} build/chromium-without-katex-and-tiktoken.zip
+          gh release upload ${{ env.RELEASE_TAG }} build/firefox-without-katex-and-tiktoken.zip
 
       - run: |
-          gh release edit ${{github.ref_name}} --draft=false
+          gh release edit ${{ env.RELEASE_TAG }} --draft=false
