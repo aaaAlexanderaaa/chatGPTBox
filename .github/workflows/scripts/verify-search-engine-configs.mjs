@@ -97,7 +97,9 @@ const urls = {
   ],
   duckduckgo: [],
   startpage: [], // need redirect and post https://www.startpage.com/do/search?query=hello
-  baidu: ['https://www.baidu.com/s?wd=hello'],
+  baidu: [
+    /*'https://www.baidu.com/s?wd=hello'*/
+  ],
   kagi: [], // need login https://kagi.com/search?q=hello
   yandex: [], // need cookie https://yandex.com/search/?text=hello
   naver: ['https://search.naver.com/search.naver?query=hello'],
