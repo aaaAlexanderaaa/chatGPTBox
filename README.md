@@ -254,6 +254,11 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.1.2
+
+- Added a shared local ChatGPT conversation browser with paginated history browsing, selected JSON and Markdown exports, and schema-2 volume backups; supports native cursor pagination, partial checkpoints, and branch preservation during recovery.
+- Enhanced ChatGPT Web automatic runtime discovery to support both legacy authentication context comparison and new authentication generation checks, with wrapper tracking across module imports to handle compatible site updates smoothly without manual mappings.
+
 ### v4.1.1
 
 - Fixed completed conversations remaining pending in API Server Bridge: synchronize list status for the exact turn, prefer fresh conversation details over stale cache status, and update badges after completion or refresh.
