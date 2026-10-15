@@ -1,7 +1,24 @@
 // MAIN owns native authentication. This bridge carries response bytes only;
 // it does not expose tokens or grant the page access to extension APIs.
 export function createChatgptWebPageTransport(context, page = globalThis.window) {
-  if (context.transport !== 'native') return { fetch: (...args) => fetch(...args), close() {} }
+  if (context.transport !== 'native')
+    return {
+      fetch(url, options = {}) {
+        if (!options.formData) return fetch(url, options)
+        const { formData, ...init } = options
+        const body = new FormData()
+        const bytes = Uint8Array.from(atob(formData.base64), (char) => char.charCodeAt(0))
+        body.append('file', new Blob([bytes], { type: formData.mimeType }), formData.name)
+        body.append(
+          'upload_url',
+          new URL(formData.uploadUrl).searchParams.get('upload_url') ?? formData.uploadUrl,
+        )
+        const headers = new Headers(init.headers)
+        headers.delete('Content-Type')
+        return fetch(url, { ...init, headers, body })
+      },
+      close() {},
+    }
   const pending = new Map()
   let closed = false
   const send = (data) =>
@@ -104,6 +121,7 @@ export function createChatgptWebPageTransport(context, page = globalThis.window)
           method: options.method || 'GET',
           headers: Object.fromEntries(new Headers(options.headers)),
           body: options.body,
+          formData: options.formData,
         })
       })
     },

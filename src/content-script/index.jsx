@@ -489,6 +489,14 @@ async function handleChatgptProxyControlRequest(action, payload = {}) {
   const accessToken = await ensureChatgptAccessToken()
 
   switch (action) {
+    case ChatgptProxyControlAction.ListProjects:
+      return await (
+        await import('../services/clients/chatgpt-web/image-upload.mjs')
+      ).listChatgptWebProjects(payload)
+    case ChatgptProxyControlAction.UploadImages:
+      return await (
+        await import('../services/clients/chatgpt-web/image-upload.mjs')
+      ).uploadChatgptWebImages(payload)
     case ChatgptProxyControlAction.ListConversations:
       return await listChatgptWebConversations(payload || {})
     case ChatgptProxyControlAction.GetConversation:

@@ -1,4 +1,5 @@
-/* global HTTP, app, draft */
+/* global HTTP, app, draft, FileManager */
+const MODEL_OVERRIDE = null
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
 const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
@@ -292,7 +293,16 @@ function renderMessages(messages) {
         message.thoughtDurationLabel ||
         (message.thoughtDurationText ? 'Thought: ' + message.thoughtDurationText : '')
       const heading = timing ? '### ' + role + ' (' + timing + ')' : '### ' + role
-      return heading + '\n\n' + normalizeText(message.text)
+      const photos = (message.attachments || [])
+        .filter((item) => item.kind === 'image')
+        .map(
+          (item) =>
+            '_Photo' +
+            (item.width && item.height ? ' (' + item.width + ' × ' + item.height + ')' : '') +
+            '_',
+        )
+        .join('\n')
+      return heading + '\n\n' + normalizeText(message.text) + (photos ? '\n\n' + photos : '')
     })
     .join('\n\n')
 }
@@ -404,32 +414,294 @@ function renderConversation(conversation, draftReply, existingMetadata, anchor) 
   return lines.join('\n\n').trim() + '\n'
 }
 
-try {
-  const target = resolveConversationTarget(draft.content || '')
-  const pendingMessageId = target.anchor ? target.anchor.messageId : ''
-  const query = [
-    'think=' + String(INCLUDE_THINKING),
-    target.forceRefresh ? 'force_refresh=true' : '',
-    // Anchor the snapshot to the turn being awaited. Without it the snapshot
-    // describes the previous answer for as long as this one is still generating.
-    pendingMessageId ? 'user_message_id=' + encodeURIComponent(pendingMessageId) : '',
-  ]
-    .filter(Boolean)
-    .join('&')
-  const payload = requestJson(
-    BASE_URL + '/chatgpt/conversations/' + encodeURIComponent(target.conversationId) + '?' + query,
-    'GET',
-  )
-  draft.content = renderConversation(payload, target.draftReply, target.metadata, target.anchor)
+// BEGIN PHOTO HELPERS
+/* eslint-disable no-unused-vars */
+const PHOTO_METADATA_RE = /<!-- chatgptbox-photos:(\{.*\}) -->/
+const PHOTO_OPERATION_RE = /<!-- chatgptbox-photo-operation:(\{.*\}) -->/
+const PHOTO_STATUS_RE = /^Photo send:.*\n?/gm
+
+function readPhotoMetadata(content) {
+  const match = content.match(PHOTO_METADATA_RE)
+  return match ? JSON.parse(match[1]) : { images: [], pendingPhotos: [], projectId: null }
+}
+
+function writePhotoMetadata(metadata) {
+  const marker = '<!-- chatgptbox-photos:' + JSON.stringify(metadata) + ' -->'
+  draft.content = PHOTO_METADATA_RE.test(draft.content || '')
+    ? draft.content.replace(PHOTO_METADATA_RE, () => marker)
+    : (draft.content || '').trimEnd() + '\n\n' + marker + '\n'
   draft.update()
-  const stillWaiting =
-    target.anchor &&
-    resolvePendingTurn(payload.messages || [], target.anchor, payload).state !== 'answered'
-  app.displaySuccessMessage(
-    (target.forceRefresh ? 'Refreshed conversation ' : 'Loaded conversation ') +
-      target.conversationId +
-      (stillWaiting ? '. Still waiting for the answer; run Get again later.' : ''),
+}
+
+function readPhotoOperation(content) {
+  const match = content.match(PHOTO_OPERATION_RE)
+  return match ? JSON.parse(match[1]) : null
+}
+
+function photoPrompt(content, waitingReply) {
+  return waitingReply
+    ? waitingReply.query
+    : content
+        .replace(PHOTO_METADATA_RE, '')
+        .replace(PHOTO_OPERATION_RE, '')
+        .replace(PHOTO_STATUS_RE, '')
+        .trim()
+}
+
+function stagePhotoFiles(metadata) {
+  const pending = metadata.pendingPhotos || []
+  const expired = (metadata.images || []).filter(
+    (image) => Date.parse(image.expiresAt) <= Date.now(),
   )
+  if (!pending.length && !expired.length) return metadata
+  const fm = FileManager.createLocal()
+  for (const photo of expired) {
+    const image = fm.readJSON(photo.path)
+    if (!image)
+      fail('The photo expired and its local copy is unavailable. Attach it again before sending.')
+    const info = requestJson(BASE_URL + '/chatgpt/attachments', 'POST', image)
+    if (info.id !== photo.id) fail('The saved photo changed. Attach it again before sending.')
+    metadata.images = metadata.images.map((item) =>
+      item.id === photo.id ? { ...info, path: photo.path } : item,
+    )
+    writePhotoMetadata(metadata)
+  }
+  for (const photo of [...pending]) {
+    const image = fm.readJSON(photo.path)
+    if (!image)
+      fail(
+        'Photo file is unavailable on this device. Return to the device where it was attached, or attach the photo again.',
+      )
+    const info = requestJson(BASE_URL + '/chatgpt/attachments', 'POST', image)
+    if (!info.id) fail('Gateway returned no photo ID')
+    metadata.images = [...(metadata.images || []), { ...info, path: photo.path }]
+    metadata.pendingPhotos = metadata.pendingPhotos.filter((item) => item.path !== photo.path)
+    writePhotoMetadata(metadata)
+  }
+  return metadata
+}
+
+function photoStatus(status) {
+  const names = {
+    preparing: 'Preparing photos',
+    uploading: 'Uploading photos to ChatGPT',
+    sending: 'Sending message',
+    accepted: 'Waiting for ChatGPT',
+    failed: 'Photo send failed before submission; run Send to retry',
+    interrupted: 'Preparation interrupted; run Send to continue',
+    ambiguous:
+      'Submission could not be confirmed; inspect the original conversation before sending again',
+  }
+  const label = names[status.phase] || 'Checking send status'
+  const line =
+    'Photo send: ' +
+    label +
+    (status.error ? ' (' + status.error.replace(/[\r\n]/g, ' ') + ')' : '') +
+    '\n'
+  draft.content = (draft.content || '').replace(PHOTO_STATUS_RE, '').trimEnd() + '\n\n' + line
+  draft.update()
+  if (['failed', 'ambiguous'].includes(status.phase)) app.displayErrorMessage(label)
+  else app.displaySuccessMessage(label)
+}
+
+function finishPhotoOperation(status, job) {
+  const receipt = status.result
+  if (!receipt || !receipt.conversationId || !receipt.messageId) return false
+  const currentContent = draft.content || ''
+  const currentReply = findWaitingReply(currentContent)
+  const edited = photoPrompt(currentContent, currentReply)
+  const metadata = readPhotoMetadata(currentContent)
+  const unsent = edited && edited !== job.request.query ? edited : ''
+  const images = metadata.images || []
+  const summary = images
+    .map((image) => '_Photo: ' + String(image.name || 'photo').replace(/[\r\n]/g, ' ') + '_')
+    .join('\n')
+  if (currentReply) {
+    const match = currentContent.match(WAITING_REPLY_START_RE)
+    const start = currentContent.indexOf(match[0]) + match[0].length
+    const end = currentContent.indexOf(WAITING_REPLY_END, start)
+    draft.content =
+      currentContent.slice(0, start) + '\n' + job.request.query + '\n' + currentContent.slice(end)
+  } else {
+    draft.content =
+      '# Conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
+      JSON.stringify({ conversationId: receipt.conversationId }) +
+      ' -->\n' +
+      job.request.query +
+      '\n<!-- chatgptbox-waiting-reply:end -->\n'
+  }
+  const match = draft.content.match(WAITING_REPLY_START_RE)
+  const waitingMetadata = JSON.parse(match[1])
+  delete waitingMetadata.operationId
+  delete waitingMetadata.operationRequest
+  waitingMetadata.conversationId = receipt.conversationId
+  waitingMetadata.defaultModel = receipt.defaultModel || waitingMetadata.defaultModel || null
+  waitingMetadata.pendingMessageId = receipt.messageId
+  waitingMetadata.pendingSentAt = receipt.createdAt || new Date().toISOString()
+  const afterStart = draft.content.indexOf(match[0]) + match[0].length
+  const blockEnd = draft.content.indexOf(WAITING_REPLY_END, afterStart)
+  const heading = draft.content.lastIndexOf('## Waiting Reply', draft.content.indexOf(match[0]))
+  const prefix = draft.content
+    .slice(0, heading >= 0 ? heading : draft.content.indexOf(match[0]))
+    .trimEnd()
+  draft.content =
+    prefix +
+    '\n\n### USER\n\n' +
+    job.request.query +
+    (summary ? '\n\n' + summary : '') +
+    '\n\n### ASSISTANT (pending)\n\n' +
+    PENDING_ANSWER_TEXT +
+    '\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
+    JSON.stringify(waitingMetadata) +
+    ' -->\n' +
+    unsent +
+    '\n<!-- chatgptbox-waiting-reply:end -->\n' +
+    draft.content.slice(blockEnd + WAITING_REPLY_END.length)
+  draft.content =
+    draft.content
+      .replace(PHOTO_OPERATION_RE, '')
+      .replace(PHOTO_STATUS_RE, '')
+      .replace(PHOTO_METADATA_RE, '')
+      .trimEnd() + '\n'
+  metadata.images = images.filter((image) => !job.request.attachments.includes(image.id))
+  metadata.projectId = receipt.projectId || metadata.projectId || null
+  writePhotoMetadata(metadata)
+  return true
+}
+
+function sendPhotoOperation(content, waitingReply) {
+  let job = readPhotoOperation(content)
+  if (!job) {
+    const metadata = stagePhotoFiles(readPhotoMetadata(content))
+    const query = photoPrompt(content, waitingReply) || '请分析这些图片，标明不确定的地方。'
+    const conversationId = waitingReply && waitingReply.metadata.conversationId
+    const id = 'drafts-photo-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)
+    job = {
+      id,
+      createdAt: new Date().toISOString(),
+      path:
+        '/chatgpt/conversations' +
+        (conversationId ? '/' + encodeURIComponent(conversationId) + '/messages' : ''),
+      request: {
+        query,
+        attachments: (metadata.images || []).map((image) => image.id),
+        async: true,
+        ...(metadata.projectId ? { project_id: metadata.projectId } : {}),
+        ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}),
+      },
+    }
+    draft.content =
+      (draft.content || '').trimEnd() +
+      '\n\n<!-- chatgptbox-photo-operation:' +
+      JSON.stringify(job) +
+      ' -->\n'
+    draft.update()
+  }
+  stagePhotoFiles(readPhotoMetadata(draft.content || ''))
+  if (Date.now() - Date.parse(job.createdAt) >= 7 * 24 * 60 * 60 * 1000)
+    fail(
+      'This send is older than the gateway recovery window. Inspect the original conversation; its send ID was kept.',
+    )
+  const status = requestJson(BASE_URL + job.path, 'POST', job.request, job.id)
+  if (!finishPhotoOperation(status, job)) photoStatus(status)
+}
+
+function getPhotoOperation(content, includeThinking = false) {
+  const job = readPhotoOperation(content)
+  if (!job) return true
+  const status = requestJson(BASE_URL + '/chatgpt/operations/' + encodeURIComponent(job.id), 'GET')
+  if (status.phase === 'accepted') return finishPhotoOperation(status, job)
+  // A lost acknowledgement does not erase a submitted turn. Only the gateway's
+  // message ID can confirm this send; matching an older question by text cannot.
+  const target =
+    typeof job.path === 'string' &&
+    job.path.match(/^\/chatgpt\/conversations\/([^/?#]+)\/messages$/)
+  if (
+    status.phase === 'ambiguous' &&
+    target &&
+    typeof status.operationId === 'string' &&
+    status.operationId.trim()
+  ) {
+    const conversationId = decodeURIComponent(target[1])
+    const messageId = status.operationId
+    const conversation = requestJson(
+      BASE_URL +
+        '/chatgpt/conversations/' +
+        encodeURIComponent(conversationId) +
+        '?force_refresh=true&think=' +
+        String(includeThinking) +
+        '&user_message_id=' +
+        encodeURIComponent(messageId),
+      'GET',
+    )
+    const found =
+      conversation.conversationId === conversationId &&
+      Array.isArray(conversation.messages) &&
+      conversation.messages.some(
+        (message) => message.role === 'user' && message.messageId === messageId,
+      )
+    if (
+      found &&
+      finishPhotoOperation(
+        {
+          result: {
+            conversationId,
+            messageId,
+            createdAt: job.createdAt,
+            defaultModel: conversation.defaultModel,
+            projectId: job.request.project_id,
+          },
+        },
+        job,
+      )
+    )
+      return { conversation }
+  }
+  photoStatus(status)
+  return false
+}
+/* eslint-enable no-unused-vars */
+// END PHOTO HELPERS
+
+try {
+  const photoRecovery = getPhotoOperation(draft.content || '', INCLUDE_THINKING)
+  if (photoRecovery) {
+    const photoMetadata = PHOTO_METADATA_RE.test(draft.content || '')
+      ? readPhotoMetadata(draft.content)
+      : null
+    const target = resolveConversationTarget(draft.content || '')
+    const pendingMessageId = target.anchor ? target.anchor.messageId : ''
+    const query = [
+      'think=' + String(INCLUDE_THINKING),
+      target.forceRefresh ? 'force_refresh=true' : '',
+      // Anchor the snapshot to the turn being awaited. Without it the snapshot
+      // describes the previous answer for as long as this one is still generating.
+      pendingMessageId ? 'user_message_id=' + encodeURIComponent(pendingMessageId) : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+    const payload =
+      photoRecovery.conversation ||
+      requestJson(
+        BASE_URL +
+          '/chatgpt/conversations/' +
+          encodeURIComponent(target.conversationId) +
+          '?' +
+          query,
+        'GET',
+      )
+    draft.content = renderConversation(payload, target.draftReply, target.metadata, target.anchor)
+    if (photoMetadata) writePhotoMetadata(photoMetadata)
+    draft.update()
+    const stillWaiting =
+      target.anchor &&
+      resolvePendingTurn(payload.messages || [], target.anchor, payload).state !== 'answered'
+    app.displaySuccessMessage(
+      (target.forceRefresh ? 'Refreshed conversation ' : 'Loaded conversation ') +
+        target.conversationId +
+        (stillWaiting ? '. Still waiting for the answer; run Get again later.' : ''),
+    )
+  }
 } catch (error) {
   app.displayErrorMessage(error.message || String(error))
   throw error

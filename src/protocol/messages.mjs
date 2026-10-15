@@ -78,6 +78,8 @@ export const RuntimeMessage = {
   ChatgptWebResetHydrateCircuit: 'CHATGPT_WEB_RESET_HYDRATE_CIRCUIT',
   ChatgptWebReconcileHydrate: 'CHATGPT_WEB_RECONCILE_HYDRATE',
   ChatgptWebListModels: 'CHATGPT_WEB_LIST_MODELS',
+  ChatgptWebListProjects: 'CHATGPT_WEB_LIST_PROJECTS',
+  ChatgptWebUploadImages: 'CHATGPT_WEB_UPLOAD_IMAGES',
   GrokWebListModels: 'GROK_WEB_LIST_MODELS',
   GrokWebListConversations: 'GROK_WEB_LIST_CONVERSATIONS',
   GrokWebGetConversation: 'GROK_WEB_GET_CONVERSATION',
@@ -122,6 +124,8 @@ export const ChatgptProxyControlAction = {
   RefreshConversation: 'chatgpt_web_refresh_conversation',
   SyncConversations: 'chatgpt_web_sync_conversations',
   ListModels: 'chatgpt_web_list_models',
+  ListProjects: 'chatgpt_web_list_projects',
+  UploadImages: 'chatgpt_web_upload_images',
 }
 
 export const CHATGPT_PROXY_CONTROL_ACTIONS = Object.freeze(

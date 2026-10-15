@@ -356,6 +356,24 @@ describe('ChatGPT Web stream handoff policy', () => {
   })
 })
 
+describe('API bridge dispatch errors', () => {
+  it.each([false, true, undefined])(
+    'forwards only an explicit unsent signal (dispatched=%s)',
+    async (dispatched) => {
+      const bridge = await createApiBridgeRequest()
+      bridge.receive({ error: 'Request failed', dispatched })
+      expect(bridge.wire).toHaveLength(1)
+      expect(bridge.wire[0]).toMatchObject({
+        type: 'error',
+        id: 'request-1',
+        error: 'Request failed',
+      })
+      if (dispatched === false) expect(bridge.wire[0].dispatched).toBe(false)
+      else expect(bridge.wire[0]).not.toHaveProperty('dispatched')
+    },
+  )
+})
+
 describe('ChatGPT Web request wire', () => {
   it('builds the required target, account, conduit and sentinel headers', () => {
     const headers = buildChatgptWebConversationHeaders({

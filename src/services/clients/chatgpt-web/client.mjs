@@ -17,6 +17,7 @@ import { t } from 'i18next'
 import { createChatgptWebResponseDiagnostics } from './response-diagnostics.mjs'
 import { getChatgptWebPageIntegrity, buildChatgptWebPageHeaders } from './page-integrity.mjs'
 import { createChatgptWebPageTransport } from './page-transport.mjs'
+import { requireChatgptProject } from './image-upload.mjs'
 import { getModelValue } from '../../../utils/model-name-convert.mjs'
 import {
   clampChatgptWebThinkingEffort,
@@ -692,8 +693,30 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     typeof session.chatgptWebHistoryDisabledOverride === 'boolean'
       ? session.chatgptWebHistoryDisabledOverride
       : config.disableWebModeHistory
+  if (session.chatgptWebProjectId) {
+    try {
+      await requireChatgptProject(
+        (path) =>
+          pageFetch(`${config.customChatGptWebApiUrl}/backend-api${path}`, {
+            signal: controller.signal,
+            credentials: 'include',
+            headers: buildChatgptWebPageHeaders(pageContext, {
+              apiPath: `/backend-api${path}`,
+              accept: 'application/json',
+            }),
+          }),
+        session.chatgptWebProjectId,
+      )
+    } catch (error) {
+      error.chatgptWebNotDispatched = true
+      cleanController()
+      throw error
+    }
+  }
   const requestBody = buildChatgptWebConversationRequestBody({
     profile: pageContext.profile,
+    images: session.chatgptWebImagePointers || [],
+    projectId: session.chatgptWebProjectId || null,
     question,
     messageId: session.messageId,
     parentMessageId: session.parentMessageId,

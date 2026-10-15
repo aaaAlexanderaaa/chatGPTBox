@@ -406,9 +406,12 @@ export async function getChatgptWebPageIntegrityInPage(
           '/backend-api/f/conversation/resume',
           '/backend-api/conversation/init',
           '/backend-api/stop_conversation',
+          '/backend-api/files',
+          '/backend-api/files/process_upload_stream',
+          '/backend-api/estuary/upload_content_bytes',
         ].includes(path)
         const getAllowed =
-          /^\/backend-api\/(?:models|tpp\/models\/?|conversations(?:\/[^/]+(?:\/messages)?)?|conversation\/[^/]+|files\/[^/]+\/download)$/.test(
+          /^\/backend-api\/(?:models|tpp\/models\/?|conversations(?:\/[^/]+(?:\/messages)?)?|conversation\/[^/]+|files\/[^/]+\/download|gizmos\/[A-Za-z0-9_-]+|gizmos\/snorlax\/sidebar)$/.test(
             path,
           )
         if (
@@ -417,13 +420,20 @@ export async function getChatgptWebPageIntegrityInPage(
           target.password ||
           target.hash ||
           !(
-            (method === 'POST' && postAllowed && !target.search) ||
+            (method === 'POST' &&
+              postAllowed &&
+              (!target.search || path === '/backend-api/estuary/upload_content_bytes')) ||
             (method === 'GET' && getAllowed)
           )
         ) {
           throw new Error('Unsupported ChatGPT native request.')
         }
         assertCurrent()
+        if (
+          message.formData &&
+          (path !== '/backend-api/estuary/upload_content_bytes' || method !== 'POST')
+        )
+          throw new Error('Invalid ChatGPT image upload body.')
         const additionalHeaders = { 'ChatGPT-Account-ID': identity.accountId }
         const inputHeaders = new Headers(message.headers)
         const conduit = inputHeaders.get('x-conduit-token')
@@ -437,12 +447,40 @@ export async function getChatgptWebPageIntegrityInPage(
           path.slice('/backend-api'.length) + target.search,
           { additionalHeaders },
         )
+        let body = method === 'POST' ? message.body : undefined
+        let fetchHeaders = nativeTarget.headers
+        if (message.formData) {
+          const input = message.formData
+          if (
+            path !== '/backend-api/estuary/upload_content_bytes' ||
+            method !== 'POST' ||
+            typeof input.base64 !== 'string' ||
+            input.base64.length > 11184812 ||
+            !['image/jpeg', 'image/png', 'image/webp'].includes(input.mimeType) ||
+            typeof input.name !== 'string' ||
+            input.name.length > 160 ||
+            input.uploadUrl !== target.href
+          )
+            throw new Error('Invalid ChatGPT image upload body.')
+          body = new FormData()
+          body.append(
+            'file',
+            new Blob([Uint8Array.from(atob(input.base64), (char) => char.charCodeAt(0))], {
+              type: input.mimeType,
+            }),
+            input.name,
+          )
+          body.append('upload_url', target.searchParams.get('upload_url') || target.href)
+          const headers = new Headers(nativeTarget.headers)
+          headers.delete('Content-Type')
+          fetchHeaders = headers
+        }
         const response = await nativeFetch(
           nativeTarget.url,
           {
             method,
-            headers: nativeTarget.headers,
-            body: method === 'POST' ? message.body : undefined,
+            headers: fetchHeaders,
+            body,
             signal: controller.signal,
             expectedIdentity,
             retry: 'never',

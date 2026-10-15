@@ -1,14 +1,13 @@
-export function buildChatgptWebUserMessage(question, messageId) {
+import { buildChatgptImageContent, normalizeChatgptProjectId } from './image-content.mjs'
+
+export function buildChatgptWebUserMessage(question, messageId, images = []) {
   return {
     id: messageId,
     author: {
       role: 'user',
     },
     create_time: Date.now() / 1000,
-    content: {
-      content_type: 'text',
-      parts: [question],
-    },
+    content: buildChatgptImageContent(question, images),
     metadata: {
       developer_mode_connector_ids: [],
       selected_connector_ids: [],
@@ -38,10 +37,17 @@ export function buildChatgptWebConversationRequestBody({
   websocketRequestId = null,
   localFunctionNames = ['local.continue_in_work'],
   profile = 'legacy',
+  images = [],
+  projectId = null,
 } = {}) {
+  projectId = normalizeChatgptProjectId(projectId)
+  const conversationMode = projectId
+    ? { kind: 'gizmo_interaction', gizmo_id: projectId }
+    : { kind: 'primary_assistant' }
   if (profile === 'codex-webview') {
     return {
       action: 'next',
+      ...(projectId && { conversation_mode: conversationMode }),
       ...(conversationId && { conversation_id: conversationId }),
       ...(parentMessageId &&
         parentMessageId !== 'client-created-root' && { parent_message_id: parentMessageId }),
@@ -62,7 +68,7 @@ export function buildChatgptWebConversationRequestBody({
         {
           author: { metadata: {}, name: null, role: 'user' },
           channel: null,
-          content: { content_type: 'text', parts: [question] },
+          content: buildChatgptImageContent(question, images),
           create_time: Date.now() / 1000,
           end_turn: null,
           id: messageId,
@@ -80,11 +86,9 @@ export function buildChatgptWebConversationRequestBody({
   const requestBody = {
     action: 'next',
     conversation_id: conversationId || undefined,
-    messages: [buildChatgptWebUserMessage(question, messageId)],
+    messages: [buildChatgptWebUserMessage(question, messageId, images)],
     client_prepare_state: prepareState,
-    conversation_mode: {
-      kind: 'primary_assistant',
-    },
+    conversation_mode: conversationMode,
     enable_message_followups: true,
     system_hints: [],
     supports_buffering: true,
@@ -140,7 +144,7 @@ export function buildChatgptWebConversationInitBody(requestBody) {
   return {
     conversation_id: requestBody.conversation_id || null,
     conversation_origin: null,
-    gizmo_id: null,
+    gizmo_id: requestBody.conversation_mode?.gizmo_id || null,
     requested_default_model: requestBody.model,
     system_hints: null,
     timezone: requestBody.timezone,

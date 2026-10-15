@@ -115,6 +115,75 @@ cross-platform preview; the live window is optional.
 
 ## Send and recovery
 
+### Photos and Projects
+
+Update both **Get** (Action 2) and **Send** (Action 3) from this worktree, preserving
+your existing `BASE_URL` and `API_TOKEN`. Import the new
+[`ChatGPTBox Attach Photos`](./chatgptbox-attach-photos.draftsAction) and
+[`ChatGPTBox Select Project`](./chatgptbox-select-project.draftsAction) actions.
+Set those actions' `BASE_URL` and `API_TOKEN` to match your current gateway.
+
+1. Create the diet Project and its instructions in ChatGPT. On a fresh Drafts
+   note, run **ChatGPTBox Select Project** to choose it by name. This chooses an
+   existing Project for the note's first conversation; it does not move an
+   already opened conversation.
+2. Run **ChatGPTBox Attach Photos** and choose up to four meal photos. The picker
+   converts them to JPEG with a maximum 1600-pixel long side. If no question has
+   been written, it inserts a dated meal-record prompt asking for estimated
+   portions, nutrition ranges and uncertainties. You can edit that prompt.
+3. Run **Send**. The note shows preparation/upload/submission progress. It keeps
+   the same send ID and original request across retries, including the photos
+   and Project. Changing text while that send is pending leaves the edits unsent.
+4. Run **Get** to check preparation. Once the message is acknowledged, Get anchors
+   to that exact message and collects its answer as before. Later meals can be
+   attached to the waiting-reply block after the previous answer has been read.
+
+The picker uses Drafts' documented
+[HTML Preview forms and `Drafts.send`](https://docs.getdrafts.com/docs/actions/html-forms)
+to return image data to the action script. The chooser/camera behavior depends on
+the device's WebKit and needs native device verification; the action also works
+with already captured photos in supported formats. No gateway token is exposed
+inside the HTML picker, which cannot make network requests.
+
+Original pending photo bytes are saved as JSON files in Drafts' **local private
+directory**, separately from the text note. Only paths and attachment metadata go
+into the draft. Upload failures keep those files so Attach Photos or Send can try
+again without choosing the photos again. These local files do not synchronize
+to another device. Once staging succeeds, the gateway has its own seven-day copy
+and its attachment ID can be referenced from another device connected to the
+same gateway. Local staging files are retained; this is not a photo-library
+management or cross-device offline capture feature.
+
+Both actions preserve future unsent attachments during Get. An uncertain message
+submission retains its operation ID and never becomes a new send automatically.
+Get reads the operation record before any conversation ID exists; a completed
+upload alone does not clear the waiting state. The new action blocks replacing
+photos while the preceding send is still unresolved.
+
+If a photo follow-up was sent but its acknowledgement was lost, **Get** reads
+the original conversation using the gateway's exact message ID. Finding that
+message confirms submission and resumes answer collection, preserving any next
+question already typed. An older identical question, a missing message or a
+failed read cannot clear the send ID. A new-conversation send without a known
+conversation ID still requires manual inspection and is never replayed.
+
+Update the **Get** and **Send** script copies together when installing this
+recovery update, preserving your `BASE_URL`, `API_TOKEN` and model overrides.
+
+For a Shortcuts-based capture workflow, the same gateway staging endpoint accepts
+a base64 JPEG/PNG/WebP JSON payload. Save its returned attachment metadata in the
+note's `chatgptbox-photos` marker (`images: [metadata]`, `pendingPhotos: []`), then
+use Send/Get. Do not put the base64 bytes into the editable note. API fields,
+limits, expiration and recovery phases are in [the gateway documentation](../api-server.md).
+
+Maintain the shared photo helper in `photo-operation.shared.txt` and picker in
+`photo-picker.html`. `npm run sync-drafts-photos` generates the self-contained
+scripts and new action packages; extension builds also run it. The generated
+scripts are formatted consistently. Repository tests cover local capture,
+interrupted uploads, exact-request retries, ambiguous writes and real local HTTP
+requests against a synthetic extension bridge. These tests do not prove a native
+Drafts import, iPhone camera flow or live ChatGPT upload.
+
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up
 request, then reuses that ID if the action is retried after an uncertain result. No manual header or

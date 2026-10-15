@@ -41,6 +41,7 @@ const RETRYABLE_CONTROL_ACTIONS = new Set([
   ChatgptProxyControlAction.ListConversations,
   ChatgptProxyControlAction.GetConversation,
   ChatgptProxyControlAction.ListModels,
+  ChatgptProxyControlAction.ListProjects,
   GrokProxyControlAction.ListConversations,
   GrokProxyControlAction.GetConversation,
   GrokProxyControlAction.ListModels,
@@ -212,14 +213,15 @@ function App() {
 
   const handleRequest = useCallback(
     async (data) => {
-      const { id, model, messages, thinkingEffort } = data
+      const { id, model, messages, thinkingEffort, images = [], projectId = null } = data
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
       const isGrokRequest = isGrokEngineKey(modelKey)
       const isThinkingRequest = !isGrokRequest && needsChatgptWebThinkingEffort(model)
-      const continuation = isThinkingRequest
-        ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
-        : null
+      const continuation =
+        isThinkingRequest && !images.length && !projectId
+          ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
+          : null
       const question = continuation
         ? continuation.nextUserMessage.content
         : formatMessages(messages)
@@ -259,6 +261,23 @@ function App() {
       session.messageId = typeof data.operationId === 'string' ? data.operationId : null
       if (!isGrokRequest) {
         session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
+        session.chatgptWebProjectId = projectId
+        if (images.length) {
+          try {
+            session.chatgptWebImagePointers = await Browser.runtime.sendMessage({
+              type: RuntimeMessage.ChatgptWebUploadImages,
+              data: { images, projectId },
+            })
+            if (
+              !Array.isArray(session.chatgptWebImagePointers) ||
+              session.chatgptWebImagePointers.length !== images.length
+            )
+              throw new Error('Image upload returned no usable attachments')
+          } catch (error) {
+            sendWs({ type: 'error', id, error: error.message, dispatched: false })
+            return
+          }
+        }
       }
       if (continuation) {
         session.conversationId = continuation.conversationId
@@ -292,7 +311,12 @@ function App() {
               'warn',
             )
           }
-          sendWs({ type: 'error', id, error: msg.error })
+          sendWs({
+            type: 'error',
+            id,
+            error: msg.error,
+            ...(msg.dispatched === false && { dispatched: false }),
+          })
           try {
             bgPort.disconnect()
           } catch {
@@ -322,7 +346,13 @@ function App() {
         if (msg.done) {
           finished = true
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
-          if (isThinkingRequest && lastAnswer && latestSession?.conversationId) {
+          if (
+            isThinkingRequest &&
+            !images.length &&
+            !projectId &&
+            lastAnswer &&
+            latestSession?.conversationId
+          ) {
             void saveChatgptWebApiThread({
               model,
               messages,
@@ -385,6 +415,8 @@ function App() {
       // Both sides reference the protocol constants so this table can't drift
       // out of sync with the background receiver.
       const actionToMessageType = {
+        [ChatgptProxyControlAction.ListProjects]: RuntimeMessage.ChatgptWebListProjects,
+        [ChatgptProxyControlAction.UploadImages]: RuntimeMessage.ChatgptWebUploadImages,
         chatgpt_web_create_conversation: RuntimeMessage.ChatgptWebCreateConversation,
         chatgpt_web_list_conversations: RuntimeMessage.ChatgptWebListConversations,
         chatgpt_web_get_conversation: RuntimeMessage.ChatgptWebGetConversation,

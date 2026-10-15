@@ -536,6 +536,14 @@ export async function listChatgptWebModelsWithFallback() {
 
 // --- conversation create / send (drive the provider runtime) --------------
 
+export async function uploadChatgptWebImagesViaProxy(payload) {
+  return executeChatgptWebControlRequestViaProxy(ChatgptProxyControlAction.UploadImages, payload)
+}
+
+export async function listChatgptWebProjectsViaProxy(payload) {
+  return executeChatgptWebControlRequestViaProxy(ChatgptProxyControlAction.ListProjects, payload)
+}
+
 export async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
   const thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
   const conversationId =
@@ -552,6 +560,11 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
   const createdAt = new Date().toISOString()
 
   const conversation = await getChatgptWebConversationWithFallback({ conversationId })
+  if (payload.projectId && payload.projectId !== conversation?.projectId) {
+    const error = new Error('The conversation does not belong to the selected ChatGPT Project')
+    error.chatgptWebNotDispatched = true
+    throw error
+  }
   if (!conversation?.currentNode) {
     throw new Error('Conversation current node is required before sending a follow-up')
   }
@@ -565,6 +578,8 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
     chatgptWebIncrementalOutput: false,
   })
   session.conversationId = conversationId
+  session.chatgptWebImagePointers = payload.images || []
+  session.chatgptWebProjectId = payload.projectId || conversation.projectId || null
   session.messageId = messageId
   session.parentMessageId = conversation.currentNode
   session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
@@ -713,6 +728,8 @@ export async function createChatgptWebConversation(payload = {}) {
       ? payload.operationId.trim()
       : crypto.randomUUID()
   session.chatgptWebModelSlugOverride = model || undefined
+  session.chatgptWebImagePointers = payload.images || []
+  session.chatgptWebProjectId = payload.projectId || null
   session.chatgptWebThinkingEffortOverride = thinkingEffort
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
@@ -775,6 +792,8 @@ export async function createChatgptWebConversation(payload = {}) {
             // can anchor to it the same way follow-up sends do.
             messageId: acknowledgedMessageId,
             defaultModel: latestSession.chatgptWebModelSlugOverride || null,
+            projectId: session.chatgptWebProjectId,
+            attachments: session.chatgptWebImagePointers,
             createdAt,
             pending: true,
             query,
