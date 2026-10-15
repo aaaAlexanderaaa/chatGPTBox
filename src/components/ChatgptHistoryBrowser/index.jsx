@@ -11,6 +11,7 @@ import {
 } from '../../services/clients/chatgpt-web/conversation-export.mjs'
 import { exportChatgptHistoryData } from '../../services/clients/chatgpt-web/history-transfer.mjs'
 import { downloadJsonFile, downloadTextFile } from '../../popup/file-transfer.mjs'
+import { copyTextWhenReady } from '../../utils/clipboard.mjs'
 import './styles.css'
 
 const PAGE_SIZE = 20
@@ -68,7 +69,7 @@ export default function ChatgptHistoryBrowser() {
     setMessageOffset(Math.max(0, Math.ceil(count / PAGE_SIZE) - 1) * PAGE_SIZE)
   }
 
-  async function runAction(value, action, refresh = false) {
+  async function runAction(value, action, { refresh = false, copy = false } = {}) {
     setError('')
     setNotice('')
     setBusy(true)
@@ -78,30 +79,39 @@ export default function ChatgptHistoryBrowser() {
       setSelectedId(id)
       setReference(value)
       setConversation(null)
-      let result =
-        action === 'preview' && !refresh
-          ? await readChatgptConversationForExport(id, { cachedOnly: true })
-          : null
-      if (!result) result = await readChatgptConversationForExport(id, { refresh })
-      showPreview(result)
-      if (action === 'json') {
-        const backup = await exportChatgptHistoryData({
-          conversationIds: [id],
-          maxVolumeBytes: Infinity,
-        })
-        if (backup.summary.partialSnapshotCount)
-          throw new Error('Conversation history is incomplete; try loading it again')
-        downloadJsonFile(backup.volumes[0], buildConversationExportFilename(result, 'json'), {
-          pretty: false,
-        })
-      } else if (action === 'markdown') {
-        downloadTextFile(
-          conversationToMarkdown(result),
-          buildConversationExportFilename(result, 'md'),
-          { type: 'text/markdown;charset=utf-8' },
-        )
+      const prepare = async () => {
+        let result =
+          action === 'preview' && !refresh
+            ? await readChatgptConversationForExport(id, { cachedOnly: true })
+            : null
+        if (!result) result = await readChatgptConversationForExport(id, { refresh })
+        showPreview(result)
+        if (action === 'json') {
+          const backup = await exportChatgptHistoryData({
+            conversationIds: [id],
+            maxVolumeBytes: Infinity,
+          })
+          if (backup.summary.partialSnapshotCount)
+            throw new Error('Conversation history is incomplete; try loading it again')
+          if (copy) return JSON.stringify(backup.volumes[0], null, 2)
+          downloadJsonFile(backup.volumes[0], buildConversationExportFilename(result, 'json'), {
+            pretty: false,
+          })
+        } else if (action === 'markdown') {
+          const text = conversationToMarkdown(result)
+          if (copy) return text
+          downloadTextFile(text, buildConversationExportFilename(result, 'md'), {
+            type: 'text/markdown;charset=utf-8',
+          })
+        }
       }
-      if (action === 'json' || action === 'markdown') setNotice(t('Conversation exported'))
+      if (copy) {
+        await copyTextWhenReady(prepare)
+        setNotice(t('Conversation copied'))
+      } else {
+        await prepare()
+        if (action === 'json' || action === 'markdown') setNotice(t('Conversation exported'))
+      }
     } catch (reason) {
       setError(t(reason.message || String(reason)))
       if (id) {
@@ -183,6 +193,20 @@ export default function ChatgptHistoryBrowser() {
           onClick={() => void runAction(selectedReference, 'markdown')}
         >
           {t('Export Markdown')}
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedReference}
+          onClick={() => void runAction(selectedReference, 'json', { copy: true })}
+        >
+          {t('Copy as JSON')}
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedReference}
+          onClick={() => void runAction(selectedReference, 'markdown', { copy: true })}
+        >
+          {t('Copy as Markdown')}
         </button>
       </div>
       {busy && <div role="status">{t('Loading selected conversation...')}</div>}
@@ -291,7 +315,9 @@ export default function ChatgptHistoryBrowser() {
                   type="button"
                   disabled={busy}
                   onClick={() =>
-                    void runAction(selectedId, 'load', conversation.history?.complete === true)
+                    void runAction(selectedId, 'load', {
+                      refresh: conversation.history?.complete === true,
+                    })
                   }
                 >
                   {t(
