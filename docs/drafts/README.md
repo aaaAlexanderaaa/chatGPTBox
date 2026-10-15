@@ -31,6 +31,18 @@ For the September 30 recovery update, replace both Action 2 and Action 3 with th
 scripts. Keep your existing `BASE_URL` and `API_TOKEN` values when replacing them.
 Older Action 3 copies may also still send their hardcoded model.
 
+The October 15 ChatGPT runtime compatibility update does not change the Drafts
+scripts or gateway API. If an action reports `Could not identify a unique
+compatible ChatGPT request, account, verification and network transport`, update
+and reload the installed ChatGPTBox extension, then refresh its dedicated ChatGPT
+proxy tab and API Server Bridge page. This error originates in the extension's
+recognition of the website runtime; replacing a Drafts script alone cannot fix it.
+Earlier script updates described below still apply to copies predating them.
+Automatic discovery now supports both verified authentication styles and the
+website's single-fetch tracking wrapper. Compatible filename/export changes can
+be recognized without adding a release mapping. Authentication changes, ambiguous
+roles, or unverified request/retry behavior still stop sending.
+
 For the October 8 GPT-6 visualization update, replace both Action 2 and Action 3 again,
 preserving your `BASE_URL` and `API_TOKEN`. The gateway now converts native card, grid,
 table, relationship and citation components into portable HTML. Drafts keeps that HTML in

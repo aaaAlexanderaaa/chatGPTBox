@@ -1,112 +1,11 @@
-import { parse } from 'acorn'
+import {
+  functionNode,
+  visit,
+  getChatgptWebFetchWrappers,
+  hasCompatibleChatgptWebNativeFetch,
+} from './runtime-fetch-capabilities.mjs'
 
-function visit(node, callback, descendFunctions = true) {
-  if (!node || typeof node !== 'object') return
-  if (Array.isArray(node)) {
-    node.forEach((child) => visit(child, callback, descendFunctions))
-    return
-  }
-  if (typeof node.type !== 'string') return
-  callback(node)
-  if (!descendFunctions && /Function/.test(node.type)) return
-  for (const value of Object.values(node)) {
-    if (value && typeof value === 'object') visit(value, callback, descendFunctions)
-  }
-}
-
-function functionNode(source) {
-  try {
-    return parse(`(${source})`, { ecmaVersion: 'latest' }).body[0].expression
-  } catch {
-    try {
-      return parse(`({${source}})`, { ecmaVersion: 'latest' }).body[0].expression.properties[0]
-        .value
-    } catch {
-      return null
-    }
-  }
-}
-
-function member(node, object, property) {
-  return (
-    node?.type === 'MemberExpression' &&
-    node.object?.name === object &&
-    (node.computed ? node.property?.value : node.property?.name) === property
-  )
-}
-
-function orTerms(node) {
-  return node?.type === 'LogicalExpression' && node.operator === '||'
-    ? [...orTerms(node.left), ...orTerms(node.right)]
-    : [node]
-}
-
-// Check the branch we actually use, rather than a hash of the entire function.
-// Compatible optional parameters and changes after the no-retry return are allowed.
-export function hasCompatibleChatgptWebNativeFetch(source) {
-  const fn = functionNode(source)
-  if (
-    !fn?.async ||
-    fn.params.length < 4 ||
-    fn.params.slice(0, 4).some((parameter) => parameter.type !== 'Identifier')
-  )
-    return false
-  const options = fn.params[1].name
-  const assertion = fn.params[3].name
-  const nodes = []
-  visit(fn.body, (node) => nodes.push(node), false)
-  const requests = nodes.filter(
-    (node) =>
-      node.type === 'VariableDeclarator' &&
-      node.id?.type === 'Identifier' &&
-      node.init?.type === 'AwaitExpression' &&
-      node.init.argument?.type === 'CallExpression' &&
-      node.init.argument.callee?.name === 'fetch',
-  )
-  if (!requests.length) return false
-  const first = requests[0]
-  const response = first.id.name
-  const flag = nodes.find(
-    (node) =>
-      node.type === 'VariableDeclarator' &&
-      orTerms(node.init).some(
-        (term) =>
-          term?.type === 'BinaryExpression' &&
-          term.operator === '===' &&
-          ((term.left?.value === 'never' && member(term.right, options, 'retry')) ||
-            (term.right?.value === 'never' && member(term.left, options, 'retry'))),
-      ),
-  )
-  if (!flag?.id?.name) return false
-  const stop = nodes.find(
-    (node) =>
-      node.type === 'IfStatement' &&
-      node.start > first.end &&
-      orTerms(node.test).some(
-        (term) => term?.type === 'Identifier' && term.name === flag.id.name,
-      ) &&
-      node.consequent?.type === 'ReturnStatement' &&
-      node.consequent.argument?.name === response,
-  )
-  if (!stop || requests.slice(1).some((request) => request.start < stop.end)) return false
-  const checksIdentity = nodes.some(
-    (node) =>
-      node.type === 'CallExpression' &&
-      node.start < first.start &&
-      node.arguments.some((argument) => member(argument, options, 'expectedIdentity')),
-  )
-  const callsAssertion = nodes.some(
-    (node) =>
-      node.type === 'CallExpression' && node.start < first.start && node.callee?.name === assertion,
-  )
-  const passesSignal = nodes.some(
-    (node) =>
-      node.type === 'Property' &&
-      (node.key.name || node.key.value) === 'signal' &&
-      member(node.value, options, 'signal'),
-  )
-  return checksIdentity && callsAssertion && passesSignal
-}
+export { hasCompatibleChatgptWebNativeFetch } from './runtime-fetch-capabilities.mjs'
 
 function prepareFunction(source) {
   const fn = functionNode(source)
@@ -147,14 +46,24 @@ function headersFunction(source) {
 }
 
 function reachable(graph, start, destination) {
-  const queue = [[start, 0]]
+  // Follow callers backwards so broad UI/schema dependencies do not exhaust a
+  // small forward-search budget before the real transport is visited. The depth
+  // bound still applies; each module is visited at most once.
+  const callers = new Map()
+  for (const [id, dependencies] of Object.entries(graph || {})) {
+    for (const dependency of dependencies) {
+      if (!callers.has(dependency)) callers.set(dependency, [])
+      callers.get(dependency).push(id)
+    }
+  }
+  const queue = [[destination, 0]]
   const seen = new Set()
-  while (queue.length && seen.size < 256) {
-    const [id, depth] = queue.shift()
-    if (id === destination) return true
+  for (let index = 0; index < queue.length; index++) {
+    const [id, depth] = queue[index]
+    if (id === start) return true
     if (seen.has(id) || depth >= 6) continue
     seen.add(id)
-    for (const next of graph?.[id] || []) queue.push([next, depth + 1])
+    for (const next of callers.get(id) || []) queue.push([next, depth + 1])
   }
   return false
 }
@@ -179,13 +88,17 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
           module.requestMethods?.safePost &&
           module.source.includes('codex_webview'),
       )
-      const auths = modules.filter((module) =>
-        [
-          'loadBrowserChatGptAuth',
-          'getBrowserChatGptAuthSnapshot',
-          'isSameBrowserRequestAuthContext',
-        ].every((key) => module.functions?.[key]),
-      )
+      const auths = modules.flatMap((module) => {
+        const keys = ['loadBrowserChatGptAuth', 'getBrowserChatGptAuthSnapshot']
+        if (!keys.every((key) => module.functions?.[key])) return []
+        const generation = !module.functions.isSameBrowserRequestAuthContext
+        keys.push(
+          ...(generation
+            ? ['getBrowserChatGptAuthGeneration', 'isBrowserWorkspaceSwitchPending']
+            : ['isSameBrowserRequestAuthContext']),
+        )
+        return keys.every((key) => module.functions[key]) ? [{ module, generation, keys }] : []
+      })
       const integrities = modules.flatMap((module) => {
         const prepare = Object.entries(module.functions || {}).filter(([, source]) =>
           prepareFunction(source),
@@ -197,11 +110,12 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
           ? [{ module, prepare: prepare[0], headers: headers[0] }]
           : []
       })
-      const fetches = modules.flatMap((module) =>
-        Object.entries(module.functions || {})
-          .filter(([, source]) => hasCompatibleChatgptWebNativeFetch(source))
-          .map(([name, source]) => ({ module, name, source })),
-      )
+      const fetches = modules.flatMap((module) => {
+        const wrappers = getChatgptWebFetchWrappers(module, modules)
+        return Object.entries(module.functions || {})
+          .filter(([, source]) => hasCompatibleChatgptWebNativeFetch(source, wrappers))
+          .map(([name, source]) => ({ module, name, source, wrappers }))
+      })
       if (requests.length !== 1 || auths.length !== 1 || integrities.length !== 1) continue
       const connected = fetches.filter((entry) =>
         reachable(runtime.graph, requests[0].id, entry.module.id),
@@ -209,12 +123,14 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
       if (connected.length !== 1) continue
       const native = connected[0]
       const integrity = integrities[0]
+      const auth = auths[0]
       matches.push({
         filename: url.pathname.split('/').pop(),
         kind: 'rspack',
         profile: 'codex-webview',
         requestModule: requests[0].id,
-        authModule: auths[0].id,
+        authModule: auth.module.id,
+        ...(auth.generation ? { authContext: 'generation' } : {}),
         integrityModule: integrity.module.id,
         integrityPrepareExport: integrity.prepare[0],
         integrityHeadersExport: integrity.headers[0],
@@ -224,6 +140,22 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
           fetchSource: native.source,
           prepareSource: integrity.prepare[1],
           headersSource: integrity.headers[1],
+          authSources: Object.fromEntries(
+            auth.keys.map((key) => [key, auth.module.functions[key]]),
+          ),
+          ...(native.wrappers.length
+            ? {
+                fetchModuleSource: native.module.source,
+                fetchWrappers: native.wrappers.map(
+                  ({ module, export: name, source, moduleSource }) => ({
+                    module,
+                    export: name,
+                    source,
+                    moduleSource,
+                  }),
+                ),
+              }
+            : {}),
           preflight: true,
         },
       })

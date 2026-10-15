@@ -91,21 +91,22 @@ export async function inspectChatgptWebRuntimeInPage(
         }
         const requestRole =
           /\bRequest\s*:/.test(source) && source.includes('getChatGptRequestProfile')
-        const authRole = [
-          'loadBrowserChatGptAuth',
-          'getBrowserChatGptAuthSnapshot',
-          'isSameBrowserRequestAuthContext',
-        ].every((name) => source.includes(name))
+        const authRole =
+          ['loadBrowserChatGptAuth', 'getBrowserChatGptAuthSnapshot'].every((name) =>
+            source.includes(name),
+          ) &&
+          (source.includes('isSameBrowserRequestAuthContext') ||
+            ['getBrowserChatGptAuthGeneration', 'isBrowserWorkspaceSwitchPending'].every((name) =>
+              source.includes(name),
+            ))
         const integrityRole = [
           'OpenAI-Sentinel-Chat-Requirements-Token',
           'OpenAI-Sentinel-Proof-Token',
           'OpenAI-Sentinel-Turnstile-Token',
         ].every((name) => source.includes(name))
-        const fetchRole =
-          source.includes('.expectedIdentity') &&
-          source.includes('.retry') &&
-          /\bfetch\(/.test(source)
-        if (!requestRole && !authRole && !integrityRole && !fetchRole) continue
+        const fetchRole = source.includes('.expectedIdentity') && source.includes('.retry')
+        const wrapperRole = source.includes('new WeakMap') && /\bfetch\(/.test(source)
+        if (!requestRole && !authRole && !integrityRole && !fetchRole && !wrapperRole) continue
         try {
           const exports = require.c?.[id]?.exports || require(id)
           const functions = {}

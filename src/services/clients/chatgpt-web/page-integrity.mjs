@@ -186,12 +186,30 @@ export async function getChatgptWebPageIntegrityInPage(
       )
     }
     const check = contract.capabilityCheck
-    if (
-      check &&
-      (Function.prototype.toString.call(nativeFetch) !== check.fetchSource ||
+    const capabilitiesCurrent = () =>
+      !check ||
+      !(
+        Function.prototype.toString.call(nativeFetch) !== check.fetchSource ||
         Function.prototype.toString.call(prepareIntegrity) !== check.prepareSource ||
-        Function.prototype.toString.call(makeIntegrityHeaders) !== check.headersSource)
-    )
+        Function.prototype.toString.call(makeIntegrityHeaders) !== check.headersSource ||
+        Object.entries(check.authSources || {}).some(
+          ([key, source]) =>
+            typeof auth[key] !== 'function' ||
+            Function.prototype.toString.call(auth[key]) !== source,
+        ) ||
+        (check.fetchModuleSource &&
+          Function.prototype.toString.call(require.m[contract.fetchModule]) !==
+            check.fetchModuleSource) ||
+        (check.fetchWrappers || []).some(
+          (wrapper) =>
+            typeof require.m[wrapper.module] !== 'function' ||
+            Function.prototype.toString.call(require.m[wrapper.module]) !== wrapper.moduleSource ||
+            typeof require(wrapper.module)[wrapper.export] !== 'function' ||
+            Function.prototype.toString.call(require(wrapper.module)[wrapper.export]) !==
+              wrapper.source,
+        )
+      )
+    if (!capabilitiesCurrent())
       return failure(
         'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
         'The ChatGPT transport changed during capability verification. Reload the proxy tab.',
@@ -212,6 +230,10 @@ export async function getChatgptWebPageIntegrityInPage(
       )
     const expectedIdentity = { accountId: identity.accountId, userId: identity.userId }
     const assertCurrent = () => {
+      if (!capabilitiesCurrent())
+        throw new Error(
+          'The ChatGPT transport changed after capability verification. Reload the proxy tab.',
+        )
       const current = auth.getBrowserChatGptAuthSnapshot()
       if (
         !current ||

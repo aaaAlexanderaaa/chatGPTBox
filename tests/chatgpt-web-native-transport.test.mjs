@@ -138,7 +138,7 @@ function useGenerationRuntime(generation = 7) {
   modules.wl = { c: vi.fn(async () => new Response('{}')) }
 }
 
-describe('ChatGPT native page transport', () => {
+describe('ChatGPT native page transport with auth generation', () => {
   it('uses the October 10 auth generation without the removed token-context export and sends once', async () => {
     useGenerationRuntime()
     const context = await connect(generationContract, 'preload')
@@ -204,6 +204,105 @@ describe('ChatGPT native page transport', () => {
         })),
       ).toMatchObject({ ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' })
       expect(modules.wl.c).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe('ChatGPT native page transport', () => {
+  it('refuses a wrapper replaced after connection before any request is sent', async () => {
+    modules.tracking = { trace: () => {} }
+    const dynamic = {
+      ...contract,
+      filename: '633146.discovered-wrapper.js',
+      capabilityCheck: {
+        fetchSource: String(modules.xb.b),
+        prepareSource: String(modules.n9O.f),
+        headersSource: String(modules.n9O.b),
+        fetchModuleSource: '() => {}',
+        fetchWrappers: [
+          {
+            module: 'tracking',
+            export: 'trace',
+            source: String(modules.tracking.trace),
+            moduleSource: '() => {}',
+          },
+        ],
+        preflight: false,
+      },
+    }
+    await connect(dynamic, 'preload', [dynamic])
+    modules.tracking.trace = () => 'changed'
+    await expect(send()).rejects.toThrow()
+    expect(modules.xb.b).not.toHaveBeenCalled()
+    expect(modules.n9O.f).not.toHaveBeenCalled()
+  })
+
+  it('connects discovered generation auth with a read-only preflight, then preserves the identity guard', async () => {
+    useGenerationRuntime()
+    modules.wl.c.mockImplementation(async () => new Response('{"models":[]}'))
+    const dynamic = {
+      ...generationContract,
+      filename: '633146.discovered-generation.js',
+      capabilityCheck: {
+        fetchSource: String(modules.wl.c),
+        prepareSource: String(modules.lXE.f),
+        headersSource: String(modules.lXE.b),
+        authSources: Object.fromEntries(
+          Object.entries(modules.Qd).map(([key, value]) => [key, String(value)]),
+        ),
+        preflight: true,
+      },
+    }
+    await connect(dynamic, 'preload', [dynamic])
+    expect(modules.wl.c).toHaveBeenCalledTimes(1)
+    expect(modules.wl.c.mock.calls[0][1]).toMatchObject({
+      method: 'GET',
+      retry: 'never',
+      expectedIdentity: { accountId: 'account', userId: 'user' },
+    })
+    expect(modules.lXE.f).not.toHaveBeenCalled()
+    modules.Qd.getBrowserChatGptAuthGeneration.mockReturnValue(8)
+    await expect(send()).rejects.toThrow()
+    expect(modules.wl.c).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['wrapper-export', 'wrapper-module', 'network-module', 'auth-export'])(
+    'rejects a discovered %s changed before connection, without reading account state or submitting',
+    async (changed) => {
+      modules.tracking = { trace: () => {} }
+      const factories = Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}]))
+      const dynamic = {
+        ...contract,
+        capabilityCheck: {
+          fetchSource: String(modules.xb.b),
+          prepareSource: String(modules.n9O.f),
+          headersSource: String(modules.n9O.b),
+          authSources: {
+            getBrowserChatGptAuthSnapshot: String(modules.OS.getBrowserChatGptAuthSnapshot),
+          },
+          fetchModuleSource: String(factories.xb),
+          fetchWrappers: [
+            {
+              module: 'tracking',
+              export: 'trace',
+              source: String(modules.tracking.trace),
+              moduleSource: String(factories.tracking),
+            },
+          ],
+          preflight: true,
+        },
+      }
+      if (changed === 'wrapper-export') modules.tracking.trace = () => 'changed'
+      if (changed === 'wrapper-module') factories.tracking = () => 'changed'
+      if (changed === 'network-module') factories.xb = () => 'changed'
+      if (changed === 'auth-export') modules.OS.getBrowserChatGptAuthSnapshot = () => null
+      const require = Object.assign((id) => modules[id], { m: factories })
+      const result = await getChatgptWebPageIntegrityInPage([dynamic], async () => ({
+        __webpack_require__: require,
+      }))
+      expect(result).toMatchObject({ ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' })
+      expect(modules.OS.loadBrowserChatGptAuth).not.toHaveBeenCalled()
+      expect(modules.xb.b).not.toHaveBeenCalled()
     },
   )
 
