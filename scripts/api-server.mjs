@@ -31,6 +31,7 @@ import {
 } from './lib/operation-ledger.mjs'
 import {
   isLegacyChatgptNotDispatchedOperation,
+  makeChatgptNotDispatchedError,
   respondChatgptNotDispatched,
 } from './lib/chatgpt-write-operations.mjs'
 import {
@@ -434,6 +435,19 @@ function markOperationAmbiguous(record, error) {
   }
 }
 
+function finishCompletionFailure(record, error) {
+  if (error.dispatched === false) {
+    try {
+      operationLedger.abort(record)
+      return makeChatgptNotDispatchedError({ error: error.message })
+    } catch (ledgerError) {
+      logError(ledgerError.message)
+    }
+  }
+  markOperationAmbiguous(record, error)
+  return makeAmbiguousDispatchError(record, error.message)
+}
+
 function respondForExistingOperation(
   res,
   beginResult,
@@ -657,7 +671,9 @@ function handleBridgeMessage(msg) {
     pending.resolve(msg.answer)
   } else if (msg.type === 'error') {
     stats.totalErrors++
-    pending.reject(new Error(msg.error || 'Unknown error from extension'))
+    const error = new Error(msg.error || 'Unknown error from extension')
+    if (msg.dispatched === false) error.dispatched = false
+    pending.reject(error)
   }
 }
 
@@ -914,8 +930,7 @@ async function handleChatCompletions(req, res) {
         if (state.resolved) return
         cleanup()
         stats.totalErrors++
-        markOperationAmbiguous(operation, err)
-        safeWrite(`data: ${JSON.stringify(makeAmbiguousDispatchError(operation, err.message))}\n\n`)
+        safeWrite(`data: ${JSON.stringify(finishCompletionFailure(operation, err))}\n\n`)
         safeEnd()
         log(`Request ${completionId}: error - ${err.message}`)
       },
@@ -1012,13 +1027,15 @@ async function handleChatCompletions(req, res) {
       log(`Request ${completionId}: completed`)
     } catch (err) {
       stats.totalErrors++
-      markOperationAmbiguous(operation, err)
+      const failure = finishCompletionFailure(operation, err)
       if (!res.headersSent) {
         res.setHeader('x-should-retry', 'false')
-        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.writeHead(failure.error.dispatched === false ? 503 : 409, {
+          'Content-Type': 'application/json',
+        })
       }
       if (!res.writableEnded) {
-        res.end(JSON.stringify(makeAmbiguousDispatchError(operation, err.message)))
+        res.end(JSON.stringify(failure))
       }
       log(`Request ${completionId}: error - ${err.message}`)
     }

@@ -148,6 +148,16 @@ Get reads the operation record before any conversation ID exists; a completed
 upload alone does not clear the waiting state. The new action blocks replacing
 photos while the preceding send is still unresolved.
 
+If a photo follow-up was sent but its acknowledgement was lost, **Get** reads
+the original conversation using the gateway's exact message ID. Finding that
+message confirms submission and resumes answer collection, preserving any next
+question already typed. An older identical question, a missing message or a
+failed read cannot clear the send ID. A new-conversation send without a known
+conversation ID still requires manual inspection and is never replayed.
+
+Update the **Get** and **Send** script copies together when installing this
+recovery update, preserving your `BASE_URL`, `API_TOKEN` and model overrides.
+
 For a Shortcuts-based capture workflow, the same gateway staging endpoint accepts
 a base64 JPEG/PNG/WebP JSON payload. Save its returned attachment metadata in the
 note's `chatgptbox-photos` marker (`images: [metadata]`, `pendingPhotos: []`), then

@@ -95,6 +95,13 @@ file before constructing a `multimodal_text` user message. A transferred file or
 an ended processing stream alone does not count as readiness. Signed blob uploads
 omit cookies and never receive the ChatGPT page's authentication headers.
 
+If upload fails before the message is submitted, the compatible API returns
+`dispatched: false` and releases its idempotency key so a manual retry can upload
+again. Non-streaming requests return HTTP 503; streaming requests report the
+same error in the SSE stream. Both retain `x-should-retry: false` to prevent an
+automatic SDK retry. A timeout or lost acknowledgement remains ambiguous unless
+the extension explicitly confirms that no message was submitted.
+
 For Drafts and clients that need resumable preparation, first stage the image:
 
 ```text
@@ -144,6 +151,14 @@ IDs, Project and model unchanged for a retry. Changed photos are a different
 request even if the accompanying text is identical. Operation lookup is an
 authenticated local read and does not contact ChatGPT.
 
+For an ambiguous follow-up with a known conversation ID, Drafts Get also reads
+that conversation using the operation record's `operationId` as `user_message_id`
+and `force_refresh=true`. Only that exact user message confirms submission;
+an older question with the same text does not. A confirmed turn resumes normal
+answer collection and preserves newly edited text. Missing messages and failed
+reads retain the original operation. A new conversation whose ID was never
+acknowledged still needs manual inspection; it is never automatically resent.
+
 `GET /chatgpt/projects` lists accessible owned Projects with a pagination cursor;
 pass `?cursor=...` for later pages. `project_id` selects an existing Project when
 creating a conversation, including text-only conversations. An existing
@@ -151,6 +166,12 @@ conversation inherits its Project; an explicit conflicting Project is rejected
 before submission. The extension verifies the selected resource is a Project and
 passes its identity through conversation initialization, preparation and sending.
 This does not create, move, share or change Project instructions.
+
+On October 15, 2026, the current [official client module](https://chatgpt.com/cdn/assets/698524.5a976aea8c.js)
+still identifies Project resources with `gizmo_type: "snorlax"`. Both the Project
+list and selected-Project validation use that value; ordinary GPT resources
+with `gizmo_type: "gpt"` are excluded. Synthetic regression cases cover the native
+sidebar/detail structures and image preparation after Project verification.
 
 Staged photos stay under `~/.chatgptbox/gateway-attachments` with private file
 permissions. They expire after seven days; expired files are removed on a later

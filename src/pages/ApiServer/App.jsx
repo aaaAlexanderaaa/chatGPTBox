@@ -308,7 +308,12 @@ function App() {
               'warn',
             )
           }
-          sendWs({ type: 'error', id, error: msg.error })
+          sendWs({
+            type: 'error',
+            id,
+            error: msg.error,
+            ...(msg.dispatched === false && { dispatched: false }),
+          })
           try {
             bgPort.disconnect()
           } catch {

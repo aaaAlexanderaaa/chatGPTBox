@@ -606,11 +606,57 @@ function sendPhotoOperation(content, waitingReply) {
   if (!finishPhotoOperation(status, job)) photoStatus(status)
 }
 
-function getPhotoOperation(content) {
+function getPhotoOperation(content, includeThinking = false) {
   const job = readPhotoOperation(content)
   if (!job) return true
   const status = requestJson(BASE_URL + '/chatgpt/operations/' + encodeURIComponent(job.id), 'GET')
   if (status.phase === 'accepted') return finishPhotoOperation(status, job)
+  // A lost acknowledgement does not erase a submitted turn. Only the gateway's
+  // message ID can confirm this send; matching an older question by text cannot.
+  const target =
+    typeof job.path === 'string' &&
+    job.path.match(/^\/chatgpt\/conversations\/([^/?#]+)\/messages$/)
+  if (
+    status.phase === 'ambiguous' &&
+    target &&
+    typeof status.operationId === 'string' &&
+    status.operationId.trim()
+  ) {
+    const conversationId = decodeURIComponent(target[1])
+    const messageId = status.operationId
+    const conversation = requestJson(
+      BASE_URL +
+        '/chatgpt/conversations/' +
+        encodeURIComponent(conversationId) +
+        '?force_refresh=true&think=' +
+        String(includeThinking) +
+        '&user_message_id=' +
+        encodeURIComponent(messageId),
+      'GET',
+    )
+    const found =
+      conversation.conversationId === conversationId &&
+      Array.isArray(conversation.messages) &&
+      conversation.messages.some(
+        (message) => message.role === 'user' && message.messageId === messageId,
+      )
+    if (
+      found &&
+      finishPhotoOperation(
+        {
+          result: {
+            conversationId,
+            messageId,
+            createdAt: job.createdAt,
+            defaultModel: conversation.defaultModel,
+            projectId: job.request.project_id,
+          },
+        },
+        job,
+      )
+    )
+      return { conversation }
+  }
   photoStatus(status)
   return false
 }
@@ -618,7 +664,8 @@ function getPhotoOperation(content) {
 // END PHOTO HELPERS
 
 try {
-  if (getPhotoOperation(draft.content || '')) {
+  const photoRecovery = getPhotoOperation(draft.content || '', INCLUDE_THINKING)
+  if (photoRecovery) {
     const photoMetadata = PHOTO_METADATA_RE.test(draft.content || '')
       ? readPhotoMetadata(draft.content)
       : null
@@ -633,14 +680,16 @@ try {
     ]
       .filter(Boolean)
       .join('&')
-    const payload = requestJson(
-      BASE_URL +
-        '/chatgpt/conversations/' +
-        encodeURIComponent(target.conversationId) +
-        '?' +
-        query,
-      'GET',
-    )
+    const payload =
+      photoRecovery.conversation ||
+      requestJson(
+        BASE_URL +
+          '/chatgpt/conversations/' +
+          encodeURIComponent(target.conversationId) +
+          '?' +
+          query,
+        'GET',
+      )
     draft.content = renderConversation(payload, target.draftReply, target.metadata, target.anchor)
     if (photoMetadata) writePhotoMetadata(photoMetadata)
     draft.update()

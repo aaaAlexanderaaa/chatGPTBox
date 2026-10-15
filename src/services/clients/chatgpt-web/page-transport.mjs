@@ -9,7 +9,10 @@ export function createChatgptWebPageTransport(context, page = globalThis.window)
         const body = new FormData()
         const bytes = Uint8Array.from(atob(formData.base64), (char) => char.charCodeAt(0))
         body.append('file', new Blob([bytes], { type: formData.mimeType }), formData.name)
-        body.append('upload_url', formData.uploadUrl)
+        body.append(
+          'upload_url',
+          new URL(formData.uploadUrl).searchParams.get('upload_url') ?? formData.uploadUrl,
+        )
         const headers = new Headers(init.headers)
         headers.delete('Content-Type')
         return fetch(url, { ...init, headers, body })

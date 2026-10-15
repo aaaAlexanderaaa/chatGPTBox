@@ -9,6 +9,8 @@ import {
   chatgptImageAssetPointer,
 } from './image-content.mjs'
 
+const CHATGPT_PROJECT_GIZMO_TYPE = 'snorlax'
+
 export async function consumeChatgptImageReadyStream(response, fileId) {
   if (!response.ok) throw new Error(`ChatGPT image processing failed (HTTP ${response.status})`)
   const reader = response.body?.getReader()
@@ -117,19 +119,16 @@ export async function uploadChatgptImages(
     const destination = trustedImageUploadUrl(entry.upload_url, baseUrl)
     let uploaded
     if (destination.estuary) {
-      uploaded = await apiFetch(
-        new URL(destination.url).pathname + new URL(destination.url).search,
-        {
-          method: 'POST',
-          signal,
-          formData: {
-            name: image.name,
-            mimeType: image.mimeType,
-            base64: image.base64,
-            uploadUrl: destination.url,
-          },
+      uploaded = await apiFetch('/estuary/upload_content_bytes' + new URL(destination.url).search, {
+        method: 'POST',
+        signal,
+        formData: {
+          name: image.name,
+          mimeType: image.mimeType,
+          base64: image.base64,
+          uploadUrl: destination.url,
         },
-      )
+      })
     } else {
       const headers = { 'Content-Type': image.mimeType, ...entry.upload_headers }
       if (new URL(destination.url).hostname.endsWith('.blob.core.windows.net'))
@@ -207,7 +206,7 @@ export async function requireChatgptProject(apiFetch, projectId) {
   if (!response.ok) throw new Error(`ChatGPT project is unavailable (HTTP ${response.status})`)
   const data = await response.json()
   const gizmo = data.gizmo || data.resource?.gizmo
-  if (gizmo?.id !== projectId || gizmo.gizmo_type !== 'project')
+  if (gizmo?.id !== projectId || gizmo.gizmo_type !== CHATGPT_PROJECT_GIZMO_TYPE)
     throw new Error('The selected ID is not an accessible ChatGPT Project')
   return gizmo
 }
@@ -226,7 +225,7 @@ export async function listChatgptWebProjects(payload = {}) {
     return {
       projects: (data.items || [])
         .map((item) => item.gizmo?.gizmo || item.gizmo)
-        .filter((gizmo) => gizmo?.gizmo_type === 'project')
+        .filter((gizmo) => gizmo?.gizmo_type === CHATGPT_PROJECT_GIZMO_TYPE)
         .map((gizmo) => ({ id: gizmo.id, name: gizmo.display?.name || gizmo.id })),
       cursor: data.cursor || null,
     }

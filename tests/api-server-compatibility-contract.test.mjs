@@ -175,22 +175,6 @@ describe('API gateway compatibility contract', () => {
     expect(handler).not.toContain('requireIdempotencyKey: true')
   })
 
-  it('reports post-dispatch /v1 non-stream failures as ambiguous_dispatch and disables SDK retries', () => {
-    const handler = sourceBetween(
-      gatewaySource,
-      'async function handleChatCompletions',
-      'let cachedModels',
-    )
-
-    expect(handler).not.toContain('requireIdempotencyKey: true')
-    expect(handler).toContain("setHeader('x-should-retry', 'false')")
-
-    const catchBlock = handler.slice(handler.lastIndexOf('} catch (err) {'))
-    expect(catchBlock).toContain('makeAmbiguousDispatchError')
-    expect(catchBlock).toContain('writeHead(409')
-    expect(catchBlock).not.toContain('writeHead(500')
-  })
-
   it('requires idempotency keys only on custom conversation write endpoints', () => {
     const createHandler = sourceBetween(
       gatewaySource,

@@ -139,57 +139,6 @@ function useGenerationRuntime(generation = 7) {
 }
 
 describe('ChatGPT native page transport', () => {
-  it('uploads multipart image bytes in MAIN and reads Projects with the same identity and no question submission', async () => {
-    await connect()
-    const url = 'https://chatgpt.com/backend-api/estuary/upload_content_bytes?upload_url=synthetic'
-    await (
-      await transport.fetch(url, {
-        method: 'POST',
-        formData: {
-          name: 'lunch.png',
-          mimeType: 'image/png',
-          base64: 'YWJj',
-          uploadUrl: url,
-        },
-      })
-    ).text()
-    await (await transport.fetch('https://chatgpt.com/backend-api/gizmos/project-1')).text()
-    const upload = modules.xb.b.mock.calls[0]
-    expect(upload[1]).toMatchObject({
-      method: 'POST',
-      expectedIdentity: { accountId: 'account', userId: 'user' },
-      retry: 'never',
-    })
-    expect(upload[1].body).toBeInstanceOf(FormData)
-    expect(await upload[1].body.get('file').text()).toBe('abc')
-    expect(upload[1].headers.has('Content-Type')).toBe(false)
-    expect(modules.n9O.f).not.toHaveBeenCalled()
-    expect(JSON.stringify(events)).not.toContain(identity.accessToken)
-  })
-
-  it('refuses image transfer after the authenticated account changes', async () => {
-    await connect()
-    identity = { ...identity, accountId: 'other-account' }
-    await expect(
-      send('/files', { body: JSON.stringify({ use_case: 'multimodal' }) }),
-    ).rejects.toThrow()
-    expect(modules.xb.b).not.toHaveBeenCalled()
-  })
-
-  it('rejects multipart bodies on a conversation write before verification or submission', async () => {
-    await connect()
-    await expect(
-      send('/f/conversation', {
-        formData: {
-          name: 'photo',
-          mimeType: 'image/png',
-          base64: 'YWJj',
-          uploadUrl: 'https://chatgpt.com',
-        },
-      }),
-    ).rejects.toThrow()
-    expect(modules.xb.b).not.toHaveBeenCalled()
-  })
   it('uses the October 10 auth generation without the removed token-context export and sends once', async () => {
     useGenerationRuntime()
     const context = await connect(generationContract, 'preload')
@@ -654,5 +603,60 @@ describe('new and old frontend wire compatibility', () => {
     expect(() => normalizeChatgptWebConversation({ messages: [{ id: 'a' }, { id: 'a' }] })).toThrow(
       'duplicate',
     )
+  })
+})
+
+describe('ChatGPT native image transport', () => {
+  it('uploads multipart image bytes in MAIN and reads Projects with the same identity and no question submission', async () => {
+    await connect()
+    const url = 'https://chatgpt.com/backend-api/estuary/upload_content_bytes?upload_url=synthetic'
+    await (
+      await transport.fetch(url, {
+        method: 'POST',
+        formData: {
+          name: 'lunch.png',
+          mimeType: 'image/png',
+          base64: 'YWJj',
+          uploadUrl: url,
+        },
+      })
+    ).text()
+    await (await transport.fetch('https://chatgpt.com/backend-api/gizmos/project-1')).text()
+    const upload = modules.xb.b.mock.calls[0]
+    expect(upload[1]).toMatchObject({
+      method: 'POST',
+      expectedIdentity: { accountId: 'account', userId: 'user' },
+      retry: 'never',
+    })
+    expect(upload[1].body).toBeInstanceOf(FormData)
+    expect(upload[1].body.get('upload_url')).toBe('synthetic')
+    expect(await upload[1].body.get('file').text()).toBe('abc')
+    expect(upload[1].headers.has('Content-Type')).toBe(false)
+    expect(modules.n9O.f).not.toHaveBeenCalled()
+    expect(JSON.stringify(events)).not.toContain(identity.accessToken)
+  })
+
+  it('refuses image transfer after the authenticated account changes', async () => {
+    await connect()
+    identity = { ...identity, accountId: 'other-account' }
+    await expect(
+      send('/files', { body: JSON.stringify({ use_case: 'multimodal' }) }),
+    ).rejects.toThrow()
+    expect(modules.xb.b).not.toHaveBeenCalled()
+  })
+
+  it('rejects multipart bodies on a conversation write before verification or submission', async () => {
+    await connect()
+    await expect(
+      send('/f/conversation', {
+        formData: {
+          name: 'photo',
+          mimeType: 'image/png',
+          base64: 'YWJj',
+          uploadUrl: 'https://chatgpt.com',
+        },
+      }),
+    ).rejects.toThrow()
+    expect(modules.xb.b).not.toHaveBeenCalled()
   })
 })

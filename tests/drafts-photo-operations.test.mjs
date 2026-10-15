@@ -172,6 +172,92 @@ describe('Drafts photo sends', () => {
     expect(fetched.requests[0].method).toBe('GET')
     expect(job(fetched.draft.content).id).toBe(job(sent.draft.content).id)
   })
+  it.each([false, true])(
+    'Get recovers the exact submitted photo turn after a lost acknowledgement (pending=%s)',
+    (pending) => {
+      const sent = run(3, note(), [ok({ phase: 'sending' }, 202)])
+      const edited = sent.draft.content.replace('\nLunch\n', '\nNext meal\n')
+      const fetched = run(2, edited, [
+        ok({
+          phase: 'ambiguous',
+          operationId: 'photo-message',
+          dispatched: true,
+          retryable: false,
+        }),
+        ok({
+          conversationId: 'conversation-1',
+          pending,
+          messages: [
+            { role: 'user', messageId: 'photo-message', text: 'Lunch' },
+            ...(!pending
+              ? [{ role: 'assistant', messageId: 'answer-1', text: 'Meal analysis', isFinal: true }]
+              : []),
+          ],
+        }),
+      ])
+      expect(fetched.error).toBeUndefined()
+      expect(fetched.requests).toHaveLength(2)
+      expect(fetched.requests.every((request) => request.method === 'GET')).toBe(true)
+      const target = new URL(fetched.requests[1].url)
+      expect(target.pathname).toBe('/chatgpt/conversations/conversation-1')
+      expect(target.searchParams.get('user_message_id')).toBe('photo-message')
+      expect(target.searchParams.get('force_refresh')).toBe('true')
+      expect(fetched.draft.content).not.toContain('chatgptbox-photo-operation:')
+      expect(fetched.draft.content).toContain('Next meal')
+      const metadata = JSON.parse(
+        fetched.draft.content.match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1],
+      )
+      expect(metadata.images).toEqual([])
+      expect(metadata.projectId).toBe('project-1')
+      if (pending) {
+        expect(fetched.draft.content).toContain('"pendingMessageId":"photo-message"')
+        expect(fetched.draft.content).toContain('### ASSISTANT (pending)')
+      } else {
+        expect(fetched.draft.content).toContain('Meal analysis')
+        expect(fetched.draft.content).not.toContain('pendingMessageId')
+      }
+    },
+  )
+  it.each(['same-text-old-turn', 'wrong-conversation', 'read-failed'])(
+    'keeps the uncertain operation when recovery cannot confirm its exact turn (%s)',
+    (scenario) => {
+      const sent = run(3, note(), [ok({ phase: 'sending' }, 202)])
+      const response =
+        scenario === 'read-failed'
+          ? { success: false, statusCode: 503, responseData: { error: { message: 'Read failed' } } }
+          : ok({
+              conversationId:
+                scenario === 'wrong-conversation' ? 'conversation-2' : 'conversation-1',
+              pending: false,
+              messages: [
+                {
+                  role: 'user',
+                  messageId: scenario === 'wrong-conversation' ? 'photo-message' : 'old-message',
+                  text: 'Lunch',
+                },
+                { role: 'assistant', text: 'Old answer', isFinal: true },
+              ],
+            })
+      const fetched = run(2, sent.draft.content, [
+        ok({ phase: 'ambiguous', operationId: 'photo-message', dispatched: true }),
+        response,
+      ])
+      expect(fetched.requests).toHaveLength(2)
+      expect(fetched.requests.every((request) => request.method === 'GET')).toBe(true)
+      expect(job(fetched.draft.content)).toEqual(job(sent.draft.content))
+      expect(fetched.draft.content).toContain(photo.id)
+      expect(fetched.draft.content).not.toContain('Old answer')
+    },
+  )
+  it('keeps a new-conversation send protected when no conversation ID is known', () => {
+    const sent = run(3, 'Lunch\n\n' + photoMarker(), [ok({ phase: 'sending' }, 202)])
+    const fetched = run(2, sent.draft.content, [
+      ok({ phase: 'ambiguous', operationId: 'photo-message', dispatched: true }),
+    ])
+    expect(fetched.error).toBeUndefined()
+    expect(fetched.requests).toHaveLength(1)
+    expect(job(fetched.draft.content)).toEqual(job(sent.draft.content))
+  })
   it('a normal Get preserves photos attached to the next unsent question', () => {
     const fetched = run(2, note('Next lunch'), [
       ok({ conversationId: 'conversation-1', pending: false, messages: [] }),
