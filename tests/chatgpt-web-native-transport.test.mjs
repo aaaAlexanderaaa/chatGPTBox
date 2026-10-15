@@ -730,7 +730,13 @@ describe('ChatGPT native image transport', () => {
     expect(upload[1].body).toBeInstanceOf(FormData)
     expect(upload[1].body.get('upload_url')).toBe('synthetic')
     expect(await upload[1].body.get('file').text()).toBe('abc')
-    expect(upload[1].headers.has('Content-Type')).toBe(false)
+    expect(new Headers(upload[1].headers).has('Content-Type')).toBe(false)
+    // The native fetch wrapper copies headers with object spread, as the live
+    // frontend does. A Headers instance loses every field at that boundary.
+    expect({ ...upload[1].headers }).toMatchObject({
+      'x-openai-web-frontend': 'codex_webview',
+      'chatgpt-account-id': 'account',
+    })
     expect(modules.n9O.f).not.toHaveBeenCalled()
     expect(JSON.stringify(events)).not.toContain(identity.accessToken)
   })

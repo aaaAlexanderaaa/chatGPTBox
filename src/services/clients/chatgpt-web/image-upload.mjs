@@ -17,19 +17,42 @@ export async function consumeChatgptImageReadyStream(response, fileId) {
   if (!reader) throw new Error('ChatGPT image processing returned no stream')
   const decoder = new TextDecoder()
   let buffer = '',
-    ready = false
-  const consume = (frame) => {
-    const data = frame
-      .split('\n')
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trimStart())
-      .join('\n')
+    ready = false,
+    eventName = '',
+    eventData = [],
+    eventSize = 0
+  const consume = (data, frameEvent = '') => {
     if (!data || data === '[DONE]') return
+    if (data.length > 1024 * 1024) throw new Error('Oversized image processing event')
     const event = JSON.parse(data)
     if (event.file_id && event.file_id !== fileId) return
-    if (/(?:error|failed|cancelled|unknown)$/.test(event.event || ''))
-      throw new Error(`ChatGPT image processing failed: ${event.event}`)
-    if (event.event === 'file.processing.file_ready' && event.file_id === fileId) ready = true
+    const name = event.event || frameEvent
+    if (/(?:error|failed|cancelled|unknown)$/.test(name))
+      throw new Error(`ChatGPT image processing failed: ${name}`)
+    if (name === 'file.processing.file_ready' && event.file_id === fileId) ready = true
+  }
+  const flushEvent = () => {
+    consume(eventData.join('\n'), eventName)
+    eventName = ''
+    eventData = []
+    eventSize = 0
+  }
+  const consumeLine = (line) => {
+    if (!line.trim()) return flushEvent()
+    if (line.startsWith(':') || /^(?:id|retry):/.test(line)) return
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim()
+      return
+    }
+    if (line.startsWith('data:')) {
+      const data = line.slice(5).trimStart()
+      eventSize += data.length + 1
+      if (eventSize > 1024 * 1024) throw new Error('Oversized image processing event')
+      eventData.push(data)
+      return
+    }
+    // The current native uploader requests NDJSON; older responses use SSE.
+    consume(line)
   }
   try {
     let done = false
@@ -38,13 +61,14 @@ export async function consumeChatgptImageReadyStream(response, fileId) {
       done = chunk.done
       buffer += decoder.decode(chunk.value, { stream: !chunk.done }).replace(/\r/g, '')
       let boundary
-      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-        consume(buffer.slice(0, boundary))
-        buffer = buffer.slice(boundary + 2)
+      while ((boundary = buffer.indexOf('\n')) >= 0) {
+        consumeLine(buffer.slice(0, boundary))
+        buffer = buffer.slice(boundary + 1)
       }
       if (buffer.length > 1024 * 1024) throw new Error('Oversized image processing event')
       if (chunk.done) {
-        if (buffer.trim()) consume(buffer)
+        if (buffer.trim()) consumeLine(buffer)
+        flushEvent()
         break
       }
     }
@@ -130,14 +154,26 @@ export async function uploadChatgptImages(
         },
       })
     } else {
-      const headers = { 'Content-Type': image.mimeType, ...entry.upload_headers }
-      if (new URL(destination.url).hostname.endsWith('.blob.core.windows.net'))
-        headers['x-ms-blob-type'] ||= 'BlockBlob'
+      // The native uploader recognizes AWS by its signed query, not the host.
+      // Azure also uses oaiusercontent.com aliases that still need blob headers.
+      const aws = [...new URL(destination.url).searchParams.keys()].some(
+        (key) => key.toLowerCase() === 'x-amz-algorithm',
+      )
+      const headers = new Headers({
+        'Content-Type': image.mimeType,
+        ...(!aws && {
+          'x-ms-blob-type': 'BlockBlob',
+          'x-ms-version': '2020-04-08',
+          'x-ms-blob-content-type': image.mimeType,
+        }),
+      })
+      for (const [name, value] of Object.entries(entry.upload_headers || {}))
+        headers.set(name, value)
       uploaded = await blobFetch(destination.url, {
         method: 'PUT',
         signal,
         body: bytes,
-        headers,
+        headers: Object.fromEntries(headers),
         credentials: 'omit',
         redirect: 'error',
       })

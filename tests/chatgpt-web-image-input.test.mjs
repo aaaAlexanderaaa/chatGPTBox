@@ -19,9 +19,15 @@ const image = {
   width: 1,
   height: 1,
 }
-function stream(events) {
+function stream(events, format = 'sse') {
   const bytes = new TextEncoder().encode(
-    events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join(''),
+    events
+      .map((event) =>
+        format === 'ndjson'
+          ? `${JSON.stringify(event)}\r\n`
+          : `data: ${JSON.stringify(event)}\r\n\r\n`,
+      )
+      .join(''),
   )
   return new Response(
     new ReadableStream({
@@ -30,6 +36,11 @@ function stream(events) {
         controller.close()
       },
     }),
+    {
+      headers: {
+        'content-type': format === 'ndjson' ? 'application/x-ndjson' : 'text/event-stream',
+      },
+    },
   )
 }
 describe('ChatGPT Web image inputs and projects', () => {
@@ -83,25 +94,52 @@ describe('ChatGPT Web image inputs and projects', () => {
       'project ID',
     )
   })
-  it('only accepts the exact file-ready event through a genuinely chunked SSE stream', async () => {
+  it.each(['sse', 'ndjson'])(
+    'only accepts the exact file-ready event through a genuinely chunked %s stream',
+    async (format) => {
+      await expect(
+        consumeChatgptImageReadyStream(
+          stream([{ event: 'file.processing.file_ready', file_id: 'file-photo' }], format),
+          'file-photo',
+        ),
+      ).resolves.toBeUndefined()
+      await expect(
+        consumeChatgptImageReadyStream(
+          stream([{ event: 'file.processing.file_ready', file_id: 'file-other' }], format),
+          'file-photo',
+        ),
+      ).rejects.toThrow('did not confirm')
+      await expect(
+        consumeChatgptImageReadyStream(
+          stream([{ event: 'file.processing.error', file_id: 'file-photo' }], format),
+          'file-photo',
+        ),
+      ).rejects.toThrow('failed')
+      await expect(
+        consumeChatgptImageReadyStream(
+          stream([{ event: 'file.processing.completed', file_id: 'file-photo' }], format),
+          'file-photo',
+        ),
+      ).rejects.toThrow('did not confirm')
+    },
+  )
+  it('reads a final NDJSON event without a trailing newline', async () => {
     await expect(
       consumeChatgptImageReadyStream(
-        stream([{ event: 'file.processing.file_ready', file_id: 'file-photo' }]),
+        new Response(
+          JSON.stringify({ event: 'file.processing.file_ready', file_id: 'file-photo' }),
+        ),
         'file-photo',
       ),
     ).resolves.toBeUndefined()
+  })
+  it('uses the SSE event name when it is outside the JSON payload', async () => {
     await expect(
       consumeChatgptImageReadyStream(
-        stream([{ event: 'file.processing.file_ready', file_id: 'file-other' }]),
+        new Response('event: file.processing.file_ready\ndata: {"file_id":"file-photo"}\n\n'),
         'file-photo',
       ),
-    ).rejects.toThrow('did not confirm')
-    await expect(
-      consumeChatgptImageReadyStream(
-        stream([{ event: 'file.processing.error', file_id: 'file-photo' }]),
-        'file-photo',
-      ),
-    ).rejects.toThrow('failed')
+    ).resolves.toBeUndefined()
   })
   it('uses the verified upload flow and keeps authentication away from signed blob storage', async () => {
     const apiFetch = vi.fn(async (path) =>
@@ -130,5 +168,50 @@ describe('ChatGPT Web image inputs and projects', () => {
     expect(() => trustedImageUploadUrl('http://photos.blob.core.windows.net/upload')).toThrow(
       'destination',
     )
+  })
+  it.each([
+    ['Azure storage', 'https://photos.blob.core.windows.net/upload?sv=synthetic', true],
+    ['Azure alias', 'https://photos.oaiusercontent.com/upload?sv=synthetic', true],
+    [
+      'AWS storage',
+      'https://photos.s3.amazonaws.com/upload?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+      false,
+    ],
+    [
+      'AWS alias',
+      'https://photos.oaiusercontent.com/upload?x-amz-algorithm=AWS4-HMAC-SHA256',
+      false,
+    ],
+  ])('uses the native storage headers for %s', async (_name, uploadUrl, azure) => {
+    const apiFetch = vi.fn(async (path) =>
+      path === '/files'
+        ? Response.json({ file_id: 'file-photo', upload_url: uploadUrl })
+        : stream([{ event: 'file.processing.file_ready', file_id: 'file-photo' }]),
+    )
+    const blobFetch = vi.fn(async () => new Response(''))
+    await uploadChatgptImages([image], { apiFetch, blobFetch })
+    const [, options] = blobFetch.mock.calls[0]
+    const headers = new Headers(options.headers)
+    expect(headers.get('content-type')).toBe(image.mimeType)
+    expect(headers.get('x-ms-blob-type')).toBe(azure ? 'BlockBlob' : null)
+    expect(headers.get('x-ms-version')).toBe(azure ? '2020-04-08' : null)
+    expect(headers.get('x-ms-blob-content-type')).toBe(azure ? image.mimeType : null)
+    expect(headers.has('authorization')).toBe(false)
+    expect(options.credentials).toBe('omit')
+    expect(options.redirect).toBe('error')
+  })
+  it('honors case-insensitive upload header overrides without duplicating Azure defaults', async () => {
+    const apiFetch = vi.fn(async (path) =>
+      path === '/files'
+        ? Response.json({
+            file_id: 'file-photo',
+            upload_url: 'https://photos.oaiusercontent.com/upload?sv=synthetic',
+            upload_headers: { 'X-MS-VERSION': '2024-05-04' },
+          })
+        : stream([{ event: 'file.processing.file_ready', file_id: 'file-photo' }]),
+    )
+    const blobFetch = vi.fn(async () => new Response(''))
+    await uploadChatgptImages([image], { apiFetch, blobFetch })
+    expect(new Headers(blobFetch.mock.calls[0][1].headers).get('x-ms-version')).toBe('2024-05-04')
   })
 })

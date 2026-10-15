@@ -95,6 +95,20 @@ file before constructing a `multimodal_text` user message. A transferred file or
 an ended processing stream alone does not count as readiness. Signed blob uploads
 omit cookies and never receive the ChatGPT page's authentication headers.
 
+Upload compatibility (2026-10-16): the native uploader identifies AWS destinations
+by the case-insensitive `X-Amz-Algorithm` query parameter. Other direct storage
+destinations, including Azure's `oaiusercontent.com` aliases, receive
+`x-ms-blob-type: BlockBlob`, `x-ms-version: 2020-04-08`, and the image MIME type in
+`x-ms-blob-content-type`. Server-provided upload headers override these defaults
+case-insensitively. Estuary multipart uploads retain the native page headers as a
+plain object because the native fetch wrapper copies them with object spread.
+Image processing accepts both the native NDJSON stream and older SSE responses,
+including events split across transport chunks. Both formats still require
+`file.processing.file_ready` with the exact uploaded file ID; processing completion
+or EOF alone never permits submission.
+After a content-script injection succeeds, subsequent upload/processing errors
+are preserved rather than being replaced with a site-permission error.
+
 If upload fails before the message is submitted, the compatible API returns
 `dispatched: false` and releases its idempotency key so a manual retry can upload
 again. Non-streaming requests return HTTP 503; streaming requests report the

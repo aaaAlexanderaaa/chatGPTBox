@@ -473,7 +473,8 @@ export async function getChatgptWebPageIntegrityInPage(
           body.append('upload_url', target.searchParams.get('upload_url') || target.href)
           const headers = new Headers(nativeTarget.headers)
           headers.delete('Content-Type')
-          fetchHeaders = headers
+          // Native fetch copies a plain header object with object spread.
+          fetchHeaders = Object.fromEntries(headers)
         }
         const response = await nativeFetch(
           nativeTarget.url,

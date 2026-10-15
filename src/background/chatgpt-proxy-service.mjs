@@ -401,8 +401,6 @@ async function sendChatgptProxyControlRequest(tabId, action, payload) {
       )
       try {
         await injectContentScript(tabId)
-        await new Promise((r) => setTimeout(r, 500))
-        return await doSend()
       } catch (retryErr) {
         throw new Error(
           'Content script could not be loaded in the ChatGPT tab. ' +
@@ -410,6 +408,10 @@ async function sendChatgptProxyControlRequest(tabId, action, payload) {
             '(check the extensions icon or extension settings), then reload the tab and retry.',
         )
       }
+      await new Promise((r) => setTimeout(r, 500))
+      // Once injection succeeds, preserve the control request's real error.
+      // Upload/processing failures do not indicate missing site permissions.
+      return await doSend()
     }
     throw firstErr
   }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import Browser from 'webextension-polyfill'
 
 // Unit tests for chatgpt-proxy-service (architecture plan step 3).
 //
@@ -18,6 +19,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   acquireChatgptWebSessionLock,
+  executeChatgptWebControlRequestViaProxy,
   handleProxyResponsePort,
   sendChatgptProxyRequest,
 } from '../src/background/chatgpt-proxy-service.mjs'
@@ -27,6 +29,38 @@ function uniqueSession(question = 'hi') {
   counter += 1
   return { sessionId: `s-${counter}`, question, modelName: 'x' }
 }
+
+describe('ChatGPT control errors after loading the content script', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('preserves the upload error after a successful content-script injection', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(Browser.storage.local, 'get').mockResolvedValue({ chatgptTabId: 1 })
+    vi.spyOn(Browser.tabs, 'get').mockResolvedValue({
+      id: 1,
+      url: 'https://chatgpt.com/?chatgptbox_proxy=1',
+    })
+    const send = vi.spyOn(Browser.tabs, 'sendMessage')
+    send.mockRejectedValueOnce(
+      new Error('Could not establish connection. Receiving end does not exist.'),
+    )
+    send.mockResolvedValueOnce({
+      ok: false,
+      error: 'ChatGPT did not confirm that the image is ready',
+    })
+    const inject = vi.spyOn(Browser.scripting, 'executeScript').mockResolvedValue([])
+    const pending = executeChatgptWebControlRequestViaProxy('chatgpt_web_upload_images', {
+      images: [],
+    }).catch((error) => error)
+    await vi.runAllTimersAsync()
+    expect((await pending).message).toBe('ChatGPT did not confirm that the image is ready')
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('acquireChatgptWebSessionLock', () => {
   it('returns a release function for a fresh session', () => {
