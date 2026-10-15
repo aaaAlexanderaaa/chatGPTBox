@@ -216,7 +216,7 @@ export async function listChatgptWebProjects(payload = {}) {
     const query = new URLSearchParams({
       conversations_per_gizmo: '0',
       owned_only: 'true',
-      limit: '100',
+      limit: '20',
     })
     if (payload.cursor) query.set('cursor', String(payload.cursor))
     const response = await apiFetch(`/gizmos/snorlax/sidebar?${query}`)

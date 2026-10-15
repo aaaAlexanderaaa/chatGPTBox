@@ -172,6 +172,8 @@ still identifies Project resources with `gizmo_type: "snorlax"`. Both the Projec
 list and selected-Project validation use that value; ordinary GPT resources
 with `gizmo_type: "gpt"` are excluded. Synthetic regression cases cover the native
 sidebar/detail structures and image preparation after Project verification.
+Project listing uses the official default of 20 resources per page and follows
+the returned cursor instead of requesting an unsupported larger page.
 
 Staged photos stay under `~/.chatgptbox/gateway-attachments` with private file
 permissions. They expire after seven days; expired files are removed on a later

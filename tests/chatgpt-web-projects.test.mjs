@@ -85,6 +85,7 @@ describe('ChatGPT Project resource contracts', () => {
     expect(url.pathname).toBe('/backend-api/gizmos/snorlax/sidebar')
     expect(url.searchParams.get('owned_only')).toBe('true')
     expect(url.searchParams.get('conversations_per_gizmo')).toBe('0')
+    expect(url.searchParams.get('limit')).toBe('20')
   })
 
   it('retains native Projects while following the sidebar pagination cursor', async () => {
