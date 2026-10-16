@@ -209,6 +209,31 @@ describe('ChatGPT native page transport with auth generation', () => {
 })
 
 describe('ChatGPT native page transport', () => {
+  it.each(['getRequestTarget', 'safePost', 'getChatGptRequestProfile'])(
+    'refuses a discovered request interface %s replaced after connection',
+    async (changed) => {
+      modules.k29.getChatGptRequestProfile = () => ({ kind: 'chatgpt-browser' })
+      const dynamic = {
+        ...contract,
+        capabilityCheck: {
+          requestSources: Object.fromEntries(
+            Object.entries(modules.k29.Request).map(([key, value]) => [key, String(value)]),
+          ),
+          requestProfileSource: String(modules.k29.getChatGptRequestProfile),
+          fetchSource: String(modules.xb.b),
+          prepareSource: String(modules.n9O.f),
+          headersSource: String(modules.n9O.b),
+          preflight: false,
+        },
+      }
+      await connect(dynamic, 'preload', [dynamic])
+      if (changed === 'getChatGptRequestProfile') modules.k29[changed] = () => 'changed'
+      else modules.k29.Request[changed] = () => 'changed'
+      await expect(send()).rejects.toThrow()
+      expect(modules.xb.b).not.toHaveBeenCalled()
+      expect(modules.n9O.f).not.toHaveBeenCalled()
+    },
+  )
   it('refuses a wrapper replaced after connection before any request is sent', async () => {
     modules.tracking = { trace: () => {} }
     const dynamic = {
@@ -266,14 +291,24 @@ describe('ChatGPT native page transport', () => {
     expect(modules.wl.c).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['wrapper-export', 'wrapper-module', 'network-module', 'auth-export'])(
+  it.each([
+    'wrapper-export',
+    'wrapper-module',
+    'network-module',
+    'auth-export',
+    'request-method',
+    'request-profile',
+  ])(
     'rejects a discovered %s changed before connection, without reading account state or submitting',
     async (changed) => {
       modules.tracking = { trace: () => {} }
+      modules.k29.getChatGptRequestProfile = () => ({ kind: 'chatgpt-browser' })
       const factories = Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}]))
       const dynamic = {
         ...contract,
         capabilityCheck: {
+          requestSources: { getRequestTarget: String(modules.k29.Request.getRequestTarget) },
+          requestProfileSource: String(modules.k29.getChatGptRequestProfile),
           fetchSource: String(modules.xb.b),
           prepareSource: String(modules.n9O.f),
           headersSource: String(modules.n9O.b),
@@ -296,6 +331,8 @@ describe('ChatGPT native page transport', () => {
       if (changed === 'wrapper-module') factories.tracking = () => 'changed'
       if (changed === 'network-module') factories.xb = () => 'changed'
       if (changed === 'auth-export') modules.OS.getBrowserChatGptAuthSnapshot = () => null
+      if (changed === 'request-method') modules.k29.Request.getRequestTarget = () => 'changed'
+      if (changed === 'request-profile') modules.k29.getChatGptRequestProfile = () => 'changed'
       const require = Object.assign((id) => modules[id], { m: factories })
       const result = await getChatgptWebPageIntegrityInPage([dynamic], async () => ({
         __webpack_require__: require,

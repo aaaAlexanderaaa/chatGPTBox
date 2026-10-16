@@ -1,4 +1,5 @@
 {
+  "ChatGPT webpage compatibility error: ChatGPTBox could not connect to this version of the webpage. This error does not indicate that your account is suspended. No new question was sent. Refresh the ChatGPT proxy tab and reload ChatGPTBox. If it persists, update ChatGPTBox or report this compatibility issue.": "ChatGPT 網頁相容失敗：ChatGPTBox 暫時無法連接目前版本的網頁介面。這條錯誤不表示帳號被封鎖，本次沒有傳送新問題。請重新整理 ChatGPT 代理分頁並重新載入 ChatGPTBox 擴充功能；如果仍然出錯，請更新 ChatGPTBox 或回報此相容問題。",
   "History coverage: {{partialSnapshotCount}} partial, {{currentBranchSnapshotCount}} current branch": "快取範圍：{{partialSnapshotCount}} 條尚未完整，{{currentBranchSnapshotCount}} 條儲存目前分支",
   "General": "一般",
   "Selection Tools": "選擇浮動工具",

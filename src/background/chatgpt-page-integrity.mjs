@@ -1,4 +1,5 @@
 import Browser from 'webextension-polyfill'
+import { t } from 'i18next'
 import {
   CHATGPT_WEB_INTEGRITY_RUNTIMES,
   getChatgptWebPageIntegrityInPage,
@@ -7,6 +8,15 @@ import { inspectChatgptWebRuntimeInPage } from '../services/clients/chatgpt-web/
 import { resolveChatgptWebRuntimeCapabilities } from '../services/clients/chatgpt-web/runtime-capabilities.mjs'
 
 const discovered = new Map()
+
+const compatibilityMessage =
+  'ChatGPT webpage compatibility error: ChatGPTBox could not connect to this version of the webpage. This error does not indicate that your account is suspended. No new question was sent. Refresh the ChatGPT proxy tab and reload ChatGPTBox. If it persists, update ChatGPTBox or report this compatibility issue.'
+
+function describePageResult(result) {
+  return result?.code === 'CHATGPT_WEB_RUNTIME_UNSUPPORTED'
+    ? { ...result, message: t(compatibilityMessage) || compatibilityMessage }
+    : result
+}
 
 export async function getChatgptWebPageIntegrityForSender(sender) {
   const denied = {
@@ -68,21 +78,19 @@ export async function getChatgptWebPageIntegrityForSender(sender) {
           })
           if (discovered.size > 16) discovered.delete(discovered.keys().next().value)
         }
-        if (result) return result
+        if (result) return describePageResult(result)
       }
-      return {
+      return describePageResult({
         ok: false,
         code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
-        message:
-          'Could not identify a unique compatible ChatGPT request, account, verification and network transport. Reload the proxy tab.',
-      }
+      })
     }
-    return (
+    return describePageResult(
       results?.[0]?.result || {
         ok: false,
         code: 'CHATGPT_WEB_INTEGRITY_UNAVAILABLE',
         message: 'The ChatGPT page did not return a verification result.',
-      }
+      },
     )
   } catch {
     return {

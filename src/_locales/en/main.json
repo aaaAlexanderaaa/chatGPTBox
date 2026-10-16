@@ -1,4 +1,5 @@
 {
+  "ChatGPT webpage compatibility error: ChatGPTBox could not connect to this version of the webpage. This error does not indicate that your account is suspended. No new question was sent. Refresh the ChatGPT proxy tab and reload ChatGPTBox. If it persists, update ChatGPTBox or report this compatibility issue.": "ChatGPT webpage compatibility error: ChatGPTBox could not connect to this version of the webpage. This error does not indicate that your account is suspended. No new question was sent. Refresh the ChatGPT proxy tab and reload ChatGPTBox. If it persists, update ChatGPTBox or report this compatibility issue.",
   "History coverage: {{partialSnapshotCount}} partial, {{currentBranchSnapshotCount}} current branch": "History coverage: {{partialSnapshotCount}} partial, {{currentBranchSnapshotCount}} current branch",
   "General": "General",
   "Selection Tools": "Selection Tools",

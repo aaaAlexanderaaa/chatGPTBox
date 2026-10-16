@@ -45,6 +45,46 @@ function headersFunction(source) {
   return ['chatRequirementsToken', 'proofToken', 'turnstileToken'].every((name) => names.has(name))
 }
 
+function browserRequestProfile(source) {
+  const fn = functionNode(source)
+  if (!fn || fn.async || fn.params.length !== 1 || fn.params[0].type !== 'Identifier') return false
+  const returned = fn.body?.body?.find((node) => node.type === 'ReturnStatement')?.argument
+  if (
+    returned?.type !== 'CallExpression' ||
+    returned.callee?.type !== 'MemberExpression' ||
+    returned.callee.computed ||
+    returned.callee.property?.name !== 'parse' ||
+    returned.arguments.length !== 1 ||
+    returned.arguments[0]?.type !== 'ObjectExpression'
+  )
+    return false
+  const properties = returned.arguments[0].properties
+  if (
+    properties.length !== 4 ||
+    properties.some((property) => property.type !== 'Property' || property.computed)
+  )
+    return false
+  const fields = Object.fromEntries(
+    properties.map((property) => [property.key.name || property.key.value, property.value]),
+  )
+  // The October 16 page renamed the former codex_webview request profile.
+  // Recognize the account-bound browser/native profile builder, not filenames
+  // or an occurrence of the new labels in an unrelated module.
+  return (
+    fields.kind?.type === 'ConditionalExpression' &&
+    fields.kind.consequent?.value === 'chatgpt-native' &&
+    fields.kind.alternate?.value === 'chatgpt-browser' &&
+    fields.accountId?.type === 'Identifier' &&
+    fields.accountId.name === fn.params[0].name &&
+    fields.language?.type === 'MemberExpression' &&
+    fields.deviceId?.type === 'MemberExpression' &&
+    fields.deviceId.computed &&
+    fields.deviceId.property?.value === 'oai-did' &&
+    fields.deviceId.object?.type === 'Identifier' &&
+    fields.deviceId.object.name === fields.language.object?.name
+  )
+}
+
 function reachable(graph, start, destination) {
   // Follow callers backwards so broad UI/schema dependencies do not exhaust a
   // small forward-search budget before the real transport is visited. The depth
@@ -86,7 +126,8 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
         (module) =>
           module.requestMethods?.getRequestTarget &&
           module.requestMethods?.safePost &&
-          module.source.includes('codex_webview'),
+          (module.source.includes('codex_webview') ||
+            browserRequestProfile(module.functions?.getChatGptRequestProfile)),
       )
       const auths = modules.flatMap((module) => {
         const keys = ['loadBrowserChatGptAuth', 'getBrowserChatGptAuthSnapshot']
@@ -137,6 +178,10 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
         fetchModule: native.module.id,
         fetchExport: native.name,
         capabilityCheck: {
+          requestSources: requests[0].requestMethods,
+          ...(requests[0].functions?.getChatGptRequestProfile
+            ? { requestProfileSource: requests[0].functions.getChatGptRequestProfile }
+            : {}),
           fetchSource: native.source,
           prepareSource: integrity.prepare[1],
           headersSource: integrity.headers[1],

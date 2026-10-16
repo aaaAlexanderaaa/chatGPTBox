@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import i18n from 'i18next'
 import Browser from 'webextension-polyfill'
 import { getChatgptWebPageIntegrityForSender } from '../src/background/chatgpt-page-integrity.mjs'
 import { inspectChatgptWebRuntimeInPage } from '../src/services/clients/chatgpt-web/runtime-inspection.mjs'
@@ -34,6 +36,13 @@ const headers = `function headers(req, proof, turnstile) {
   result[names.proofToken] = proof;
   result[names.turnstileToken] = turnstile;
   return result;
+}`
+const browserProfile = `function profile(accountId) {
+  const headers = getBrowserHeaders();
+  return schema.parse({
+    kind: isNativeWindow() ? 'chatgpt-native' : 'chatgpt-browser',
+    language: headers[languageHeader], deviceId: headers['oai-did'], accountId,
+  });
 }`
 const fixture = (url = 'https://chatgpt.com/cdn/assets/999999.new-build.js') => ({
   url,
@@ -107,12 +116,57 @@ function wrappedFixture() {
   return result
 }
 
+function browserFixture() {
+  const result = wrappedFixture()
+  const request = result.modules.find((module) => module.id === 'request')
+  request.source = 'Request: getChatGptRequestProfile chatgpt-browser chatgpt-native'
+  request.functions.getChatGptRequestProfile = browserProfile
+  return result
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe('ChatGPT capability discovery', () => {
+  it('discovers the account-bound browser/native profile after removal of the codex_webview marker', () => {
+    const data = browserFixture()
+    const request = data.modules.find((module) => module.id === 'request')
+    expect(request.source).not.toContain('codex_webview')
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toMatchObject({
+      requestModule: 'request',
+      authContext: 'generation',
+      fetchModule: 'relocated',
+      capabilityCheck: {
+        requestSources: request.requestMethods,
+        requestProfileSource: browserProfile,
+        preflight: true,
+      },
+    })
+  })
+  it.each([
+    undefined,
+    `function unrelated() { return 'chatgpt-browser chatgpt-native'; }`,
+    browserProfile.replace('accountId,', 'accountId: otherAccount,'),
+    browserProfile.replace("headers['oai-did']", "headers['other-device']"),
+    browserProfile.replace("'chatgpt-browser'", "'other-client'"),
+    browserProfile.replace(
+      'language: headers[languageHeader]',
+      'language: otherHeaders[languageHeader]',
+    ),
+    browserProfile.replace('schema.parse', 'schema.send'),
+  ])('rejects browser profile labels without the reviewed account/device binding', (source) => {
+    const data = browserFixture()
+    data.modules.find((module) => module.id === 'request').functions.getChatGptRequestProfile =
+      source
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+  })
+  it('keeps rejecting ambiguous request modules with the renamed browser profile', () => {
+    const data = browserFixture()
+    data.modules.push({ ...data.modules[0], id: 'another-request' })
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+  })
   it('accepts an unknown file and relocated exports while rejecting the reused announcement name', () => {
     expect(resolveChatgptWebRuntimeCapabilities([fixture()])).toMatchObject({
       filename: '999999.new-build.js',
@@ -292,63 +346,71 @@ describe('ChatGPT capability discovery', () => {
     network.functions.anotherSend = network.functions.send
     expect(resolveChatgptWebRuntimeCapabilities([ambiguous])).toBeNull()
   })
-  it('inspects a renamed runtime and discovers generation auth plus the fetch wrapper without a release mapping', async () => {
-    const data = wrappedFixture()
-    const sources = Object.fromEntries(data.modules.map((module) => [module.id, module.source]))
-    sources.request = `function(module, exports, load) {
+  it.each(['legacy', 'browser'])(
+    'inspects a renamed runtime with the %s profile without a release mapping',
+    async (profile) => {
+      const data = profile === 'browser' ? browserFixture() : wrappedFixture()
+      const sources = Object.fromEntries(data.modules.map((module) => [module.id, module.source]))
+      sources.request = `function(module, exports, load) {
       load('wrapper');
-      Object.assign(exports, { Request: {}, getChatGptRequestProfile: () => 'codex_webview' });
+      Object.assign(exports, { Request: {}, getChatGptRequestProfile: () => '${
+        profile === 'browser' ? 'chatgpt-browser' : 'codex_webview'
+      }' });
     }`
-    sources.wrapper = `function(module, exports, load) { load('relocated'); }`
-    sources.account = `function(module, exports, load) {
+      sources.wrapper = `function(module, exports, load) { load('relocated'); }`
+      sources.account = `function(module, exports, load) {
       Object.assign(exports, {loadBrowserChatGptAuth(){}, getBrowserChatGptAuthSnapshot(){},
         getBrowserChatGptAuthGeneration(){}, isBrowserWorkspaceSwitchPending(){}});
     }`
-    sources.verification = `function(module, exports, load) {
+      sources.verification = `function(module, exports, load) {
       const names = ['OpenAI-Sentinel-Chat-Requirements-Token', 'OpenAI-Sentinel-Proof-Token', 'OpenAI-Sentinel-Turnstile-Token'];
     }`
-    // Compile synthetic public functions only; no network or account code runs.
-    const compile = (source) => Function(`return (${source})`)()
-    const factories = Object.fromEntries(
-      Object.entries(sources)
-        .filter(([, source]) => source)
-        .map(([id, source]) => [id, compile(source)]),
-    )
-    const exports = Object.fromEntries(
-      data.modules.map((module) => [
-        module.id,
-        Object.fromEntries(
-          Object.entries(module.functions).map(([key, source]) => [key, compile(source)]),
-        ),
-      ]),
-    )
-    exports.request.Request = Object.fromEntries(
-      Object.entries(data.modules[0].requestMethods).map(([key, source]) => [key, compile(source)]),
-    )
-    const require = Object.assign((id) => exports[id], { m: factories })
-    const page = {}
-    page.top = page
-    vi.stubGlobal('window', page)
-    vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
-    vi.stubGlobal('document', {
-      scripts: [{ src: 'https://chatgpt.com/cdn/assets/633146.future-build.js' }],
-      querySelectorAll: () => [],
-    })
-    vi.stubGlobal('performance', { getEntriesByType: () => [] })
-    const inspected = await inspectChatgptWebRuntimeInPage(
-      [{ filename: '633146.older-build.js' }],
-      async () => ({ __webpack_require__: require }),
-    )
-    expect(inspected[0].modules.map((module) => module.id)).toEqual(
-      expect.arrayContaining(['account', 'relocated', 'tracking']),
-    )
-    expect(resolveChatgptWebRuntimeCapabilities(inspected)).toMatchObject({
-      filename: '633146.future-build.js',
-      authContext: 'generation',
-      fetchModule: 'relocated',
-      capabilityCheck: { fetchWrappers: [{ module: 'tracking', export: 'trace' }] },
-    })
-  })
+      // Compile synthetic public functions only; no network or account code runs.
+      const compile = (source) => Function(`return (${source})`)()
+      const factories = Object.fromEntries(
+        Object.entries(sources)
+          .filter(([, source]) => source)
+          .map(([id, source]) => [id, compile(source)]),
+      )
+      const exports = Object.fromEntries(
+        data.modules.map((module) => [
+          module.id,
+          Object.fromEntries(
+            Object.entries(module.functions).map(([key, source]) => [key, compile(source)]),
+          ),
+        ]),
+      )
+      exports.request.Request = Object.fromEntries(
+        Object.entries(data.modules[0].requestMethods).map(([key, source]) => [
+          key,
+          compile(source),
+        ]),
+      )
+      const require = Object.assign((id) => exports[id], { m: factories })
+      const page = {}
+      page.top = page
+      vi.stubGlobal('window', page)
+      vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
+      vi.stubGlobal('document', {
+        scripts: [{ src: 'https://chatgpt.com/cdn/assets/633146.future-build.js' }],
+        querySelectorAll: () => [],
+      })
+      vi.stubGlobal('performance', { getEntriesByType: () => [] })
+      const inspected = await inspectChatgptWebRuntimeInPage(
+        [{ filename: '633146.older-build.js' }],
+        async () => ({ __webpack_require__: require }),
+      )
+      expect(inspected[0].modules.map((module) => module.id)).toEqual(
+        expect.arrayContaining(['account', 'relocated', 'tracking']),
+      )
+      expect(resolveChatgptWebRuntimeCapabilities(inspected)).toMatchObject({
+        filename: '633146.future-build.js',
+        authContext: 'generation',
+        fetchModule: 'relocated',
+        capabilityCheck: { fetchWrappers: [{ module: 'tracking', export: 'trace' }] },
+      })
+    },
+  )
   it('rejects an unrelated native-looking function and ambiguous complete runtimes', () => {
     const disconnected = fixture()
     disconnected.graph = {}
@@ -396,4 +458,57 @@ describe('ChatGPT capability discovery', () => {
       capabilityCheck: { preflight: false },
     })
   })
+
+  it.each([
+    ['en', 'en', 'This error does not indicate that your account is suspended.'],
+    ['zh', 'zh-hans', '这条错误不表示账号被封禁'],
+    ['zhHant', 'zh-hant', '這條錯誤不表示帳號被封鎖'],
+  ])(
+    'explains compatibility failures in %s without implying an account ban',
+    async (language, locale, expected) => {
+      const en = JSON.parse(
+        fs.readFileSync(new URL('../src/_locales/en/main.json', import.meta.url)),
+      )
+      const translation = JSON.parse(
+        fs.readFileSync(new URL(`../src/_locales/${locale}/main.json`, import.meta.url)),
+      )
+      await i18n.init({
+        lng: language,
+        fallbackLng: 'en',
+        resources: { en: { translation: en }, [language]: { translation } },
+      })
+      const sender = {
+        id: Browser.runtime.id,
+        frameId: 0,
+        tab: { id: 963 },
+        url: 'https://chatgpt.com/?chatgptbox_proxy=1',
+      }
+      const execute = vi.spyOn(Browser.scripting, 'executeScript')
+      for (const inspections of [[], [browserFixture()]]) {
+        execute
+          .mockResolvedValueOnce([
+            { result: { ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' } },
+          ])
+          .mockResolvedValueOnce([{ result: inspections }])
+        if (inspections.length)
+          execute.mockResolvedValueOnce([
+            {
+              result: {
+                ok: false,
+                code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+                message: 'Native API changed',
+              },
+            },
+          ])
+        const result = await getChatgptWebPageIntegrityForSender(sender)
+        expect(result).toMatchObject({ ok: false, code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED' })
+        expect(result.message).toContain(expected)
+        expect(result.message).not.toContain('compatible ChatGPT request, account')
+      }
+      const signedOut = { ok: false, code: 'UNAUTHORIZED', message: 'Sign in to ChatGPT first.' }
+      execute.mockResolvedValueOnce([{ result: signedOut }])
+      expect(await getChatgptWebPageIntegrityForSender(sender)).toEqual(signedOut)
+      await i18n.changeLanguage('en')
+    },
+  )
 })

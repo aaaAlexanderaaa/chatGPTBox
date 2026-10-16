@@ -192,6 +192,16 @@ export async function getChatgptWebPageIntegrityInPage(
         Function.prototype.toString.call(nativeFetch) !== check.fetchSource ||
         Function.prototype.toString.call(prepareIntegrity) !== check.prepareSource ||
         Function.prototype.toString.call(makeIntegrityHeaders) !== check.headersSource ||
+        Object.entries(check.requestSources || {}).some(
+          ([key, source]) =>
+            typeof request[key] !== 'function' ||
+            Function.prototype.toString.call(request[key]) !== source,
+        ) ||
+        (check.requestProfileSource &&
+          (typeof require(contract.requestModule).getChatGptRequestProfile !== 'function' ||
+            Function.prototype.toString.call(
+              require(contract.requestModule).getChatGptRequestProfile,
+            ) !== check.requestProfileSource)) ||
         Object.entries(check.authSources || {}).some(
           ([key, source]) =>
             typeof auth[key] !== 'function' ||
