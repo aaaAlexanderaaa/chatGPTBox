@@ -4,7 +4,7 @@ frontend_redesign/
 .claude/
 .idea/
 .vscode/
-node_modules/
+node_modules
 build/
 # Local unpacked extension copies (the default install lives beside this repo)
 /browser-extensions/
@@ -29,3 +29,5 @@ docs/realdata/
 .pnpm-store/
 .zcode/
 tmp/
+output/playwright/
+.playwright-cli/

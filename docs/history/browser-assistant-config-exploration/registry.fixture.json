@@ -1,0 +1,131 @@
+{
+  "description": "Design fixtures, not installed implementations or verified engine capabilities. configSchema describes request.with, not tool invocation arguments.",
+  "interfaces": {
+    "page.url": {
+      "kind": "resource",
+      "configSchema": {
+        "type": "object",
+        "properties": { "mode": { "enum": ["raw", "drop-tracking", "path-only"] } },
+        "additionalProperties": false
+      }
+    },
+    "page.article": {
+      "kind": "resource",
+      "configSchema": {
+        "type": "object",
+        "properties": { "anchors": { "type": "boolean" } },
+        "additionalProperties": false
+      }
+    },
+    "page.editable": {
+      "kind": "resource",
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "page.screenshot": {
+      "kind": "resource",
+      "configSchema": {
+        "type": "object",
+        "properties": { "scope": { "enum": ["viewport", "region", "page"] } },
+        "required": ["scope"],
+        "additionalProperties": false
+      }
+    },
+    "config.current": {
+      "kind": "resource",
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "registry.describe": {
+      "kind": "resource",
+      "configSchema": {
+        "type": "object",
+        "properties": { "include": { "type": "array", "items": { "type": "string" } } },
+        "additionalProperties": false
+      }
+    },
+    "page.read": {
+      "kind": "tool",
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "recipe.call": {
+      "kind": "tool",
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "box.generate": {
+      "kind": "runner",
+      "acceptsTools": false,
+      "needsPrompt": true,
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "box.agent-loop": {
+      "kind": "runner",
+      "acceptsTools": true,
+      "needsPrompt": true,
+      "configSchema": {
+        "type": "object",
+        "properties": { "maxTurns": { "type": "integer", "minimum": 1 } },
+        "additionalProperties": false
+      }
+    },
+    "box.tool": {
+      "kind": "runner",
+      "acceptsTools": false,
+      "configSchema": {
+        "type": "object",
+        "required": ["tool", "arguments"],
+        "properties": {
+          "tool": { "type": "string", "minLength": 1 },
+          "arguments": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "box.delegate": {
+      "kind": "runner",
+      "acceptsTools": false,
+      "needsPrompt": true,
+      "configSchema": {
+        "type": "object",
+        "properties": { "observe": { "type": "boolean" } },
+        "additionalProperties": false
+      }
+    },
+    "panel.markdown": {
+      "kind": "output",
+      "configSchema": { "type": "object", "additionalProperties": false }
+    },
+    "page.annotations": {
+      "kind": "output",
+      "configSchema": {
+        "type": "object",
+        "required": ["snapshot", "mode"],
+        "properties": {
+          "snapshot": { "type": "string" },
+          "mode": { "enum": ["preview", "apply"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "input.patch": {
+      "kind": "output",
+      "configSchema": {
+        "type": "object",
+        "required": ["target", "baseRevision", "mode"],
+        "properties": {
+          "target": { "type": "string" },
+          "baseRevision": { "type": "string" },
+          "mode": { "enum": ["preview", "apply"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "config.patch-preview": {
+      "kind": "output",
+      "configSchema": {
+        "type": "object",
+        "required": ["target", "baseRevision"],
+        "properties": { "target": { "type": "string" }, "baseRevision": { "type": "string" } },
+        "additionalProperties": false
+      }
+    }
+  }
+}

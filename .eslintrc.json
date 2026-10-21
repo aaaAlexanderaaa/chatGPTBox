@@ -83,6 +83,7 @@
     "react/react-in-jsx-scope": "off"
   },
   "ignorePatterns": [
+    "output/playwright/**",
     "build/**",
     "build.mjs",
     "resources/**",

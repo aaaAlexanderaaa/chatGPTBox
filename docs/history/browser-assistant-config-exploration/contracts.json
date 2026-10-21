@@ -1,0 +1,76 @@
+{
+  "box.reading-result@1": {
+    "type": "object",
+    "required": ["guide", "annotations"],
+    "properties": {
+      "guide": { "type": "string" },
+      "annotations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["target", "reason"],
+          "properties": {
+            "target": {
+              "type": "object",
+              "required": ["snapshot", "ref", "quote"],
+              "properties": {
+                "snapshot": { "type": "string", "minLength": 1 },
+                "ref": { "type": "string", "minLength": 1 },
+                "quote": {
+                  "type": "object",
+                  "required": ["exact"],
+                  "properties": {
+                    "exact": { "type": "string", "minLength": 1 },
+                    "prefix": { "type": "string" },
+                    "suffix": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "reason": { "type": "string", "minLength": 1 },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "style": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "box.config-patch@1": {
+    "type": "object",
+    "required": ["baseRevision", "patch"],
+    "properties": {
+      "baseRevision": { "type": "string", "minLength": 1 },
+      "patch": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["op", "path"],
+          "properties": {
+            "op": { "enum": ["add", "remove", "replace", "move", "copy", "test"] },
+            "path": { "type": "string", "pattern": "^(|/.*)$" },
+            "from": { "type": "string", "pattern": "^(|/.*)$" },
+            "value": {}
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "op": { "enum": ["add", "replace", "test"] } } },
+              "then": { "required": ["value"] }
+            },
+            {
+              "if": { "properties": { "op": { "enum": ["move", "copy"] } } },
+              "then": { "required": ["from"] }
+            }
+          ],
+          "additionalProperties": false
+        }
+      },
+      "unboundSlots": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+      "notes": { "type": "array", "items": { "type": "string" } }
+    },
+    "additionalProperties": false
+  }
+}

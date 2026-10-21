@@ -20,6 +20,7 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 
 ## Features
 
+- A browser assistant for page reading, source annotations, and editable-input rewrite previews, with reusable functions you can edit and share. See the [usage guide](./docs/browser-assistant.md).
 - Chat on any page with floating chat, independent conversation page/window, and side-panel support.
 - Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
