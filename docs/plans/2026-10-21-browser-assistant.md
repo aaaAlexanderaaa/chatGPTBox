@@ -28,7 +28,7 @@ use cases and interfaces. Translation-specific development remains deferred.
 ## Verification
 
 - `npm run lint`: passed.
-- `npm test`: 109 files and 1356 tests passed, including 32 new assistant tests.
+- `npm test`: 110 files and 1387 tests passed, including 38 assistant tests.
 - `npm run build`: Chromium, Firefox, and both reduced-size bundles produced.
 - Playwright: source highlighting and navigation, rewrite application and undo,
   saved functions appearing in the library, Chinese interface, light/dark themes,

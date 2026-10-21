@@ -255,6 +255,13 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.2.0
+
+- Added an on-page browser assistant with page overviews, selection explanations, link overviews, reading annotations, and input rewriting. Preview the material, choose an AI connection, and save reusable functions with JSON import/export.
+- Added source-checked page annotations and rewrite previews with explicit application, undo, and protection against changed inputs. Page material excludes editable drafts, including plaintext-only and empty-attribute contenteditable editors.
+- Improved API Server Bridge and MCP recovery after lost completion events or temporary disconnections: check the exact existing turn without resending, preserve downloaded history and pagination progress, and keep the original waiting deadline.
+- Includes ChatGPT image uploads and native Projects, Drafts photo and Project support, selected conversation clipboard exports, and updated ChatGPT runtime compatibility.
+
 ### v4.1.2
 
 - Added a shared local ChatGPT conversation browser with paginated history browsing, selected JSON and Markdown exports, and schema-2 volume backups; supports native cursor pagination, partial checkpoints, and branch preservation during recovery.
