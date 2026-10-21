@@ -1,14 +1,12 @@
 # DeepSeek Harness Full Client Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Native Preact client in `dsh.html` that page-parity-replaces DSH Web so the user never opens `:3080`.
 
 **Architecture:** Expand the existing gateway RPC table and host-frame handling. Put all new UI behind shell / pages / chrome / adapter. Pure view-models are tested first; JSX only consumes those models. No iframe, no official React tree, no new npm dependencies.
 
 **Tech Stack:** Existing extension (MV3, vitest, Preact, webextension-polyfill). Harness protocol from `tmp/deepseek-harness/packages/host/apiproxy`.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-dsh-full-client-design.md`
+**Spec:** [DeepSeek Harness full client design](../product/2026-08-18-dsh-full-client-design.md)
 
 ## Global Constraints
 
@@ -19,7 +17,7 @@
 - `session.create` must send `workspaceId` and, when the roster is non-empty, `agentPreset`. No bare create.
 - Float/popup stay conversation + approval cards. They must not import `src/modules/dsh/ui/pages/`.
 - Automated tests never launch real `dsh web` and never open a real OS directory picker. Fake RPC only.
-- Work in an isolated worktree on `feat/dsh-full-client` (create it at execution time via using-git-worktrees). Commit after each task. Do not `--no-verify`.
+- Work in an isolated worktree on `feat/dsh-full-client` (create it at execution time). Commit after each task. Do not `--no-verify`.
 - Tasks are reviewable units of one complete client, not a product-facing “ship half”.
 
 ## File map

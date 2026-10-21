@@ -3,7 +3,7 @@
 > 状态：**定稿 v1**（实现须对回本文；改设计先改本文）
 > 日期：2026-08-15（D-23 修订 2026-08-18）
 > 来源：DeepSeek Harness UI 设计轮
-> 上游：[definition.md](./definition.md) · [contracts.md](./contracts.md) · 决策 D-5/D-6/D-7/D-8/D-9/D-16~D-19/D-23 · [完整客户端 spec](../superpowers/specs/2026-08-18-dsh-full-client-design.md)
+> 上游：[definition.md](./definition.md) · [contracts.md](./contracts.md) · 决策 D-5/D-6/D-7/D-8/D-9/D-16~D-19/D-23 · [完整客户端 spec](./2026-08-18-dsh-full-client-design.md)
 
 ## 设计前提
 
@@ -139,7 +139,7 @@ Popup 保留 composer（D-19）：quick ask 在浮窗不可用/不合适的页�
 **做**：三档壳、工作区侧栏、DSH Web 对话流、审批/提问卡、composer
 （queue/steer/图片/上下文芯片/停止）、模式/模型/权限、设置面板、jobs/skills/subagents
 等全部表面——行为与协议对等清单见
-[完整客户端 spec · 表面与协议](../superpowers/specs/2026-08-18-dsh-full-client-design.md#表面与协议对等清单)。
+[完整客户端 spec · 表面与协议](./2026-08-18-dsh-full-client-design.md#表面与协议对等清单)。
 
 ## 契约对照
 

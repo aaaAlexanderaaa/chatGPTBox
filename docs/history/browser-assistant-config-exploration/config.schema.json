@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:chatgptbox:browser-assistant:config:v1",
+  "title": "ChatGPTBox browser assistant configuration proposal",
+  "description": "Design contract only. The extension does not yet import or execute this format.",
+  "oneOf": [{ "$ref": "#/definitions/recipe" }, { "$ref": "#/definitions/bundle" }],
+  "definitions": {
+    "request": {
+      "type": "object",
+      "required": ["use"],
+      "properties": {
+        "use": { "type": "string", "minLength": 1 },
+        "with": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "resource": {
+      "type": "object",
+      "required": ["use"],
+      "properties": {
+        "use": { "type": "string", "minLength": 1 },
+        "with": { "type": "object" },
+        "optional": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": ["use"],
+      "properties": {
+        "use": { "type": "string", "minLength": 1 },
+        "select": { "type": "string", "pattern": "^(|/.*)$", "default": "" },
+        "with": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "recipe": {
+      "type": "object",
+      "required": ["version", "name"],
+      "anyOf": [{ "required": ["prompt"] }, { "required": ["runner"] }],
+      "properties": {
+        "version": { "const": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "expose": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "prompt": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "attachments": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\{\\{\\s*[a-zA-Z][a-zA-Z0-9_.-]*\\s*\\}\\}$" }
+        },
+        "engine": { "type": "string", "minLength": 1 },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "inputs": {
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "object" } }
+        },
+        "resources": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "additionalProperties": { "$ref": "#/definitions/resource" }
+        },
+        "tools": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "additionalProperties": { "$ref": "#/definitions/request" }
+        },
+        "runner": { "$ref": "#/definitions/request" },
+        "response": {
+          "type": "object",
+          "required": ["schema"],
+          "properties": {
+            "schema": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "object" }] }
+          },
+          "additionalProperties": false
+        },
+        "outputs": { "type": "array", "items": { "$ref": "#/definitions/output" }, "minItems": 1 },
+        "extensions": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "required": ["kind", "label"],
+      "properties": {
+        "kind": { "enum": ["engine", "resource", "tool", "runner", "output"] },
+        "label": { "type": "string", "minLength": 1 },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "bundle": {
+      "type": "object",
+      "required": ["version", "name", "recipes"],
+      "properties": {
+        "version": { "const": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "slots": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "additionalProperties": { "$ref": "#/definitions/slot" }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "recipes"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "recipes": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "recipes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "allOf": [{ "$ref": "#/definitions/recipe" }, { "required": ["id"] }]
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

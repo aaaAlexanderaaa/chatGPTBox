@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "id": "box.reading-and-composition",
+  "name": "阅读与自由组合示例",
+  "slots": {
+    "research": { "kind": "engine", "label": "能阅读公开链接的连接", "requires": ["web.url.read"] },
+    "fast": { "kind": "engine", "label": "日常文字连接", "requires": ["text.generate"] },
+    "translation": { "kind": "engine", "label": "翻译连接", "requires": ["text.generate"] },
+    "vision": { "kind": "engine", "label": "能接收图像的连接", "requires": ["input.image"] },
+    "tools": { "kind": "engine", "label": "支持工具调用的模型连接", "requires": ["tools.call"] },
+    "browserAgent": {
+      "kind": "engine",
+      "label": "可恢复任务的浏览器 agent",
+      "requires": ["task.resume", "browser.control"]
+    },
+    "interests": { "kind": "resource", "label": "我的兴趣记录" },
+    "convert": { "kind": "tool", "label": "文件转 Markdown 工具" },
+    "search": { "kind": "tool", "label": "联网搜索工具" }
+  },
+  "groups": [
+    {
+      "id": "read",
+      "name": "阅读",
+      "recipes": [
+        "url-tldr",
+        "selection-summary",
+        "translate-selection",
+        "personal-reading",
+        "research-reading",
+        "explain-screenshot"
+      ]
+    },
+    {
+      "id": "compose",
+      "name": "写作与工具",
+      "recipes": ["rewrite-input", "convert-document", "delegate-browser", "configure-assistant"]
+    }
+  ],
+  "recipes": [
+    {
+      "version": 1,
+      "id": "url-tldr",
+      "name": "链接速览",
+      "prompt": "{{url}} TL;DR。请用{{language}}回答，并说明能否实际访问原文。",
+      "engine": "@research",
+      "resources": { "url": { "use": "page.url", "with": { "mode": "drop-tracking" } } },
+      "expose": ["page-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "selection-summary",
+      "name": "总结选文",
+      "prompt": "用{{language}}概括这段选文：\n{{selection}}",
+      "engine": "@fast",
+      "expose": ["selection-toolbar", "selection-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "translate-selection",
+      "name": "翻译选文",
+      "prompt": "将以下选文译成{{language}}，保留术语与段落：\n{{selection}}",
+      "engine": "@translation",
+      "expose": ["selection-toolbar", "selection-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "personal-reading",
+      "name": "为我导读并标注",
+      "prompt": "根据文章生成简短导读，并挑出值得我关注的原文，解释原因。兴趣记录不存在时按通用阅读处理。只引用文章中真实的 ref 和逐字引文；返回约定结构。\n文章：{{article}}\n兴趣记录：{{interests}}",
+      "engine": "@fast",
+      "resources": {
+        "article": { "use": "page.article", "with": { "anchors": true } },
+        "interests": { "use": "@interests", "optional": true }
+      },
+      "response": { "schema": "box.reading-result@1" },
+      "outputs": [
+        { "use": "panel.markdown", "select": "/guide" },
+        {
+          "use": "page.annotations",
+          "select": "/annotations",
+          "with": { "snapshot": "{{article.snapshot}}", "mode": "preview" }
+        }
+      ],
+      "expose": ["page-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "research-reading",
+      "name": "查证后导读",
+      "prompt": "阅读文章，按需检索并对照来源。为结论提供出处；最后返回导读和需要关注的原文标注。\n{{article}}",
+      "engine": "@tools",
+      "resources": { "article": { "use": "page.article", "with": { "anchors": true } } },
+      "tools": {
+        "read": { "use": "page.read" },
+        "search": { "use": "@search" },
+        "reuseRecipe": { "use": "recipe.call" }
+      },
+      "runner": { "use": "box.agent-loop", "with": { "maxTurns": 12 } },
+      "response": { "schema": "box.reading-result@1" },
+      "outputs": [
+        { "use": "panel.markdown", "select": "/guide" },
+        {
+          "use": "page.annotations",
+          "select": "/annotations",
+          "with": { "snapshot": "{{article.snapshot}}", "mode": "preview" }
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "id": "rewrite-input",
+      "name": "改写当前输入",
+      "prompt": "保持事实和语气意图，用{{language}}改写以下输入，使其清晰简洁：\n{{draft.text}}",
+      "engine": "@fast",
+      "resources": { "draft": { "use": "page.editable" } },
+      "outputs": [
+        {
+          "use": "input.patch",
+          "with": {
+            "target": "{{draft.target}}",
+            "baseRevision": "{{draft.revision}}",
+            "mode": "preview"
+          }
+        }
+      ],
+      "expose": ["input-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "convert-document",
+      "name": "文件转 Markdown",
+      "inputs": {
+        "type": "object",
+        "properties": { "uri": { "type": "string", "format": "uri", "title": "文件地址" } },
+        "required": ["uri"],
+        "additionalProperties": false
+      },
+      "runner": {
+        "use": "box.tool",
+        "with": { "tool": "@convert", "arguments": { "uri": "{{inputs.uri}}" } }
+      },
+      "outputs": [{ "use": "panel.markdown" }]
+    },
+    {
+      "version": 1,
+      "id": "delegate-browser",
+      "name": "交给浏览器 agent",
+      "prompt": "任务：{{inputs.task}}\n起始页面：{{url}}",
+      "engine": "@browserAgent",
+      "inputs": {
+        "type": "object",
+        "properties": { "task": { "type": "string", "title": "想完成什么" } },
+        "required": ["task"],
+        "additionalProperties": false
+      },
+      "runner": { "use": "box.delegate", "with": { "observe": true } },
+      "requires": ["task.resume", "browser.control"]
+    },
+    {
+      "version": 1,
+      "id": "explain-screenshot",
+      "name": "解释当前画面",
+      "prompt": "用{{language}}解释截图中的主要信息，并区分看到的事实与推测。",
+      "engine": "@vision",
+      "resources": { "image": { "use": "page.screenshot", "with": { "scope": "viewport" } } },
+      "attachments": ["{{image}}"],
+      "requires": ["input.image"],
+      "expose": ["page-menu", "command"]
+    },
+    {
+      "version": 1,
+      "id": "configure-assistant",
+      "name": "帮我配置",
+      "prompt": "根据需求修改当前配方。仅使用目录中存在的接口与 schema，返回带 baseRevision 的配置补丁。保留未涉及的字段；缺依赖时返回待绑定槽位。\n需求：{{inputs.request}}\n当前配方：{{current}}\n可用目录：{{catalog}}",
+      "engine": "@fast",
+      "inputs": {
+        "type": "object",
+        "properties": { "request": { "type": "string", "title": "想怎样修改" } },
+        "required": ["request"],
+        "additionalProperties": false
+      },
+      "resources": {
+        "current": { "use": "config.current" },
+        "catalog": {
+          "use": "registry.describe",
+          "with": { "include": ["schemas", "interfaces", "examples"] }
+        }
+      },
+      "response": { "schema": "box.config-patch@1" },
+      "outputs": [
+        {
+          "use": "config.patch-preview",
+          "with": { "target": "{{current.id}}", "baseRevision": "{{current.revision}}" }
+        }
+      ],
+      "expose": ["config-editor"]
+    }
+  ]
+}
