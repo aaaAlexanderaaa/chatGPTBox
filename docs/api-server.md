@@ -497,7 +497,11 @@ The response includes:
 
 ### `GET /chatgpt/conversations/:id/turns/:messageId`
 
-Reads the extension background's locally recorded status for one sent turn. It **never** calls ChatGPT. Use the `conversationId` and `messageId` from either write acknowledgement. `status` is `running`, `completed`, or `failed`; `text` can contain interim output while running, so only `completed` means the answer is final. Running turns and the newest 30 finished turns are retained. An unknown or expired turn returns `404` with guidance to check the acknowledgement IDs and inspect the existing conversation; a disconnected bridge returns `503`.
+Reads the extension background's locally recorded status for one sent turn. Without query options it never calls ChatGPT. Use the `conversationId` and `messageId` from either write acknowledgement. `status` is `running`, `completed`, or `failed`; `text` can contain interim output while running, so only `completed` means the answer is final. Running turns and the newest 30 finished turns are retained. An unknown or expired turn returns `404` with guidance to check the acknowledgement IDs and inspect the existing conversation; a disconnected bridge returns `503`.
+
+Add `?recover=true` to repair a missing completion event or revalidate an existing record. The extension reads one fresh native conversation page anchored to this user message, with a 10-second page timeout and a 15-second recovery deadline. It records completion only for a matching, non-pending final answer with nonempty text. It rejects stale cache evidence and shares recovery checks between callers, with at most one check per turn per minute. A verified final answer can also repair an earlier failed or incorrect terminal record; ordinary late stream events cannot overwrite it. Recovery never submits the prompt again. The MCP waiter requests this check once per minute and retries temporary bridge outages within its original deadline.
+
+Recovery pages are used only for the status check. Previously downloaded conversation history and its pagination checkpoint remain intact for later reads and exports.
 
 ```bash
 curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" \

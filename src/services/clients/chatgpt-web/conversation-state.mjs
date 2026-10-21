@@ -108,6 +108,9 @@ function collectAssistantDescendants(mapping, startNodeId) {
 
     const node = getMappingNode(mapping, nodeId)
     if (!node) continue
+    // A user-message anchor owns only the assistant nodes before the next
+    // user turn. Following that next question would recover another answer.
+    if (nodeId !== startNodeId && getMessageRole(node) === 'user') continue
 
     if (getMessageRole(node) === 'assistant') assistants.push(node)
 

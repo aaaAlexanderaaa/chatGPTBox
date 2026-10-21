@@ -1410,9 +1410,9 @@ async function handleChatgptConversationGet(conversationId, url, res) {
   }
 }
 
-// The MCP waiter reads only the extension's turn snapshot. It never invokes
-// the conversation GET/refresh paths, which can make a ChatGPT network call.
-async function handleChatgptTurnStatus(conversationId, messageId, res) {
+// Normal polls read the local snapshot. An explicit recovery check reconciles
+// the exact turn with a bounded upstream GET when the live completion is lost.
+async function handleChatgptTurnStatus(conversationId, messageId, url, res) {
   if (!isBridgeConnected()) {
     res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
     res.end(JSON.stringify({ error: { message: 'Extension bridge not connected' } }))
@@ -1422,6 +1422,7 @@ async function handleChatgptTurnStatus(conversationId, messageId, res) {
     const result = await sendControlRequestToBridge('chatgpt_web_get_turn_status', {
       conversationId,
       messageId,
+      recover: url.searchParams.get('recover') === 'true',
     })
     res.writeHead(result ? 200 : 404, {
       'Content-Type': 'application/json',
@@ -2086,6 +2087,7 @@ const server = http.createServer(async (req, res) => {
     handleChatgptTurnStatus(
       decodeURIComponent(turnStatusMatch[1]),
       decodeURIComponent(turnStatusMatch[2]),
+      url,
       res,
     ).catch((err) => {
       logError(`Turn status error: ${err.message}`)

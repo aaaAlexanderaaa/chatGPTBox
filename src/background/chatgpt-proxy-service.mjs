@@ -20,6 +20,7 @@ import { initSession } from '../services/init-session.mjs'
 import { getChatgptWebThinkingEffortOverride } from '../services/clients/chatgpt-web/thinking.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
 import { recordChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
+import { createChatgptWebTurnRecovery } from '../services/clients/chatgpt-web/turn-recovery.mjs'
 import {
   createPendingProxyCancellation,
   getChatGptAccessToken,
@@ -450,6 +451,11 @@ export async function getChatgptWebConversationWithFallback(payload = {}) {
     )
   }
 }
+
+export const recoverChatgptWebTurnStatus = createChatgptWebTurnRecovery({
+  readConversation: getChatgptWebConversationWithFallback,
+  onCompleted: (ids) => updateChatgptWebConversationTurnIndex({ ...ids, status: 'completed' }),
+})
 
 export async function syncChatgptWebConversationCacheWithFallback(payload = {}) {
   return await executeChatgptWebControlRequestViaProxy(

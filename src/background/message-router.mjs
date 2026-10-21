@@ -32,6 +32,7 @@ import {
   listChatgptWebConversationsWithFallback,
   listChatgptWebModelsWithFallback,
   getChatgptWebConversationWithFallback,
+  recoverChatgptWebTurnStatus,
   uploadChatgptWebImagesViaProxy,
   listChatgptWebProjectsViaProxy,
 } from './chatgpt-proxy-service.mjs'
@@ -193,7 +194,9 @@ export function createMessageRouter() {
     [RuntimeMessage.ChatgptWebGetConversation]: (message) =>
       getChatgptWebConversationWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebGetTurnStatus]: (message) =>
-      getChatgptWebTurnStatus(message.data || {}),
+      message.data?.recover === true
+        ? recoverChatgptWebTurnStatus(message.data)
+        : getChatgptWebTurnStatus(message.data || {}),
     [RuntimeMessage.ChatgptWebRefreshConversation]: (message) =>
       refreshChatgptWebConversationWithFallback(message.data || {}),
     [RuntimeMessage.ChatgptWebSendConversationMessage]: (message) =>

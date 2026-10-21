@@ -73,6 +73,7 @@ export async function loadChatgptWebConversationPages({
   onSnapshot = async () => {},
   shouldAbort,
   restartOnInvalidCursor = true,
+  latestOnly = false,
 }) {
   const path = `/backend-api/conversations/${encodeURIComponent(conversationId)}`
   const query = {
@@ -114,7 +115,7 @@ export async function loadChatgptWebConversationPages({
   }
 
   const cursors = new Set()
-  while (snapshot.page_info.has_previous_page) {
+  while (!latestOnly && snapshot.page_info.has_previous_page) {
     await throwIfAborted()
     const cursor = snapshot.page_info.start_cursor
     if (cursors.has(cursor)) throw new Error('ChatGPT conversation cursor did not advance.')
@@ -139,6 +140,7 @@ export async function loadChatgptWebConversationPages({
           onSnapshot,
           shouldAbort,
           restartOnInvalidCursor: false,
+          latestOnly,
         })
       }
       throw error

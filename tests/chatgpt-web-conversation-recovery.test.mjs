@@ -37,8 +37,10 @@ vi.mock('../src/services/clients/chatgpt-web/client.mjs', () => ({
 const { getChatgptWebConversation, refreshChatgptWebConversation } = await import(
   '../src/services/clients/chatgpt-web/conversation-api.mjs'
 )
-const { clearInvalidation, saveChatgptWebConversationSnapshot } = await import(
-  '../src/services/clients/chatgpt-web/conversation-cache.mjs'
+const { clearInvalidation, exportConversationCache, saveChatgptWebConversationSnapshot } =
+  await import('../src/services/clients/chatgpt-web/conversation-cache.mjs')
+const { createChatgptWebTurnRecovery } = await import(
+  '../src/services/clients/chatgpt-web/turn-recovery.mjs'
 )
 const { default: browserMock } = await import('webextension-polyfill')
 const { default: browserAlias } = await vi.importActual('webextension-polyfill')
@@ -91,6 +93,93 @@ afterEach(() => {
 })
 
 describe('conversation branch selection', () => {
+  it('checks only the anchored newest page when recovering a turn', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(snapshot()))
+    const result = await getChatgptWebConversation({
+      conversationId: 'thread',
+      userMessageId: 'question',
+      forceRefresh: true,
+      latestOnly: true,
+      requestTimeoutMs: 10_000,
+    })
+    expect(result.queryMessage.messageId).toBe('question')
+    expect(result.message).toMatchObject({ isFinal: true, text: 'Complete answer' })
+    expect(result.history.complete).toBe(false)
+    expect(result.cache).toMatchObject({ source: 'network', stale: false })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([true, false])(
+    'preserves downloaded history and exports during recovery (complete=%s)',
+    async (complete) => {
+      const cached = {
+        ...snapshot({ userId: 'question-12', assistantId: 'answer-12', complete }),
+        messages: Array.from(
+          { length: 12 },
+          (_, index) =>
+            snapshot({
+              userId: `question-${index + 1}`,
+              assistantId: `answer-${index + 1}`,
+            }).messages,
+        ).flat(),
+      }
+      storageData.chatgptWebConversationIndex = {
+        thread: { id: 'thread', updateTime: 20, asyncStatus: null, pending: false },
+      }
+      await saveChatgptWebConversationSnapshot(cached)
+      const exportedBefore = await exportConversationCache()
+      const newestPage = {
+        ...cached,
+        update_time: 30,
+        messages: cached.messages.slice(-20),
+        page_info: { has_previous_page: true, start_cursor: 'older-newest' },
+      }
+      newestPage.messages[newestPage.messages.length - 1] = {
+        ...newestPage.messages.at(-1),
+        content: { parts: ['Fresh recovered answer'] },
+      }
+      fetch.mockResolvedValueOnce(jsonResponse(newestPage))
+      const ids = { conversationId: 'thread', messageId: 'question-12' }
+      const recover = createChatgptWebTurnRecovery({
+        readConversation: getChatgptWebConversation,
+        getStatus: async () => ({ ...ids, status: 'running' }),
+        recordStatus: (record) => record,
+      })
+
+      expect(await recover(ids)).toMatchObject({
+        ...ids,
+        status: 'completed',
+        text: 'Fresh recovered answer',
+      })
+      const exportedAfter = await exportConversationCache()
+      expect(exportedAfter.data.snapshots.thread).toEqual(exportedBefore.data.snapshots.thread)
+      expect(exportedAfter.data.index.thread.snapshotHistoryComplete).toBe(complete)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(new URL(fetch.mock.calls[0][0]).searchParams.get('include_message_id')).toBe(
+        ids.messageId,
+      )
+    },
+  )
+
+  it('aborts a stalled turn-recovery fetch within its shorter read timeout', async () => {
+    fetch.mockImplementationOnce(
+      (_url, { signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        }),
+    )
+    await expect(
+      getChatgptWebConversation({
+        conversationId: 'thread',
+        userMessageId: 'question',
+        forceRefresh: true,
+        latestOnly: true,
+        requestTimeoutMs: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'CHATGPT_HISTORY_HYDRATE_TIMEOUT' })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     { userMessageId: 'old-question', expectedAnchor: 'old-question' },
     { assistantMessageId: 'old-answer', expectedAnchor: 'old-answer' },

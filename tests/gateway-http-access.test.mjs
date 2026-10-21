@@ -121,9 +121,11 @@ describe('API gateway HTTP access', () => {
     expect(otherExtension.status).toBe(403)
 
     let writeDispatches = 0
+    const statusPayloads = []
     bridge.on('message', (raw) => {
       const message = JSON.parse(String(raw))
       if (message.type === 'control_request' && message.action === 'chatgpt_web_get_turn_status') {
+        statusPayloads.push(message.payload)
         bridge.send(JSON.stringify({ type: 'control_response', id: message.id, data: null }))
       }
       if (
@@ -171,6 +173,16 @@ describe('API gateway HTTP access', () => {
     expect(await missing.json()).toMatchObject({
       error: { code: 'turn_status_not_found', retryable: false },
     })
+    const recovered = await fetch(
+      `http://127.0.0.1:${port}/chatgpt/conversations/unknown/turns/unknown?recover=true`,
+      { headers: { Authorization: 'Bearer api-test-token' } },
+    )
+    expect(recovered.status).toBe(404)
+    expect(statusPayloads).toEqual([
+      { conversationId: 'unknown', messageId: 'unknown', recover: false },
+      { conversationId: 'unknown', messageId: 'unknown', recover: true },
+    ])
+    expect(writeDispatches).toBe(0)
 
     const write = (key, query) =>
       fetch(`http://127.0.0.1:${port}/chatgpt/conversations`, {

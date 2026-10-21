@@ -29,17 +29,24 @@ export function recordChatgptWebTurnStatus({
   error,
   query,
   thoughtDurationSec,
+  verifiedComplete = false,
 } = {}) {
   if (!conversationId || !messageId) return null
   const previous = live.get(messageId)
   if (previous && previous.conversationId !== conversationId) return null
-  if (previous && TERMINAL.has(previous.status)) return previous
+  if (
+    previous &&
+    TERMINAL.has(previous.status) &&
+    !(verifiedComplete === true && status === 'completed')
+  )
+    return previous
   const next = {
     conversationId,
     messageId,
     status: TERMINAL.has(status) ? status : 'running',
     text: typeof text === 'string' ? text : previous?.text || '',
-    error: typeof error === 'string' ? error : previous?.error || null,
+    error:
+      status === 'completed' ? null : typeof error === 'string' ? error : previous?.error || null,
     query: typeof query === 'string' ? query : previous?.query || '',
     thoughtDurationSec:
       Number.isFinite(thoughtDurationSec) && thoughtDurationSec >= 0
@@ -74,7 +81,10 @@ export async function getChatgptWebTurnStatus({ conversationId, messageId } = {}
   let record = live.get(messageId)
   if (!record) {
     const stored = await Browser.storage.local.get({ [CHATGPT_WEB_TURN_STATUS_KEY]: {} })
-    record = stored[CHATGPT_WEB_TURN_STATUS_KEY]?.[messageId] || null
+    // A live completion may arrive while storage is being read. Never let an
+    // older persisted running record replace it after a worker restart.
+    record = live.get(messageId) || stored[CHATGPT_WEB_TURN_STATUS_KEY]?.[messageId] || null
+    if (record?.conversationId === conversationId) live.set(messageId, record)
   }
   return record?.conversationId === conversationId ? record : null
 }

@@ -74,6 +74,9 @@ describe('MCP HTTP conversation flow', () => {
     let statusReads = 0
     let conversationReads = 0
     let holdTurns = false
+    let missingLocalTurn = false
+    let recoveryReads = 0
+    let bridgeFailures = 0
     const createdBodies = []
     const gateway = http.createServer(async (req, res) => {
       if (req.headers.authorization !== 'Bearer gateway-test-token') {
@@ -90,9 +93,19 @@ describe('MCP HTTP conversation flow', () => {
         res.end(JSON.stringify({ conversationId: 'conversation-1', messageId: 'message-1' }))
       } else if (
         req.method === 'GET' &&
-        req.url === '/chatgpt/conversations/conversation-1/turns/message-1'
+        req.url.startsWith('/chatgpt/conversations/conversation-1/turns/message-1')
       ) {
         statusReads++
+        if (bridgeFailures > 0) {
+          bridgeFailures--
+          res.writeHead(503).end(JSON.stringify({ error: { message: 'Bridge reconnecting' } }))
+          return
+        }
+        if (missingLocalTurn && !req.url.endsWith('?recover=true')) {
+          res.writeHead(404).end(JSON.stringify({ error: { message: 'Local record missing' } }))
+          return
+        }
+        if (req.url.endsWith('?recover=true')) recoveryReads++
         res.end(
           JSON.stringify(
             statusReads >= 3 && !holdTurns
@@ -293,5 +306,14 @@ describe('MCP HTTP conversation flow', () => {
     const next = await callTool(7, 'ask_chatgpt', { query: 'Research next topic' })
     expect(next.structuredContent?.status).toBe('completed')
     expect(creates).toBe(6)
+
+    missingLocalTurn = true
+    bridgeFailures = 5
+    const recovered = await callTool(8, 'ask_chatgpt', { query: 'Research after reconnect' })
+    expect(recovered.structuredContent?.status).toBe('completed')
+    expect(recovered.content[0].text).toBe('Final answer')
+    expect(recoveryReads).toBe(1)
+    expect(creates).toBe(7)
+    expect(conversationReads).toBe(0)
   }, 30_000)
 })

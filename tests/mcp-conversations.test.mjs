@@ -60,7 +60,7 @@ describe('MCP conversation wait', () => {
     expect(turn).toHaveBeenCalledTimes(1)
   })
 
-  it('reports a missing local turn immediately without repeating the status lookup', async () => {
+  it('checks the existing conversation once before reporting a missing turn', async () => {
     const turn = vi
       .fn()
       .mockRejectedValue(
@@ -69,7 +69,138 @@ describe('MCP conversation wait', () => {
     await expect(
       waitForFinalTurn({ turn }, { conversationId: 'c1', messageId: 'm1', pollMs: 1 }),
     ).rejects.toThrow('No local turn status matches these IDs')
+    expect(turn).toHaveBeenCalledTimes(2)
+    expect(turn.mock.calls[1][3]).toEqual({ recover: true })
+  })
+
+  it('recovers a completed turn after its local running record stopped updating', async () => {
+    const turn = vi.fn(async (_conversationId, _messageId, _signal, { recover }) =>
+      recover
+        ? { status: 'completed', text: 'Recovered final answer' }
+        : { status: 'running', text: 'Partial answer' },
+    )
+    const answer = await waitForFinalTurn(
+      { turn },
+      { conversationId: 'c1', messageId: 'm1', pollMs: 1, recoveryMs: 5, maxWaitMs: 1000 },
+    )
+    expect(answer.text).toBe('Recovered final answer')
+    expect(turn.mock.calls[0][3]).toEqual({ recover: false })
+    expect(turn.mock.calls.at(-1)[3]).toEqual({ recover: true })
+  })
+
+  it('survives more than three bridge failures and resumes reading the same turn', async () => {
+    const turn = vi.fn()
+    for (let index = 0; index < 5; index++) {
+      turn.mockRejectedValueOnce(new GatewayError('Bridge reconnecting', { status: 503 }))
+    }
+    turn.mockResolvedValueOnce({ status: 'completed', text: 'Finished while disconnected' })
+    const answer = await waitForFinalTurn(
+      { turn },
+      { conversationId: 'c1', messageId: 'm1', pollMs: 1 },
+    )
+    expect(answer.text).toBe('Finished while disconnected')
+    expect(turn).toHaveBeenCalledTimes(6)
+    expect(
+      turn.mock.calls.every(
+        ([conversationId, messageId]) => conversationId === 'c1' && messageId === 'm1',
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps the original wait deadline when a status HTTP request stalls', async () => {
+    const turn = vi.fn(
+      (_conversationId, _messageId, signal) =>
+        new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        }),
+    )
+    await expect(
+      waitForFinalTurn(
+        { turn },
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          maxWaitMs: 20,
+          pollMs: 1,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'turn_wait_timeout' })
     expect(turn).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors cancellation during a disconnected-bridge retry', async () => {
+    const controller = new AbortController()
+    const reason = new Error('User cancelled the MCP call')
+    const turn = vi.fn(async () => {
+      controller.abort(reason)
+      throw new GatewayError('Bridge disconnected', { status: 503 })
+    })
+    await expect(
+      waitForFinalTurn(
+        { turn },
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          signal: controller.signal,
+          pollMs: 1,
+        },
+      ),
+    ).rejects.toBe(reason)
+    expect(turn).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the completed answer even when a progress notification never settles', async () => {
+    const turn = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'running' })
+      .mockResolvedValueOnce({ status: 'completed', text: 'Finished while progress was stuck' })
+    const onProgress = vi.fn(() => new Promise(() => {}))
+    await expect(
+      waitForFinalTurn(
+        { turn },
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          pollMs: 1,
+          maxWaitMs: 100,
+          onProgress,
+        },
+      ),
+    ).resolves.toMatchObject({ text: 'Finished while progress was stuck' })
+    expect(onProgress).toHaveBeenCalledTimes(1)
+    expect(turn).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry authentication failures or lose answers on progress delivery errors', async () => {
+    const turn = vi.fn().mockRejectedValue(new GatewayError('Unauthorized', { status: 401 }))
+    await expect(
+      waitForFinalTurn(
+        { turn },
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          pollMs: 1,
+        },
+      ),
+    ).rejects.toMatchObject({ status: 401 })
+    expect(turn).toHaveBeenCalledTimes(1)
+
+    turn
+      .mockResolvedValueOnce({ status: 'running' })
+      .mockResolvedValueOnce({ status: 'completed', text: 'Final' })
+    await expect(
+      waitForFinalTurn(
+        { turn },
+        {
+          conversationId: 'c1',
+          messageId: 'm1',
+          pollMs: 1,
+          onProgress: async () => {
+            throw new Error('Progress connection lost')
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ text: 'Final' })
   })
 
   it('preserves the status and guidance code from a missing-turn response', async () => {
@@ -112,6 +243,10 @@ describe('MCP conversation wait', () => {
     await gateway.turn('c1', 'm1')
     expect(fetchImpl.mock.calls[1][0]).toBe(
       'http://127.0.0.1:18080/chatgpt/conversations/c1/turns/m1',
+    )
+    await gateway.turn('c1', 'm1', undefined, { recover: true })
+    expect(fetchImpl.mock.calls[2][0]).toBe(
+      'http://127.0.0.1:18080/chatgpt/conversations/c1/turns/m1?recover=true',
     )
   })
 
