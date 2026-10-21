@@ -53,6 +53,9 @@ import WebJumpBackNotification from '../components/WebJumpBackNotification'
 import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
 import { handleGrokProxyMessage, isGrokProxyMessage } from './grok-proxy-handlers.mjs'
 import { collectProtocolProbeSnapshotPayload } from './protocol-probe.mjs'
+import { captureContext, selectedInputText } from '../browser-assistant/context.mjs'
+import { openBrowserAssistant } from '../browser-assistant/launch.jsx'
+import { getSelectionString } from '../config/engine-selection.mjs'
 
 /**
  * The engine selection for conversations born on this page: the site's
@@ -102,6 +105,7 @@ async function mountComponent(siteName, siteConfig) {
     }
   }
   document.querySelectorAll('.chatgptbox-container,#chatgptbox-container').forEach((e) => {
+    if (e.closest('[data-chatgptbox-assistant]')) return
     unmountComponentAtNode(e)
     e.remove()
   })
@@ -111,6 +115,7 @@ async function mountComponent(siteName, siteConfig) {
   if (!question && siteConfig) question = await getInput(siteConfig.inputQuery)
 
   document.querySelectorAll('.chatgptbox-container,#chatgptbox-container').forEach((e) => {
+    if (e.closest('[data-chatgptbox-assistant]')) return
     unmountComponentAtNode(e)
     e.remove()
   })
@@ -209,7 +214,7 @@ const deleteToolbar = () => {
   }
 }
 
-const createSelectionTools = async (toolbarContainer, selection) => {
+const createSelectionTools = async (toolbarContainer, selection, context) => {
   toolbarContainer.className = 'chatgptbox-toolbar-container'
   const userConfig = await getUserConfig()
   render(
@@ -222,6 +227,18 @@ const createSelectionTools = async (toolbarContainer, selection) => {
       container={toolbarContainer}
       dockable={true}
       closeable={true}
+      onOpenAssistant={
+        userConfig.browserAssistantEnabled === false
+          ? undefined
+          : () => {
+              unmountAndRemoveToolbar(toolbarContainer)
+              openBrowserAssistant({
+                context: context || captureContext({ selection }),
+                config: userConfig,
+                siteEngine: getSelectionString(engineForCurrentPage(userConfig)),
+              })
+            }
+      }
     />,
     toolbarContainer,
   )
@@ -229,6 +246,7 @@ const createSelectionTools = async (toolbarContainer, selection) => {
 
 async function prepareForSelectionTools() {
   addManagedListener(document, 'mouseup', (e) => {
+    if (e.target?.closest?.('[data-chatgptbox-assistant]')) return
     if (toolbarContainer && toolbarContainer.contains(e.target)) return
     const selectionElement =
       window.getSelection()?.rangeCount > 0 &&
@@ -237,18 +255,23 @@ async function prepareForSelectionTools() {
 
     deleteToolbar()
     setTimeout(async () => {
-      const selection = window
-        .getSelection()
-        ?.toString()
-        ?.trim()
-        ?.replace(/^-+|-+$/g, '')
+      const selection =
+        selectedInputText(e.target) ||
+        window
+          .getSelection()
+          ?.toString()
+          ?.trim()
+          ?.replace(/^-+|-+$/g, '')
       if (selection) {
+        const context = captureContext({ target: e.target, selection })
         let position
 
         const config = await getUserConfig()
         if (!config.selectionToolsNextToInputBox) position = { x: e.pageX + 20, y: e.pageY + 20 }
         else {
-          const inputElement = selectionElement.querySelector('input, textarea')
+          const inputElement =
+            e.target?.closest?.('input, textarea') ||
+            selectionElement?.querySelector?.('input, textarea')
           if (inputElement) {
             position = getClientPosition(inputElement)
             position = {
@@ -260,7 +283,7 @@ async function prepareForSelectionTools() {
           }
         }
         toolbarContainer = createElementAtPosition(position.x, position.y)
-        await createSelectionTools(toolbarContainer, selection)
+        await createSelectionTools(toolbarContainer, selection, context)
       }
     })
   })
@@ -293,6 +316,7 @@ async function prepareForSelectionTools() {
 
 async function prepareForSelectionToolsTouch() {
   addManagedListener(document, 'touchend', (e) => {
+    if (e.target?.closest?.('[data-chatgptbox-assistant]')) return
     if (toolbarContainer && toolbarContainer.contains(e.target)) return
     if (
       toolbarContainer &&
@@ -303,17 +327,23 @@ async function prepareForSelectionToolsTouch() {
 
     deleteToolbar()
     setTimeout(() => {
-      const selection = window
-        .getSelection()
-        ?.toString()
-        ?.trim()
-        ?.replace(/^-+|-+$/g, '')
+      const selection =
+        selectedInputText(e.target) ||
+        window
+          .getSelection()
+          ?.toString()
+          ?.trim()
+          ?.replace(/^-+|-+$/g, '')
       if (selection) {
         toolbarContainer = createElementAtPosition(
           e.changedTouches[0].pageX + 20,
           e.changedTouches[0].pageY + 20,
         )
-        createSelectionTools(toolbarContainer, selection)
+        createSelectionTools(
+          toolbarContainer,
+          selection,
+          captureContext({ target: e.target, selection }),
+        )
       }
     })
   })
@@ -336,9 +366,11 @@ async function prepareForSelectionToolsTouch() {
 let menuX, menuY
 
 async function prepareForRightClickMenu() {
+  let assistantContext
   addManagedListener(document, 'contextmenu', (e) => {
     menuX = e.clientX
     menuY = e.clientY
+    assistantContext = captureContext({ target: e.target })
   })
 
   Browser.runtime.onMessage.addListener((message) => {
@@ -348,6 +380,16 @@ async function prepareForRightClickMenu() {
       const data = message.data
       let prompt = ''
       const userConfig = await getUserConfig()
+
+      if (data.itemId === 'browserAssistant') {
+        if (userConfig.browserAssistantEnabled === false) return
+        openBrowserAssistant({
+          context: assistantContext || captureContext({ selection: data.selectionText }),
+          config: userConfig,
+          siteEngine: getSelectionString(engineForCurrentPage(userConfig)),
+        })
+        return
+      }
 
       if (data.itemId in toolsConfig) {
         prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)

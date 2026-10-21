@@ -26,6 +26,7 @@ import {
   Clipboard,
 } from 'lucide-react'
 import { applyChatGptBoxAppearance } from '../../utils/appearance.mjs'
+import { selectedInputText } from '../../browser-assistant/context.mjs'
 
 // Tool icon mapping (colors handled in CSS by [data-tool])
 const TOOL_ICONS = {
@@ -138,11 +139,13 @@ function FloatingToolbar(props) {
       if (triggeredRef.current) return
       if (promptRef.current) return
 
-      const currentSelection = window
-        .getSelection()
-        ?.toString()
-        ?.trim()
-        ?.replace(/^-+|-+$/g, '')
+      const currentSelection =
+        selectedInputText(document.activeElement) ||
+        window
+          .getSelection()
+          ?.toString()
+          ?.trim()
+          ?.replace(/^-+|-+$/g, '')
 
       if (!currentSelection) {
         removeContainer()
@@ -284,7 +287,7 @@ function FloatingToolbar(props) {
     const hasActiveCustomTools = (config.customSelectionTools || []).some(
       (tool) => tool?.name && tool.active !== false,
     )
-    if (!hasActiveBuiltinTools && !hasActiveCustomTools) return <div />
+    if (!hasActiveBuiltinTools && !hasActiveCustomTools && !props.onOpenAssistant) return <div />
 
     const tools = []
     const pushTool = ({ key, iconKey, name, genPrompt }) => {
@@ -359,7 +362,24 @@ function FloatingToolbar(props) {
 
     return (
       <div data-theme={resolvedTheme}>
-        <div className="chatgptbox-selection-toolbar">{tools}</div>
+        <div className="chatgptbox-selection-toolbar">
+          {props.onOpenAssistant && (
+            <button
+              className="chatgptbox-selection-toolbar-button"
+              title={t('Browser assistant')}
+              onPointerDownCapture={() => {
+                preventAutoCloseRef.current = true
+              }}
+              onMouseDownCapture={() => {
+                preventAutoCloseRef.current = true
+              }}
+              onClick={() => props.onOpenAssistant(selection)}
+            >
+              <Wand2 size={16} />
+            </button>
+          )}
+          {tools}
+        </div>
       </div>
     )
   }
@@ -373,6 +393,7 @@ FloatingToolbar.propTypes = {
   closeable: PropTypes.bool,
   dockable: PropTypes.bool,
   prompt: PropTypes.string,
+  onOpenAssistant: PropTypes.func,
 }
 
 export default FloatingToolbar

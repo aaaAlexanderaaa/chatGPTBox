@@ -7,6 +7,17 @@ import { RuntimeMessage } from '../protocol/messages.mjs'
 const menuId = 'ChatGPTBox-Menu'
 const onClickMenu = (info, tab) => {
   const itemId = info.menuItemId.replace(menuId, '')
+  if (itemId === 'browserAssistant') {
+    void Browser.tabs.sendMessage(
+      tab.id,
+      {
+        type: RuntimeMessage.CreateChat,
+        data: { itemId, selectionText: info.selectionText },
+      },
+      { frameId: info.frameId || 0 },
+    )
+    return
+  }
   // chrome.sidePanel.open must run in the click's user-gesture stack.
   // tabs.query().then(...) drops that gesture, so open Side Panel first.
   if (itemId === 'openSidePanel') {
@@ -63,6 +74,15 @@ export function refreshMenu() {
       title: 'ChatGPTBox',
       contexts: ['all'],
     })
+
+    if (userConfig.browserAssistantEnabled !== false) {
+      Browser.contextMenus.create({
+        id: menuId + 'browserAssistant',
+        parentId: menuId,
+        title: t('Browser assistant'),
+        contexts: ['all'],
+      })
+    }
 
     for (const [k, v] of Object.entries(menuConfig)) {
       Browser.contextMenus.create({

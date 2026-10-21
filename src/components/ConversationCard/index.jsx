@@ -313,6 +313,7 @@ function ConversationCard(props) {
         window.removeEventListener('keydown', closeChatsEscListener)
       }
       port.onDisconnect.removeListener(portListener)
+      if (props.disconnectOnUnmount) port.disconnect()
     }
   }, [port])
   // dsh bridge messages ride the same port: decisions render as cards, the
@@ -771,15 +772,18 @@ function ConversationCard(props) {
             : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical', overflow: 'auto' }
         }
       >
-        {conversationItemData.map((data, idx) => (
-          <ConversationItem
-            content={data.content}
-            key={idx}
-            type={data.type}
-            descName={data.type === 'answer' && session.aiName}
-            onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
-          />
-        ))}
+        {conversationItemData.map(
+          (data, idx) =>
+            props.renderAnswer?.(data, idx) || (
+              <ConversationItem
+                content={data.content}
+                key={idx}
+                type={data.type}
+                descName={data.type === 'answer' && session.aiName}
+                onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+              />
+            ),
+        )}
       </div>
       {props.waitForTrigger && !triggered ? (
         <p
@@ -1083,6 +1087,8 @@ ConversationCard.propTypes = {
   selection: PropTypes.string,
   draftKey: PropTypes.string,
   onUpdate: PropTypes.func,
+  renderAnswer: PropTypes.func,
+  disconnectOnUnmount: PropTypes.bool,
   draggable: PropTypes.bool,
   closeable: PropTypes.bool,
   onClose: PropTypes.func,

@@ -46,6 +46,8 @@ export function getNavigatorLanguage() {
  * @typedef {typeof defaultConfig} UserConfig
  */
 export const defaultConfig = {
+  browserAssistantEnabled: true,
+  browserAssistantFunctions: [],
   // general
 
   /** @type {keyof TriggerMode}*/
