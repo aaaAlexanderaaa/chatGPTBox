@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
 import { X, ArrowLeft, Play, BookmarkPlus, ExternalLink } from 'lucide-react'
@@ -9,26 +9,48 @@ import { getSelectionString, listEnabledEngineSelections } from '../config/engin
 import { getPreferredLanguage } from '../config/language.mjs'
 import { initSession } from '../services/init-session.mjs'
 import {
-  FUNCTION_PRESETS,
   INPUT_SCOPES,
   OUTPUT_MODES,
   SCOPE_LABELS,
   OUTPUT_LABELS,
-  createFunction,
   prepareFunctionRun,
-  validateFunction,
   functionWithRefinements,
 } from './functions.mjs'
 import { captureReadingSnapshot } from './context.mjs'
 import { AssistantResult } from './Result.jsx'
+import {
+  listFunctions,
+  findFunction,
+  canRunFunction,
+  localizeFunction,
+  saveFunctionPatch,
+} from './catalog.mjs'
+import { resolvePromptTemplate } from '../utils/prompt-template-context.mjs'
+import { i18nReady } from '../_locales/i18n-react.mjs'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 
-export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }) {
-  const { t } = useTranslation()
+export function BrowserAssistant({
+  context,
+  initialConfig,
+  siteEngine,
+  onClose,
+  functionId,
+  autoRun = false,
+}) {
+  const { t, i18n } = useTranslation()
   const [config, setConfig] = useState(initialConfig)
   const [fn, setFn] = useState(() => {
-    const preset = FUNCTION_PRESETS[context.input ? 4 : context.selection ? 1 : 0]
-    return createFunction({ ...preset, name: t(preset.name), prompt: t(preset.prompt) })
+    return (
+      findFunction(initialConfig, functionId, context) ||
+      listFunctions(initialConfig, { context }).find(
+        (item) =>
+          canRunFunction(item, context) &&
+          item.scope === (context.input ? 'input' : context.selection ? 'selection' : 'page'),
+      ) ||
+      findFunction(initialConfig, 'preset.page-overview', context)
+    )
   })
+  const displayFn = localizeFunction(fn, t)
   const [temporaryEngine, setTemporaryEngine] = useState('')
   const [run, setRun] = useState(null)
   const [session, setSession] = useState(null)
@@ -40,10 +62,7 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
   const [actualEngine, setActualEngine] = useState('')
   const starting = useRef(false)
   const engineOptions = listEnabledEngineSelections(config)
-  const functions = [
-    ...FUNCTION_PRESETS,
-    ...(config.browserAssistantFunctions || []).filter((item) => item.enabled !== false),
-  ]
+  const functions = listFunctions(config, { entry: 'function-picker', context })
   const preview = useMemo(() => {
     try {
       if (fn.scope === 'page' || fn.output === 'annotations') {
@@ -66,7 +85,7 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
     }
   }, [context, fn.scope, fn.output])
   const edit = (patch) => {
-    setFn((prev) => ({ ...prev, ...patch }))
+    setFn((prev) => ({ ...localizeFunction(prev, t), ...patch, customized: true }))
     setSaved(false)
   }
   const start = async () => {
@@ -75,18 +94,32 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
     setBusy(true)
     setError('')
     try {
+      await i18nReady
       if (context.document.location.href !== context.url)
         throw new Error('The page changed. Open the assistant again.')
       if (preview.error) throw new Error(preview.error)
       const latest = await getUserConfig()
+      const language = await getPreferredLanguage()
       const prepared = prepareFunctionRun({
-        fn,
+        fn: localizeFunction(fn, i18n.t.bind(i18n)),
         context,
         temporaryEngine,
         siteEngine,
         config: latest,
         snapshot: preview.snapshot,
-        language: await getPreferredLanguage(),
+        language,
+        resolveTemplate: (template, material) =>
+          resolvePromptTemplate(template, {
+            selection: material,
+            customExtractors: latest.customContentExtractors,
+            allowFullHtml: false,
+            pageContext: {
+              title: context.title,
+              url: context.url,
+              language,
+              ...(fn.scope === 'page' ? { content: material } : {}),
+            },
+          }),
       })
       setSession(
         initSession({ modelName: prepared.engine, extraCustomModelName: latest.customModelName }),
@@ -104,7 +137,10 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
   }
   const openSave = () => {
     if (!saving && run) {
-      edit({ prompt: functionWithRefinements(run.fn, refinements).prompt })
+      edit({
+        prompt: functionWithRefinements(run.fn, refinements, t('Additional user instructions:'))
+          .prompt,
+      })
       if (actualEngine && actualEngine !== run.engine) setTemporaryEngine(actualEngine)
     }
     setSaving(!saving)
@@ -113,26 +149,32 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
     setError('')
     try {
       const latest = await getUserConfig()
-      const list = latest.browserAssistantFunctions || []
-      const value = validateFunction({ ...fn, engine: temporaryEngine || fn.engine || '' })
-      const item = value.id.startsWith('preset.')
-        ? createFunction({ ...value, id: undefined })
-        : value
-      const next = [...list.filter((entry) => entry.id !== item.id), item]
-      await setUserConfig({ browserAssistantFunctions: next })
-      setConfig({ ...latest, browserAssistantFunctions: next })
-      setFn(item)
+      const { item, patch } = saveFunctionPatch(latest, {
+        ...localizeFunction(fn, t),
+        engine: temporaryEngine || fn.engine || '',
+      })
+      await setUserConfig(patch)
+      await Browser.runtime.sendMessage({ type: RuntimeMessage.RefreshMenu }).catch(() => {})
+      setConfig({ ...latest, ...patch })
+      setFn({ ...item, source: 'custom' })
       setSaving(false)
       setSaved(true)
     } catch (error) {
       setError(error.message)
     }
   }
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (autoRun && !autoStarted.current) {
+      autoStarted.current = true
+      void start()
+    }
+  }, [autoRun])
   return (
-    <section className="box-assistant" aria-label={t('Browser assistant')}>
+    <section className="box-assistant" aria-label={t('Functions')}>
       <header className="box-assistant-header">
         <div>
-          <strong>{t('Browser assistant')}</strong>
+          <strong>ChatGPTBox</strong>
           <small title={context.url}>{context.title || context.url}</small>
         </div>
         <button className="box-assistant-icon" title={t('Close')} onClick={onClose}>
@@ -149,7 +191,13 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
               </span>
               <button
                 onClick={() => {
-                  edit({ prompt: functionWithRefinements(run.fn, refinements).prompt })
+                  edit({
+                    prompt: functionWithRefinements(
+                      run.fn,
+                      refinements,
+                      t('Additional user instructions:'),
+                    ).prompt,
+                  })
                   if (actualEngine && actualEngine !== run.engine) setTemporaryEngine(actualEngine)
                   setRun(null)
                   setBusy(false)
@@ -212,23 +260,15 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
                 <button
                   key={item.id}
                   className={fn.id === item.id ? 'is-active' : ''}
-                  disabled={
-                    (item.scope === 'selection' && !context.selection) ||
-                    (item.scope === 'input' && !context.input)
-                  }
+                  disabled={!canRunFunction(item, context)}
                   onClick={() => {
-                    setFn({
-                      ...item,
-                      name: item.id.startsWith('preset.') ? t(item.name) : item.name,
-                      prompt: item.id.startsWith('preset.') ? t(item.prompt) : item.prompt,
-                      engine: item.engine || '',
-                    })
+                    setFn(item)
                     setTemporaryEngine('')
                     setSaved(false)
                     setError('')
                   }}
                 >
-                  {item.id.startsWith('preset.') ? t(item.name) : item.name}
+                  {localizeFunction(item, t).name}
                 </button>
               ))}
             </div>
@@ -236,7 +276,7 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
               {t('What would you like help with?')}
               <textarea
                 rows={4}
-                value={fn.prompt}
+                value={displayFn.prompt}
                 onChange={(event) => edit({ prompt: event.target.value })}
               />
             </label>
@@ -371,13 +411,16 @@ export function BrowserAssistant({ context, initialConfig, siteEngine, onClose }
           <div className="box-assistant-save">
             <label>
               {t('Function name')}
-              <input value={fn.name} onChange={(event) => edit({ name: event.target.value })} />
+              <input
+                value={displayFn.name}
+                onChange={(event) => edit({ name: event.target.value })}
+              />
             </label>
             <label>
               {t('Instruction')}
               <textarea
                 rows={3}
-                value={fn.prompt}
+                value={displayFn.prompt}
                 onChange={(event) => edit({ prompt: event.target.value })}
               />
             </label>
@@ -398,4 +441,6 @@ BrowserAssistant.propTypes = {
   initialConfig: PropTypes.object.isRequired,
   siteEngine: PropTypes.string,
   onClose: PropTypes.func.isRequired,
+  functionId: PropTypes.string,
+  autoRun: PropTypes.bool,
 }

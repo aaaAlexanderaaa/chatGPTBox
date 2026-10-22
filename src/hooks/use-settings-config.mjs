@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { defaultConfig, getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { useWindowTheme } from './use-window-theme.mjs'
 import { applyDocumentAppearance } from '../utils/appearance.mjs'
+import Browser from 'webextension-polyfill'
 
 /**
  * Shared state for the settings surfaces (popup quick settings and the
@@ -12,6 +13,16 @@ export function useSettingsConfig() {
 
   useEffect(() => {
     getUserConfig().then(setConfig)
+    const changed = (changes) => {
+      const patch = Object.fromEntries(
+        Object.entries(changes)
+          .filter(([key]) => key in defaultConfig && key !== 'sessions')
+          .map(([key, value]) => [key, value.newValue ?? defaultConfig[key]]),
+      )
+      if (Object.keys(patch).length) setConfig((previous) => ({ ...previous, ...patch }))
+    }
+    Browser.storage.local.onChanged.addListener(changed)
+    return () => Browser.storage.local.onChanged.removeListener(changed)
   }, [])
 
   // Functional setState avoids stale-closure merges

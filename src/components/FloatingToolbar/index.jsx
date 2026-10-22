@@ -2,54 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { render as preactRender } from 'preact'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
-import { config as toolsConfig } from '../../content-script/selection-tools'
 import { getClientPosition, resolvePromptTemplate, setElementPositionInViewport } from '../../utils'
 import Draggable from 'react-draggable'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
-import {
-  Languages,
-  FileText,
-  Lightbulb,
-  Sparkles,
-  Code,
-  HelpCircle,
-  Globe,
-  Smile,
-  SplitSquareVertical,
-  Quote,
-  Star,
-  Wand2,
-  PenLine,
-  BookOpen,
-  Clipboard,
-} from 'lucide-react'
+import { HelpCircle, Wand2 } from 'lucide-react'
+import { FUNCTION_ICONS } from '../../browser-assistant/icons.mjs'
 import { applyChatGptBoxAppearance } from '../../utils/appearance.mjs'
-import { selectedInputText } from '../../browser-assistant/context.mjs'
-
-// Tool icon mapping (colors handled in CSS by [data-tool])
-const TOOL_ICONS = {
-  translate: { icon: Languages },
-  summary: { icon: FileText },
-  explain: { icon: Lightbulb },
-  polish: { icon: Sparkles },
-  code: { icon: Code },
-  ask: { icon: HelpCircle },
-  translateToEn: { icon: Globe },
-  translateToZh: { icon: Globe },
-  translateBidi: { icon: Globe },
-  sentiment: { icon: Smile },
-  divide: { icon: SplitSquareVertical },
-
-  // Extra icons for custom tools
-  star: { icon: Star },
-  wand: { icon: Wand2 },
-  quote: { icon: Quote },
-  pen: { icon: PenLine },
-  book: { icon: BookOpen },
-  clipboard: { icon: Clipboard },
-}
+import {
+  selectedInputText,
+  captureContext,
+  captureReadingSnapshot,
+} from '../../browser-assistant/context.mjs'
+import {
+  listFunctions,
+  localizeFunction,
+  canRunFunction,
+} from '../../browser-assistant/catalog.mjs'
+import { prepareFunctionRun } from '../../browser-assistant/functions.mjs'
+import { getPreferredLanguage } from '../../config/language.mjs'
+import { getSelectionString } from '../../config/engine-selection.mjs'
 
 function FloatingToolbar(props) {
   const { t } = useTranslation()
@@ -283,16 +256,18 @@ function FloatingToolbar(props) {
       </div>
     )
   } else {
-    const hasActiveBuiltinTools = (config.activeSelectionTools || []).length > 0
-    const hasActiveCustomTools = (config.customSelectionTools || []).some(
-      (tool) => tool?.name && tool.active !== false,
+    const context =
+      props.functionContext || captureContext({ target: document.activeElement, selection })
+    const available = listFunctions(config, { entry: 'selection-toolbar', context }).filter(
+      (item) =>
+        canRunFunction(item, context) &&
+        (props.onOpenAssistant || item.legacyKey || item.source === 'legacy'),
     )
-    if (!hasActiveBuiltinTools && !hasActiveCustomTools && !props.onOpenAssistant) return <div />
+    if (!available.length && !props.onOpenAssistant) return <div />
 
     const tools = []
     const pushTool = ({ key, iconKey, name, genPrompt }) => {
-      const toolConfig = TOOL_ICONS[iconKey] || { icon: HelpCircle }
-      const Icon = toolConfig.icon
+      const Icon = FUNCTION_ICONS[iconKey]?.Icon || HelpCircle
 
       tools.push(
         <button
@@ -315,6 +290,10 @@ function FloatingToolbar(props) {
             isPreparingPromptRef.current = true
             setIsPreparingPrompt(true)
             try {
+              if (props.onOpenAssistant) {
+                props.onOpenAssistant(key)
+                return
+              }
               const p = getClientPosition(props.container)
               props.container.style.position = 'fixed'
               setPosition(p)
@@ -337,43 +316,47 @@ function FloatingToolbar(props) {
       )
     }
 
-    for (const key in toolsConfig) {
-      if ((config.activeSelectionTools || []).includes(key)) {
-        const toolConfig = toolsConfig[key]
-        pushTool({ key, iconKey: key, name: t(toolConfig.label), genPrompt: toolConfig.genPrompt })
-      }
-    }
-    for (const [index, tool] of (config.customSelectionTools || []).entries()) {
-      if (tool?.name && tool.active !== false) {
-        pushTool({
-          key: `custom_${index}`,
-          iconKey: tool.iconKey || 'ask',
-          name: tool.name,
-          genPrompt: async (selection) => {
-            return resolvePromptTemplate(tool.prompt, {
-              selection,
-              customExtractors: config.customContentExtractors,
-              allowFullHtml: false,
-            })
-          },
-        })
-      }
+    for (const item of available) {
+      const fn = localizeFunction(item, t)
+      pushTool({
+        key: fn.id,
+        iconKey: fn.iconKey || 'ask',
+        name: fn.name,
+        genPrompt: async () => {
+          const language = await getPreferredLanguage()
+          return prepareFunctionRun({
+            fn,
+            context,
+            config,
+            siteEngine: getSelectionString(props.session),
+            language,
+            snapshot: fn.scope === 'page' ? captureReadingSnapshot(context) : undefined,
+            resolveTemplate: (template, material) =>
+              resolvePromptTemplate(template, {
+                selection: material,
+                customExtractors: config.customContentExtractors,
+                allowFullHtml: false,
+                pageContext: { title: context.title, url: context.url, language },
+              }),
+          }).prompt
+        },
+      })
     }
 
     return (
       <div data-theme={resolvedTheme}>
         <div className="chatgptbox-selection-toolbar">
-          {props.onOpenAssistant && (
+          {props.onOpenAssistant && props.showFunctionPicker !== false && (
             <button
               className="chatgptbox-selection-toolbar-button"
-              title={t('Browser assistant')}
+              title={t('Functions…')}
               onPointerDownCapture={() => {
                 preventAutoCloseRef.current = true
               }}
               onMouseDownCapture={() => {
                 preventAutoCloseRef.current = true
               }}
-              onClick={() => props.onOpenAssistant(selection)}
+              onClick={() => props.onOpenAssistant()}
             >
               <Wand2 size={16} />
             </button>
@@ -394,6 +377,8 @@ FloatingToolbar.propTypes = {
   dockable: PropTypes.bool,
   prompt: PropTypes.string,
   onOpenAssistant: PropTypes.func,
+  functionContext: PropTypes.object,
+  showFunctionPicker: PropTypes.bool,
 }
 
 export default FloatingToolbar

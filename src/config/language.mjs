@@ -1,5 +1,6 @@
 import { languages } from 'countries-list'
-import { defaultConfig, getUserConfig } from './index.mjs'
+import { getUserConfig } from './storage.mjs'
+import { normalizeLanguageKey, preferredLanguageKey } from './language-preference.mjs'
 
 export const languageList = { auto: { name: 'Auto', native: 'Auto' }, ...languages }
 languageList.zh.name = 'Chinese (Simplified)'
@@ -12,21 +13,21 @@ languageList.in.name = 'Indonesia'
 languageList.in.native = 'Indonesia'
 
 export async function getUserLanguage() {
-  return languageList[defaultConfig.userLanguage].name
+  return languageList[normalizeLanguageKey((await getUserConfig()).userLanguage)]?.name || 'English'
 }
 
 export async function getUserLanguageNative() {
-  return languageList[defaultConfig.userLanguage].native
+  return (
+    languageList[normalizeLanguageKey((await getUserConfig()).userLanguage)]?.native || 'English'
+  )
 }
 
 export async function getPreferredLanguage() {
   const config = await getUserConfig()
-  if (config.preferredLanguage === 'auto') return await getUserLanguage()
-  return languageList[config.preferredLanguage].name
+  return languageList[preferredLanguageKey(config)]?.name || 'English'
 }
 
 export async function getPreferredLanguageNative() {
   const config = await getUserConfig()
-  if (config.preferredLanguage === 'auto') return await getUserLanguageNative()
-  return languageList[config.preferredLanguage].native
+  return languageList[preferredLanguageKey(config)]?.native || 'English'
 }

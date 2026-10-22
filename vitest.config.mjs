@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config'
 import path from 'node:path'
 
 export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.{mjs,js,jsx}'],

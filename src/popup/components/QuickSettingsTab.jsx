@@ -32,7 +32,7 @@ export function QuickSettingsTab({ config, updateConfig, openFullSettings }) {
   const sections = [
     { id: 'engines', icon: Cpu, label: t('Engines'), hint: t('Providers, keys, models') },
     { id: 'behavior', icon: Sliders, label: t('Behavior'), hint: t('Generation, windows') },
-    { id: 'tools', icon: Wrench, label: t('Tools'), hint: t('Selection tools') },
+    { id: 'tools', icon: Wrench, label: t('Functions'), hint: t('Manage functions and entries') },
     { id: 'sites', icon: Globe, label: t('Sites'), hint: t('Adapters, extractors') },
     { id: 'appearance', icon: Palette, label: t('Appearance'), hint: t('Theme, accents') },
   ]

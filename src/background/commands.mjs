@@ -16,7 +16,7 @@ export function registerCommands() {
         menuConfig[command].action(true, tab)
       }
 
-      if (menuConfig[command].genPrompt) {
+      if (menuConfig[command].genPrompt || menuConfig[command].functionId) {
         const currentTab = (await Browser.tabs.query({ active: true, currentWindow: true }))[0]
         Browser.tabs.sendMessage(currentTab.id, {
           type: RuntimeMessage.CreateChat,

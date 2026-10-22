@@ -177,7 +177,7 @@ export function createMessageRouter() {
       }
     },
     [RuntimeMessage.RefreshMenu]: async () => {
-      refreshMenu()
+      await refreshMenu()
     },
     [RuntimeMessage.PinTab]: async (message, sender) => {
       let tabId

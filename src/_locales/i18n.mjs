@@ -1,7 +1,4 @@
 import i18n from 'i18next'
-import { resources } from './resources'
+import { initializeLanguage } from './language-sync.mjs'
 
-i18n.init({
-  resources,
-  fallbackLng: 'en',
-})
+export const i18nReady = initializeLanguage(i18n)

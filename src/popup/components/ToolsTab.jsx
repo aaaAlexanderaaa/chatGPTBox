@@ -1,7 +1,6 @@
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
 import { SettingRow, SettingSection, Divider } from './SettingComponents.jsx'
-import { SelectionTools } from '../sections/SelectionTools.jsx'
 import { FunctionLibrary } from '../../browser-assistant/FunctionLibrary.jsx'
 
 const TEXT_INPUT_CLASS =
@@ -18,8 +17,6 @@ export function ToolsTab({ config, updateConfig }) {
   return (
     <div className="space-y-4">
       <FunctionLibrary config={config} updateConfig={updateConfig} />
-      <Divider />
-      <SelectionTools config={config} updateConfig={updateConfig} />
 
       <Divider />
 

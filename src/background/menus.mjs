@@ -3,11 +3,12 @@ import { defaultConfig, getPreferredLanguageKey, getUserConfig } from '../config
 import { changeLanguage, t } from 'i18next'
 import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 import { RuntimeMessage } from '../protocol/messages.mjs'
+import { listFunctions, localizeFunction } from '../browser-assistant/catalog.mjs'
 
 const menuId = 'ChatGPTBox-Menu'
 const onClickMenu = (info, tab) => {
   const itemId = info.menuItemId.replace(menuId, '')
-  if (itemId === 'browserAssistant') {
+  if (itemId === 'browserAssistant' || itemId.startsWith('function:')) {
     void Browser.tabs.sendMessage(
       tab.id,
       {
@@ -50,7 +51,7 @@ const onClickMenu = (info, tab) => {
         menuConfig[message.itemId].action(true, tab)
       }
 
-      if (menuConfig[message.itemId].genPrompt) {
+      if (menuConfig[message.itemId].genPrompt || menuConfig[message.itemId].functionId) {
         Browser.tabs.sendMessage(currentTab.id, {
           type: RuntimeMessage.CreateChat,
           data: message,
@@ -59,79 +60,65 @@ const onClickMenu = (info, tab) => {
     }
   })
 }
+let refreshQueue = Promise.resolve()
+
 export function refreshMenu() {
+  refreshQueue = refreshQueue.catch(() => {}).then(rebuildMenu)
+  return refreshQueue
+}
+
+async function rebuildMenu() {
   if (Browser.contextMenus.onClicked.hasListener(onClickMenu))
     Browser.contextMenus.onClicked.removeListener(onClickMenu)
-  Browser.contextMenus.removeAll().then(async () => {
+  return Browser.contextMenus.removeAll().then(async () => {
     const userConfig = await getUserConfig()
     if (userConfig.hideContextMenu) return
 
-    await getPreferredLanguageKey().then((lang) => {
-      changeLanguage(lang)
-    })
-    Browser.contextMenus.create({
+    await changeLanguage(await getPreferredLanguageKey())
+    await Browser.contextMenus.create({
       id: menuId,
       title: 'ChatGPTBox',
       contexts: ['all'],
     })
 
     if (userConfig.browserAssistantEnabled !== false) {
-      Browser.contextMenus.create({
+      await Browser.contextMenus.create({
         id: menuId + 'browserAssistant',
         parentId: menuId,
-        title: t('Browser assistant'),
+        title: t('Functions…'),
         contexts: ['all'],
       })
     }
 
     for (const [k, v] of Object.entries(menuConfig)) {
-      Browser.contextMenus.create({
+      if (v.functionId) continue
+      await Browser.contextMenus.create({
         id: menuId + k,
         parentId: menuId,
         title: t(v.label),
         contexts: ['all'],
       })
     }
-    Browser.contextMenus.create({
+    await Browser.contextMenus.create({
       id: menuId + 'separator1',
       parentId: menuId,
       contexts: ['selection'],
       type: 'separator',
     })
 
-    // Add default selection tools that are active
-    for (const index in defaultConfig.selectionTools) {
-      const key = defaultConfig.selectionTools[index]
-      const desc = defaultConfig.selectionToolsDesc[index]
-      if ((userConfig.activeSelectionTools || []).includes(key)) {
-        Browser.contextMenus.create({
-          id: menuId + key,
-          parentId: menuId,
-          title: t(desc),
-          contexts: ['selection'],
-        })
-      }
+    for (const item of listFunctions(userConfig, { entry: 'context-menu' })) {
+      await Browser.contextMenus.create({
+        id: menuId + 'function:' + item.id,
+        parentId: menuId,
+        title: localizeFunction(item, t).name,
+        contexts:
+          item.scope === 'input'
+            ? ['editable']
+            : item.scope === 'selection' && !item.selectionOrPage
+            ? ['selection']
+            : ['all'],
+      })
     }
-
-    // Add custom selection tools that are active
-    console.debug('[Menu] All custom tools:', userConfig.customSelectionTools)
-    userConfig.customSelectionTools?.forEach((tool, i) => {
-      if (tool?.name && tool.active !== false) {
-        // If usePageContext is true, show in 'all' contexts (works with and without selection)
-        // Otherwise, only show when text is selected
-        const contexts = tool.usePageContext ? ['all'] : ['selection']
-        console.debug(`[Menu] Creating menu for "${tool.name}" (index ${i}):`, {
-          usePageContext: tool.usePageContext,
-          contexts: contexts,
-        })
-        Browser.contextMenus.create({
-          id: menuId + 'custom_' + i,
-          parentId: menuId,
-          title: tool.name,
-          contexts: contexts,
-        })
-      }
-    })
 
     Browser.contextMenus.onClicked.addListener(onClickMenu)
   })

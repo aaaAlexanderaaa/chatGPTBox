@@ -255,6 +255,12 @@ ChatGPTBox runs locally in your browser. Network requests are only made to the p
 
 ## Changelog
 
+### v4.2.1
+
+- Unified built-in and custom actions in one function library. The context menu, selection toolbar, function picker, and existing page-overview shortcut use the same catalog; each function can choose its entries, and existing settings and templates are preserved.
+- Fixed reading-guide parsing for model reasoning prefixes, fenced JSON, and explanatory text. Ordinary answers remain readable when structured output is unavailable; rewrites apply and copy only the final text.
+- Fixed Chinese and English language handling across saved preferences, built-in instructions, open settings, and native context menus. Built-ins follow language changes while user-authored text stays intact. Added simplified/traditional Chinese coverage and protected against stale asynchronous language reads.
+
 ### v4.2.0
 
 - Added an on-page browser assistant with page overviews, selection explanations, link overviews, reading annotations, and input rewriting. Preview the material, choose an AI connection, and save reusable functions with JSON import/export.

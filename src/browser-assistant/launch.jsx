@@ -3,7 +3,7 @@ import { BrowserAssistant } from './Assistant.jsx'
 import { applyChatGptBoxAppearance } from '../utils/appearance.mjs'
 import './styles.css'
 
-export function openBrowserAssistant({ context, config, siteEngine }) {
+export function openBrowserAssistant({ context, config, siteEngine, functionId, autoRun }) {
   const old = context.document.querySelector('[data-chatgptbox-assistant]')
   if (old) {
     render(null, old)
@@ -30,6 +30,8 @@ export function openBrowserAssistant({ context, config, siteEngine }) {
       initialConfig={config}
       siteEngine={siteEngine}
       onClose={close}
+      functionId={functionId}
+      autoRun={autoRun}
     />,
     container,
   )

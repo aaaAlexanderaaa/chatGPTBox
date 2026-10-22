@@ -6,6 +6,7 @@ import { copyTextWhenReady } from '../utils/clipboard.mjs'
 import { parseReadingResult } from './functions.mjs'
 import { rangeForAnnotation } from './context.mjs'
 import { applyInputReplacement, revealAnnotation, showAnnotations } from './effects.mjs'
+import { normalizeModelAnswer, unwrapAnswerFence } from '../services/model-answer.mjs'
 
 export function AssistantResult({ run, text, resultId }) {
   const { t } = useTranslation()
@@ -14,6 +15,8 @@ export function AssistantResult({ run, text, resultId }) {
   const [applied, setApplied] = useState(false)
   const cleanup = useRef(null)
   const undo = useRef(null)
+  const answer = useMemo(() => normalizeModelAnswer(text), [text])
+  const replacement = unwrapAnswerFence(answer.text)
   useEffect(() => () => cleanup.current?.(), [])
   const reading = useMemo(() => {
     if (run.fn.output !== 'annotations') return null
@@ -44,12 +47,24 @@ export function AssistantResult({ run, text, resultId }) {
   }
   return (
     <div className="box-assistant-result">
+      {answer.reasoning && (
+        <details className="box-assistant-note">
+          <summary>{t('Thinking')}</summary>
+          <pre>{answer.reasoning}</pre>
+        </details>
+      )}
       {error && (
         <p className="box-assistant-error" role="alert">
           {t(error)}
         </p>
       )}
-      {run.fn.output === 'replacement' ? (
+      {answer.pending || !answer.text ? (
+        <p className="box-assistant-note" role="status">
+          {t(
+            'The model returned thinking without a final answer. Continue the conversation to request the result.',
+          )}
+        </p>
+      ) : run.fn.output === 'replacement' ? (
         <>
           <h4>{t('Compare rewrite')}</h4>
           <div className="box-assistant-comparison">
@@ -59,7 +74,7 @@ export function AssistantResult({ run, text, resultId }) {
             </div>
             <div>
               <small>{t('Suggested rewrite')}</small>
-              <pre>{text}</pre>
+              <pre>{replacement}</pre>
             </div>
           </div>
           <div className="box-assistant-actions">
@@ -67,7 +82,7 @@ export function AssistantResult({ run, text, resultId }) {
               disabled={applied}
               onClick={() =>
                 act(() => {
-                  undo.current = applyInputReplacement(run.context.input, text)
+                  undo.current = applyInputReplacement(run.context.input, replacement)
                   setApplied(true)
                 })
               }
@@ -87,7 +102,7 @@ export function AssistantResult({ run, text, resultId }) {
             </button>
             <button
               onClick={() => {
-                void copyTextWhenReady(() => text).catch(() =>
+                void copyTextWhenReady(() => replacement).catch(() =>
                   setError('Could not copy the result'),
                 )
               }}
@@ -98,10 +113,10 @@ export function AssistantResult({ run, text, resultId }) {
         </>
       ) : reading?.error ? (
         <>
-          <p className="box-assistant-error" role="alert">
+          <p className="box-assistant-note" role="status">
             {t(reading.error)}
           </p>
-          <ConversationItem content={text} type="answer" />
+          <ConversationItem content={answer.text || text} type="answer" />
         </>
       ) : reading ? (
         <>

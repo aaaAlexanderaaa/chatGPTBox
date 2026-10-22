@@ -25,7 +25,10 @@ getUserConfig().then(async (config) => {
         menuConfig[config.clickIconAction].action(false, currentTab)
       }
 
-      if (menuConfig[config.clickIconAction].genPrompt) {
+      if (
+        menuConfig[config.clickIconAction].genPrompt ||
+        menuConfig[config.clickIconAction].functionId
+      ) {
         Browser.tabs.sendMessage(currentTab.id, {
           type: RuntimeMessage.CreateChat,
           data: message,

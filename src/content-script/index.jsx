@@ -3,7 +3,6 @@ import { unmountComponentAtNode } from 'react-dom'
 import { render } from 'preact'
 import DecisionCard from '../components/DecisionCard'
 import { config as siteConfig } from './site-adapters'
-import { config as toolsConfig } from './selection-tools'
 import { config as menuConfig } from './menu-tools'
 import {
   getPreferredLanguageKey,
@@ -20,7 +19,6 @@ import {
   getExtractedContentWithMetadata,
   matchSiteName,
   resolveEngineForSite,
-  resolvePromptTemplate,
 } from '../utils'
 import { cropText } from '../utils/crop-text.mjs'
 import FloatingToolbar from '../components/FloatingToolbar'
@@ -56,6 +54,7 @@ import { collectProtocolProbeSnapshotPayload } from './protocol-probe.mjs'
 import { captureContext, selectedInputText } from '../browser-assistant/context.mjs'
 import { openBrowserAssistant } from '../browser-assistant/launch.jsx'
 import { getSelectionString } from '../config/engine-selection.mjs'
+import { findFunction } from '../browser-assistant/catalog.mjs'
 
 /**
  * The engine selection for conversations born on this page: the site's
@@ -227,18 +226,18 @@ const createSelectionTools = async (toolbarContainer, selection, context) => {
       container={toolbarContainer}
       dockable={true}
       closeable={true}
-      onOpenAssistant={
-        userConfig.browserAssistantEnabled === false
-          ? undefined
-          : () => {
-              unmountAndRemoveToolbar(toolbarContainer)
-              openBrowserAssistant({
-                context: context || captureContext({ selection }),
-                config: userConfig,
-                siteEngine: getSelectionString(engineForCurrentPage(userConfig)),
-              })
-            }
-      }
+      functionContext={context}
+      showFunctionPicker={userConfig.browserAssistantEnabled !== false}
+      onOpenAssistant={(functionId) => {
+        unmountAndRemoveToolbar(toolbarContainer)
+        openBrowserAssistant({
+          context: context || captureContext({ selection }),
+          config: userConfig,
+          functionId,
+          autoRun: !!functionId,
+          siteEngine: getSelectionString(engineForCurrentPage(userConfig)),
+        })
+      }}
     />,
     toolbarContainer,
   )
@@ -381,44 +380,28 @@ async function prepareForRightClickMenu() {
       let prompt = ''
       const userConfig = await getUserConfig()
 
-      if (data.itemId === 'browserAssistant') {
-        if (userConfig.browserAssistantEnabled === false) return
+      const context = assistantContext || captureContext({ selection: data.selectionText })
+      const requestedId = data.itemId.startsWith('function:') ? data.itemId.slice(9) : data.itemId
+      const fn = findFunction(userConfig, requestedId, context)
+      if (data.itemId === 'browserAssistant' || fn) {
+        if (data.itemId === 'browserAssistant' && userConfig.browserAssistantEnabled === false)
+          return
+        if (fn?.enabled === false) return
         openBrowserAssistant({
-          context: assistantContext || captureContext({ selection: data.selectionText }),
+          context,
           config: userConfig,
+          functionId: fn?.id,
+          autoRun: !!fn,
           siteEngine: getSelectionString(engineForCurrentPage(userConfig)),
         })
         return
       }
-
-      if (data.itemId in toolsConfig) {
-        prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
-      } else if (data.itemId.startsWith('custom_')) {
-        // Handle custom selection tools from context menu
-        const customIndex = parseInt(data.itemId.replace('custom_', ''), 10)
-        if (!isNaN(customIndex) && customIndex >= 0) {
-          const customTool = userConfig.customSelectionTools?.[customIndex]
-          if (customTool?.name && customTool.active !== false) {
-            // If no selection text and tool supports page context, use page content
-            let textToUse = data.selectionText
-            if (!textToUse && customTool.usePageContext) {
-              textToUse = getExtractedContentWithMetadata(
-                userConfig.customContentExtractors || [],
-              ).content
-            }
-            prompt = resolvePromptTemplate(customTool.prompt, {
-              selection: textToUse || '',
-              customExtractors: userConfig.customContentExtractors,
-              allowFullHtml: false,
-            })
-          }
-        }
-      } else if (data.itemId in menuConfig) {
+      if (data.itemId in menuConfig) {
         const menuItem = menuConfig[data.itemId]
         if (!menuItem.genPrompt) return
-        else prompt = await menuItem.genPrompt()
+        prompt = await menuItem.genPrompt()
         if (prompt) prompt = await cropText(`Reply in ${await getPreferredLanguage()}.\n` + prompt)
-      }
+      } else return
 
       const position = data.useMenuPosition
         ? { x: menuX, y: menuY }
@@ -647,9 +630,7 @@ async function run() {
   window.__chatgptbox_cs_loaded = true
   installPageLifecycleTeardown()
 
-  await getPreferredLanguageKey().then((lang) => {
-    changeLanguage(lang)
-  })
+  await changeLanguage(await getPreferredLanguageKey())
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isGrokProxyMessage(message)) {
       if (message.type === RuntimeMessage.GrokProxyRequest) {

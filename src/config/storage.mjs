@@ -33,13 +33,14 @@ import {
   siteEngineOverridesDiffer,
 } from './engine-selection.mjs'
 
+import { normalizeLanguageKey, preferredLanguageKey } from './language-preference.mjs'
+
 export function getNavigatorLanguage() {
   const l =
     typeof navigator === 'object' && typeof navigator.language === 'string'
       ? navigator.language.toLowerCase()
       : 'en'
-  if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
-  return l.substring(0, 2)
+  return normalizeLanguageKey(l)
 }
 
 /**
@@ -48,6 +49,7 @@ export function getNavigatorLanguage() {
 export const defaultConfig = {
   browserAssistantEnabled: true,
   browserAssistantFunctions: [],
+  browserFunctionOverrides: {},
   // general
 
   /** @type {keyof TriggerMode}*/
@@ -567,8 +569,7 @@ export async function setUserConfig(value) {
 
 export async function getPreferredLanguageKey() {
   const config = await getUserConfig()
-  if (config.preferredLanguage === 'auto') return config.userLanguage
-  return config.preferredLanguage
+  return preferredLanguageKey(config, getNavigatorLanguage())
 }
 
 export async function setAccessToken(accessToken) {

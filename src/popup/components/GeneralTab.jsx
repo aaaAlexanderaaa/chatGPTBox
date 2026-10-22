@@ -18,7 +18,7 @@ import Browser from 'webextension-polyfill'
 export function GeneralTab({ config, updateConfig }) {
   const { t, i18n } = useTranslation()
 
-  const languageOptions = useMemo(() => buildLanguageOptions(), [])
+  const languageOptions = useMemo(() => buildLanguageOptions(t), [t])
 
   const clickActionOptions = useMemo(
     () => [
