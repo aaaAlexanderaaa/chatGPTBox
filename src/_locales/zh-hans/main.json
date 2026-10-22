@@ -688,5 +688,15 @@
   "Quote": "引文",
   "Pen": "书写",
   "Book": "阅读",
-  "Clipboard": "剪贴板"
+  "Clipboard": "剪贴板",
+  "Reusable functions and their entries": "可复用功能与调用入口",
+  "Appearance mode": "外观模式",
+  "Are you sure you want to reset all settings?": "确定要重置所有设置吗？",
+  "Basics": "常规选项",
+  "Default action": "默认操作",
+  "Search…": "搜索…",
+  "Select…": "请选择…",
+  "Trigger Mode": "触发方式",
+  "Used for prompts and UI": "用于提示词与界面",
+  "When to show AI response": "何时显示 AI 回答"
 }

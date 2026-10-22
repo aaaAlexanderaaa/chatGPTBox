@@ -57,7 +57,7 @@ const BASE_SECTIONS = [
     id: 'tools',
     label: 'Functions',
     icon: Wrench,
-    description: 'Selection tools and prompt composition',
+    description: 'Reusable functions and their entries',
   },
   {
     id: 'sites',

@@ -11,7 +11,8 @@ vi.mock('../src/config/storage.mjs', () => ({
   getUserConfig: async () => state.config,
   setUserConfig: async (patch) => state.writes.push(patch),
 }))
-vi.mock('../src/config/language.mjs', () => ({
+vi.mock('../src/config/language.mjs', async (importOriginal) => ({
+  ...(await importOriginal()),
   getPreferredLanguage: async () => (i18n.language === 'en' ? 'English' : 'Chinese (Simplified)'),
 }))
 vi.mock('../src/_locales/i18n-react.mjs', () => ({ i18nReady: Promise.resolve() }))
@@ -23,6 +24,7 @@ vi.mock('../src/components/ConversationItem', () => ({
 }))
 import { BrowserAssistant } from '../src/browser-assistant/Assistant.jsx'
 import { FunctionLibrary } from '../src/browser-assistant/FunctionLibrary.jsx'
+import { GeneralTab } from '../src/popup/components/GeneralTab.jsx'
 import { AssistantResult } from '../src/browser-assistant/Result.jsx'
 import { captureContext, captureInput } from '../src/browser-assistant/context.mjs'
 
@@ -51,6 +53,24 @@ const button = (name) =>
   [...root.querySelectorAll('button')].find((item) => item.textContent === name)
 
 describe('function UI across languages and model formats', () => {
+  it('localizes General labels and Auto without leaving English setting descriptions', async () => {
+    await i18n.changeLanguage('zh')
+    act(() =>
+      render(
+        <GeneralTab
+          config={{ ...state.config, triggerMode: 'manually', preferredLanguage: 'auto' }}
+          updateConfig={async () => {}}
+        />,
+        root,
+      ),
+    )
+    expect(root.textContent).toContain('常规选项')
+    expect(root.textContent).toContain('触发方式')
+    expect(root.textContent).toContain('自动')
+    expect(root.textContent).not.toMatch(
+      /BASICS|Trigger Mode|Used for prompts and UI|Default action/,
+    )
+  })
   it('updates untouched built-in instructions after asynchronous language changes without overwriting edits', async () => {
     act(() =>
       render(

@@ -660,5 +660,15 @@
   "Quote": "Quote",
   "Pen": "Pen",
   "Book": "Book",
-  "Clipboard": "Clipboard"
+  "Clipboard": "Clipboard",
+  "Reusable functions and their entries": "Reusable functions and their entries",
+  "Appearance mode": "Appearance mode",
+  "Are you sure you want to reset all settings?": "Are you sure you want to reset all settings?",
+  "Basics": "Basics",
+  "Default action": "Default action",
+  "Search…": "Search…",
+  "Select…": "Select…",
+  "Trigger Mode": "Trigger Mode",
+  "Used for prompts and UI": "Used for prompts and UI",
+  "When to show AI response": "When to show AI response"
 }
