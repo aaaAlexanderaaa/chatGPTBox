@@ -1,20 +1,16 @@
-## Description of Changes
-Please provide a brief description of the changes in this pull request.
+## Problem and result
 
-## Related Issue(s)
-Fixes # (issue)
-Closes # (issue)
+Describe the concrete problem and what the user or contributor can do after
+this change. Link the applicable product/interface owner when behavior changes.
 
-## Type of Change
-Please check the appropriate box:
-- [ ] Bugfix (non-breaking change which fixes an issue)
-- [ ] Feature (non-breaking change which adds functionality)
-- [ ] Refactor (code structure changes, no logic change)
-- [ ] Documentation (updates to docs or comments)
+## Verification
 
-## Checklist
-- [ ] My code follows the code style of this project.
-- [ ] I have tested these changes in supported browsers.
-- [ ] I have updated the documentation accordingly if needed.
-- [ ] All new and existing tests passed.
-- [ ] My changes generate no new warnings.
+State the checks actually run, their results, and important limits. Distinguish
+fixtures, build checks, browser observations, and live-provider verification.
+For docs, include `npm run docs:check`; checker changes also run `npm run docs:test`.
+
+## Documentation and remaining gaps
+
+Link updated owners and any completed plan or durable evidence. Explain known
+gaps, accepted migration limits, or checks not run. Use “not applicable” where
+appropriate; do not claim every supported browser or live account was tested.

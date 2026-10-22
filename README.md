@@ -121,7 +121,7 @@ Load the extension:
 Open the Settings UI from the extension icon or the extension options page.
 
 - The toolbar popup is a quick workspace: chat, default engine, theme, trigger, language, plus links into full settings.
-- The full settings workspace uses left-nav tabs: `General`, `Appearance`, `Engines`, enabled `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`, `Behavior`, `Tools`, `Sites`, and `Advanced`.
+- The full settings workspace uses left-nav tabs: `General`, `Appearance`, `Engines`, enabled `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`, `Behavior`, `Functions`, `Sites`, and `Advanced`.
 
 Main areas in the full settings workspace:
 
@@ -136,52 +136,19 @@ Provider notes:
 - Add OpenAI-compatible providers with a `/v1` base URL. Fetch models from `{base}/models`, or type a model id.
 - **Ollama** and **Anthropic** / **Azure** / **Completions** are formats on a custom provider, not vendor cards.
 
+## Documentation
+
+- [Documentation map](docs/README.md): current product, interface, architecture, and historical owners.
+- [Page functions](docs/browser-assistant.md): reading, annotations, input rewriting, and reusable functions.
+- [Architecture](ARCHITECTURE.md): browser, provider, module, and local server boundaries.
+- [Contributing](CONTRIBUTING.md): supported Node version, setup, commands, browser builds, and checks.
+
 ## Development
 
-ChatGPTBox targets **Node.js 22** in CI.
-
-```bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-nvm use 22
-npm ci
-```
-
-Common commands:
-
-```bash
-npm run dev
-npm run lint
-npm run test
-npm run verify
-npm run pretty
-npm run build
-npm run api-server
-```
-
-`npm run dev` writes unpacked browser builds to:
-
-- `build/chromium/`
-- `build/firefox/`
-
-Browser testing:
-
-- Chromium-based browsers: enable Developer mode on the extensions page and load `build/chromium/`.
-- Firefox: load `build/firefox/` as a temporary add-on.
-- Without a valid provider credential or ChatGPT Web login, sending a chat request can return `UNAUTHORIZED`. That usually means missing auth, not a broken build.
-
-Production build outputs zipped builds under `build/`:
-
-```bash
-npm run build
-```
-
-Artifacts include:
-
-- `build/chromium.zip`
-- `build/firefox.zip`
-- `build/chromium-without-katex-and-tiktoken.zip`
-- `build/firefox-without-katex-and-tiktoken.zip`
+Follow [Contributing](CONTRIBUTING.md) for runtime setup, then run `npm ci` and
+`npm run dev`. Development builds are written to `build/chromium/` and
+`build/firefox/`. The same guide lists production archives and browser loading
+steps. After documentation edits, run `npm run docs:check`.
 
 ## API Server Bridge
 
@@ -222,7 +189,7 @@ Supported endpoints:
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
-For MCP clients, run `npm run mcp-server` after starting the API server and configure the Streamable HTTP endpoint `http://127.0.0.1:18081/mcp` with the bearer token in `~/.chatgptbox/mcp-token`. The MCP server exposes only `ask_chatgpt`; it holds the request until the final answer and polls only the extension's local turn status. See [`docs/mcp-server.md`](./docs/mcp-server.md).
+For MCP clients, run `npm run mcp-server` after starting the API server and configure the Streamable HTTP endpoint `http://127.0.0.1:18081/mcp` with the bearer token in `~/.chatgptbox/mcp-token`. The MCP server exposes only `ask_chatgpt`; it holds the request until the final answer, normally polling local turn status. Bounded recovery checks may read the known remote turn without resending the question. See [`docs/mcp-server.md`](./docs/mcp-server.md).
 
 Gateway configuration:
 
@@ -246,12 +213,19 @@ Full API server docs: [`docs/api-server.md`](./docs/api-server.md)
 
 ## Architecture Notes
 
-- The extension is fully client-side. There is no project backend or database.
-- The services layer layout (`apis/` vs `clients/`) is documented in [`src/services/README.md`](./src/services/README.md).
+The extension has no hosted project backend or database. Optional local Node.js
+processes provide its API gateway and MCP server. See [Architecture](ARCHITECTURE.md)
+for runtime boundaries and the [services guide](src/services/README.md) for
+provider adapters and clients.
 
 ## Privacy
 
-ChatGPTBox runs locally in your browser. Network requests are only made to the providers/endpoints you configure and when you explicitly trigger a tool.
+ChatGPTBox runs in your browser, with optional local gateway/MCP processes.
+Requests use the configured providers and web-engine sessions. User actions,
+enabled history synchronization, and recovery of acknowledged turns can make
+network requests. Review the [cache](docs/cache-lifecycle.md) and
+[gateway](docs/api-server.md) settings for these background operations. Keep
+configuration exports and diagnostic captures private when they contain credentials.
 
 ## Changelog
 

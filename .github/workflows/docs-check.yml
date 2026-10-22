@@ -1,0 +1,37 @@
+name: documentation
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "**/*.md"
+      - ".github/workflows/docs-check.yml"
+      - ".gitignore"
+      - "docs/**"
+      - "docs-policy.json"
+      - "scripts/check-docs.mjs"
+      - "tests/documentation/**"
+      - "src/**"
+      - "scripts/**"
+      - "resources/**"
+      - "package.json"
+      - "package-lock.json"
+      - "build.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # Both commands use only Node built-ins; no install or account is needed.
+      - run: npm run docs:test
+      - run: npm run docs:check

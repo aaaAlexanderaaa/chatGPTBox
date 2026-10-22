@@ -17,7 +17,8 @@ build/
 .DS_Store
 *.zip
 CLAUDE.md
-AGENTS.md
+# Keep the shared agent entrypoint in version control.
+!/AGENTS.md
 settings.json
 settings.local.json
 # Local planning and execution tracking artifacts

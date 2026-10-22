@@ -1,3 +1,17 @@
+---
+doc_type: contract
+status: target
+authority: normative
+implementation: partial
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> Target design with existing partial implementation. The original
+> acceptance scope has not been revalidated in full. Its accepted behavior
+> and safety limits remain relevant to changes in this boundary;
+> "target" does not mean no code exists or that acceptance has passed.
+
 # DeepSeek Harness 完整客户端（扩展内替代 DSH Web）
 
 > 状态：已定稿（待实现）

@@ -1,3 +1,15 @@
+---
+doc_type: plan
+status: historical
+authority: planning
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](../README.md).
+
 # Engines = custom providers + 上游洞修复
 
 > **状态：** 已落地在 `feat/engines-providers`（2026-09-17）。Grok 3–8 仍是站位；`ApiModes.jsx` 已从 Engines 拿掉但仍留死文件。

@@ -1,71 +1,99 @@
-# Contributing to chatGPTBox
+# Contributing to ChatGPTBox
 
-Thank you for your interest in contributing to chatGPTBox! This project aims to bring the power of AI to your browser in the most convenient way possible.
+ChatGPTBox is a Preact extension built with Webpack for Chromium and Firefox.
+Optional local Node.js processes provide its API gateway and MCP server.
+Start with the [documentation map](docs/README.md) for product/interface owners
+and [architecture](ARCHITECTURE.md) for code boundaries.
 
-## Project Overview
+## Setup
 
-chatGPTBox is a browser extension built with modern web technologies:
-- **Frontend Framework**: [Preact](https://preactjs.com/) (a fast 3kB alternative to React with the same ES6 API)
-- **Build System**: [Webpack 5](https://webpack.js.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Platform Support**: Manifest V3 (Chrome/Edge), Manifest V2 (Firefox), and Safari.
+[Package engines](package.json) require Node.js 22 or newer, and
+[PR CI](.github/workflows/pr-tests.yml) uses Node.js 22. With nvm:
 
-The core architecture focuses on modularity, allowing easy integration of different AI models and search engine enhancements.
+```bash
+nvm use 22
+npm ci
+```
 
-## Development Setup
+Use the lockfile through `npm ci` for a reproducible install. A session-specific
+instruction may select a different available runtime for a bounded check; state
+that limitation rather than changing the project's supported version.
 
-To get started with development:
+## Commands and affected checks
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/aaaAlexanderaaa/chatGPTBox.git
-    cd chatGPTBox
-    ```
+| Task | Command | What it establishes |
+| --- | --- | --- |
+| Documentation structure | `npm run docs:check` | Metadata, lifecycle relationships, local links and headings |
+| Documentation checker fixtures | `npm run docs:test` | Positive and negative checker behavior; no external dependencies |
+| Lint | `npm run lint` | Configured JS/JSX/MJS rules |
+| Unit/integration tests | `npm test` | Vitest suite with controlled external boundaries |
+| Focused tests | `npm test -- tests/browser-assistant.test.mjs` | Named test scope only |
+| Search engine tables | `npm run verify` | Search integration configuration checks |
+| Development build/watch | `npm run dev` | Unpacked browser builds with watch mode |
+| Production bundles | `npm run build` | Normal and reduced Chromium/Firefox archives |
+| Installed extension update | `npm run build:extension` | Builds and replaces the Chromium install at `../browser-extensions/chatgptbox`; use when an installed extension update is intended |
+| API gateway | `npm run api-server` | Local gateway process; see its authentication and bridge prerequisites |
+| MCP server | `npm run mcp-server` | Local MCP process; requires the API gateway |
+| Existing source formatting | `npm run pretty` | Writes JS/MJS/JSX/JSON/CSS formatting; does not format Markdown |
 
-2.  **Install dependencies**:
-    ```bash
-    npm install
-    ```
+For prose changes, run `docs:check` and review the affected source and reader path.
+For checker/policy changes, also run `docs:test` and lint changed JavaScript.
+For runtime changes, run affected tests and lint; add production builds and
+browser observations when the change affects packaging or user interaction.
+Passing a fixture does not establish live login, provider quality, or real-site
+compatibility. Record limitations under the
+[verification rule](docs/contracts/development.md#verify-promises-and-effects).
 
-3.  **Build the extension**:
-    ```bash
-    # For development (with source maps and watching)
-    npm run dev
+## Browser builds
 
-    # For a production build
-    npm run build
-    ```
+`npm run dev` emits `build/chromium/` and `build/firefox/`.
 
-4.  **Load the unpacked extension**:
-    - **Chrome/Edge**: Go to `chrome://extensions/`, enable "Developer mode", click "Load unpacked", and select the `build/chromium` directory.
-    - **Firefox**: Go to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", and select the `build/firefox/manifest.json` file.
-    - **Safari**: See the [Safari build instructions](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/master/safari/README.md).
+- Chrome/Edge: enable Developer mode on the extensions page and load
+  `build/chromium/` as an unpacked extension.
+- Firefox: open `about:debugging#/runtime/this-firefox`, choose Load Temporary
+  Add-on, and select `build/firefox/manifest.json`.
+- Chat requests require configured credentials or a logged-in web provider.
+  `UNAUTHORIZED` without these does not by itself indicate a build failure.
+  Page entry, selection, and settings behavior can be checked independently.
 
-## Code Style
+The production command runs two passes with a ten-second pause and produces:
 
-We follow existing patterns in the codebase to maintain consistency:
-- **Utility Library**: Use [lodash-es](https://lodash.com/) for common utility functions.
-- **Browser APIs**: Use [webextension-polyfill](https://github.com/mozilla/webextension-polyfill) for cross-browser compatibility.
-- **Modules**: Use ESM (EcmaScript Modules) syntax throughout the project.
-- **Styling**: Use Tailwind CSS classes for styling components.
+- `build/chromium.zip`
+- `build/firefox.zip`
+- `build/chromium-without-katex-and-tiktoken.zip`
+- `build/firefox-without-katex-and-tiktoken.zip`
 
-Please run `npm run pretty` before committing to ensure consistent formatting.
+Safari packaging and `build:safari` are retired. The removed `test:agent` and
+extension-internal assistant/ZIP-skill/MCP runtime are not development targets.
+DeepSeek Harness features are a client of the external engine.
 
-## PR Process
+## Code and document changes
 
-1.  **Fork** the repository and create your branch from `master`.
-2.  **Test** your changes thoroughly in supported browsers.
-3.  **Submit a Pull Request** with a clear description of the changes and link to any related issues.
-4.  Ensure that the CI tests pass.
+Use existing ESM, Preact, Tailwind, and `webextension-polyfill` patterns. Keep
+provider logic, shared state, module APIs, and UI at the owners documented by
+[architecture](ARCHITECTURE.md). Check existing implementations before adding
+another. Preserve unrelated working changes.
 
-## Issue Triage Labels
+For behavior changes, reconcile the applicable product/interface owner under
+[development discipline](docs/contracts/development.md). For documentation,
+follow [documentation discipline](docs/contracts/documentation.md): use the
+existing owner, preserve decision sources, and distinguish current behavior,
+targets, plans, and historical evidence. Existing Chinese product documents and
+both README languages remain supported.
 
-- `bug`: Something isn't working as expected.
-- `feature`: New functionality or enhancement.
-- `refactor`: Code changes that neither fix a bug nor add a feature.
-- `documentation`: Improvements to documentation.
-- `help wanted`: Tasks that are open for community contribution.
+## Pull requests and hooks
 
-## Additional Information
+Describe the concrete problem, resulting behavior, validation, and limits.
+Documentation PRs explain which reading path or contradiction was repaired.
+Do not mark unrun browser or live-provider checks as passed.
 
-For more detailed technical documentation and contribution guidelines, please refer to our [Wiki](https://github.com/aaaAlexanderaaa/chatGPTBox/wiki/Development&Contributing).
+[PR tests](.github/workflows/pr-tests.yml) run lint, Vitest, and a build for their
+declared paths. The separate [documentation job](.github/workflows/docs-check.yml)
+runs checker fixtures and repository documentation checks, including for docs-only
+changes. [Configuration CI](.github/workflows/verify-configs.yml) checks search
+tables. These are distinct checks; none alone proves full product acceptance.
+
+The pre-commit hook runs `pretty`, `stage`, and `lint`. It can format source and
+restage files that were already staged. Inspect the diff before committing.
+If lint fails, correct the affected files and retry; do not bypass the hook or
+run a broad auto-fix without inspecting its effects.

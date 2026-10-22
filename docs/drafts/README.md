@@ -1,3 +1,11 @@
+---
+doc_type: guide
+status: current
+authority: guidance
+last_reconciled: 2026-10-23
+projection_of: ["docs/api-server.md"]
+---
+
 # Drafts Actions For ChatGPTBox
 
 These Drafts scripts are currently configured for the ChatGPTBox API gateway at
@@ -10,7 +18,7 @@ Before running them:
 3. Start the local gateway with `npm run api-server`.
 4. Copy the API token from `~/.chatgptbox/gateway-api-token` into the `API_TOKEN` constant in each action. Keep the edited scripts private.
 5. Keep the bridge page open and stay logged in at `https://chatgpt.com`.
-6. Enable ChatGPT history synchronization in Advanced settings and choose a conservative RPM, so the cache action 1 reads from stays populated.
+6. Enable ChatGPT history synchronization in the `ChatGPT Web` settings and choose a conservative RPM, so the cache action 1 reads from stays populated.
 
 If you changed the gateway host or port, update the `BASE_URL` constant in all three action files.
 Thinking time is per turn, not per conversation. Every reasoning turn in a snapshot carries its

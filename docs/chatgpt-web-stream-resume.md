@@ -1,3 +1,16 @@
+---
+doc_type: evidence
+status: historical
+authority: evidence
+last_reconciled: 2026-10-23
+---
+
+> This is a reading of the supplied September protocol snapshot. Its retry
+> constants and minified names are dated observations, not new live-server
+> verification or a substitute for current code. Current extension write and
+> recovery boundaries are owned by the [API contract](api-server.md#at-most-once-writes-and-bounded-recovery)
+> and [product contracts](product/contracts.md#网页引擎与真实账号).
+
 # ChatGPT Web stream, resume, and reconnect
 
 This note describes the user-supplied 2026-09-23 bundles in

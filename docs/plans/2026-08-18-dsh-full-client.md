@@ -1,3 +1,15 @@
+---
+doc_type: plan
+status: historical
+authority: planning
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](../README.md).
+
 # DeepSeek Harness Full Client Implementation Plan
 
 **Goal:** Native Preact client in `dsh.html` that page-parity-replaces DSH Web so the user never opens `:3080`.

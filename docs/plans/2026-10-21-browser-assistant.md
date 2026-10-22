@@ -1,3 +1,15 @@
+---
+doc_type: plan
+status: completed
+authority: planning
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](../README.md).
+
 # Browser assistant: first usable delivery
 
 Status: implemented in `codex/browser-assistant`, 2026-10-21.

@@ -1,3 +1,15 @@
+---
+doc_type: decision-log
+status: historical
+authority: evidence
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](../README.md).
+
 # 产品决策记录
 
 > 状态：**维护中**（新决策追加；推翻旧决策不删除，标记"被 D-xx 取代"并写明理由）

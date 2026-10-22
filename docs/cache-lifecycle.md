@@ -1,3 +1,16 @@
+---
+doc_type: contract
+status: current
+authority: normative
+implementation: implemented
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> The 2026-10-22 review classified this existing interface document and
+> checked its source ownership. It did not repeat live-account validation
+> of every protocol claim. Verification remains partial.
+
 # Conversation Cache Lifecycle
 
 This document explains how the ChatGPT Web conversation cache works in ChatGPTBox.
@@ -77,6 +90,6 @@ For one conversation, open **ChatGPT History Backup** in the ChatGPT Web setting
 
 If the cache seems stuck or inconsistent:
 
-- Review the synchronization status in **Advanced → ChatGPT Web History**. Resume a partial full sync, or unlock a job stopped by HTTP 429 after lowering its RPM.
+- Review the synchronization status in **ChatGPT Web → ChatGPT Web History → History sync**. Resume a partial full sync, or unlock a job stopped by HTTP 429 after lowering its RPM.
 - Use the **Refresh Conversation** button for a specific thread.
 - Perform a manual **Export** followed by an **Import** if you need to migrate to a new profile.

@@ -2,6 +2,10 @@
 
 Provider integrations and shared session state for chatGPTBox.
 
+[Project architecture](../../ARCHITECTURE.md) owns runtime and dependency
+boundaries. This guide explains the services layout; it does not supersede
+product or gateway contracts in the [documentation map](../../docs/README.md).
+
 ## Layout
 
 ```
@@ -21,8 +25,8 @@ provider. An apis/ module receives a `session` + `port` and is responsible for:
 - Streaming results back through `port.postMessage(...)`.
 - Translating provider errors into the shared error shape from `apis/shared.mjs`.
 
-Most apis/ files for REST-only providers (`openai-api.mjs`, `claude-api.mjs`,
-`deepseek-api.mjs`, ...) speak HTTP directly via `fetch` / `fetchSSE` and have no
+Most apis/ files for REST-only formats (`openai-api.mjs`, `claude-api.mjs`,
+`ollama-api.mjs`, ...) speak HTTP directly via `fetch` / `fetchSSE` and have no
 peer in `clients/`.
 
 **`clients/`** — Vendored or custom SDKs for providers that need significant
@@ -31,6 +35,7 @@ client-side logic (auth, websocket lifecycle, request signing):
 | Client                    | Used by                     |
 |---------------------------|-----------------------------|
 | `clients/chatgpt-web/`    | `apis/chatgpt-web.mjs`      |
+| `clients/grok-web/`       | `apis/grok-web.mjs`         |
 
 The rule of thumb: if it can be expressed as plain HTTP/SSE, put it in `apis/`.
 If it needs websockets, complex state, or a hand-rolled protocol, extract a

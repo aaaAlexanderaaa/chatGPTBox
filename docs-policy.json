@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "canonicalRoots": ["docs"],
+  "canonicalFiles": ["ARCHITECTURE.md"],
+  "entrypoints": [
+    "README.md",
+    "README_CN.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    ".github/CONTRIBUTING.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "src/services/README.md",
+    "resources/README.md"
+  ],
+  "requiredFiles": [
+    "docs/README.md",
+    "docs/contracts/documentation.md",
+    "docs/contracts/development.md",
+    "docs/product/definition.md",
+    "docs/product/contracts.md",
+    "docs/product/browser-assistant.md",
+    "docs/plans/README.md",
+    "docs/history/README.md",
+    "docs/evidence/README.md"
+  ]
+}

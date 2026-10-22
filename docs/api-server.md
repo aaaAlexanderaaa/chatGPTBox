@@ -1,3 +1,16 @@
+---
+doc_type: contract
+status: current
+authority: normative
+implementation: implemented
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> The 2026-10-22 review classified this existing interface document and
+> checked its source ownership. It did not repeat live-account validation
+> of every protocol claim. Verification remains partial.
+
 # API Server Bridge
 
 ChatGPTBox ships with a local API gateway that lets any OpenAI-compatible client talk to ChatGPT Web through the extension.
@@ -9,8 +22,10 @@ The gateway has two layers:
 
 Unless you changed the host or port, all examples below use the default local gateway at `http://127.0.0.1:18080`.
 
-ChatGPT Web streaming, resume, and reconnect are documented in
-[`docs/chatgpt-web-stream-resume.md`](./chatgpt-web-stream-resume.md).
+The supplied September ChatGPT Web streaming/resume protocol is studied in
+[`docs/chatgpt-web-stream-resume.md`](./chatgpt-web-stream-resume.md). That dated
+reference does not replace the current [gateway recovery boundary](#at-most-once-writes-and-bounded-recovery)
+or current extension code.
 
 ## Startup
 

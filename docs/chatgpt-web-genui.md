@@ -1,3 +1,16 @@
+---
+doc_type: contract
+status: current
+authority: normative
+implementation: implemented
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> The 2026-10-22 review classified this existing interface document and
+> checked its source ownership. It did not repeat live-account validation
+> of every protocol claim. Verification remains partial.
+
 # ChatGPT Web 静态可视化
 
 实时回答、resume 和历史 GET 共用静态转换入口。扩展用 Markdown 渲染器显示生成的

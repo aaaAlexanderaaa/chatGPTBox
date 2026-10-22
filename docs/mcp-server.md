@@ -1,3 +1,16 @@
+---
+doc_type: contract
+status: current
+authority: normative
+implementation: implemented
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> The 2026-10-22 review classified this existing interface document and
+> checked its source ownership. It did not repeat live-account validation
+> of every protocol claim. Verification remains partial.
+
 # ChatGPTBox MCP Server
 
 The MCP server is a separate local HTTP service for ChatGPT Web conversations. It uses the standard Streamable HTTP MCP transport, with one endpoint at `http://127.0.0.1:18081/mcp`.

@@ -1,3 +1,17 @@
+---
+doc_type: design
+status: target
+authority: normative
+implementation: partial
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
+> Target design with existing partial implementation. The original
+> acceptance scope has not been revalidated in full. Its accepted behavior
+> and safety limits remain relevant to changes in this boundary;
+> "target" does not mean no code exists or that acceptance has passed.
+
 # DeepSeek Harness UI
 
 > 状态：**定稿 v1**（实现须对回本文；改设计先改本文）

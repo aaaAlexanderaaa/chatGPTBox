@@ -1,3 +1,15 @@
+---
+doc_type: evidence
+status: historical
+authority: evidence
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](README.md).
+
 # 2026-09-25 ChatGPT 新前端兼容
 
 本次依据官网正常发送的数据流和页面实际加载的公开 JS 核对。新前端使用 Rspack 模块，网络请求标识为 `codex_webview`。旧版的两个运行时仍保留，插件根据代理页已经加载的 JS 选择对应实现。

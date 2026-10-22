@@ -121,7 +121,7 @@ npm run build:extension # 生产构建并更新 ../browser-extensions/chatgptbox
 从扩展图标或扩展选项页面打开设置界面。
 
 - 工具栏弹出窗口是快速工作区：对话、默认引擎、主题、触发方式、语言，以及进入完整设置的入口。
-- 完整设置左侧选项卡：`常规`、`外观`、`引擎`、已启用的 `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`、`行为`、`工具`、`站点`、`高级`。
+- 完整设置左侧选项卡：`常规`、`外观`、`引擎`、已启用的 `ChatGPT Web` / `Grok Web` / `DeepSeek Harness`、`行为`、`功能`、`站点`、`高级`。
 
 完整设置工作区的主要区域：
 
@@ -136,52 +136,18 @@ npm run build:extension # 生产构建并更新 ../browser-extensions/chatgptbox
 - 添加 OpenAI 兼容提供商时 URL 填到 `/v1`。从 `{base}/models` 拉取模型，或手填模型 id。
 - **Ollama**、**Anthropic**、**Azure**、**Completions** 是自定义提供商的格式，不是厂商卡片。
 
+## 文档
+
+- [文档入口](docs/README.md)：查找当前产品、接口、架构与历史记录的维护位置。
+- [网页功能说明](docs/browser-assistant.md)：阅读、标注、输入改写与功能复用。
+- [项目架构](ARCHITECTURE.md)：浏览器、模型连接、模块与本地服务的边界。
+- [贡献指南](CONTRIBUTING.md)：支持的 Node 版本、安装、命令、构建与验证。
+
 ## 开发
 
-ChatGPTBox 在 CI 中使用 **Node.js 22**。
-
-```bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-nvm use 22
-npm ci
-```
-
-常用命令：
-
-```bash
-npm run dev
-npm run lint
-npm run test
-npm run verify
-npm run pretty
-npm run build
-npm run api-server
-```
-
-`npm run dev` 将未打包的浏览器构建写入：
-
-- `build/chromium/`
-- `build/firefox/`
-
-浏览器测试：
-
-- 基于 Chromium 的浏览器：在扩展页面启用开发者模式并加载 `build/chromium/`。
-- Firefox：将 `build/firefox/` 作为临时附加组件加载。
-- 如果没有有效的提供商凭据或 ChatGPT Web 登录，发送聊天请求可能返回 `UNAUTHORIZED`。这通常意味着缺少身份验证，而非构建错误。
-
-生产构建在 `build/` 下输出压缩包：
-
-```bash
-npm run build
-```
-
-构建产物包括：
-
-- `build/chromium.zip`
-- `build/firefox.zip`
-- `build/chromium-without-katex-and-tiktoken.zip`
-- `build/firefox-without-katex-and-tiktoken.zip`
+按[贡献指南](CONTRIBUTING.md)准备运行环境后，执行 `npm ci` 和 `npm run dev`。
+开发产物位于 `build/chromium/`、`build/firefox/`；生产归档和浏览器加载方式也由
+贡献指南维护。修改文档后运行 `npm run docs:check`。
 
 ## API 服务桥接
 
@@ -220,7 +186,7 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 - `POST /chatgpt/conversations/:id/messages`
 - `POST /chatgpt/conversations/:id/refresh`
 
-MCP 客户端还需启动 `npm run mcp-server`，使用 Streamable HTTP 地址 `http://127.0.0.1:18081/mcp` 和 `~/.chatgptbox/mcp-token` 中的 Bearer token。MCP 服务只暴露 `ask_chatgpt`，它会等待最终答案，期间只轮询扩展里的本地轮次状态。详见 [`docs/mcp-server.md`](./docs/mcp-server.md)。
+MCP 客户端还需启动 `npm run mcp-server`，使用 Streamable HTTP 地址 `http://127.0.0.1:18081/mcp` 和 `~/.chatgptbox/mcp-token` 中的 Bearer token。MCP 服务只暴露 `ask_chatgpt`，它会等待最终答案，平时轮询扩展里的本地状态，恢复检查可能读取远端的已知轮次；恢复不会重发问题。详见 [`docs/mcp-server.md`](./docs/mcp-server.md)。
 
 网关配置：
 
@@ -243,12 +209,16 @@ MCP 客户端还需启动 `npm run mcp-server`，使用 Streamable HTTP 地址 `
 
 ## 架构说明
 
-- 扩展完全运行在客户端，没有项目后端或数据库。
-- 服务层的目录约定（`apis/` 与 `clients/`）见 [`src/services/README.md`](./src/services/README.md)。
+扩展没有托管的项目后端或数据库。可选的本地 Node.js 进程提供 API 网关与
+MCP 服务。运行边界见[项目架构](ARCHITECTURE.md)，提供商适配与客户端布局见
+[services 说明](src/services/README.md)。
 
 ## 隐私
 
-ChatGPTBox 在浏览器中本地运行。仅在您配置的提供商/端点上发送网络请求，且仅在您主动触发工具时才发出请求。
+ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用。网络请求使用
+您配置的提供商和网页引擎登录会话。用户操作、已启用的历史同步及已确认轮次
+的恢复检查均可能产生请求；后台行为见[缓存](docs/cache-lifecycle.md)与
+[网关](docs/api-server.md)说明。含凭据的配置导出和诊断抓包应保存在私有位置。
 
 ## 更新日志
 

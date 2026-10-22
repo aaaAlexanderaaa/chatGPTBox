@@ -1,3 +1,12 @@
+---
+doc_type: contract
+status: current
+authority: normative
+implementation: partial
+verification_status: partial
+last_reconciled: 2026-10-23
+---
+
 # 浏览器助手的产品承诺与心智模型
 
 状态：产品方向已通过。确认日期：2026 年 10 月 21 日。配置格式与实现细节仍需由实际使用推导。

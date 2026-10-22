@@ -1,3 +1,15 @@
+---
+doc_type: plan
+status: historical
+authority: planning
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](../README.md).
+
 # 执行计划（Roadmap）
 
 > 状态：**生效中**（A–D 全量实施中，见 D-21；完成一项划掉一项，顺序变更先改本文）

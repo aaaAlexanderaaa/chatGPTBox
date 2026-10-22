@@ -1,3 +1,11 @@
+---
+doc_type: guide
+status: current
+authority: guidance
+last_reconciled: 2026-10-23
+projection_of: ["docs/product/browser-assistant.md", "docs/product/contracts.md"]
+---
+
 # 网页中的功能：阅读、写作与复用
 
 本轮依据 [10 月 21 日确认的产品方向](product/browser-assistant.md)实现。
@@ -55,7 +63,7 @@
 ```json
 {
   "format": "chatgptbox.browser-functions",
-    "version": 2,
+  "version": 2,
   "functions": [
     {
       "id": "my-reading-guide",

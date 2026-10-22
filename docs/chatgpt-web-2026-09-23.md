@@ -1,3 +1,15 @@
+---
+doc_type: evidence
+status: historical
+authority: evidence
+last_reconciled: 2026-10-23
+---
+
+> Lifecycle reviewed on 2026-10-22. The original record below is retained
+> for provenance; its branch instructions, checklists, and test results are
+> not current execution authority or newly repeated verification. Start at
+> [the documentation map](README.md).
+
 # ChatGPT Web 2026-09-23 对比与适配
 
 本次依据仓库内提供的两组前端 JS 分析，不代表已经用真实账号验证了线上接口。
