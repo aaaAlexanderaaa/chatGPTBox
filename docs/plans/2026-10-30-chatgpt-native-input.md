@@ -180,5 +180,8 @@ and replacement/reload of the daily Brave installation at the existing supported
 path. It supersedes the earlier verification-only no-install scope for this
 release task. The site enhancements retain their independent default-off state;
 release publication does not close the logged-in editor/account/IME/BFCache
-acceptance gaps above. Keep this plan active for those gaps. Deployment results
-will be recorded in the existing implementation evidence after observation.
+acceptance gaps above. Keep this plan active for those gaps. The existing implementation evidence now records the actual 4.3.0 installation:
+Brave Reload, the new regex settings with both switches still off, byte-equal
+installed files and the reconnected healthy bridge. The tagged GitHub workflow
+records release publication separately; the private account-project smoke read
+was rejected before execution. The logged-in/transition acceptance task stays open.

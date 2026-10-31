@@ -749,3 +749,53 @@ injection was page-local and discarded. The other manual-login window, daily
 installation, gateway and Drafts were untouched. No commit or release was made.
 The regex amendment's implementation/review/verification tasks are complete; the
 parent plan remains active for its explicitly unobserved logged-in acceptance.
+
+## Installed v4.3.0 delivery, 2026-10-31
+
+The user's later explicit instruction was to commit, push, build, install and
+release. The earlier no-install/no-commit statements describe their verification
+checkpoints; they do not describe this later authorized delivery. The implementation
+and bilingual v4.3.0 notes were committed as `d5aadd9` and pushed to `master`.
+This section records installation; the tagged GitHub release workflow owns the
+published archives and publication result.
+
+- A fresh lockfile install (`npm ci --no-audit --no-fund`) succeeded on Node
+  22.18.0, installing 924 packages. The post-install frozen-source run passed
+  **124 files / 1574 tests (11.55 seconds)**. Lint passed through the required
+  commit hook; the hook changed no source bytes. Documentation fixtures passed
+  all 28 cases; documentation checks had zero errors and four existing advisories.
+- `npm run build:extension` built all four production archives and installed the
+  normal Chromium package at the supported sibling installation directory. All
+  archive manifests report 4.3.0 and include the early-paste/review entries. All
+  29 installed source files matched `build/chromium` by SHA-256. A code-only
+  pre-update extension backup remains outside the repository for rollback.
+  The build emitted existing Browserslist age notices, with no compilation error.
+- Brave's extension manager confirmed the existing installation path and showed
+  **4.3.0 / Reloaded** after explicit Reload. A newly opened Sites page showed
+  4.3.0, RE2/replacement controls, and no retired literal-terms UI. Both native
+  enhancement switches stayed off as observed before the update; no test policy
+  or provider preference was saved into the daily installation.
+- The dedicated proxy page was refreshed. The old bridge page closed on Reload;
+  a new API Server page reconnected using the existing configuration. Both the
+  UI and authenticated local health endpoint reported healthy, WebSocket connected,
+  pending 0, on the existing 18081 port. The gateway and MCP processes were not
+  restarted, and their authentication files were not changed. Live MCP initialize
+  and tools/list metadata retained the isolated/self-contained/no-local-files
+  contract in all three description locations, with `query` as the only argument.
+- A supplementary post-install private account-project-list read was rejected by
+  automatic approval before execution. It was not retried through another route.
+  Therefore this deployment does not claim a new current-account HTTP API smoke
+  test. No model question was sent during the release checks. The legitimate
+  logged-in rich-editor, account-switch, physical IME and actual BFCache acceptance
+  limits remain open; publication and the installed default-off UI do not close them.
+- Git's old macOS keychain helper stalled before pushing. The already configured
+  GitHub CLI helper completed the push using a command-scoped override; the old
+  push process tree was then stopped. Global Git authentication settings were
+  not changed. Drafts send/read/output contracts did not change, so installed
+  Drafts actions were not replaced.
+
+Release publication uses the frozen `v4.3.0` tag and the repository's
+[tagged-release workflow](../../.github/workflows/tagged-release.yml); its
+[release entry](https://github.com/aaaAlexanderaaa/chatGPTBox/releases/tag/v4.3.0)
+is the authority for the resulting downloads. This record does not turn the
+parent plan's unobserved editor/transition cases into completed acceptance.
