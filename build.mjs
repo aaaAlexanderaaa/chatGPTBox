@@ -38,6 +38,13 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
 
   const compiler = webpack({
     entry: {
+      'native-chatgpt-early': {
+        import: './src/native-chatgpt/early.mjs',
+      },
+      PasteReview: {
+        import: './src/pages/PasteReview/index.jsx',
+        dependOn: 'shared',
+      },
       'content-script': {
         import: './src/content-script/index.jsx',
         dependOn: 'shared',
@@ -322,6 +329,10 @@ async function finishOutput(outputDirSuffix) {
   }
 
   const commonFiles = [
+    { src: 'build/native-chatgpt-early.js', dst: 'native-chatgpt-early.js' },
+    { src: 'build/PasteReview.js', dst: 'PasteReview.js' },
+    { src: 'build/PasteReview.css', dst: 'PasteReview.css' },
+    { src: 'src/pages/PasteReview/index.html', dst: 'PasteReview.html' },
     { src: 'LICENSE', dst: 'LICENSE' },
     { src: 'src/logo.png', dst: 'logo.png' },
     { src: 'src/rules.json', dst: 'rules.json' },

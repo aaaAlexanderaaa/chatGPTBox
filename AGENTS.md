@@ -48,15 +48,21 @@ originating page, forwarding code, and destination HTTP API. Report what was
 actually verified and what remains unknown; do not call an old test count or
 same-context review fresh independent evidence.
 
-## Reference learning retained on 2026-10-22
+## Discipline comparison retained on 2026-10-29
 
-The requested template comparison found applicable gaps in ownership, lifecycle,
-decision attribution, and evidence. Their rules now live in
-[documentation](docs/contracts/documentation.md) and
-[development](docs/contracts/development.md), with boundaries in
-[architecture](ARCHITECTURE.md). Existing browser/protocol tests corroborate
-some implementation boundaries; they do not establish all product promises.
-The [comparison record](docs/evidence/2026-10-22-documentation-discipline.md)
-states selected practices, exclusions, and verification limits. Full template
-adoption, recurring autonomous work, and a new product architecture were not
-part of this repair.
+The complete current template learning set was read before applicability was
+judged. The [comparison record](docs/evidence/2026-10-29-discipline-refresh.md)
+contains the source identity, local facts, rule results, and verification limits.
+The earlier [October 22 repair](docs/evidence/2026-10-22-documentation-discipline.md)
+remains dated evidence.
+
+| Rule and result | Current owner |
+| --- | --- |
+| Outcome, authority, lifecycle, and source attribution: existing coverage retained; named endings and reader needs clarified | [Development](docs/contracts/development.md#start-from-the-requested-outcome), [documentation](docs/contracts/documentation.md#sources-language-and-conflicts) |
+| Read and understand before selecting rules: the missing broad-comparison route is added; ordinary tasks keep conditional reading | [Rule comparison](docs/contracts/documentation.md#read-rules-before-judging-their-fit) |
+| Inquiry, access fallback, and reusable experience: existing partial coverage strengthened with conditions and retrieval | [Investigation](docs/contracts/development.md#investigate-the-decisive-uncertainty), [experience](docs/contracts/development.md#retain-experience-where-matching-work-begins) |
+| Domain boundaries, risk, operation frequency/freshness, and resource use: missing detail added for matching work | [Concerns](docs/contracts/development.md#apply-the-concerns-the-change-actually-touches), [execution depth](docs/contracts/development.md#choose-execution-depth-by-consequences), [account use](docs/contracts/development.md#bound-repeated-work-and-account-use), [verification](docs/contracts/development.md#verify-promises-and-effects) |
+| Template carriers and standing autonomy: not adopted by this bounded discipline update; the project retains its Node checker and per-task authorization | [Comparison dispositions](docs/evidence/2026-10-29-discipline-refresh.md#carriers-drafts-and-standing-operation) |
+
+These are incorporated rules, not evidence of later agent reuse, product
+acceptance, or a completed release.

@@ -1,6 +1,6 @@
 {
   "name": "chatgptbox",
-  "version": "4.2.1",
+  "version": "4.3.0",
   "engines": {
     "node": ">=22"
   },
@@ -64,6 +64,7 @@
     "process": "^0.11.10",
     "prop-types": "^15.8.1",
     "random-int": "^3.0.0",
+    "re2js": "2.9.1",
     "react": "npm:@preact/compat@^17.1.2",
     "react-bootstrap-icons": "^1.11.4",
     "react-dom": "npm:@preact/compat@^17.1.2",

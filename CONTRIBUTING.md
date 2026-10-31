@@ -56,6 +56,14 @@ compatibility. Record limitations under the
   `UNAUTHORIZED` without these does not by itself indicate a build failure.
   Page entry, selection, and settings behavior can be checked independently.
 
+After replacing files in an unpacked extension, explicitly **Reload** that
+extension on the browser's extensions page, then refresh the source/test pages.
+A browser restart or new files on disk alone did not replace a cached background
+in the [native-input trial](docs/evidence/2026-10-30-chatgpt-native-input.md#reviews-and-corrections).
+Check the running protocol/behavior before attributing a mixed-version failure
+to the new implementation. This does not authorize updating a user's installation
+when only a disposable test build is intended.
+
 The production command runs two passes with a ten-second pause and produces:
 
 - `build/chromium.zip`

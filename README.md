@@ -229,6 +229,13 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.0
+
+- Added two independent, default-off ChatGPT site enhancements under `Sites`: local paste checking and a native draft-rewrite entry. Rewriting reuses Functions, material preview, comparison, explicit Apply and Undo; native message sending remains under your control.
+- Added local regex-to-replacement rules with RE2 syntax, case/multiline/dotall flags, capture substitutions and deletion. Paste review shows the original and proposed replacement; known secrets stay masked, and changed editors or cancelled reviews invalidate the operation. Existing custom terms are read as escaped literal rules.
+- Clarified the `ask_chatgpt` MCP contract: every call starts an isolated conversation, so questions must include all relevant context, source excerpts and prior findings. Added current ChatGPT Web runtime regression coverage and documented proxy-page refresh recovery.
+- Automatic paste checking initially targets supported desktop Chromium main editors. Real guest-editor paste/review/undo was verified; logged-in rich-editor, account-switch, physical IME and actual BFCache acceptance remain open. Both site enhancements stay off until enabled. See the [guide](docs/browser-assistant.md) and [verification record](docs/evidence/2026-10-30-chatgpt-native-input.md).
+
 ### v4.2.1
 
 - Unified built-in and custom actions in one function library. The context menu, selection toolbar, function picker, and existing page-overview shortcut use the same catalog; each function can choose its entries, and existing settings and templates are preserved.

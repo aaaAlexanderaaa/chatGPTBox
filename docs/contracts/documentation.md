@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-29
 ---
 
 # Documentation discipline
@@ -19,6 +19,8 @@ The [documentation map](../README.md) routes readers to owners.
 [Development discipline](development.md) owns collaboration and delivery.
 The [reconciliation record](../evidence/2026-10-22-documentation-discipline.md)
 identifies the template sources and the repository gaps behind these rules.
+The [2026-10-29 refresh](../evidence/2026-10-29-discipline-refresh.md) compares
+the complete current reference discipline with these local owners.
 
 ## One owner per decision
 
@@ -37,6 +39,43 @@ still-applicable decisions into the surviving owner. Keep dated originals when
 they explain a decision or recovery. Delete disposable scratch material only
 when it supports neither. Do not create a chain of summaries that a new reader
 must reconstruct.
+
+## Read rules before judging their fit
+
+A request to learn, update, or restructure a discipline reads the source's
+complete declared learning set before judging applicability, including rules
+that initially seem inactive or already covered. Without a declared set, obtain
+the complete operative source rules under comparison. Keep current rules and
+target drafts distinct. Understand each rule's problem, mechanism, scope,
+exceptions, costs, and decision authority; follow needed explanation when a
+decisive reason is missing. A title, summary, transfer rank, or similarly named
+local section cannot establish that understanding.
+
+Compare the understood rule with actual project facts and existing coverage.
+Record whether it applies and is satisfied, applies with a gap, or does not
+apply with the fact and reason supporting that result. Use supplied corrections
+and what the loaded rules caused when available; otherwise compare the present
+expectation and baseline and leave unavailable history unknown. A passing
+checker or filled policy does not establish the owner's expectation was met.
+
+Keep the judgment at the existing comparison/evidence owner and its concise
+result in `AGENTS.md`, naming the rule, result, and local owning section.
+Land authorized settled changes at those owners. A no-change conclusion needs
+the comparison and no unsatisfied applicable rule. A change needing new
+authority names its concrete method and decision; existing authorization
+remains sufficient for the scope it already covers.
+
+Reading does not install source authority. Preserve local decisions, supported
+languages, and enforcement scope. Copying a governance tree, enabling new gates,
+replacing project instructions, or changing product code needs authorization
+covering that method. The current assignment can supply it. This does not turn
+an authorized update into repeated phase approvals.
+
+An explicitly narrow practice request or a method inquiry inside a concrete
+task reads that practice's full operative owner and dependencies, then judges
+its fit. It does not claim a full survey or dismiss unread rules. Later ordinary
+work reads its applicable rules under [development](development.md#apply-the-concerns-the-change-actually-touches);
+it does not repeat the full discipline comparison for every task.
 
 ## Metadata
 
@@ -108,11 +147,34 @@ reference. An old generated statement claiming approval is reported evidence
 until its original is available. Repetition and polished prose do not strengthen
 that claim. Silence is not approval.
 
+A proposed standing rule records its reason, source/date, scope, exceptions,
+and intended owner. Existing instructions to adopt it supply confirmation;
+otherwise obtain that decision before making it a new requirement. A permitted
+exception records its authorizing owner, rule, scope, reason, residual risk,
+review or expiry condition, and recovery. It grants no authority held elsewhere.
+
 Use plain language and existing project terms. Keep existing Chinese product
 records and the bilingual READMEs useful to their readers; do not translate an
 entire archive merely to match the reference project's publication language.
 Use exact UI labels in procedures. Explain which page sends a request, which
 code forwards it, and which HTTP interface receives it.
+
+Write for the actual reader and their next decision or action. Lead with the
+useful conclusion; retain reasoning, examples, and uncertainty that help them
+use it. Inspect the draft for repeated explanations, unexplained internal terms,
+and process narration that makes the reader reconstruct the work. A necessary
+qualification can improve clarity; word count is not the measure. Examples
+teach the behavior future readers will copy. New discipline text uses plain
+English while existing Chinese product records keep their supported audience.
+
+Supplied personal context stays at its permitted location and audience.
+Distinguish background, preference, inference, and permission. Transfer only a
+general mechanism or project decision authorized for this repository's readers;
+do not copy private profiles, local private paths, captures, or account details.
+Authorship is assessed before an external lesson becomes policy: human decisions
+with available originals, reported statements, generated leads, and unknown
+authorship retain different evidence strength. Recurrence measures persistence
+of a problem, not the importance of a preference.
 
 Do not resolve contradictions by choosing the newest filename or making code
 and tests agree with each other. Record the affected sources and gap, mark the

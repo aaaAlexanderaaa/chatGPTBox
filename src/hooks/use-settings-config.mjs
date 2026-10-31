@@ -10,28 +10,63 @@ import Browser from 'webextension-polyfill'
  */
 export function useSettingsConfig() {
   const [config, setConfig] = useState(defaultConfig)
+  const [readState, setReadState] = useState('loading')
 
   useEffect(() => {
-    getUserConfig().then(setConfig)
+    let loading = true,
+      disposed = false
+    const received = {}
     const changed = (changes) => {
       const patch = Object.fromEntries(
         Object.entries(changes)
           .filter(([key]) => key in defaultConfig && key !== 'sessions')
-          .map(([key, value]) => [key, value.newValue ?? defaultConfig[key]]),
+          .map(([key, value]) => [
+            key,
+            // A null paste policy is malformed, not an empty/default policy.
+            key === 'chatgptNativePasteTerms' && value.newValue !== undefined
+              ? value.newValue
+              : value.newValue ?? defaultConfig[key],
+          ]),
       )
-      if (Object.keys(patch).length) setConfig((previous) => ({ ...previous, ...patch }))
+      if (Object.keys(patch).length) {
+        if (loading) Object.assign(received, patch)
+        setConfig((previous) => ({ ...previous, ...patch }))
+      }
     }
     Browser.storage.local.onChanged.addListener(changed)
-    return () => Browser.storage.local.onChanged.removeListener(changed)
+    getUserConfig()
+      .then((value) => {
+        if (disposed) return
+        loading = false
+        setConfig({ ...value, ...received })
+        setReadState('ready')
+      })
+      .catch(() => {
+        if (disposed) return
+        loading = false
+        setReadState('error')
+      })
+    return () => {
+      disposed = true
+      Browser.storage.local.onChanged.removeListener(changed)
+    }
   }, [])
 
   // Functional setState avoids stale-closure merges
   const updateConfig = async (value) => {
+    if (Object.hasOwn(value, 'chatgptNativePasteTerms')) {
+      if (readState !== 'ready')
+        throw new Error('Saved rules are unavailable. Reload settings before saving.')
+      // Active paste policy comes only from successful storage events. A failed
+      // write must not promote the draft or survive as optimistic settings state.
+      await setUserConfig(value)
+      return
+    }
     setConfig((prev) => ({ ...prev, ...value }))
     await setUserConfig(value)
   }
 
-  return [config, updateConfig]
+  return [config, updateConfig, readState]
 }
 
 /**

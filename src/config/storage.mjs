@@ -34,6 +34,7 @@ import {
 } from './engine-selection.mjs'
 
 import { normalizeLanguageKey, preferredLanguageKey } from './language-preference.mjs'
+import { NATIVE_CHATGPT_DEFAULTS, nativeChatgptConfig } from './native-chatgpt.mjs'
 
 export function getNavigatorLanguage() {
   const l =
@@ -47,6 +48,8 @@ export function getNavigatorLanguage() {
  * @typedef {typeof defaultConfig} UserConfig
  */
 export const defaultConfig = {
+  ...NATIVE_CHATGPT_DEFAULTS,
+  chatgptNativePasteActivationError: '',
   browserAssistantEnabled: true,
   browserAssistantFunctions: [],
   browserFunctionOverrides: {},
@@ -322,6 +325,7 @@ export async function getUserConfig() {
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
   const storedProviderSchemaVersion = options.providerSchemaVersion
   const config = defaults(options, defaultConfig)
+  Object.assign(config, nativeChatgptConfig(config))
 
   // Provider schema v2 is a cut, not a vendor-config migration. Old
   // enabledProviders / customApiModes / per-vendor API keys stay in storage

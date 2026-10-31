@@ -11,13 +11,14 @@ import ru from './ru/main.json'
 import tr from './tr/main.json'
 import zhHans from './zh-hans/main.json'
 import zhHant from './zh-hant/main.json'
+import { nativeChatgptMessages } from '../native-chatgpt/strings.mjs'
 
 export const resources = {
   de: {
     translation: de,
   },
   en: {
-    translation: en,
+    translation: { ...en, ...nativeChatgptMessages.en },
   },
   es: {
     translation: es,
@@ -47,9 +48,9 @@ export const resources = {
     translation: tr,
   },
   zh: {
-    translation: zhHans,
+    translation: { ...zhHans, ...nativeChatgptMessages.zh },
   },
   zhHant: {
-    translation: zhHant,
+    translation: { ...zhHant, ...nativeChatgptMessages.zhHant },
   },
 }

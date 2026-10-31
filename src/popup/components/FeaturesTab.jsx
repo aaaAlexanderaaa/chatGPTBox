@@ -7,6 +7,7 @@ import { SearchableSelect } from './SearchableSelect.jsx'
 import { ContentExtractor } from '../sections/ContentExtractor.jsx'
 import { buildEngineOptions } from './engine-options.mjs'
 import { engineSelectionLabel, getSelectionString } from '../../config/engine-selection.mjs'
+import { NativeChatgptSettings } from './NativeChatgptSettings.jsx'
 
 const TEXT_INPUT_CLASS =
   'w-56 h-9 px-3 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground'
@@ -48,7 +49,7 @@ const SITE_DISPLAY_NAMES = {
  * context extraction and site matching complete the "on this site,
  * behave like this" roof.
  */
-export function FeaturesTab({ config, updateConfig }) {
+export function FeaturesTab({ config, updateConfig, configReadState }) {
   const { t } = useTranslation()
 
   const siteKeys = useMemo(() => {
@@ -96,6 +97,11 @@ export function FeaturesTab({ config, updateConfig }) {
 
   return (
     <div className="space-y-4">
+      <NativeChatgptSettings
+        config={config}
+        updateConfig={updateConfig}
+        configReadState={configReadState}
+      />
       {/* Site Integrations */}
       <div className="space-y-2">
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
@@ -172,6 +178,7 @@ export function FeaturesTab({ config, updateConfig }) {
 }
 
 FeaturesTab.propTypes = {
+  configReadState: PropTypes.oneOf(['loading', 'ready', 'error']),
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
 }

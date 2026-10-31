@@ -114,7 +114,7 @@ function sectionsForConfig(config) {
 
 function SettingsCenter() {
   const { t } = useTranslation()
-  const [config, updateConfig] = useSettingsConfig()
+  const [config, updateConfig, configReadState] = useSettingsConfig()
   useApplyAppearance(config)
 
   const [enablePrompt, setEnablePrompt] = useState('')
@@ -251,7 +251,13 @@ function SettingsCenter() {
           {active.id === 'dsh' && <DshEngineTab config={config} updateConfig={updateConfig} />}
           {active.id === 'behavior' && <BehaviorTab config={config} updateConfig={updateConfig} />}
           {active.id === 'tools' && <ToolsTab config={config} updateConfig={updateConfig} />}
-          {active.id === 'sites' && <FeaturesTab config={config} updateConfig={updateConfig} />}
+          {active.id === 'sites' && (
+            <FeaturesTab
+              config={config}
+              updateConfig={updateConfig}
+              configReadState={configReadState}
+            />
+          )}
           {active.id === 'advanced' && (
             <AdvancedTab
               config={config}

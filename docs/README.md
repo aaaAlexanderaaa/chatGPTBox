@@ -2,7 +2,7 @@
 doc_type: authority-map
 status: current
 authority: normative
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-29
 ---
 
 # Project documentation
@@ -19,6 +19,7 @@ plan, or a successful test run does not acquire product authority.
 | Where does code belong? | [Architecture](../ARCHITECTURE.md) | Runtime boundaries, state owners, and dependency direction |
 | How should a change be delivered? | [Development discipline](contracts/development.md) | Investigation, authority, implementation, and verification |
 | How are documents maintained? | [Documentation discipline](contracts/documentation.md) | Ownership, lifecycle, evidence, and checks |
+| How is an external discipline learned or updated? | [Read rules before judging fit](contracts/documentation.md#read-rules-before-judging-their-fit) | Complete source understanding, applicability judgments, and authorized local changes |
 | How do I develop and test? | [Contributing](../CONTRIBUTING.md) | Supported runtime and executable commands |
 | How do I use page functions? | [Browser assistant guide](browser-assistant.md) | Current usage and portable function format |
 | How do I use the local gateway? | [API server](api-server.md), [MCP server](mcp-server.md), [Drafts](drafts/README.md) | Interfaces and operator procedures |
@@ -57,6 +58,12 @@ Establish the requested outcome, current code and evidence, decision authority,
 affected boundaries, and completion evidence. Follow only the relevant owners;
 do not read every archived plan before a local fix.
 
+Read complete applicable owner sections, their dependencies, and exceptions
+before choices rely on them. Recover truncated text in parts; a manifest or
+summary alone is a locator. Use the [concern route](contracts/development.md#apply-the-concerns-the-change-actually-touches)
+and [execution depth](contracts/development.md#choose-execution-depth-by-consequences)
+for the actual task. An ordinary lookup needs no standalone plan or full survey.
+
 The product direction confirmed on 2026-10-21 is the entry for browser assistant
 work. Its engineering exploration is historical reference. A JSON example or
 passing schema check does not make that exploration an approved architecture.
@@ -73,6 +80,8 @@ procedure, execution record, or durable piece of evidence. The
 [documentation contract](contracts/documentation.md) owns metadata and closure
 requirements. [The October reconciliation](evidence/2026-10-22-documentation-discipline.md)
 records what was changed, the reference practices selected, and remaining limits.
+The [October 29 refresh](evidence/2026-10-29-discipline-refresh.md) records the
+complete rule comparison and the additional local discipline changes.
 
 Run `npm run docs:check` after documentation edits. It checks structure and local
 references. Semantic review still compares the prose with its sources and the

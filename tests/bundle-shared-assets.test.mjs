@@ -39,11 +39,26 @@ describe('production bundle sharing invariants', () => {
   it('injects shared.css in both manifests before content-script.css', () => {
     for (const relative of ['src/manifest.json', 'src/manifest.v2.json']) {
       const manifest = JSON.parse(read(relative))
-      const css = manifest.content_scripts[0].css
+      const css = manifest.content_scripts.find((entry) =>
+        entry.js.includes('content-script.js'),
+      ).css
       expect(css).toContain('shared.css')
       expect(css).toContain('content-script.css')
       expect(css.indexOf('shared.css')).toBeLessThan(css.indexOf('content-script.css'))
     }
+  })
+
+  it('keeps native paste opt-in dynamically registered, never statically injected', () => {
+    for (const file of ['src/manifest.json', 'src/manifest.v2.json'])
+      expect(
+        JSON.parse(read(file)).content_scripts.some((entry) =>
+          entry.js.includes('native-chatgpt-early.js'),
+        ),
+      ).toBe(false)
+    const activation = read('src/background/native-paste-activation.mjs')
+    expect(activation).toContain("runAt: 'document_start'")
+    expect(activation).toContain("js: ['native-chatgpt-early.js']")
+    expect(activation).toContain('persistAcrossSessions: true')
   })
 
   it('proxy fallback injectors insert shared.css before content-script.css', () => {

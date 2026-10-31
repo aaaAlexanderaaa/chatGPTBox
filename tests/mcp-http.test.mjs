@@ -183,8 +183,9 @@ describe('MCP HTTP conversation flow', () => {
       .split('\n')
       .find((line) => line.startsWith('data: '))
       ?.slice('data: '.length)
-    expect(JSON.parse(initializedEvent).result.instructions).toContain('capable peer agent')
-    expect(JSON.parse(initializedEvent).result.instructions).toContain('do not try to override')
+    const instructions = JSON.parse(initializedEvent).result.instructions
+    expect(instructions).toContain('capable peer agent')
+    expect(instructions).toContain('do not try to override')
     const listed = await fetch(url, {
       method: 'POST',
       headers: { ...headers, Authorization: 'Bearer mcp-test-token' },
@@ -199,7 +200,17 @@ describe('MCP HTTP conversation flow', () => {
     expect(listedTools[0].description).toContain('not for keyword search or trivial tests')
     expect(Object.keys(listedTools[0].inputSchema.properties)).toEqual(['query'])
     expect(listedTools[0].inputSchema.additionalProperties).toBe(false)
-    expect(listedTools[0].inputSchema.properties.query.description).toContain('One clear question')
+    const queryDescription = listedTools[0].inputSchema.properties.query.description
+    for (const guidance of [instructions, listedTools[0].description, queryDescription]) {
+      expect(guidance).toMatch(/NEW, isolated/)
+      expect(guidance).toContain('self-contained')
+      expect(guidance).toMatch(/previous (?:questions|calls)/)
+      expect(guidance).toMatch(/local (?:repository|files)/)
+      expect(guidance).toMatch(/prior findings/)
+    }
+    expect(listedTools[0].description).toContain('including consecutive calls')
+    expect(instructions).toContain('a file reference does not include its contents')
+    expect(listedTools[0].description).toContain('Public web search')
     const modelOverride = await fetch(url, {
       method: 'POST',
       headers: { ...headers, Authorization: 'Bearer mcp-test-token' },

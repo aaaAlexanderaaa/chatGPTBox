@@ -2,6 +2,7 @@ import { clearOldAccessToken, getUserConfig, setAccessToken } from '../config/in
 import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
 import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
+import { PASTE_REVIEW_PORT } from '../native-chatgpt/review-contract.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -155,7 +156,7 @@ export function createPendingProxyCancellation(uiPort) {
 
 export function registerPortListener(executor) {
   Browser.runtime.onConnect.addListener((port) => {
-    if (port.name === 'api-bridge-proxy') return
+    if (port.name === 'api-bridge-proxy' || port.name === PASTE_REVIEW_PORT) return
     console.debug('connected')
     const runGuard = createPortRunGuard(port)
     const onMessage = async (msg) => {

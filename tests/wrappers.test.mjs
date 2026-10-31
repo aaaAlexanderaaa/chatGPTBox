@@ -4,6 +4,7 @@ vi.mock('i18next', () => ({
   t: (key) => key,
 }))
 import Browser from 'webextension-polyfill'
+import { PASTE_REVIEW_PORT } from '../src/native-chatgpt/review-contract.mjs'
 import {
   createPendingProxyCancellation,
   createPortRunGuard,
@@ -138,6 +139,24 @@ describe('registerPortListener', () => {
 
   afterEach(() => {
     Browser.runtime.onConnect.addListener = originalAddListener
+  })
+
+  it('does not attach generic logging or model execution to private paste-review ports', () => {
+    let onConnect
+    Browser.runtime.onConnect.addListener = (listener) => {
+      onConnect = listener
+    }
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    const execute = vi.fn()
+    registerPortListener(execute)
+    const port = fakePort()
+    port.name = PASTE_REVIEW_PORT
+    onConnect(port)
+    port.emit({ original: 'synthetic-private-text' })
+    expect(port.messageListeners).toEqual([])
+    expect(execute).not.toHaveBeenCalled()
+    expect(debug).not.toHaveBeenCalled()
+    debug.mockRestore()
   })
 
   it('acks {stop:true} without a session so the UI can leave Generating', async () => {

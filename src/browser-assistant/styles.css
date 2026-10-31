@@ -24,6 +24,33 @@
   text-align: left;
   color-scheme: light;
 }
+
+.chatgptbox-native-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+  font: 12px/1.5 system-ui, sans-serif;
+  color: inherit;
+}
+.chatgptbox-native-actions button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  padding: 5px 10px;
+}
+.chatgptbox-native-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chatgptbox-native-actions button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
 [data-chatgptbox-assistant][data-theme='dark'] {
   color-scheme: dark;
   --foreground: #edf3ef;

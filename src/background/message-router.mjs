@@ -9,6 +9,7 @@
 // the rest read only `message.data`.
 
 import Browser from 'webextension-polyfill'
+import { setNativePasteEnabled } from './native-paste-activation.mjs'
 import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { openUrl } from '../utils/open-url'
@@ -41,6 +42,11 @@ import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
 import { getChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
+import {
+  openNativePasteReview,
+  authenticateNativePasteReview,
+  closeNativePasteReview,
+} from './native-paste-review.mjs'
 
 // Build the case-handler table. Returned as a function so the background
 // entry registers it as a single onMessage listener.
@@ -62,6 +68,14 @@ export function createMessageRouter() {
     }
   }
   const routedHandlers = {
+    [RuntimeMessage.SetNativePasteEnabled]: (message, sender) =>
+      setNativePasteEnabled(message, sender),
+    [RuntimeMessage.OpenNativePasteReview]: (message, sender) =>
+      openNativePasteReview(message, sender),
+    [RuntimeMessage.AuthenticateNativePasteReview]: (message, sender) =>
+      authenticateNativePasteReview(message, sender),
+    [RuntimeMessage.CloseNativePasteReview]: (message, sender) =>
+      closeNativePasteReview(message, sender),
     [RuntimeMessage.ChatgptWebListProjects]: (message) =>
       listChatgptWebProjectsViaProxy(message.data),
     [RuntimeMessage.ChatgptWebUploadImages]: (message) =>

@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-30
 ---
 
 # Execution records
@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record | State and remaining limit |
 | --- | --- |
+| [ChatGPT native input](2026-10-30-chatgpt-native-input.md) | Active: review findings addressed and real guest-editor workflows verified; manual login and current rich-editor acceptance remain |
 | [Documentation reconciliation](2026-10-22-documentation-discipline.md) | See its metadata and completion record for this bounded change |
 | [Browser assistant first delivery](2026-10-21-browser-assistant.md) | Completed local delivery record; live provider and real-user acceptance were not established |
 | [Engines and providers](2026-09-17-engines-providers.md) | Historical implementation record; live provider rules now route through product contracts |

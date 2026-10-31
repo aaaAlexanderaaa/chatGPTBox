@@ -55,6 +55,9 @@ import { captureContext, selectedInputText } from '../browser-assistant/context.
 import { openBrowserAssistant } from '../browser-assistant/launch.jsx'
 import { getSelectionString } from '../config/engine-selection.mjs'
 import { findFunction } from '../browser-assistant/catalog.mjs'
+import { installNativeDraftLifecycle } from '../native-chatgpt/draft-lifecycle.mjs'
+import { isNativeChatgptPage } from '../native-chatgpt/editor.mjs'
+import i18n from 'i18next'
 
 /**
  * The engine selection for conversations born on this page: the site's
@@ -547,6 +550,9 @@ async function overwriteAccessToken() {
     return
   }
 
+  // Native site features must not acquire provider sessions when that engine is off.
+  if ((await getUserConfig()).chatgptWebEnabled === false) return
+
   let data
   if (location.pathname === '/api/auth/session') {
     const response = document.querySelector('pre').textContent
@@ -631,6 +637,22 @@ async function run() {
   installPageLifecycleTeardown()
 
   await changeLanguage(await getPreferredLanguageKey())
+  if (isNativeChatgptPage(document)) {
+    installNativeDraftLifecycle({
+      doc: document,
+      browser: Browser,
+      getConfig: getUserConfig,
+      t: i18n.t.bind(i18n),
+      onRewrite: (context, config) =>
+        openBrowserAssistant({
+          context,
+          config,
+          functionId: 'preset.rewrite',
+          autoRun: false,
+          siteEngine: getSelectionString(engineForCurrentPage(config)),
+        }),
+    })
+  }
   Browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isGrokProxyMessage(message)) {
       if (message.type === RuntimeMessage.GrokProxyRequest) {

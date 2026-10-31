@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light dark;
+  font: 14px/1.55 system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+body {
+  margin: 0;
+}
+.paste-review {
+  max-width: 980px;
+  padding: 24px;
+  margin: auto;
+  overflow-wrap: anywhere;
+}
+.paste-review h1 {
+  font-size: 22px;
+  margin: 4px 0 16px;
+}
+.paste-review h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.paste-review header > span {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.paste-review-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.paste-review-columns section {
+  min-width: 0;
+}
+.paste-review pre {
+  border: 1px solid GrayText;
+  padding: 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+  font: inherit;
+}
+.paste-review fieldset {
+  border: 1px solid GrayText;
+  border-radius: 8px;
+  min-width: 0;
+}
+.paste-review label {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 0;
+}
+.paste-review input {
+  flex: 0 0 auto;
+  margin-top: 5px;
+}
+.paste-review code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.paste-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+.paste-review button {
+  font: inherit;
+  padding: 8px 12px;
+  border: 1px solid GrayText;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.paste-review button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.paste-review :focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 3px;
+}
+.paste-review details {
+  margin-top: 20px;
+}
+@media (max-width: 600px) {
+  .paste-review {
+    padding: 16px;
+  }
+  .paste-review-columns {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

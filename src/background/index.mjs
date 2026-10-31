@@ -50,6 +50,7 @@ import { startModuleBackgrounds } from '../modules/background-services.mjs'
 import { applyActionBadge, setRateLimitedFlag } from './action-badge.mjs'
 import { sidePanelPaths } from './sidepanel-path.mjs'
 import { createMessageRouter } from './message-router.mjs'
+import { startNativePasteActivation } from './native-paste-activation.mjs'
 
 // Pure diagnostic helper surfaced to the provider router via ctx so the router
 // can log a normalized apiMode shape without importing config internals.
@@ -96,6 +97,7 @@ registerExecuteApi(executeApi)
 async function ensureChatgptWebFirstRun() {
   try {
     const config = await getUserConfig()
+    if (config.chatgptWebEnabled === false) return
     if (!isUsingChatgptWebModel(config) && !config.accessToken) return
 
     let accessToken = config.accessToken
@@ -208,6 +210,7 @@ void ensureChatgptWebConversationSyncAlarm()
 
 // --- message router -------------------------------------------------------
 
+startNativePasteActivation()
 Browser.runtime.onMessage.addListener(createMessageRouter())
 
 // --- onConnect: proxy response + API bridge -------------------------------

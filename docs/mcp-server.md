@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-30
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -34,13 +34,78 @@ Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use t
 
 ## Tool
 
-`ask_chatgpt` creates a conversation and waits for its final answer. It is the only tool exposed by this MCP server.
+`ask_chatgpt` creates a **new, isolated conversation on every call** and waits for
+its final answer. It is the only tool exposed by this MCP server. Consecutive
+calls do not continue a conversation or share task context.
 
-The server instructions ask MCP clients to treat ChatGPT as a capable peer agent. The user's ChatGPT Web account already supplies its configured model, thinking effort, custom instructions, memory, and personalization. Send one clear, natural question with relevant background and the desired outcome; a long background can go in a code block. For example: "关于 X，我已经知道 Y；我需要你 Z" or "深度调研：关于 X，我应该知道的一切". Let ChatGPT choose its own investigation and answer structure. Use it when that judgment would help, rather than for keyword search or synthetic connectivity tests.
+The server instructions ask MCP clients to treat ChatGPT as a capable peer agent.
+The user's account supplies its configured model, thinking effort and
+personalization; do not override them. Those settings and account memory do not
+supply this coding agent's task context.
+
+Every `query` must be self-contained. ChatGPT cannot see earlier calls or their
+answers, the caller's conversation or tool results, local files/repository, or
+private documents unless the relevant contents are included in that question.
+State the subject and desired outcome, define project-specific names, and include
+the relevant source, observations, constraints and findings. When following up,
+repeat the necessary context and prior conclusions. References such as “此前”,
+“我们的方案”, “这个项目”, a local path or a file hash do not convey that material.
+A public namesake or upstream repository found through web search cannot establish
+the private/local working tree's behavior. Supply the facts needed for that
+judgment, or explicitly retain the gap.
+
+For example, a self-contained review question supplies both the contract and
+the actual disputed code:
+
+````text
+请审查这个浏览器扩展的配置变更逻辑。enabled 默认 false；删除该配置键也应立即关闭功能。
+当前代码为：
+```js
+let enabled = true
+function changed(changes) {
+  if (changes.enabled?.newValue === false) enabled = false
+}
+```
+复现：先开启，再删除 enabled，事件为 { enabled: { oldValue: true } }，结果 enabled 仍为 true。
+请根据这些材料判断原因和修正边界；材料不足的部分请明确指出。
+````
+
+Ask one clear, natural question. Long background/source can go in code blocks.
+Let ChatGPT choose its investigation and answer structure; use it when that
+judgment would help rather than for keyword search or synthetic connectivity
+tests. The server does not automatically attach local files or earlier results.
 
 `ask_chatgpt` accepts only `query`. The server automatically appends this response preference to the question: "请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。" Its ordinary text result contains only the final answer; `structuredContent` also contains the conversation and message IDs and `thought_duration_seconds` for diagnostics. The duration sums ChatGPT Web's reported `finished_duration_sec` values for the turn. It is `null` if ChatGPT does not report a duration; it is never inferred from the MCP call's elapsed time. The MCP server does not expose conversation listing, continuation, or turn-status tools. The server generates an internal idempotency key for each dispatch; an ambiguous dispatch is reported as an error, not automatically resent.
 
 The server permits **four active `ask_chatgpt` calls**. A fifth call returns a `concurrency_limit` error before sending a message to ChatGPT. Wait for an active call to finish before retrying.
+
+### Updating the advertised description
+
+[`scripts/mcp-server.mjs`](../scripts/mcp-server.mjs) owns the initialization
+instructions, `ask_chatgpt` description and `query` schema description. Keep all
+three explicit about isolated sessions and self-contained questions. Verify them
+through MCP `initialize` and `tools/list`; those metadata requests do not send a
+ChatGPT question. The HTTP regression checks their advertised contract.
+
+Restart only the MCP process after changing those descriptions, preserving its
+working directory, Node runtime, bind address, ports and authentication settings.
+The gateway, extension and Drafts do not need redeployment for a metadata change.
+Clients that cache tool metadata need to reconnect/refetch before displaying the
+new description; a successful server restart alone does not prove a client's
+cached description changed. Do not send a model test prompt to check metadata.
+The [official MCP update guidance](https://developers.openai.com/plugins/build/mcp-server#plan-for-updates)
+likewise calls for refreshing the connection after metadata changes.
+
+On 2026-10-30, the isolated-session/self-contained-query wording was verified in
+both local HTTP regression cases, then deployed by restarting only the existing
+MCP process. Live authenticated `initialize` and `tools/list` returned the updated
+server instructions, tool description and parameter description. The existing
+bind address, ports, authentication files and gateway process were retained.
+Lint and documentation checks passed. No ChatGPT question was sent to verify
+this change. The active coding chat still exposed its old cached tool metadata;
+client reconnection was not completed because the computer-use tool disallowed
+controlling the Codex UI. Server deployment and active-client cache freshness
+are therefore recorded separately. Later prompt quality has not yet been observed.
 
 ## Waiting and recovery
 

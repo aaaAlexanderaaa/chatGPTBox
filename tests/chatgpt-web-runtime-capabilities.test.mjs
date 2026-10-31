@@ -124,12 +124,116 @@ function browserFixture() {
   return result
 }
 
+// Synthetic forms of the October 30 runtime: four-character module IDs,
+// identity checks in a for-of initializer, and a read-only 403 response check.
+// No captured account, verification implementation or conversation is included.
+const octoberNative = wrappedNative
+  .replace(
+    'checkIdentity(headers, options.expectedIdentity);\n  assertCurrent?.();',
+    `for (const [key, value] of (
+      options.signal?.throwIfAborted(),
+      checkIdentity(headers, options.expectedIdentity),
+      assertCurrent?.(),
+      Object.entries({})
+    )) headers[key] = value;`,
+  )
+  .replace(
+    '  const noRetry =',
+    `  if (response.status === 403) {
+      const blocked = await readBlockedWorkspace(response.clone());
+      if (blocked) return response;
+    }
+    const noRetry =`,
+  )
+
+function octoberFixture() {
+  const result = browserFixture()
+  const ids = {
+    request: 'Kwur',
+    wrapper: 'HFSu',
+    account: 'QdUF',
+    verification: 'lXEa',
+    relocated: 'wl0r',
+    tracking: 'y3uJ',
+    xb: 'old-name',
+  }
+  for (const module of result.modules) {
+    module.id = ids[module.id]
+    if (module.id === 'wl0r') {
+      module.source = networkFactory.replace(wrappedNative, octoberNative)
+      module.functions = { d: octoberNative }
+    }
+    module.source = module.source.replaceAll("load('tracking')", "load('y3uJ')")
+  }
+  result.graph = Object.fromEntries(
+    Object.entries(result.graph).map(([id, dependencies]) => [
+      ids[id],
+      dependencies.map((dependency) => ids[dependency]),
+    ]),
+  )
+  result.graph.HFSu = ['GDNt']
+  result.graph.GDNt = ['KthI']
+  result.graph.KthI = ['wl0r']
+  return result
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe('ChatGPT capability discovery', () => {
+  it('recognizes the October 30 transport shape through its four-hop request path', () => {
+    expect(resolveChatgptWebRuntimeCapabilities([octoberFixture()])).toMatchObject({
+      requestModule: 'Kwur',
+      authModule: 'QdUF',
+      authContext: 'generation',
+      integrityModule: 'lXEa',
+      fetchModule: 'wl0r',
+      fetchExport: 'd',
+      capabilityCheck: { fetchWrappers: [{ module: 'y3uJ', export: 'trace' }] },
+    })
+  })
+
+  it.each([
+    octoberNative.replace('options.expectedIdentity', 'options.otherIdentity'),
+    octoberNative.replace('assertCurrent?.(),', ''),
+    octoberNative.replace("'never' === options.retry", "'sometimes' === options.retry"),
+    octoberNative.replace('if (blocked) return response;', 'await fetch(url, input);'),
+  ])('rejects changes before the October 30 no-retry return', (source) => {
+    const data = octoberFixture()
+    const network = data.modules.find((module) => module.id === 'wl0r')
+    network.source = network.source.replace(octoberNative, source)
+    network.functions.d = source
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+  })
+
+  it('does not combine partial roles from different runtime instances', () => {
+    const requestOnly = octoberFixture()
+    requestOnly.modules = requestOnly.modules.filter((module) => module.id !== 'QdUF')
+    const authOnly = octoberFixture()
+    authOnly.url = 'https://chatgpt.com/cdn/assets/999999.another-build.js'
+    authOnly.modules = authOnly.modules.filter((module) => module.id !== 'Kwur')
+    expect(resolveChatgptWebRuntimeCapabilities([requestOnly, authOnly])).toBeNull()
+  })
+
+  it('does not fetch fresh HTML or import a guessed runtime when the document has no candidates', async () => {
+    const page = {}
+    page.top = page
+    vi.stubGlobal('window', page)
+    vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
+    vi.stubGlobal('document', { scripts: [{ src: '' }], querySelectorAll: () => [] })
+    vi.stubGlobal('performance', { getEntriesByType: () => [] })
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const load = vi.fn()
+    expect(
+      await inspectChatgptWebRuntimeInPage([{ filename: '633146.synthetic-build.js' }], load),
+    ).toEqual([])
+    expect(fetch).not.toHaveBeenCalled()
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it('discovers the account-bound browser/native profile after removal of the codex_webview marker', () => {
     const data = browserFixture()
     const request = data.modules.find((module) => module.id === 'request')
