@@ -191,13 +191,15 @@ export function resolveChatgptWebRuntimeCapabilities(inspections = []) {
           ...(native.wrappers.length
             ? {
                 fetchModuleSource: native.module.source,
-                fetchWrappers: native.wrappers.map(
-                  ({ module, export: name, source, moduleSource }) => ({
-                    module,
-                    export: name,
-                    source,
-                    moduleSource,
-                  }),
+                fetchWrappers: native.wrappers.flatMap((wrapper) =>
+                  [wrapper, ...(wrapper.delegates || [])].map(
+                    ({ module, export: name, source, moduleSource }) => ({
+                      module,
+                      export: name,
+                      source,
+                      moduleSource,
+                    }),
+                  ),
                 ),
               }
             : {}),

@@ -10,6 +10,7 @@ import {
 } from '../src/services/clients/chatgpt-web/runtime-capabilities.mjs'
 import {
   getChatgptWebFetchWrappers,
+  hasCompatibleChatgptWebFetchDelegate,
   hasCompatibleChatgptWebFetchWrapper,
 } from '../src/services/clients/chatgpt-web/runtime-fetch-capabilities.mjs'
 
@@ -177,12 +178,161 @@ function octoberFixture() {
   return result
 }
 
+const diagnosticDelegate = `async function diagnosticFetch(url, options, send) {
+  let response, attempt = arguments.length > 3 ? arguments[3] : 'initial', configuration = state;
+  if (!configuration) return send(url, options);
+  const diagnostic = function(config, input, init) {
+    try {
+      if (!enabled(config) || init.method !== 'POST') return;
+      const parsed = telemetryUrl(input);
+      if (!parsed || parsed.searchParams.has('ces_diag_id')) return;
+      return { url: input + '?ces_diag_id=synthetic' };
+    } catch { return; }
+  }(configuration, url, options);
+  if (!diagnostic) return send(url, options);
+  const metadata = () => ({ request_attempt: attempt });
+  try { response = await send(diagnostic.url, options); }
+  catch (error) { throw report(metadata()), error; }
+  return report(metadata()), response;
+}`
+const diagnosticFactory = `function(module, exports, load) {
+  let state;
+  function telemetryUrl(input) {
+    const parsed = new URL(input, window.location.href);
+    return parsed.origin === window.location.origin &&
+      '/ces/v1/rgstr' === parsed.pathname && '' === parsed.username && '' === parsed.password
+      ? parsed : void 0;
+  }
+  ${diagnosticDelegate}
+  exports.send = diagnosticFetch;
+}`
+const delegatedTracking = tracked.replace(
+  'fetch(url, options)',
+  '(0, diagnostics.send)(url, options, fetch, attempt)',
+)
+const delegatedFactory = trackingFactory
+  .replace('let state =', "const diagnostics = load('diagnostics'); let state =")
+  .replace(tracked, delegatedTracking)
+
+function delegatedFixture() {
+  const data = browserFixture()
+  const tracking = data.modules.find((module) => module.id === 'tracking')
+  tracking.source = delegatedFactory
+  tracking.functions.trace = delegatedTracking
+  data.modules.push({
+    id: 'diagnostics',
+    source: diagnosticFactory,
+    functions: { send: diagnosticDelegate },
+  })
+  data.graph.tracking = ['diagnostics']
+  return data
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe('ChatGPT capability discovery', () => {
+  it('recognizes the October 31 delegated fetch and pins both imported modules', () => {
+    expect(resolveChatgptWebRuntimeCapabilities([delegatedFixture()])).toMatchObject({
+      fetchModule: 'relocated',
+      capabilityCheck: {
+        fetchWrappers: [
+          {
+            module: 'tracking',
+            export: 'trace',
+            source: delegatedTracking,
+            moduleSource: delegatedFactory,
+          },
+          {
+            module: 'diagnostics',
+            export: 'send',
+            source: diagnosticDelegate,
+            moduleSource: diagnosticFactory,
+          },
+        ],
+      },
+    })
+    expect(hasCompatibleChatgptWebFetchWrapper(delegatedTracking, delegatedFactory)).toBe(false)
+  })
+
+  it.each([
+    diagnosticDelegate.replace('return send(url, options);', 'return send(url, {});'),
+    diagnosticDelegate.replace('if (!diagnostic)', 'if (diagnostic)'),
+    diagnosticDelegate.replace('telemetryUrl(input)', 'telemetryUrl(url)'),
+    diagnosticDelegate.replace('!parsed ||', 'parsed ||'),
+    diagnosticDelegate.replace('const metadata =', 'await send(url, options); const metadata ='),
+    diagnosticDelegate.replace(
+      'await send(diagnostic.url, options)',
+      'await send(diagnostic.url, {})',
+    ),
+    diagnosticDelegate.replace('), response;', '), response.json();'),
+    diagnosticDelegate.replace('), error;', '), new Error("changed");'),
+    diagnosticDelegate.replace(
+      "arguments.length > 3 ? arguments[3] : 'initial'",
+      '(options.signal = undefined)',
+    ),
+    diagnosticDelegate.replace('return { url:', 'fetch(input, init); return { url:'),
+    diagnosticDelegate.replace(
+      'if (!enabled(config)',
+      "if ((options.body = 'changed', !enabled(config))",
+    ),
+    diagnosticDelegate.replace(
+      'if (!enabled(config)',
+      'if ((init.signal = undefined, !enabled(config))',
+    ),
+    diagnosticDelegate.replace('if (!enabled(config)', 'if ((send = otherFetch, !enabled(config))'),
+    diagnosticDelegate.replace(
+      'return report(metadata()), response;',
+      'return report(metadata()), response = other, response;',
+    ),
+    diagnosticDelegate.replace(
+      'throw report(metadata()), error;',
+      'throw report(metadata()), error = other, error;',
+    ),
+  ])(
+    'rejects changed delegated request, gate, response, error or cancellation behavior',
+    (source) => {
+      expect(
+        hasCompatibleChatgptWebFetchDelegate(
+          source,
+          diagnosticFactory.replace(diagnosticDelegate, source),
+        ),
+      ).toBe(false)
+      const data = delegatedFixture()
+      const delegate = data.modules.find((module) => module.id === 'diagnostics')
+      delegate.source = diagnosticFactory.replace(diagnosticDelegate, source)
+      delegate.functions.send = source
+      expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+    },
+  )
+
+  it.each([
+    diagnosticFactory.replace('/ces/v1/rgstr', '/backend-api/f/conversation'),
+    diagnosticFactory.replace('parsed.origin === window.location.origin &&', ''),
+    diagnosticFactory.replace("'' === parsed.password", 'true'),
+    diagnosticFactory.replace('new URL(input, window.location.href)', 'otherParser(input)'),
+    diagnosticFactory.replace(diagnosticDelegate, ''),
+  ])('requires the owned diagnostics function to be restricted to the telemetry URL', (source) => {
+    expect(hasCompatibleChatgptWebFetchDelegate(diagnosticDelegate, source)).toBe(false)
+  })
+
+  it.each([
+    delegatedTracking.replace('options, fetch, attempt', 'options, otherFetch, attempt'),
+    delegatedTracking.replace('options, fetch, attempt', 'options, fetch, "other"'),
+    delegatedTracking.replace('diagnostics.send', 'unrelated.send'),
+  ])(
+    'requires the wrapper to pass the original fetch and attempt to its actual import',
+    (source) => {
+      const data = delegatedFixture()
+      const wrapper = data.modules.find((module) => module.id === 'tracking')
+      wrapper.source = delegatedFactory.replace(delegatedTracking, source)
+      wrapper.functions.trace = source
+      expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+    },
+  )
+
   it('recognizes the October 30 transport shape through its four-hop request path', () => {
     expect(resolveChatgptWebRuntimeCapabilities([octoberFixture()])).toMatchObject({
       requestModule: 'Kwur',
@@ -450,15 +600,20 @@ describe('ChatGPT capability discovery', () => {
     network.functions.anotherSend = network.functions.send
     expect(resolveChatgptWebRuntimeCapabilities([ambiguous])).toBeNull()
   })
-  it.each(['legacy', 'browser'])(
+  it.each(['legacy', 'browser', 'delegated'])(
     'inspects a renamed runtime with the %s profile without a release mapping',
     async (profile) => {
-      const data = profile === 'browser' ? browserFixture() : wrappedFixture()
+      const data =
+        profile === 'delegated'
+          ? delegatedFixture()
+          : profile === 'browser'
+          ? browserFixture()
+          : wrappedFixture()
       const sources = Object.fromEntries(data.modules.map((module) => [module.id, module.source]))
       sources.request = `function(module, exports, load) {
       load('wrapper');
       Object.assign(exports, { Request: {}, getChatGptRequestProfile: () => '${
-        profile === 'browser' ? 'chatgpt-browser' : 'codex_webview'
+        profile !== 'legacy' ? 'chatgpt-browser' : 'codex_webview'
       }' });
     }`
       sources.wrapper = `function(module, exports, load) { load('relocated'); }`
@@ -505,13 +660,23 @@ describe('ChatGPT capability discovery', () => {
         async () => ({ __webpack_require__: require }),
       )
       expect(inspected[0].modules.map((module) => module.id)).toEqual(
-        expect.arrayContaining(['account', 'relocated', 'tracking']),
+        expect.arrayContaining([
+          'account',
+          'relocated',
+          'tracking',
+          ...(profile === 'delegated' ? ['diagnostics'] : []),
+        ]),
       )
       expect(resolveChatgptWebRuntimeCapabilities(inspected)).toMatchObject({
         filename: '633146.future-build.js',
         authContext: 'generation',
         fetchModule: 'relocated',
-        capabilityCheck: { fetchWrappers: [{ module: 'tracking', export: 'trace' }] },
+        capabilityCheck: {
+          fetchWrappers: [
+            { module: 'tracking', export: 'trace' },
+            ...(profile === 'delegated' ? [{ module: 'diagnostics', export: 'send' }] : []),
+          ],
+        },
       })
     },
   )

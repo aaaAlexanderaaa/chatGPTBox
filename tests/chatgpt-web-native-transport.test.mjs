@@ -234,33 +234,44 @@ describe('ChatGPT native page transport', () => {
       expect(modules.n9O.f).not.toHaveBeenCalled()
     },
   )
-  it('refuses a wrapper replaced after connection before any request is sent', async () => {
-    modules.tracking = { trace: () => {} }
-    const dynamic = {
-      ...contract,
-      filename: '633146.discovered-wrapper.js',
-      capabilityCheck: {
-        fetchSource: String(modules.xb.b),
-        prepareSource: String(modules.n9O.f),
-        headersSource: String(modules.n9O.b),
-        fetchModuleSource: '() => {}',
-        fetchWrappers: [
-          {
-            module: 'tracking',
-            export: 'trace',
-            source: String(modules.tracking.trace),
-            moduleSource: '() => {}',
-          },
-        ],
-        preflight: false,
-      },
-    }
-    await connect(dynamic, 'preload', [dynamic])
-    modules.tracking.trace = () => 'changed'
-    await expect(send()).rejects.toThrow()
-    expect(modules.xb.b).not.toHaveBeenCalled()
-    expect(modules.n9O.f).not.toHaveBeenCalled()
-  })
+  it.each(['tracking', 'diagnostics'])(
+    'refuses %s replaced after connection before any request is sent',
+    async (changed) => {
+      modules.tracking = { trace: () => {} }
+      modules.diagnostics = { send: () => {} }
+      const dynamic = {
+        ...contract,
+        filename: '633146.discovered-wrapper.js',
+        capabilityCheck: {
+          fetchSource: String(modules.xb.b),
+          prepareSource: String(modules.n9O.f),
+          headersSource: String(modules.n9O.b),
+          fetchModuleSource: '() => {}',
+          fetchWrappers: [
+            {
+              module: 'tracking',
+              export: 'trace',
+              source: String(modules.tracking.trace),
+              moduleSource: '() => {}',
+            },
+            {
+              module: 'diagnostics',
+              export: 'send',
+              source: String(modules.diagnostics.send),
+              moduleSource: '() => {}',
+            },
+          ],
+          preflight: false,
+        },
+      }
+      await connect(dynamic, 'preload', [dynamic])
+      if (changed === 'tracking') modules.tracking.trace = () => 'changed'
+      else modules.diagnostics.send = () => 'changed'
+      await expect(send()).rejects.toThrow()
+      expect(modules.xb.b).not.toHaveBeenCalled()
+      expect(modules.n9O.f).not.toHaveBeenCalled()
+    },
+  )
 
   it('connects discovered generation auth with a read-only preflight, then preserves the identity guard', async () => {
     useGenerationRuntime()
@@ -294,6 +305,8 @@ describe('ChatGPT native page transport', () => {
   it.each([
     'wrapper-export',
     'wrapper-module',
+    'delegate-export',
+    'delegate-module',
     'network-module',
     'auth-export',
     'request-method',
@@ -302,6 +315,7 @@ describe('ChatGPT native page transport', () => {
     'rejects a discovered %s changed before connection, without reading account state or submitting',
     async (changed) => {
       modules.tracking = { trace: () => {} }
+      modules.diagnostics = { send: () => {} }
       modules.k29.getChatGptRequestProfile = () => ({ kind: 'chatgpt-browser' })
       const factories = Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}]))
       const dynamic = {
@@ -323,12 +337,20 @@ describe('ChatGPT native page transport', () => {
               source: String(modules.tracking.trace),
               moduleSource: String(factories.tracking),
             },
+            {
+              module: 'diagnostics',
+              export: 'send',
+              source: String(modules.diagnostics.send),
+              moduleSource: String(factories.diagnostics),
+            },
           ],
           preflight: true,
         },
       }
       if (changed === 'wrapper-export') modules.tracking.trace = () => 'changed'
       if (changed === 'wrapper-module') factories.tracking = () => 'changed'
+      if (changed === 'delegate-export') modules.diagnostics.send = () => 'changed'
+      if (changed === 'delegate-module') factories.diagnostics = () => 'changed'
       if (changed === 'network-module') factories.xb = () => 'changed'
       if (changed === 'auth-export') modules.OS.getBrowserChatGptAuthSnapshot = () => null
       if (changed === 'request-method') modules.k29.Request.getRequestTarget = () => 'changed'

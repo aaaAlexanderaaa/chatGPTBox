@@ -105,8 +105,17 @@ export async function inspectChatgptWebRuntimeInPage(
           'OpenAI-Sentinel-Turnstile-Token',
         ].every((name) => source.includes(name))
         const fetchRole = source.includes('.expectedIdentity') && source.includes('.retry')
-        const wrapperRole = source.includes('new WeakMap') && /\bfetch\(/.test(source)
-        if (!requestRole && !authRole && !integrityRole && !fetchRole && !wrapperRole) continue
+        const wrapperRole = source.includes('new WeakMap') && /\bfetch\s*[(,)]/.test(source)
+        const delegateRole = source.includes('ces_diag_id') && source.includes('/ces/v1/rgstr')
+        if (
+          !requestRole &&
+          !authRole &&
+          !integrityRole &&
+          !fetchRole &&
+          !wrapperRole &&
+          !delegateRole
+        )
+          continue
         try {
           const exports = require.c?.[id]?.exports || require(id)
           const functions = {}

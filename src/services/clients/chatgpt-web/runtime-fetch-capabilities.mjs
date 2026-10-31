@@ -60,10 +60,226 @@ function unboundCallee(node) {
     : node
 }
 
+function mutates(node, names, allowed) {
+  let changed = false
+  visit(
+    node,
+    (entry) => {
+      if (entry === allowed) return
+      let target =
+        entry.type === 'AssignmentExpression'
+          ? entry.left
+          : entry.type === 'UpdateExpression'
+          ? entry.argument
+          : null
+      while (target?.type === 'MemberExpression') target = target.object
+      if (target?.type === 'Identifier' && names.has(target.name)) changed = true
+    },
+    false,
+  )
+  return changed
+}
+
+// The October 31 frontend delegates tracking to a diagnostics helper. Its
+// decorated branch is restricted to the site's /ces/v1/rgstr telemetry URL;
+// other requests return the supplied fetch(url, options) directly. Recognize
+// that branch boundary and the single attempt, rather than accepting any helper
+// merely because the caller passes fetch as an argument.
+export function hasCompatibleChatgptWebFetchDelegate(source, moduleSource) {
+  const fn = functionNode(source)
+  const factory = functionNode(moduleSource)
+  if (
+    !fn?.async ||
+    fn.params.length !== 3 ||
+    fn.params.some((parameter) => parameter.type !== 'Identifier') ||
+    fn.body?.body?.length !== 7 ||
+    !factory?.body?.body
+  )
+    return false
+  const [url, options, send] = fn.params.map((parameter) => parameter.name)
+  const [setup, inactive, decorate, skipped, metadata, attempt, settled] = fn.body.body
+  const response = setup.declarations?.[0]?.id?.name
+  const configuration = setup.declarations?.[2]?.id?.name
+  const decoration = declaration(decorate)
+  const diagnostic = decoration?.id?.name
+  const gate = decoration?.init?.callee
+  let invalidSetup = false
+  visit(setup, (node) => {
+    if (/^(?:Call|New|Assignment|Update|Await|Yield)Expression$/.test(node.type))
+      invalidSetup = true
+  })
+  const forwards = (node) =>
+    node?.type === 'CallExpression' &&
+    identifier(node.callee, send) &&
+    node.arguments.length === 2 &&
+    identifier(node.arguments[0], url) &&
+    identifier(node.arguments[1], options)
+  const fallback = (node, condition) =>
+    node?.type === 'IfStatement' &&
+    !node.alternate &&
+    node.test?.type === 'UnaryExpression' &&
+    node.test.operator === '!' &&
+    identifier(node.test.argument, condition) &&
+    node.consequent?.type === 'ReturnStatement' &&
+    forwards(node.consequent.argument)
+  if (
+    setup.type !== 'VariableDeclaration' ||
+    invalidSetup ||
+    setup.declarations.length !== 3 ||
+    !response ||
+    setup.declarations[0].init ||
+    !configuration ||
+    setup.declarations[2].init?.type !== 'Identifier' ||
+    !fallback(inactive, configuration) ||
+    !diagnostic ||
+    gate?.type !== 'FunctionExpression' ||
+    gate.async ||
+    gate.params.length !== 3 ||
+    gate.params.some((parameter) => parameter.type !== 'Identifier') ||
+    decoration.init.arguments.length !== 3 ||
+    !decoration.init.arguments.every((argument, index) =>
+      identifier(argument, [configuration, url, options][index]),
+    ) ||
+    !fallback(skipped, diagnostic) ||
+    declaration(metadata)?.init?.type !== 'ArrowFunctionExpression'
+  )
+    return false
+  const guard = gate.body?.body?.[0]
+  const guarded = guard?.block?.body
+  const parsed = declaration(guarded?.[1])
+  const routeGuard = guarded?.[2]
+  const parser = factory.body.body.find(
+    (node) => node.type === 'FunctionDeclaration' && identifier(parsed?.init?.callee, node.id.name),
+  )
+  const parsedUrl = parser?.body?.body?.[0]?.declarations?.[0]
+  const result = parser?.body?.body?.[1]?.argument
+  const route = terms(result?.test, '&&')
+  const equal = (node, object, property, value) =>
+    node?.type === 'BinaryExpression' &&
+    node.operator === '===' &&
+    ((member(node.left, object, property) && node.right?.value === value) ||
+      (member(node.right, object, property) && node.left?.value === value))
+  const locationMember = (node, property) =>
+    node?.type === 'MemberExpression' &&
+    member(node.object, 'window', 'location') &&
+    (node.computed ? node.property?.value : node.property?.name) === property
+  if (
+    gate.body.body.length !== 1 ||
+    guard.type !== 'TryStatement' ||
+    guard.finalizer ||
+    guard.handler?.body?.body?.length !== 1 ||
+    guard.handler.body.body[0].type !== 'ReturnStatement' ||
+    guard.handler.body.body[0].argument ||
+    guarded?.[0]?.type !== 'IfStatement' ||
+    guarded[0].alternate ||
+    guarded[0].consequent?.type !== 'ReturnStatement' ||
+    guarded[0].consequent.argument ||
+    parsed?.id?.type !== 'Identifier' ||
+    parsed.init?.arguments?.length !== 1 ||
+    !identifier(parsed.init.arguments[0], gate.params[1].name) ||
+    routeGuard?.type !== 'IfStatement' ||
+    routeGuard.alternate ||
+    routeGuard.consequent?.type !== 'ReturnStatement' ||
+    routeGuard.consequent.argument ||
+    routeGuard.test?.type !== 'LogicalExpression' ||
+    routeGuard.test.operator !== '||' ||
+    routeGuard.test.left?.operator !== '!' ||
+    !identifier(routeGuard.test.left.argument, parsed.id.name) ||
+    parser?.async ||
+    parser?.params?.length !== 1 ||
+    parser.params[0].type !== 'Identifier' ||
+    parser.body.body.length !== 2 ||
+    parsedUrl?.id?.type !== 'Identifier' ||
+    parsedUrl.init?.type !== 'NewExpression' ||
+    !identifier(parsedUrl.init.callee, 'URL') ||
+    parsedUrl.init.arguments.length !== 2 ||
+    !identifier(parsedUrl.init.arguments[0], parser.params[0].name) ||
+    !locationMember(parsedUrl.init.arguments[1], 'href') ||
+    parser.body.body[0].declarations.length !== 1 ||
+    parser.body.body[1].type !== 'ReturnStatement' ||
+    result?.type !== 'ConditionalExpression' ||
+    !identifier(result.consequent, parsedUrl.id.name) ||
+    result.alternate?.operator !== 'void' ||
+    result.alternate.argument?.value !== 0 ||
+    route.length !== 4 ||
+    !route.some((term) => equal(term, parsedUrl.id.name, 'pathname', '/ces/v1/rgstr')) ||
+    !route.some((term) => equal(term, parsedUrl.id.name, 'username', '')) ||
+    !route.some((term) => equal(term, parsedUrl.id.name, 'password', '')) ||
+    !route.some(
+      (term) =>
+        term.type === 'BinaryExpression' &&
+        term.operator === '===' &&
+        member(term.left, parsedUrl.id.name, 'origin') &&
+        locationMember(term.right, 'origin'),
+    )
+  )
+    return false
+  const calls = []
+  let ownsFunction = false
+  let invalidCall = false
+  visit(factory.body, (node) => {
+    if (
+      node.type === 'FunctionDeclaration' &&
+      moduleSource.slice(node.start - 1, node.end - 1) === source
+    )
+      ownsFunction = true
+    if (
+      node.type === 'CallExpression' &&
+      (identifier(node.callee, 'fetch') ||
+        (node.callee?.type === 'MemberExpression' &&
+          ['fetch', 'sendBeacon'].includes(node.callee.property?.name)))
+    )
+      invalidCall = true
+  })
+  visit(fn.body, (node) => {
+    if (node.type === 'CallExpression' && identifier(node.callee, send)) calls.push(node)
+  })
+  const assignment = attempt.block?.body?.[0]?.expression
+  const fetched = assignment?.right?.argument
+  const thrown = attempt.handler?.body?.body?.[0]
+  const stable = new Set([url, options, send, configuration, diagnostic, response])
+  const shadows = gate.params.map((parameter) => parameter.name)
+  return (
+    ownsFunction &&
+    !invalidCall &&
+    !mutates(fn.body, stable, assignment) &&
+    !mutates(
+      gate.body,
+      new Set([
+        ...[url, options, send].filter((name) => !shadows.includes(name)),
+        gate.params[1].name,
+        gate.params[2].name,
+      ]),
+    ) &&
+    !mutates(attempt.handler?.body, new Set([attempt.handler?.param?.name])) &&
+    calls.length === 3 &&
+    attempt.type === 'TryStatement' &&
+    !attempt.finalizer &&
+    attempt.block.body.length === 1 &&
+    assignment?.type === 'AssignmentExpression' &&
+    assignment.operator === '=' &&
+    identifier(assignment.left, response) &&
+    assignment.right?.type === 'AwaitExpression' &&
+    fetched?.type === 'CallExpression' &&
+    identifier(fetched.callee, send) &&
+    fetched.arguments.length === 2 &&
+    member(fetched.arguments[0], diagnostic, 'url') &&
+    identifier(fetched.arguments[1], options) &&
+    attempt.handler?.param?.type === 'Identifier' &&
+    attempt.handler.body.body.length === 1 &&
+    thrown.type === 'ThrowStatement' &&
+    thrown.argument?.type === 'SequenceExpression' &&
+    identifier(thrown.argument.expressions.at(-1), attempt.handler.param.name) &&
+    settled.type === 'ReturnStatement' &&
+    settled.argument?.type === 'SequenceExpression' &&
+    identifier(settled.argument.expressions.at(-1), response)
+  )
+}
+
 // Recognize the reviewed tracking wrapper by its behavior, with synthetic/local
 // names allowed. Its only call that can do I/O must be fetch(url, options), once.
 // Metadata uses a private WeakMap; the original response/error is returned/thrown.
-export function hasCompatibleChatgptWebFetchWrapper(source, moduleSource) {
+export function hasCompatibleChatgptWebFetchWrapper(source, moduleSource, delegates = []) {
   const fn = functionNode(source)
   const factory = functionNode(moduleSource)
   if (
@@ -114,9 +330,18 @@ export function hasCompatibleChatgptWebFetchWrapper(source, moduleSource) {
     response?.id?.type !== 'Identifier' ||
     response.init.type !== 'AwaitExpression' ||
     call?.type !== 'CallExpression' ||
-    !identifier(call.callee, 'fetch') ||
-    call.arguments.length !== 2 ||
-    !call.arguments.every((argument, index) => identifier(argument, fn.params[index].name))
+    !(
+      (identifier(call.callee, 'fetch') && call.arguments.length === 2) ||
+      (delegates.some((delegate) =>
+        member(unboundCallee(call.callee), delegate.object, delegate.property),
+      ) &&
+        call.arguments.length === 4 &&
+        identifier(call.arguments[2], 'fetch') &&
+        identifier(call.arguments[3], fn.params[2].name))
+    ) ||
+    !call.arguments
+      .slice(0, 2)
+      .every((argument, index) => identifier(argument, fn.params[index].name))
   )
     return false
   const returned = attempt.block.body[1]
@@ -192,6 +417,21 @@ export function hasCompatibleChatgptWebFetchWrapper(source, moduleSource) {
 }
 
 export function getChatgptWebFetchWrappers(module, modules) {
+  return importedFunctions(module, modules, (dependency) => {
+    const delegates = importedFunctions(dependency, modules, (delegate) =>
+      Object.entries(delegate.functions || {}).filter(([, source]) =>
+        hasCompatibleChatgptWebFetchDelegate(source, delegate.source),
+      ),
+    )
+    return Object.entries(dependency.functions || {})
+      .filter(([, source]) =>
+        hasCompatibleChatgptWebFetchWrapper(source, dependency.source, delegates),
+      )
+      .map(([name, source]) => [name, source, delegates])
+  })
+}
+
+function importedFunctions(module, modules, select) {
   const factory = functionNode(module.source)
   const loader = factory?.params?.[2]?.name
   if (!loader) return []
@@ -208,16 +448,15 @@ export function getChatgptWebFetchWrappers(module, modules) {
   return bindings.flatMap((binding) => {
     const dependency = modules.find((entry) => entry.id === binding.init.arguments[0].value)
     if (!dependency) return []
-    return Object.entries(dependency.functions || {})
-      .filter(([, source]) => hasCompatibleChatgptWebFetchWrapper(source, dependency.source))
-      .map(([name, source]) => ({
-        object: binding.id.name,
-        property: name,
-        module: dependency.id,
-        export: name,
-        source,
-        moduleSource: dependency.source,
-      }))
+    return select(dependency).map(([name, source, delegates]) => ({
+      object: binding.id.name,
+      property: name,
+      module: dependency.id,
+      export: name,
+      source,
+      moduleSource: dependency.source,
+      ...(delegates?.length ? { delegates } : {}),
+    }))
   })
 }
 

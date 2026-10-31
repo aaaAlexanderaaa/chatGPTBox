@@ -229,6 +229,11 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.1
+
+- Fixed the ChatGPT webpage compatibility error caused by the website's updated network runtime, restoring ChatGPT Web connections in the extension and local API/MCP bridge.
+- Preserved account/session validation, cancellation and single-submit behavior. After updating, reload ChatGPTBox and refresh its ChatGPT proxy tab before retrying.
+
 ### v4.3.0
 
 - Added two independent, default-off ChatGPT site enhancements under `Sites`: local paste checking and a native draft-rewrite entry. Rewriting reuses Functions, material preview, comparison, explicit Apply and Undo; native message sending remains under your control.
