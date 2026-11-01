@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-11-02
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -83,6 +83,8 @@ For one conversation, open **ChatGPT History Backup** in the ChatGPT Web setting
 
 - **Browser Storage**: The cache is stored in `Browser.storage.local`. If the browser's local storage is cleared, the cache will be lost.
 - **Data Freshness**: While sync intervals and event-driven invalidation help, the cache may still be out of sync if changes occur in another browser tab or on another device.
+- **Concurrent Import**: Import reads the existing cache and writes its merged result in batches. Import while history synchronization, content backup, and chats that update the cache are idle: a write between that read and the import write can be overwritten, including a newer index entry or snapshot. Import is not an atomic transaction across all keys; retain the original volume files if a write fails. This limitation concerns the local cache, not deletion of conversations on ChatGPT's server.
+- **Mixed Timestamp Imports**: Index merging does not yet normalize numeric Unix timestamps and ISO dates to the same unit. Older or mixed-format backups without a newer `lastSeenAt` can prefer older titles, archive flags, or list update times. Snapshot revision comparison separately normalizes seconds and milliseconds. Retain the original backup and verify list metadata after importing such files; v4.3.2 does not fix this boundary.
 - **Performance**: Volume sizes are estimated in UTF-8 bytes, and files are serialized/downloaded one at a time. A single conversation remains one snapshot and can exceed the approximately 16 MiB volume target; this change deliberately keeps the existing backup format. A very large local cache can still affect export/import memory use.
 - **API Limits**: Full sync is deliberately opt-in and RPM-limited. Use a conservative RPM and leave automatic sync off if another client already accesses the account frequently.
 

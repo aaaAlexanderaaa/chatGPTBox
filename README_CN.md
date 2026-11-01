@@ -222,6 +222,12 @@ ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用�
 
 ## 更新日志
 
+### v4.3.2
+
+- 修复 ChatGPT 代码块及可见引用文字在实时回答、续传、历史读取和 Drafts Get 中丢失的问题。已解析的代码组件转为转义后的静态代码；不支持的内容保留可见回退文字。
+- 兼容官网以内联导出形式提供的原生 fetch 包装器与委托函数，保留账号与会话校验、取消和单次发送保护。
+- ChatGPT 历史备份继续使用 schema-2 分卷格式，并兼容已有旧格式。并发导入及混合时间格式的已知限制见[缓存指南](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.2/docs/cache-lifecycle.md#risks-and-limitations)；请在本地历史活动空闲时导入。
+
 ### v4.3.1
 
 - 修复官网网络运行时更新引发的 ChatGPT 网页兼容性错误，恢复扩展及本地 API/MCP 桥接的 ChatGPT Web 连接。

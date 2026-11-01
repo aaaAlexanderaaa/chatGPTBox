@@ -229,6 +229,12 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.2
+
+- Preserved ChatGPT code blocks and visible reference text through live responses, resumed streams, history reads, and Drafts Get. Resolved code widgets render as escaped static code; unsupported content keeps its visible fallback.
+- Recognized inline-exported native fetch wrappers and delegates after ChatGPT website changes, preserving account/session validation, cancellation, and single-submit behavior.
+- ChatGPT history backups retain the existing schema-2 volume format and legacy import support. Known concurrent-import and mixed-timestamp limits are documented in the [cache guide](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.2/docs/cache-lifecycle.md#risks-and-limitations); import while local history activity is idle.
+
 ### v4.3.1
 
 - Fixed the ChatGPT webpage compatibility error caused by the website's updated network runtime, restoring ChatGPT Web connections in the extension and local API/MCP bridge.
