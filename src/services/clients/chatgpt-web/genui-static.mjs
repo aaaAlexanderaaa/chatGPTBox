@@ -88,6 +88,24 @@ export function decodeGenuiResult(dil, diagnostics = createGenuiDiagnostics()) {
       }
       if (node.type === 'ConditionalExpression')
         return read(node.test, scope) ? read(node.consequent, scope) : read(node.alternate, scope)
+      if (node.type === 'BinaryExpression') {
+        if (['===', '!=='].includes(node.operator)) {
+          const equal = read(node.left, scope) === read(node.right, scope)
+          return node.operator === '===' ? equal : !equal
+        }
+        // Native client-widget wrappers use == null before inspecting a static
+        // value's type. Check null/undefined explicitly; never coerce objects.
+        const nullLiteral = (entry) => entry.type === 'Literal' && entry.value === null
+        if (
+          ['==', '!='].includes(node.operator) &&
+          (nullLiteral(node.left) || nullLiteral(node.right))
+        ) {
+          const value = read(nullLiteral(node.left) ? node.right : node.left, scope)
+          const empty = value === null || value === undefined
+          return node.operator === '==' ? empty : !empty
+        }
+        throw new GenuiError('unsupported-expression')
+      }
       if (node.type === 'LogicalExpression') {
         const left = read(node.left, scope)
         if (node.operator === '??') return left == null ? read(node.right, scope) : left

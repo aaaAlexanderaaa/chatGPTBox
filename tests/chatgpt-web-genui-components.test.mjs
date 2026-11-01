@@ -18,7 +18,7 @@ import {
 import { createChatgptWebResumeDeltaAccumulator } from '../src/services/clients/chatgpt-web/resume-delta.mjs'
 import { sanitizeMarkdownTree } from '../src/components/MarkdownRender/sanitize-markdown-tree.mjs'
 import { syncDraftsPreview } from '../scripts/sync-drafts-preview.mjs'
-import { staticComponentsMessage } from './fixtures/genui-components.mjs'
+import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 
 function resultFor(code) {
   const message = staticComponentsMessage()
@@ -49,6 +49,83 @@ function elements(tree, tag) {
 }
 
 describe('static GenUI component adapters', () => {
+  it.each([false, true])(
+    'resolves native client code widgets without losing neighboring components (math=%s)',
+    (math) => {
+      const message = clientWidgetMessage()
+      const result = renderChatgptWebGenuiResult(message)
+      expect(result).toMatchObject({ format: 'html', status: 'rendered' })
+      const tree = sanitizedTree(result.text, math)
+      const codes = elements(tree, 'code')
+      expect(codes).toHaveLength(1)
+      const textContent = (node) => node.value ?? (node.children || []).map(textContent).join('')
+      expect(textContent(codes[0])).toBe(message.metadata.model_dil_v2.constants.code)
+      expect(elements(tree, 'table')).toHaveLength(2)
+      expect(result.text).toContain('Sample subject')
+      expect(result.text).toContain('End of component demonstration')
+    },
+  )
+
+  it.each(['original Markdown', 'unsupported widget', 'unsupported expression'])(
+    'preserves client widget source text in %s',
+    (mode) => {
+      const message = clientWidgetMessage()
+      const dil = message.metadata.model_dil_v2
+      if (mode === 'original Markdown') delete message.metadata.model_dil_v2
+      else if (mode === 'unsupported widget') {
+        message.metadata.content_references[1].data.widget_type = 'future_widget'
+      } else dil.code = 'DIL.render(__dil.jsx("text",null,unknownCall()));'
+      const result = extractChatgptWebMessagePresentation(message)
+      expect(result.text).toBe(dil.fallbackMarkdown)
+    },
+  )
+
+  it.each(['unresolved', 'missing widget', 'wrong reference', 'invalid index', 'invalid content'])(
+    'retains fallback code when native widget data is %s',
+    (mode) => {
+      const message = clientWidgetMessage()
+      const dil = message.metadata.model_dil_v2
+      const widget = dil.clientDefinedWidgets['demo-widget']
+      if (mode === 'unresolved') widget.status = 'pending'
+      if (mode === 'missing widget') delete dil.clientDefinedWidgets['demo-widget']
+      if (mode === 'wrong reference') widget.refIndex = 0
+      if (mode === 'invalid index') widget.refIndex = 1.5
+      if (mode === 'invalid content') message.metadata.content_references[1].data.content = {}
+      expect(renderChatgptWebGenuiResult(message)).toMatchObject({
+        format: 'markdown',
+        status: 'fallback',
+        text: dil.fallbackMarkdown,
+      })
+    },
+  )
+
+  it('selects the static text alternative without reading an unused client widget', () => {
+    const message = clientWidgetMessage()
+    message.metadata.model_dil_v2.constants.widget = { type: 'text', value: 'Static alternative' }
+    delete message.metadata.model_dil_v2.clientDefinedWidgets
+    const result = renderChatgptWebGenuiResult(message)
+    expect(result.status).toBe('rendered')
+    expect(result.text).toContain('Static alternative')
+    expect(result.text).not.toContain('<pre ')
+  })
+
+  it.each(['==', '!=', '<', '+'])(
+    'rejects binary %s coercion without invoking constant objects',
+    (operator) => {
+      const message = clientWidgetMessage()
+      let coerced = 0
+      message.metadata.model_dil_v2.constants.widget = {
+        valueOf() {
+          coerced += 1
+          return 1
+        },
+      }
+      message.metadata.model_dil_v2.code = `DIL.render(__dil.jsx("text",null,__dilConstants["widget"] ${operator} 1));`
+      expect(renderChatgptWebGenuiResult(message).fallbackReason).toBe('unsupported-expression')
+      expect(coerced).toBe(0)
+    },
+  )
+
   it.each([
     [false, '\n'],
     [true, '\n'],
@@ -97,6 +174,30 @@ describe('static GenUI component adapters', () => {
     expect(result.text).toContain('href="https://example.com/report"')
     expect(result.text).toContain('End of component demonstration')
   })
+
+  it.each(['Cite', 'Citation'])(
+    'keeps code and table content when %s uses a single reference',
+    (component) => {
+      const message = staticComponentsMessage()
+      const dil = message.metadata.model_dil_v2
+      dil.code = dil.code.replace(
+        '__dil.jsx(LinkCard,{__resolutionId:"demo-source"})',
+        `__dil.jsx(${component},{ref:"turn1search0",__resolutionId:"demo-source"})`,
+      )
+      dil.appData.opGenui.componentResults['demo-source'].state.items = [
+        { ref_id: 'turn1search0', url: 'https://example.com/report', source_label: 'Example' },
+        { ref_id: 'turn1search0', url: 'https://unapproved.example', source_label: 'Unapproved' },
+      ]
+      const result = renderChatgptWebGenuiResult(message)
+      expect(result).toMatchObject({ format: 'html', status: 'rendered' })
+      expect(result.text).toContain('href="https://example.com/report"')
+      expect(result.text).not.toContain('https://unapproved.example')
+      const tree = sanitizedTree(result.text, false)
+      expect(elements(tree, 'code')).toHaveLength(1)
+      expect(elements(tree, 'table')).toHaveLength(2)
+      expect(result.text).toContain('End of component demonstration')
+    },
+  )
 
   it.each([false, true])(
     'preserves sections, inherited headers, cell spans, list starts and flow geometry through both pipelines (%s)',
@@ -266,34 +367,40 @@ describe('static GenUI component adapters', () => {
     })
   })
 
-  it('carries the same rendering facts through history and resume extraction', () => {
-    const message = staticComponentsMessage()
-    const presentation = extractChatgptWebMessagePresentation(message)
-    const conversation = {
-      conversation_id: 'demo',
-      current_node: message.id,
-      mapping: {
-        'demo-user': {
-          id: 'demo-user',
-          parent: null,
-          children: [message.id],
-          message: {
+  it.each([
+    ['registered components', staticComponentsMessage],
+    ['client widget', clientWidgetMessage],
+  ])(
+    'carries the same rendering facts through history and resume extraction (%s)',
+    (_, fixture) => {
+      const message = fixture()
+      const presentation = extractChatgptWebMessagePresentation(message)
+      const conversation = {
+        conversation_id: 'demo',
+        current_node: message.id,
+        mapping: {
+          'demo-user': {
             id: 'demo-user',
-            author: { role: 'user' },
-            content: { content_type: 'text', parts: ['Component demonstration'] },
+            parent: null,
+            children: [message.id],
+            message: {
+              id: 'demo-user',
+              author: { role: 'user' },
+              content: { content_type: 'text', parts: ['Component demonstration'] },
+            },
           },
+          [message.id]: { id: message.id, parent: 'demo-user', children: [], message },
         },
-        [message.id]: { id: message.id, parent: 'demo-user', children: [], message },
-      },
-    }
-    const snapshot = formatChatgptWebConversationSnapshot(conversation)
-    const accumulator = createChatgptWebResumeDeltaAccumulator()
-    accumulator.feedEvent('delta', { p: '', o: 'add', v: { message } })
-    expect(snapshot.message.rendering).toEqual(presentation.rendering)
-    expect(snapshot.messages[1].rendering).toEqual(presentation.rendering)
-    expect(accumulator.getResult().bestMessage.rendering).toEqual(presentation.rendering)
-    expect(snapshot.message.text).toBe(presentation.text)
-  })
+      }
+      const snapshot = formatChatgptWebConversationSnapshot(conversation)
+      const accumulator = createChatgptWebResumeDeltaAccumulator()
+      accumulator.feedEvent('delta', { p: '', o: 'add', v: { message } })
+      expect(snapshot.message.rendering).toEqual(presentation.rendering)
+      expect(snapshot.messages[1].rendering).toEqual(presentation.rendering)
+      expect(accumulator.getResult().bestMessage.rendering).toEqual(presentation.rendering)
+      expect(snapshot.message.text).toBe(presentation.text)
+    },
+  )
 
   it('ships the shared stylesheet and packaged runtime inside the standalone Drafts template', async () => {
     expect(await syncDraftsPreview({ check: true })).toBe(false)

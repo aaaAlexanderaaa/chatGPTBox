@@ -58,3 +58,31 @@ export function staticComponentsMessage() {
     },
   }
 }
+
+export function clientWidgetMessage() {
+  const message = staticComponentsMessage()
+  const dil = message.metadata.model_dil_v2
+  dil.constants.widget = null
+  dil.code = dil.code.replace(
+    '__dil.jsx(CodeBlock,{language:"js",content:__dilConstants["code"]})',
+    '(__dilConstants["widget"]==null?__dil.jsx("__chatgptClientDefinedWidget",{key:"cdw:0",invocationId:"demo-widget"}):__dilConstants["widget"].type==="math"?__dil.jsx("math",{value:__dilConstants["widget"].value}):__dilConstants["widget"].type==="text"?__dil.jsx("text",null,__dilConstants["widget"].value):null)',
+  )
+  dil.clientDefinedWidgets = {
+    'demo-widget': { refIndex: 1, status: 'resolved', isStreaming: false },
+  }
+  const code = '```js\n' + dil.constants.code + '\n```'
+  dil.fallbackMarkdown = 'Before code\n\n' + code + '\n\nAfter code'
+  message.content.parts = [dil.fallbackMarkdown]
+  message.metadata.content_references = [
+    { type: 'hidden', matched_text: '', start_idx: 0, end_idx: 0 },
+    {
+      type: 'client_defined_widget',
+      matched_text: code,
+      start_idx: dil.fallbackMarkdown.indexOf(code),
+      end_idx: dil.fallbackMarkdown.indexOf(code) + code.length,
+      alt: null,
+      data: { widget_type: 'code_block', content: dil.constants.code, language: 'js' },
+    },
+  ]
+  return message
+}

@@ -77,12 +77,15 @@ export const GENUI_COMPONENTS = Object.freeze({
   'table-cell': component('td', ['header', 'colSpan', 'rowSpan', 'width', 'vAlign'], {
     render: renderTableCell,
   }),
-  cite: component('span', RESOLVED, { render: renderCite }),
+  cite: component('span', [...RESOLVED, 'ref'], { render: renderCite }),
   link: component('a', [...RESOLVED, 'url', 'href', 'title'], { render: renderLink }),
   'link-card': component('a', [...RESOLVED, 'url', 'title', 'subtitle', 'snippet'], {
     render: renderLink,
   }),
   'code-block': component('pre', ['content', 'language'], { render: renderCodeBlock }),
+  __chatgptClientDefinedWidget: component('pre', ['invocationId'], {
+    render: renderClientDefinedWidget,
+  }),
   'writing-block': component('div', ['content', 'subject', 'variant'], {
     render: renderWritingBlock,
   }),
@@ -345,6 +348,34 @@ function renderCodeBlock({ node, props, wrap }) {
   return wrap('pre', `<code class="language-${language}">${escapeHtml(props.content)}</code>`)
 }
 
+function renderClientDefinedWidget({ props, dil, contentReferences, render, context, depth }) {
+  if (typeof props.invocationId !== 'string' || !props.invocationId)
+    throw new GenuiError('invalid-props', 'client-widget', 'invocationId')
+  const widget = ownValue(ownValue(dil, 'clientDefinedWidgets'), props.invocationId)
+  const index = ownValue(widget, 'refIndex')
+  const reference =
+    Number.isInteger(index) && index >= 0 && Array.isArray(contentReferences)
+      ? ownValue(contentReferences, index)
+      : null
+  if (
+    ownValue(widget, 'status') !== 'resolved' ||
+    ownValue(reference, 'type') !== 'client_defined_widget'
+  )
+    throw new GenuiError('invalid-props', 'client-widget', 'reference')
+  const data = ownValue(reference, 'data')
+  if (ownValue(data, 'widget_type') !== 'code_block')
+    throw new GenuiError('unsupported-component', 'client-widget')
+  return render(
+    {
+      tag: 'code-block',
+      props: { content: ownValue(data, 'content'), language: ownValue(data, 'language') },
+      children: [],
+    },
+    context,
+    depth + 1,
+  )
+}
+
 function renderWritingBlock({ props, context, render, depth, children, wrap }) {
   const heading =
     props.variant === 'email' && props.subject
@@ -354,7 +385,7 @@ function renderWritingBlock({ props, context, render, depth, children, wrap }) {
   return wrap('div', `${heading}<div class="chatgptbox-genui-preserve-whitespace">${body}</div>`)
 }
 
-export function renderGenuiTree(tree, dil, diagnostics) {
+export function renderGenuiTree(tree, dil, diagnostics, { contentReferences = [] } = {}) {
   let count = 0
   const results = dil.appData?.opGenui?.componentResults || {}
   function render(node, context = {}, depth = 0) {
@@ -402,6 +433,7 @@ export function renderGenuiTree(tree, dil, diagnostics) {
         results,
         dil,
         diagnostics,
+        contentReferences,
         children,
         hasChildren,
         wrap,

@@ -76,6 +76,9 @@ export function normalizeChatgptWebReferenceText(
   // Build replacements
   const replacements = []
   for (const ref of refs) {
+    // Client widgets match visible source content, including whole fenced code
+    // blocks. A missing alt is not a request to remove that content.
+    if (ref.type === 'client_defined_widget') continue
     const matchedText = typeof ref.matched_text === 'string' ? ref.matched_text : ''
     if (!matchedText || !matchedText.trim()) continue
 
@@ -105,10 +108,10 @@ export function normalizeChatgptWebReferenceText(
           return `- [${title}](${url})`
         })
       replacement = links.length ? '\n' + links.join('\n') + '\n' : ''
-    } else if (ref.type === 'sources_footnote') {
+    } else if (ref.type === 'sources_footnote' || ref.type === 'hidden') {
       replacement = ''
     } else {
-      replacement = typeof ref.alt === 'string' ? ref.alt : ''
+      replacement = typeof ref.alt === 'string' && ref.alt.trim() ? ref.alt : matchedText
     }
 
     replacements.push({

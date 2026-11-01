@@ -98,6 +98,34 @@ describe('chatgpt-web thinking predicates', () => {
 })
 
 describe('chatgpt-web message text extraction', () => {
+  it.each([null, undefined, '', ' \n '])(
+    'preserves visible source content for an unknown reference with alt=%j',
+    (alt) => {
+      const block = '```js\nconsole.log("keep this block");\n```'
+      const text = 'Before\n\n' + block + '\n\nAfter'
+      const message = {
+        content: { parts: [text] },
+        metadata: {
+          content_references: [{ type: 'future_visible_block', matched_text: block, alt }],
+        },
+      }
+      expect(extractChatgptWebMessageText(message)).toBe(text)
+    },
+  )
+
+  it('still removes explicitly hidden references and keeps a supplied fallback label', () => {
+    const message = {
+      content: { parts: ['Before HIDDEN visible-marker After'] },
+      metadata: {
+        content_references: [
+          { type: 'hidden', matched_text: 'HIDDEN' },
+          { type: 'future_reference', matched_text: 'visible-marker', alt: 'Visible label' },
+        ],
+      },
+    }
+    expect(extractChatgptWebMessageText(message)).toBe('Before  Visible label After')
+  })
+
   it('flattens a content.parts array of strings', () => {
     expect(flattenChatgptWebMessageText({ parts: ['hello ', 'world'] })).toBe('hello world')
   })

@@ -21,7 +21,7 @@ repository's audience.
   records compatibility of the new public runtime, proxy-page refresh recovery,
   synthetic regressions, and the installed text-send/history-read observations.
 - [2026-10-31 ChatGPT fetch diagnostics](2026-10-31-chatgpt-fetch-diagnostics.md)
-  records the delegated native fetch change, its capability checks, and the
+  records the delegated native fetch and inline-export changes, their capability checks, and the
   installed gateway observations.
 
 - [2026-10-30 ChatGPT native input](2026-10-30-chatgpt-native-input.md)

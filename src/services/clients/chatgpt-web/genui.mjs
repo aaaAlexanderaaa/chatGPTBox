@@ -36,7 +36,9 @@ export function renderChatgptWebGenuiResult(message) {
   let reason = decoded.reason
   try {
     if (decoded.tree != null) {
-      const html = renderGenuiTree(decoded.tree, dil, diagnostics)
+      const html = renderGenuiTree(decoded.tree, dil, diagnostics, {
+        contentReferences: message.metadata.content_references,
+      })
       return {
         text: `<div class="chatgptbox-genui">${html}</div>`,
         format: 'html',

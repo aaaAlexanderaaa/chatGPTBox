@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-31
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -51,11 +51,16 @@ JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前
 - 表格子节点及 `columns/rows` 数据形式、表头继承、单元格合并、对齐和空表提示。
 - 列表子节点及 `items` 数据形式、编号起始值、标签和描述。
 - CodeBlock、WritingBlock、LinkCard，以及 Cite/Citation/Link 的静态内容。
+- 客户端代码组件通过 `model_dil_v2.clientDefinedWidgets[invocationId].refIndex` 对应
+  同一消息的 `metadata.content_references`，只读取已解析的 `code_block` 数据并转成
+  相同的转义代码块。不把引用数组过滤后重新编号，也不执行组件逻辑。
+- Cite/Citation 接受单个 `ref` 或多个 `refs`；来源仍从 `__resolutionId` 对应的
+  已解析结果读取，引用属性本身不能激活未经允许的链接。
 - 已解析引用和来源卡片只激活 safe URL 集合中的 HTTP(S) 链接。
 
 表格最多 64 列、512 行，列表和静态数组 map 最多 512 项。代码长度、解释步数、
 渲染步数和嵌套深度均有上限。静态局部变量、条件表达式和模板字符串可以解释；
-任意函数调用及动态执行不属于支持范围。
+严格相等比较及与 null 的相等检查可用于选择静态分支。任意函数调用及动态执行不属于支持范围。
 
 基础 chart/pie-chart 已支持，具体契约见下节。图片资源解析、原生 SVG 组件、地图、
 表单和官网动态状态交互尚未适配。
@@ -96,7 +101,13 @@ JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前
 这些信息用于维护诊断，不写入 Drafts 正文。
 
 只有组件提供了可解释的 fallback，才保留局部替代内容。缺少可靠局部替代时，
-使用官网完整 Markdown fallback，避免直接丢弃未知组件导致答案缺失。
+使用官网提供的 Markdown fallback，避免直接丢弃未知组件。官方 fallback 也可能省略
+原生组件内容；正文缺块时，应对照源组件树、常量和 fallback，不能仅凭 GET 成功或
+`status: fallback` 判断内容完整。Drafts Get 原样写入转换结果，预览样式无法补回上游缺失内容。
+引用清理保留 `client_defined_widget` 匹配的原文，包括围栏代码；它是可见内容，不能因
+`alt` 为空而删除。其他客户端组件暂不转换时也保留官方 fallback 中已有的原文。
+未知引用类型缺少可用 `alt` 时也保留原文；只有明确的隐藏内容和来源脚注标记等
+已知类型可以按既有语义删除，避免同类数据丢失扩散到新增组件。
 
 ## 验证
 
@@ -105,3 +116,16 @@ JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前
 Drafts 恢复回归在 `chatgpt-web-genui.test.mjs`、`chatgpt-web-stream-handoff.test.mjs` 等文件。
 合成示例 `tests/fixtures/genui-components.mjs` 可用于桌面、窄屏和深色预览。
 真实会话及其原始元数据保留在仓库外。
+
+2026-10-31 的只读排查发现，单个 `Cite.ref` 会触发旧属性白名单的整体回退。
+补充该属性后，已核对的回答可完整生成 HTML；合成回归同时覆盖 Cite/Citation、
+代码和表格混排，以及真实 Action 2 脚本的正文写入。此结果不证明所有官网组件
+均已适配，也不代替用户设备上的 Drafts 原生预览验证。
+
+同日对用户确认的代码块样本继续核对：官网 fallback 含有完整代码，引用清理却把
+`client_defined_widget` 的整段匹配文本替换成空 `alt`。保留原文并补齐客户端代码组件
+读取后，两个回答中的 7 个代码块与源数据逐字一致。回归同时经过首流、resume、
+历史轮询、Markdown 清理和 Action 2；未知组件及缺失解析数据仍使用保留原文的回退。
+生产构建已安装并重新加载，本机网关强制刷新和现有 Action 2 脚本均保留全部 7 个
+代码块；按 Drafts 文档默认选项运行的 MultiMarkdown 6 也保留相同文本和顺序。
+此处验证了网关与脚本，没有在安装了 Drafts 的用户设备上运行原生动作。

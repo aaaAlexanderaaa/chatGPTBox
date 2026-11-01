@@ -7,7 +7,7 @@ import { initSession } from '../src/services/init-session.mjs'
 import { slugToModelKey, isGrokEngineKey } from '../src/pages/ApiServer/model-slug.mjs'
 import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
-import { staticComponentsMessage } from './fixtures/genui-components.mjs'
+import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 import { chartComponentsMessage } from './fixtures/genui-charts.mjs'
 import {
   canFollowChatgptWebTurnViaHttpResume,
@@ -926,15 +926,22 @@ describe('ChatGPT Web client handoff integration', () => {
     )
   }
 
-  it.each(['initial', 'resume', 'poll'])(
-    'keeps the gateway stream valid when GenUI metadata arrives late via %s',
-    async (transport) => {
+  it.each(
+    ['initial', 'resume', 'poll'].flatMap((transport) => [
+      [transport, false],
+      [transport, true],
+    ]),
+  )(
+    'keeps the gateway stream valid when GenUI metadata arrives late via %s (client widget: %s)',
+    async (transport, clientWidget) => {
       const first = assistantMessageDelta('News summary')
       first.v.conversation_id = 'conv-1'
       const final = genuiDelta('News summary').v.message
-      const staticMessage = staticComponentsMessage().metadata.model_dil_v2
+      const fixture = clientWidget ? clientWidgetMessage() : staticComponentsMessage()
+      const staticMessage = fixture.metadata.model_dil_v2
       const chartMessage = chartComponentsMessage().metadata.model_dil_v2
       final.metadata = {
+        ...fixture.metadata,
         model_dil_v2: {
           ...staticMessage,
           constants: { ...staticMessage.constants, ...chartMessage.constants },
@@ -950,7 +957,7 @@ describe('ChatGPT Web client handoff integration', () => {
         `event: delta\ndata: ${JSON.stringify({
           o: 'add',
           p: '/message/metadata',
-          v: final.metadata,
+          v: clientWidget ? { ...final.metadata, content_references: [] } : final.metadata,
         })}\n\n`,
         `event: delta\ndata: ${JSON.stringify({
           o: 'patch',
@@ -960,6 +967,15 @@ describe('ChatGPT Web client handoff integration', () => {
             { o: 'replace', p: '/end_turn', v: true },
           ],
         })}\n\n`,
+        ...(clientWidget
+          ? [
+              `event: delta\ndata: ${JSON.stringify({
+                o: 'add',
+                p: '/message/metadata/content_references',
+                v: fixture.metadata.content_references,
+              })}\n\n`,
+            ]
+          : []),
         'data: [DONE]\n\n',
       ]
       const snapshot = completedConversationSnapshot('News summary')
@@ -992,6 +1008,7 @@ describe('ChatGPT Web client handoff integration', () => {
       expect(bridge.wire[0].answer).toContain('Alpha')
       expect(bridge.wire[0].answer).toContain('Beta')
       expect(bridge.wire[0].answer).toContain('End of component demonstration')
+      expect(bridge.wire[0].answer).toContain('console.log(value);')
       expect(bridge.wire[0].answer.match(/data-chatgptbox-chart=/g)).toHaveLength(6)
       expect(bridge.wire[0].answer).toContain('End of chart demonstration')
       expect(bridge.session.chatgptWebRendering).toMatchObject({

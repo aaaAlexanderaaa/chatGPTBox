@@ -219,7 +219,7 @@ export function hasCompatibleChatgptWebFetchDelegate(source, moduleSource) {
   let invalidCall = false
   visit(factory.body, (node) => {
     if (
-      node.type === 'FunctionDeclaration' &&
+      ['FunctionDeclaration', 'FunctionExpression'].includes(node.type) &&
       moduleSource.slice(node.start - 1, node.end - 1) === source
     )
       ownsFunction = true
@@ -402,7 +402,7 @@ export function hasCompatibleChatgptWebFetchWrapper(source, moduleSource, delega
     )
       changed = true
     if (
-      node.type === 'FunctionDeclaration' &&
+      ['FunctionDeclaration', 'FunctionExpression'].includes(node.type) &&
       moduleSource.slice(node.start - 1, node.end - 1) === source
     )
       ownsFunction = true

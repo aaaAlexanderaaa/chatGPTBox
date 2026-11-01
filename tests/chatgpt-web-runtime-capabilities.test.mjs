@@ -228,6 +228,22 @@ function delegatedFixture() {
   return data
 }
 
+function inlineDelegatedFixture() {
+  const data = delegatedFixture()
+  for (const [id, name, declared, local] of [
+    ['tracking', 'trace', delegatedTracking, 'tracked'],
+    ['diagnostics', 'send', diagnosticDelegate, 'diagnosticFetch'],
+  ]) {
+    const module = data.modules.find((entry) => entry.id === id)
+    const inline = declared.replace(`function ${local}(`, 'function(')
+    module.source = module.source
+      .replace(declared, '')
+      .replace(`exports.${name} = ${local};`, `load.d(exports, {}, { ${name}: ${inline} });`)
+    module.functions[name] = inline
+  }
+  return data
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -255,6 +271,50 @@ describe('ChatGPT capability discovery', () => {
       },
     })
     expect(hasCompatibleChatgptWebFetchWrapper(delegatedTracking, delegatedFactory)).toBe(false)
+  })
+
+  it('recognizes unchanged tracking and diagnostics exported as inline functions', () => {
+    const data = inlineDelegatedFixture()
+    const tracking = data.modules.find((entry) => entry.id === 'tracking')
+    const diagnostics = data.modules.find((entry) => entry.id === 'diagnostics')
+    expect(
+      hasCompatibleChatgptWebFetchDelegate(diagnostics.functions.send, diagnostics.source),
+    ).toBe(true)
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toMatchObject({
+      fetchModule: 'relocated',
+      fetchExport: 'send',
+      capabilityCheck: {
+        fetchWrappers: [
+          { module: 'tracking', export: 'trace', source: tracking.functions.trace },
+          { module: 'diagnostics', export: 'send', source: diagnostics.functions.send },
+        ],
+      },
+    })
+  })
+
+  it.each([
+    ['tracking', 'trace'],
+    ['diagnostics', 'send'],
+  ])('rejects inline %s source that only appears inside a string', (id, name) => {
+    const data = inlineDelegatedFixture()
+    const module = data.modules.find((entry) => entry.id === id)
+    const source = module.functions[name]
+    module.source = module.source
+      .replace(source, 'function() {}')
+      .replace('{', `{ const decoy = ${JSON.stringify(source)};`)
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+  })
+
+  it.each([
+    ['tracking', 'trace', 'return records.set', 'await fetch(url, options); return records.set'],
+    ['diagnostics', 'send', 'send(url, options)', 'send(url, {})'],
+  ])('rejects changed request behavior in inline %s exports', (id, name, before, after) => {
+    const data = inlineDelegatedFixture()
+    const module = data.modules.find((entry) => entry.id === id)
+    const source = module.functions[name].replace(before, after)
+    module.source = module.source.replace(module.functions[name], source)
+    module.functions[name] = source
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
   })
 
   it.each([

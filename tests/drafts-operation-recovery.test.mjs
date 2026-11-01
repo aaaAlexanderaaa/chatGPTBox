@@ -2,6 +2,8 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
+import { formatChatgptWebConversationSnapshot } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
+import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 
 const sendSource = fs.readFileSync(
   new URL('../docs/drafts/action-3-send-waiting-reply.js', import.meta.url),
@@ -78,6 +80,42 @@ const completedConflict = {
 }
 
 describe('Drafts operation recovery', () => {
+  it.each([
+    ['registered components', staticComponentsMessage],
+    ['client widget', clientWidgetMessage],
+  ])('keeps mixed component content in Get transcript text (%s)', (_, fixture) => {
+    const message = fixture()
+    const conversation = formatChatgptWebConversationSnapshot({
+      conversation_id: 'conversation-1',
+      current_node: message.id,
+      messages: [
+        {
+          id: 'original-message',
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: ['Component demonstration'] },
+        },
+        message,
+      ],
+    })
+    const result = run(
+      'Conversation ID: conversation-1',
+      {
+        success: true,
+        statusCode: 200,
+        responseData: conversation,
+      },
+      { source: getSource },
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].method).toBe('GET')
+    expect(result.draft.content).toContain(conversation.messages[1].text)
+    expect(result.draft.content).toContain('<pre ')
+    expect(result.draft.content).toContain('console.log(value);')
+    expect(result.draft.content).toContain('Sample subject')
+    expect(result.draft.content).toContain('End of component demonstration')
+  })
+
   it('preserves the exact original request when only model settings change after an uncertain result', () => {
     const first = run(note('Original question'), uncertain, { override: 'gpt-6-pro' })
     const second = run(

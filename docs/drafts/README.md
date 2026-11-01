@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-10-23
+last_reconciled: 2026-10-31
 projection_of: ["docs/api-server.md"]
 ---
 
@@ -53,6 +53,9 @@ Automatic discovery now supports both verified authentication styles and the
 website's single-fetch tracking wrapper. Compatible filename/export changes can
 be recognized without adding a release mapping. Authentication changes, ambiguous
 roles, or unverified request/retry behavior still stop sending.
+The October 31 follow-up also recognizes verified fetch wrappers exported as
+inline function expressions. The function must still occur in its own module
+source and pass the same request, response, cancellation, and single-attempt checks.
 Discovery also recognizes the account-bound `chatgpt-browser` / `chatgpt-native`
 request profile that replaced the former `codex_webview` marker.
 
@@ -64,6 +67,14 @@ in favor of the complete merged answer. A finished fragment with `endTurn: false
 `isFinal: false` keeps the pending marker and does not clear the awaited turn.
 The extension interprets static component construction rather than executing model-generated
 JavaScript. Components outside the supported set use the official Markdown fallback.
+
+The October 31 client-widget correction fixes code blocks disappearing from the
+Get transcript. ChatGPT can store these blocks in content references rather than
+ordinary CodeBlock components; citation cleanup must preserve that visible text.
+After installing and reloading the corrected extension, run Get again on the open
+conversation to replace the incomplete transcript. This correction does not require
+changing Action 2, Action 3, the preview template, or gateway credentials. See the
+[component contract](../chatgpt-web-genui.md) for the supported data shapes and limits.
 
 ## HTML Preview
 
