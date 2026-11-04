@@ -11,6 +11,7 @@ import {
   buildChatgptHistoryExportVolumes,
   buildChatgptHistoryVolumePayloads,
   exportChatgptHistoryData,
+  streamChatgptHistoryExport,
   getChatgptHistoryLibraryStats,
   importChatgptHistoryData,
   listChatgptHistoryStorageKeys,
@@ -259,6 +260,70 @@ describe('ChatGPT history volume packing helpers', () => {
 })
 
 describe('ChatGPT history export/import volumes', () => {
+  it('streams a large library one snapshot at a time and waits for each volume writer', async () => {
+    seedLibrary({
+      conversations: Array.from({ length: 1200 }, (_, n) => ({
+        id: `chat-${n}`,
+        body: `材料-${n}`.repeat(10),
+      })),
+    })
+    const volumes = []
+    const result = await streamChatgptHistoryExport({
+      maxVolumeBytes: 4096,
+      writeVolume: async (volume) => {
+        const reads = getCalls.length
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(getCalls.length).toBe(reads)
+        volumes.push(volume)
+      },
+    })
+    expect(result.summary).toMatchObject({ conversationCount: 1200, snapshotCount: 1200 })
+    expect(volumes.length).toBeGreaterThan(10)
+    expect(
+      getCalls
+        .filter(Array.isArray)
+        .every(
+          (keys) =>
+            keys.filter((key) => key.startsWith('chatgptWebConversationSnapshot:')).length <= 1,
+        ),
+    ).toBe(true)
+    expect(summarizeChatgptHistoryExport(collectedStorage(volumes))).toEqual(result.summary)
+    expect(
+      volumes.every(
+        (volume, n) => volume.volume.index === n + 1 && volume.volume.count === volumes.length,
+      ),
+    ).toBe(true)
+    store.clear()
+    await importChatgptHistoryData(volumes)
+    expect(store.get(snapshotKey('chat-1199')).snapshot).toBeTruthy()
+  })
+
+  it('stops reading/writing further export volumes after a disk failure', async () => {
+    seedLibrary({
+      conversations: Array.from({ length: 12 }, (_, n) => ({
+        id: `chat-${n}`,
+        body: 'x'.repeat(200),
+      })),
+    })
+    let writes = 0
+    await expect(
+      streamChatgptHistoryExport({
+        maxVolumeBytes: 1000,
+        writeVolume: async () => {
+          writes += 1
+          throw new Error('Disk full')
+        },
+      }),
+    ).rejects.toThrow('Disk full')
+    expect(writes).toBe(1)
+    // All measured records, then only the first (catalog) volume.
+    expect(
+      getCalls
+        .filter(Array.isArray)
+        .flat()
+        .filter((key) => key.startsWith('chatgptWebConversationSnapshot:')),
+    ).toHaveLength(12)
+  })
   it('exports only selected IDs without unrelated bodies, continuation state, or metadata', async () => {
     seedLibrary({
       conversations: [
@@ -467,6 +532,56 @@ describe('ChatGPT history library stats', () => {
     expect(stats.extraSnapshotCount).toBe(1)
     expect(stats.lastHydrateAt).toBe('2026-02-02T00:00:00.000Z')
     expect(getCalls.some((keys) => keys == null)).toBe(false)
+  })
+
+  it('never reads raw bodies for live statistics, even with thousands of conversations and projects', async () => {
+    const index = Object.fromEntries(
+      Array.from({ length: 1200 }, (_, n) => [
+        `chat-${n}`,
+        {
+          ...makeIndexEntry(`chat-${n}`),
+          workspaceId: `project-${n % 14}`,
+          snapshotCachedAt: '2026-11-04T00:00:00Z',
+          snapshotHistoryComplete: n !== 0,
+          snapshotHistoryScope: 'current_branch',
+        },
+      ]),
+    )
+    store.set('chatgptWebConversationIndex', index)
+    for (const id of Object.keys(index))
+      store.set(snapshotKey(id), {
+        get snapshot() {
+          throw new Error('Body must not be read')
+        },
+      })
+    store.set(snapshotKey('older-orphan'), {})
+    expect(await getChatgptHistoryLibraryStats()).toMatchObject({
+      conversationCount: 1200,
+      snapshotCount: 1201,
+      partialSnapshotCount: 1,
+      currentBranchSnapshotCount: 1200,
+      unknownCoverageSnapshotCount: 1,
+    })
+    expect(
+      getCalls
+        .filter(Array.isArray)
+        .flat()
+        .some((key) => key.startsWith('chatgptWebConversationSnapshot:')),
+    ).toBe(false)
+  })
+
+  it('labels the metadata-only fallback as an estimate on browsers without key discovery', async () => {
+    delete Browser.storage.local.getKeys
+    store.set('chatgptWebConversationIndex', {
+      a: { ...makeIndexEntry('a'), snapshotCachedAt: '2026-11-04' },
+      b: makeIndexEntry('b'),
+    })
+    expect(await getChatgptHistoryLibraryStats()).toMatchObject({
+      snapshotCountEstimated: true,
+      snapshotCount: 1,
+      unknownCoverageSnapshotCount: 1,
+    })
+    expect(getCalls.filter(Array.isArray).flat()).not.toContain(snapshotKey('a'))
   })
 })
 

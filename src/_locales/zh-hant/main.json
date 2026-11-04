@@ -381,5 +381,20 @@
   "Search Engine Queries": "搜尋引擎查詢",
   "Select provider / model": "選擇供應商或模型",
   "Selector used to read the search box of a matched site": "用於讀取相符網站搜尋框的選擇器",
-  "chars": "字元"
+  "chars": "字元",
+  "Search functions": "搜尋功能",
+  "Edit function": "編輯功能",
+  "Duplicate function": "複製功能",
+  "Customize function": "自訂功能副本",
+  "Connection and entries": "連線與顯示位置",
+  "No entries selected": "未選擇顯示位置",
+  "More variables": "更多變數",
+  "No matching functions. Try another search or create a function.": "沒有符合的功能。請換個關鍵字，或新增功能。",
+  "Insert a variable at the cursor. Without a material variable, the selected material is appended automatically.": "點擊變數即可插入游標處。未使用材料變數時，會自動附上本次選擇的材料。",
+  "Material, result and connection": "調整材料、結果與連線",
+  "Select text or focus an input to use these functions": "這些功能需要先選取文字或進入輸入框",
+  "Coverage is unknown for {{count}} older snapshots.": "{{count}} 筆舊快照的涵蓋範圍未知。",
+  "This browser estimates cached bodies from the index. Export checks the stored contents.": "目前瀏覽器依目錄估算已快取內文，匯出時會檢查實際內容。",
+  "Starting...": "正在啟動…",
+  "Saving...": "正在儲存…"
 }

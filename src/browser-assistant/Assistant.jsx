@@ -60,6 +60,8 @@ export function BrowserAssistant({
   const [busy, setBusy] = useState(false)
   const [refinements, setRefinements] = useState([])
   const [actualEngine, setActualEngine] = useState('')
+  const instructionRef = useRef(null)
+  const dialogRef = useRef(null)
   const starting = useRef(false)
   const engineOptions = listEnabledEngineSelections(config)
   const functions = listFunctions(config, { entry: 'function-picker', context })
@@ -117,7 +119,8 @@ export function BrowserAssistant({
               title: context.title,
               url: context.url,
               language,
-              ...(fn.scope === 'page' ? { content: material } : {}),
+              // Both material variables describe the scope the user chose.
+              content: material,
             },
           }),
       })
@@ -163,6 +166,10 @@ export function BrowserAssistant({
       setError(error.message)
     }
   }
+  useEffect(() => {
+    if (run) dialogRef.current?.focus({ preventScroll: true })
+    else if (!autoRun) instructionRef.current?.focus({ preventScroll: true })
+  }, [run?.id])
   const autoStarted = useRef(false)
   useEffect(() => {
     if (autoRun && !autoStarted.current) {
@@ -171,13 +178,32 @@ export function BrowserAssistant({
     }
   }, [autoRun])
   return (
-    <section className="box-assistant" aria-label={t('Functions')}>
+    <section
+      className="box-assistant"
+      ref={dialogRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="false"
+      aria-label={t('Functions')}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        }
+      }}
+    >
       <header className="box-assistant-header">
         <div>
           <strong>ChatGPTBox</strong>
           <small title={context.url}>{context.title || context.url}</small>
         </div>
-        <button className="box-assistant-icon" title={t('Close')} onClick={onClose}>
+        <button
+          className="box-assistant-icon"
+          aria-label={t('Close')}
+          title={t('Close')}
+          onClick={onClose}
+        >
           <X size={18} />
         </button>
       </header>
@@ -255,104 +281,133 @@ export function BrowserAssistant({
           </>
         ) : (
           <>
-            <div className="box-assistant-presets" aria-label={t('Saved functions')}>
-              {functions.map((item) => (
-                <button
-                  key={item.id}
-                  className={fn.id === item.id ? 'is-active' : ''}
-                  disabled={!canRunFunction(item, context)}
-                  onClick={() => {
-                    setFn(item)
-                    setTemporaryEngine('')
-                    setSaved(false)
-                    setError('')
-                  }}
-                >
-                  {localizeFunction(item, t).name}
-                </button>
-              ))}
-            </div>
+            <label className="box-assistant-picker">
+              {t('Saved functions')}
+              <select
+                value={fn.id}
+                onChange={(event) => {
+                  const item = functions.find((item) => item.id === event.target.value)
+                  if (!item) return
+                  setFn(item)
+                  setTemporaryEngine('')
+                  setSaved(false)
+                  setError('')
+                }}
+              >
+                {!functions.some((item) => item.id === fn.id) && (
+                  <option value={fn.id}>{displayFn.name}</option>
+                )}
+                {functions
+                  .filter((item) => canRunFunction(item, context))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {localizeFunction(item, t).name} · {t(OUTPUT_LABELS[item.output])}
+                    </option>
+                  ))}
+                {functions.some((item) => !canRunFunction(item, context)) && (
+                  <optgroup label={t('Select text or focus an input to use these functions')}>
+                    {functions
+                      .filter((item) => !canRunFunction(item, context))
+                      .map((item) => (
+                        <option key={item.id} value={item.id} disabled>
+                          {localizeFunction(item, t).name}
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
             <label>
               {t('What would you like help with?')}
               <textarea
+                ref={instructionRef}
                 rows={4}
                 value={displayFn.prompt}
                 onChange={(event) => edit({ prompt: event.target.value })}
               />
             </label>
-            <div className="box-assistant-fields">
-              <label>
-                {t('Material to send')}
-                <select
-                  value={fn.scope}
-                  onChange={(event) =>
-                    edit({
-                      scope: event.target.value,
-                      output:
-                        event.target.value === 'input'
-                          ? 'replacement'
-                          : fn.output === 'replacement' ||
-                            (fn.output === 'annotations' && event.target.value === 'url')
-                          ? 'chat'
-                          : fn.output,
-                    })
-                  }
-                >
-                  {INPUT_SCOPES.map((scope) => (
-                    <option
-                      key={scope}
-                      value={scope}
-                      disabled={
-                        (scope === 'selection' && !context.selection) ||
-                        (scope === 'input' && !context.input)
-                      }
-                    >
-                      {t(SCOPE_LABELS[scope])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('Result')}
-                <select
-                  value={fn.output}
-                  onChange={(event) => edit({ output: event.target.value })}
-                >
-                  {OUTPUT_MODES.map((output) => (
-                    <option
-                      key={output}
-                      value={output}
-                      disabled={
-                        (output === 'replacement' && fn.scope !== 'input') ||
-                        (output === 'annotations' && !['page', 'selection'].includes(fn.scope))
-                      }
-                    >
-                      {t(OUTPUT_LABELS[output])}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="box-assistant-context" role="status">
+              <span>
+                {t(SCOPE_LABELS[fn.scope])} → {t(OUTPUT_LABELS[fn.output])}
+              </span>
+              <span>{temporaryEngine || fn.engine || siteEngine || config.modelName}</span>
             </div>
-            <label>
-              {t('AI connection')}
-              <select
-                value={temporaryEngine}
-                onChange={(event) => {
-                  setTemporaryEngine(event.target.value)
-                  setSaved(false)
-                }}
-              >
-                <option value="">
-                  {fn.engine || siteEngine || config.modelName} (
-                  {t('Follow function or page default')})
-                </option>
-                {engineOptions.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.value}
+            <details className="box-assistant-settings">
+              <summary>{t('Material, result and connection')}</summary>
+              <div className="box-assistant-fields">
+                <label>
+                  {t('Material to send')}
+                  <select
+                    value={fn.scope}
+                    onChange={(event) =>
+                      edit({
+                        scope: event.target.value,
+                        output:
+                          event.target.value === 'input'
+                            ? 'replacement'
+                            : fn.output === 'replacement' ||
+                              (fn.output === 'annotations' && event.target.value === 'url')
+                            ? 'chat'
+                            : fn.output,
+                      })
+                    }
+                  >
+                    {INPUT_SCOPES.map((scope) => (
+                      <option
+                        key={scope}
+                        value={scope}
+                        disabled={
+                          (scope === 'selection' && !context.selection) ||
+                          (scope === 'input' && !context.input)
+                        }
+                      >
+                        {t(SCOPE_LABELS[scope])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('Result')}
+                  <select
+                    value={fn.output}
+                    onChange={(event) => edit({ output: event.target.value })}
+                  >
+                    {OUTPUT_MODES.map((output) => (
+                      <option
+                        key={output}
+                        value={output}
+                        disabled={
+                          (output === 'replacement' && fn.scope !== 'input') ||
+                          (output === 'annotations' && !['page', 'selection'].includes(fn.scope))
+                        }
+                      >
+                        {t(OUTPUT_LABELS[output])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label>
+                {t('AI connection')}
+                <select
+                  value={temporaryEngine}
+                  onChange={(event) => {
+                    setTemporaryEngine(event.target.value)
+                    setSaved(false)
+                  }}
+                >
+                  <option value="">
+                    {fn.engine || siteEngine || config.modelName} (
+                    {t('Follow function or page default')})
                   </option>
-                ))}
-              </select>
-            </label>
+                  {engineOptions.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </details>
             <details className="box-assistant-preview">
               <summary>
                 {t('Preview material')} · {t(SCOPE_LABELS[fn.scope])} · {preview.text?.length || 0}{' '}
@@ -375,14 +430,14 @@ export function BrowserAssistant({
                 {t('Page text was shortened to the preview shown above.')}
               </p>
             )}
-            <div className="box-assistant-actions">
+            <div className="box-assistant-actions box-assistant-primary-actions">
               <button
                 className="is-primary"
                 disabled={busy || !fn.prompt.trim() || !!preview.error || !preview.text}
                 onClick={start}
               >
                 <Play size={14} />
-                {t('Run')}
+                {t(busy ? 'Starting...' : 'Run')}
               </button>
               <button onClick={openSave}>
                 <BookmarkPlus size={14} />

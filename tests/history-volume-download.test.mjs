@@ -58,4 +58,18 @@ describe('history volume downloads', () => {
     })
     expect(toJSON).not.toHaveBeenCalled()
   })
+
+  it('does not start scanning history before directory selection, and cancels without reading it', async () => {
+    const exporter = vi.fn()
+    vi.stubGlobal('window', {
+      showDirectoryPicker: async () => {
+        throw Object.assign(new Error('cancelled'), { name: 'AbortError' })
+      },
+    })
+    expect(await downloadChatgptHistoryVolumes(exporter)).toMatchObject({
+      cancelled: true,
+      count: 0,
+    })
+    expect(exporter).not.toHaveBeenCalled()
+  })
 })

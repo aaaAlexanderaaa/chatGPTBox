@@ -28,6 +28,7 @@ that limitation rather than changing the project's supported version.
 | Lint | `npm run lint` | Configured JS/JSX/MJS rules |
 | Unit/integration tests | `npm test` | Vitest suite with controlled external boundaries |
 | Focused tests | `npm test -- tests/browser-assistant.test.mjs` | Named test scope only |
+| Large history export | `node scripts/check-history-backup-resources.mjs` | Synthetic 1,200-conversation / 300 MiB export with a 128 MiB V8 old-space limit; local resource regression, not a browser heap guarantee |
 | Search engine tables | `npm run verify` | Search integration configuration checks |
 | Development build/watch | `npm run dev` | Unpacked browser builds with watch mode |
 | Production bundles | `npm run build` | Normal and reduced Chromium/Firefox archives |

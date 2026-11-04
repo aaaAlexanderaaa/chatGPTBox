@@ -4,6 +4,7 @@ import { applyChatGptBoxAppearance } from '../utils/appearance.mjs'
 import './styles.css'
 
 export function openBrowserAssistant({ context, config, siteEngine, functionId, autoRun }) {
+  const previousFocus = context.document.activeElement
   const old = context.document.querySelector('[data-chatgptbox-assistant]')
   if (old) {
     render(null, old)
@@ -23,6 +24,7 @@ export function openBrowserAssistant({ context, config, siteEngine, functionId, 
   const close = () => {
     render(null, container)
     container.remove()
+    if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
   }
   render(
     <BrowserAssistant

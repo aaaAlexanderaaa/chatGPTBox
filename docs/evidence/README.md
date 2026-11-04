@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-10-31
+last_reconciled: 2026-11-04
 ---
 
 # Verification evidence
@@ -23,6 +23,9 @@ repository's audience.
 - [2026-10-31 ChatGPT fetch diagnostics](2026-10-31-chatgpt-fetch-diagnostics.md)
   records the delegated native fetch and inline-export changes, their capability checks, and the
   installed gateway observations.
+- [2026-11-04 history backup and functions](2026-11-04-history-backup-and-functions.md)
+  records the retained-body and statistics defects, bounded file export,
+  template-material repair, interaction checks, and synthetic resource probe.
 
 - [2026-10-30 ChatGPT native input](2026-10-30-chatgpt-native-input.md)
   records local paste/rewrite and regex reviews, corrected defects, controlled

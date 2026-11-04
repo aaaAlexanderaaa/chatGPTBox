@@ -62,6 +62,15 @@ export function useSettingsConfig() {
       await setUserConfig(value)
       return
     }
+    if (
+      ['browserAssistantFunctions', 'browserFunctionOverrides', 'customSelectionTools'].some(
+        (key) => Object.hasOwn(value, key),
+      )
+    ) {
+      await setUserConfig(value)
+      setConfig((prev) => ({ ...prev, ...value }))
+      return
+    }
     setConfig((prev) => ({ ...prev, ...value }))
     await setUserConfig(value)
   }

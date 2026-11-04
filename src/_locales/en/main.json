@@ -670,5 +670,20 @@
   "Select…": "Select…",
   "Trigger Mode": "Trigger Mode",
   "Used for prompts and UI": "Used for prompts and UI",
-  "When to show AI response": "When to show AI response"
+  "When to show AI response": "When to show AI response",
+  "Search functions": "Search functions",
+  "Edit function": "Edit function",
+  "Duplicate function": "Duplicate function",
+  "Customize function": "Customize function",
+  "Connection and entries": "Connection and entries",
+  "No entries selected": "No entries selected",
+  "More variables": "More variables",
+  "No matching functions. Try another search or create a function.": "No matching functions. Try another search or create a function.",
+  "Insert a variable at the cursor. Without a material variable, the selected material is appended automatically.": "Insert a variable at the cursor. Without a material variable, the selected material is appended automatically.",
+  "Material, result and connection": "Material, result and connection",
+  "Select text or focus an input to use these functions": "Select text or focus an input to use these functions",
+  "Coverage is unknown for {{count}} older snapshots.": "Coverage is unknown for {{count}} older snapshots.",
+  "This browser estimates cached bodies from the index. Export checks the stored contents.": "This browser estimates cached bodies from the index. Export checks the stored contents.",
+  "Starting...": "Starting...",
+  "Saving...": "Saving..."
 }

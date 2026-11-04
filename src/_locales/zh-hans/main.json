@@ -698,5 +698,20 @@
   "Select…": "请选择…",
   "Trigger Mode": "触发方式",
   "Used for prompts and UI": "用于提示词与界面",
-  "When to show AI response": "何时显示 AI 回答"
+  "When to show AI response": "何时显示 AI 回答",
+  "Search functions": "搜索功能",
+  "Edit function": "编辑功能",
+  "Duplicate function": "复制功能",
+  "Customize function": "自定义功能副本",
+  "Connection and entries": "连接与显示位置",
+  "No entries selected": "未选择显示位置",
+  "More variables": "更多变量",
+  "No matching functions. Try another search or create a function.": "没有匹配的功能。请换个关键词，或新建功能。",
+  "Insert a variable at the cursor. Without a material variable, the selected material is appended automatically.": "点击变量即可插入光标处。未使用材料变量时，会自动附上本次选择的材料。",
+  "Material, result and connection": "调整材料、结果与连接",
+  "Select text or focus an input to use these functions": "这些功能需要先选择文字或进入输入框",
+  "Coverage is unknown for {{count}} older snapshots.": "{{count}} 条旧快照的覆盖范围未知。",
+  "This browser estimates cached bodies from the index. Export checks the stored contents.": "当前浏览器按目录估算已缓存正文，导出时会检查实际内容。",
+  "Starting...": "正在启动…",
+  "Saving...": "正在保存…"
 }

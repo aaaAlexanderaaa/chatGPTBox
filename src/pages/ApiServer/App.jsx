@@ -14,7 +14,7 @@ import {
 } from '../../services/clients/chatgpt-web/conversation-state.mjs'
 import { CHATGPT_WEB_CONVERSATION_INDEX_KEY } from '../../services/clients/chatgpt-web/conversation-cache.mjs'
 import {
-  exportChatgptHistoryData,
+  streamChatgptHistoryExport,
   importChatgptHistoryData,
 } from '../../services/clients/chatgpt-web/history-transfer.mjs'
 import { downloadChatgptHistoryVolumes } from '../../popup/file-transfer.mjs'
@@ -862,11 +862,12 @@ function App() {
   const handleExportCache = useCallback(async () => {
     setHistoryTransferBusy(true)
     try {
-      const result = await exportChatgptHistoryData()
-      const download = await downloadChatgptHistoryVolumes(result)
+      const download = await downloadChatgptHistoryVolumes((writeVolume) =>
+        streamChatgptHistoryExport({ writeVolume }),
+      )
       if (!download.cancelled) {
         addLog(
-          `Conversation cache exported: ${download.count} volumes, ${result.summary.partialSnapshotCount} partial snapshots, ${result.summary.currentBranchSnapshotCount} current-branch snapshots`,
+          `Conversation cache exported: ${download.count} volumes, ${download.summary.partialSnapshotCount} partial snapshots, ${download.summary.currentBranchSnapshotCount} current-branch snapshots`,
         )
       }
     } catch (err) {

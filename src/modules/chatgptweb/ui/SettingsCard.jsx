@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import Browser from 'webextension-polyfill'
 import { Download, Upload } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -54,14 +54,30 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
   const [historyHydrateError, setHistoryHydrateError] = useState('')
   const [copiedHydrateId, setCopiedHydrateId] = useState('')
   const [historyLibraryStats, setHistoryLibraryStats] = useState(null)
+  const statsRead = useRef(null)
+  const statsPending = useRef(false)
 
   const loadHistoryLibraryStats = useCallback(async () => {
     if (!getHistoryLibraryStats) return
+    if (statsRead.current) {
+      statsPending.current = true
+      return statsRead.current
+    }
+    statsRead.current = (async () => {
+      do {
+        statsPending.current = false
+        try {
+          const stats = await getHistoryLibraryStats()
+          setHistoryLibraryStats(stats || null)
+        } catch {
+          /* stats are informational; job controls still work without them */
+        }
+      } while (statsPending.current)
+    })()
     try {
-      const stats = await getHistoryLibraryStats()
-      setHistoryLibraryStats(stats || null)
-    } catch {
-      /* stats are informational; job controls still work without them */
+      await statsRead.current
+    } finally {
+      statsRead.current = null
     }
   }, [getHistoryLibraryStats])
 
@@ -78,15 +94,25 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
 
   useEffect(() => {
     void loadHistorySyncMeta()
+    let timer = null
     const listener = (changes) => {
       if (changes?.[storageKeys.conversationMeta]) {
         setHistorySyncMeta(changes[storageKeys.conversationMeta].newValue || {})
-        void loadHistoryLibraryStats()
+        // Request counters and page checkpoints can arrive together. Only the
+        // progress display updates immediately; one catalog refresh covers them.
+        if (timer === null)
+          timer = setTimeout(() => {
+            timer = null
+            void loadHistoryLibraryStats()
+          }, 1500)
       }
     }
     const storageChanges = Browser.storage.onChanged || Browser.storage.local.onChanged
     storageChanges.addListener(listener)
-    return () => storageChanges.removeListener(listener)
+    return () => {
+      storageChanges.removeListener(listener)
+      if (timer !== null) clearTimeout(timer)
+    }
   }, [loadHistoryLibraryStats, loadHistorySyncMeta, storageKeys.conversationMeta])
 
   const runHistorySync = useCallback(
@@ -526,6 +552,20 @@ export function ChatgptWebSettingsCard({ config, updateConfig, isPopupMode, kit 
                   },
                 )}
               </div>
+              {!!historyLibraryStats.unknownCoverageSnapshotCount && (
+                <div>
+                  {t('Coverage is unknown for {{count}} older snapshots.', {
+                    count: historyLibraryStats.unknownCoverageSnapshotCount,
+                  })}
+                </div>
+              )}
+              {historyLibraryStats.snapshotCountEstimated && (
+                <div>
+                  {t(
+                    'This browser estimates cached bodies from the index. Export checks the stored contents.',
+                  )}
+                </div>
+              )}
               <div>
                 {t('Extra snapshots not in the list: {{extraSnapshotCount}}', {
                   extraSnapshotCount: historyLibraryStats.extraSnapshotCount || 0,

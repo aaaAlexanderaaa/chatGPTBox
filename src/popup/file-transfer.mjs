@@ -48,13 +48,12 @@ export async function downloadChatgptHistoryVolumes(
     }
   }
 
-  // Serialize and release one volume at a time, including directory exports.
-  // Previously every volume's JSON string stayed in memory until all writes ended.
-  for (let index = 0; index < volumes.length; index += 1) {
-    const volume = volumes[index]
+  let count = 0
+  const writeVolume = async (volume) => {
+    if (count > 0) await sleep(delayMs)
     const filename = buildChatgptHistoryVolumeFilename(
       volume?.exportedAt,
-      Number(volume?.volume?.index) || index + 1,
+      Number(volume?.volume?.index) || count + 1,
       Number(volume?.volume?.count) || volumes.length || 1,
     )
     const contents = JSON.stringify(volume)
@@ -69,11 +68,20 @@ export async function downloadChatgptHistoryVolumes(
     } else {
       downloadTextFile(contents, filename)
     }
-    if (index < volumes.length - 1) await sleep(delayMs)
+    count += 1
+  }
+  let result
+  if (typeof exportResult === 'function') {
+    // Invoke only after the user's directory choice, and let each completed
+    // write release its volume before the exporter reads another one.
+    result = await exportResult(writeVolume)
+  } else {
+    for (const volume of volumes) await writeVolume(volume)
   }
   return {
+    ...result,
     method: directoryHandle ? 'directory' : 'download',
-    count: volumes.length,
+    count,
     cancelled: false,
   }
 }

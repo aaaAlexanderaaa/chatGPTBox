@@ -11,9 +11,10 @@
   z-index: 2147483646;
   top: 24px;
   right: 24px;
-  width: 460px;
+  width: 480px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   color: var(--foreground, #202925);
   background: var(--card, #fff);
   border: 1px solid var(--border, #dce3df);
@@ -64,6 +65,13 @@
 .box-assistant * {
   box-sizing: border-box;
 }
+.box-assistant {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+  min-width: 0;
+  container-type: inline-size;
+}
 .box-assistant-header {
   display: flex;
   gap: 16px;
@@ -71,6 +79,7 @@
   align-items: center;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border, #dce3df);
+  flex-shrink: 0;
 }
 .box-assistant-header strong {
   display: block;
@@ -94,7 +103,8 @@
 .box-assistant-content {
   padding: 16px 20px 20px;
   overflow: auto;
-  max-height: calc(100vh - 132px);
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 .box-assistant label {
   display: flex;
@@ -118,6 +128,8 @@
 }
 .box-assistant textarea {
   resize: vertical;
+  min-height: 108px;
+  font-size: 14px;
 }
 .box-assistant button,
 .box-assistant-actions a {
@@ -159,7 +171,7 @@
 }
 .box-assistant-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
 }
 .box-assistant-presets,
@@ -168,6 +180,42 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 8px 0 12px;
+}
+.box-assistant-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 12px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.box-assistant-settings {
+  border-block: 1px solid var(--border);
+  padding: 10px 0;
+  font-size: 12px;
+}
+.box-assistant-settings summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+.box-assistant-primary-actions {
+  position: sticky;
+  bottom: -20px;
+  margin: 16px -20px -20px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  z-index: 1;
+}
+.box-assistant-primary-actions .is-primary {
+  min-width: 88px;
+  min-height: 36px;
+}
+.box-assistant summary:focus-visible,
+.box-assistant-actions a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 .box-assistant-presets .is-active {
   border-color: var(--primary, #267456);
@@ -261,8 +309,6 @@
     top: 12px;
     right: 12px;
     max-height: calc(100vh - 24px);
-  }
-  .box-assistant-content {
-    max-height: calc(100vh - 106px);
+    max-height: calc(100dvh - 24px);
   }
 }

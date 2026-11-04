@@ -14,10 +14,17 @@ export function useConfig(initFn, ignoreSession = true) {
     const listener = (changes) => {
       if (ignoreSession) if (Object.keys(changes).length === 1 && 'sessions' in changes) return
 
-      const changedItems = Object.keys(changes)
+      // History bodies and other runtime records share storage.local with
+      // settings. Retaining them here duplicates the entire backup in every
+      // mounted consumer (including content scripts in other tabs).
+      const changedItems = Object.keys(changes).filter(
+        (key) => Object.hasOwn(defaultConfig, key) || (!ignoreSession && key === 'sessions'),
+      )
+      if (!changedItems.length) return
       const newConfig = {}
       for (const key of changedItems) {
-        newConfig[key] = changes[key].newValue
+        newConfig[key] =
+          changes[key].newValue === undefined ? defaultConfig[key] : changes[key].newValue
       }
       setConfig((prev) => ({ ...prev, ...newConfig }))
     }

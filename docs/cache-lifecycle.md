@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-02
+last_reconciled: 2026-11-04
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -57,6 +57,32 @@ If an older page fails after a successful download, GET and answer refresh retur
 
 ## Export and Import
 
+### Resource boundaries during large backups
+
+The November 4 user report describes freezes/crashes after several hundred
+conversations in a library of thousands. Inspection found that the generic
+configuration hook retained snapshot storage events as configuration, and the
+settings statistics reread every body on each progress event. These mechanisms
+can amplify memory and work across open pages; the reporter's crash and exact
+heap limit have not been reproduced.
+
+Configuration consumers accept only declared configuration keys. Body snapshots,
+indexes and job progress stay with their history owners. Live library statistics
+read catalog metadata and key names, never all conversation bodies; coverage
+without indexed metadata is shown as unknown. Refreshes are coalesced and have
+at most one read in flight. Progress and Stop remain available during backup.
+The backup still writes successful pages immediately and preserves its existing
+RPM, HTTP 429 lock, and resume behavior.
+The [November 4 evidence](evidence/2026-11-04-history-backup-and-functions.md)
+records the regressions, controlled browser checks and resource-probe limits.
+
+Full-file export reads one snapshot at a time and awaits the volume writer
+before reading the next volume. It retains catalog metadata and the current
+volume, rather than all raw bodies. Schema 2 and the importer remain unchanged.
+A single unusually large conversation can exceed the volume target and still
+requires memory for that snapshot. Export/import are not atomic snapshots of
+concurrent history writes; use them while history jobs and chats are idle.
+
 To prevent data loss and allow for migration, the cache can be exported and imported:
 
 - **Export**: Creates schema-2 JSON volumes containing the local index, cached snapshots, metadata, and continuation state. Both settings **Export ChatGPT History** and API Server **Export Cache** use the same exporter. Export does not fetch missing remote history.
@@ -85,7 +111,7 @@ For one conversation, open **ChatGPT History Backup** in the ChatGPT Web setting
 - **Data Freshness**: While sync intervals and event-driven invalidation help, the cache may still be out of sync if changes occur in another browser tab or on another device.
 - **Concurrent Import**: Import reads the existing cache and writes its merged result in batches. Import while history synchronization, content backup, and chats that update the cache are idle: a write between that read and the import write can be overwritten, including a newer index entry or snapshot. Import is not an atomic transaction across all keys; retain the original volume files if a write fails. This limitation concerns the local cache, not deletion of conversations on ChatGPT's server.
 - **Mixed Timestamp Imports**: Index merging does not yet normalize numeric Unix timestamps and ISO dates to the same unit. Older or mixed-format backups without a newer `lastSeenAt` can prefer older titles, archive flags, or list update times. Snapshot revision comparison separately normalizes seconds and milliseconds. Retain the original backup and verify list metadata after importing such files; v4.3.2 does not fix this boundary.
-- **Performance**: Volume sizes are estimated in UTF-8 bytes, and files are serialized/downloaded one at a time. A single conversation remains one snapshot and can exceed the approximately 16 MiB volume target; this change deliberately keeps the existing backup format. A very large local cache can still affect export/import memory use.
+- **Performance**: File export measures records individually, then reads/writes one volume at a time, retaining the catalog and current volume. A single conversation or catalog can exceed the approximately 16 MiB target. Import and the explicit in-memory export helper still materialize their input; importing a very large cache can require substantial memory. The backup format is unchanged.
 - **API Limits**: Full sync is deliberately opt-in and RPM-limited. Use a conservative RPM and leave automatic sync off if another client already accesses the account frequently.
 
 ## Troubleshooting

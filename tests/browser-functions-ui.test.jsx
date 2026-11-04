@@ -53,6 +53,119 @@ const button = (name) =>
   [...root.querySelectorAll('button')].find((item) => item.textContent === name)
 
 describe('function UI across languages and model formats', () => {
+  it('edits beside the chosen function, preserves text through template toggles and keeps failed drafts', async () => {
+    const updateConfig = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Storage full'))
+      .mockResolvedValueOnce(undefined)
+    act(() => render(<FunctionLibrary config={state.config} updateConfig={updateConfig} />, root))
+    const row = root.querySelector('[data-function-id="legacy.0"]')
+    const edit = [...row.querySelectorAll('button')].find((item) => item.textContent === 'Edit')
+    act(() => {
+      edit.focus()
+      edit.click()
+    })
+    const form = row.querySelector('form')
+    expect(form).toBeTruthy()
+    expect(document.activeElement).toBe(form.querySelector('input'))
+    act(() => {
+      const input = form.querySelector('textarea')
+      input.value = '请按照我的要求编辑草稿。'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      form.querySelector('[aria-label="Use prompt template"]').click()
+    })
+    expect(form.querySelector('textarea').value).toBe('请按照我的要求编辑草稿。')
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(form.querySelector('[role="alert"]').textContent).toBe('Storage full')
+    expect(form.querySelector('textarea').value).toBe('请按照我的要求编辑草稿。')
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(row.querySelector('form')).toBeNull()
+    expect(document.activeElement).toBe(edit)
+  })
+
+  it('searches saved and disabled functions and explains an empty result', () => {
+    act(() => render(<FunctionLibrary config={state.config} updateConfig={async () => {}} />, root))
+    act(() => {
+      const search = root.querySelector('input[type="search"]')
+      search.value = 'My own name'
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(root.querySelectorAll('[data-function-id]')).toHaveLength(1)
+    act(() => {
+      const search = root.querySelector('input[type="search"]')
+      search.value = 'no-such-function'
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(root.textContent).toContain('No matching functions.')
+  })
+
+  it('submits the selected input for a content template instead of reading the page body', async () => {
+    const context = captureContext()
+    context.input = captureInput(document.querySelector('textarea'))
+    state.config.browserAssistantFunctions = [
+      {
+        id: 'draft-template',
+        name: 'Draft template',
+        scope: 'input',
+        output: 'chat',
+        prompt: 'Rewrite {{content}}',
+        template: true,
+      },
+    ]
+    await act(async () => {
+      render(
+        <BrowserAssistant
+          context={context}
+          initialConfig={state.config}
+          functionId="draft-template"
+          onClose={() => {}}
+        />,
+        root,
+      )
+    })
+    expect(document.activeElement).toBe(root.querySelector('textarea'))
+    expect(root.querySelector('[data-testid="submitted-prompt"]')).toBeNull()
+    await act(async () => {
+      button('Run').click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const prompt = root.querySelector('[data-testid="submitted-prompt"]').textContent
+    expect(document.activeElement).toBe(root.querySelector('[role="dialog"]'))
+    expect(prompt).toContain('Rewrite Original draft')
+    expect(prompt).not.toContain('Source material.')
+  })
+
+  it('closes with Escape while preserving IME composition', () => {
+    const onClose = vi.fn()
+    act(() =>
+      render(
+        <BrowserAssistant
+          context={captureContext()}
+          initialConfig={state.config}
+          onClose={onClose}
+        />,
+        root,
+      ),
+    )
+    const textarea = root.querySelector('textarea')
+    act(() =>
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }),
+      ),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    act(() =>
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    )
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('localizes General labels and Auto without leaving English setting descriptions', async () => {
     await i18n.changeLanguage('zh')
     act(() =>

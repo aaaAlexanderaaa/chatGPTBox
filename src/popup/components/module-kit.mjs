@@ -39,7 +39,7 @@ import ChatgptHistoryBrowser from '../../components/ChatgptHistoryBrowser/index.
 import { CHATGPT_WEB_THINKING_EFFORTS } from '../../services/clients/chatgpt-web/thinking.mjs'
 import { downloadChatgptHistoryVolumes, pickJsonFiles } from '../file-transfer.mjs'
 import {
-  exportChatgptHistoryData,
+  streamChatgptHistoryExport,
   getChatgptHistoryLibraryStats,
   importChatgptHistoryData,
 } from '../../services/clients/chatgpt-web/history-transfer.mjs'
@@ -86,12 +86,13 @@ export function buildModuleKit() {
     },
     getHistoryLibraryStats: async () => getChatgptHistoryLibraryStats(),
     exportHistory: async () => {
-      const result = await exportChatgptHistoryData()
-      const downloadResult = await downloadChatgptHistoryVolumes(result)
+      const downloadResult = await downloadChatgptHistoryVolumes((writeVolume) =>
+        streamChatgptHistoryExport({ writeVolume }),
+      )
       if (downloadResult?.cancelled) return null
       return {
-        ...result.summary,
-        volumeCount: result.volumes.length,
+        ...downloadResult.summary,
+        volumeCount: downloadResult.count,
         downloadMethod: downloadResult?.method || 'download',
       }
     },

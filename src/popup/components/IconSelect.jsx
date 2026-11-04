@@ -3,7 +3,14 @@ import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { cn } from '../../utils/cn.mjs'
 
-export function IconSelect({ value, onChange, options, className, panelClassName }) {
+export function IconSelect({
+  value,
+  onChange,
+  options,
+  className,
+  panelClassName,
+  triggerClassName,
+}) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
 
@@ -29,6 +36,7 @@ export function IconSelect({ value, onChange, options, className, panelClassName
           'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
           'cursor-pointer text-foreground transition-all',
           'inline-flex items-center gap-2 min-w-[220px] justify-between',
+          triggerClassName,
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -88,4 +96,5 @@ IconSelect.propTypes = {
   ).isRequired,
   className: PropTypes.string,
   panelClassName: PropTypes.string,
+  triggerClassName: PropTypes.string,
 }

@@ -41,6 +41,20 @@ const config = {
 const fn = (patch = {}) => createFunction({ scope: 'url', ...patch })
 
 describe('browser assistant functions and input isolation', () => {
+  it.each(['Explain the important points.', 'Explain in {{language}}.'])(
+    'keeps chosen material when template mode has no material variable: %s',
+    (prompt) => {
+      const run = prepareFunctionRun({
+        fn: fn({ scope: 'input', prompt, template: true }),
+        config,
+        context: { input: { text: '用户写下的草稿' } },
+        language: 'Chinese',
+      })
+      expect(run.prompt).toContain('用户写下的草稿')
+      expect(run.prompt).not.toContain('{{language}}')
+    },
+  )
+
   it('keeps follow-up requirements in a reviewable reusable instruction', () => {
     const original = fn({ prompt: 'Explain the claims.' })
     const refined = functionWithRefinements(original, [

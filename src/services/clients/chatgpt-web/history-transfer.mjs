@@ -940,8 +940,40 @@ async function writeStorageEntries(storage, entries = []) {
 
 export async function getChatgptHistoryLibraryStats() {
   const storage = await getBrowserStorage()
-  const existingHistoryData = await readChatgptHistoryStorageData(storage)
-  return summarizeChatgptHistoryExport(existingHistoryData)
+  const catalog = await storage.get([
+    CHATGPT_WEB_CONVERSATION_INDEX_KEY,
+    CHATGPT_WEB_CONVERSATION_META_KEY,
+  ])
+  const index = catalog[CHATGPT_WEB_CONVERSATION_INDEX_KEY] || {}
+  const hasKeyDiscovery = typeof storage.getKeys === 'function'
+  const keys = hasKeyDiscovery
+    ? await storage.getKeys()
+    : Object.entries(index)
+        .filter(([, entry]) => entry?.snapshotCachedAt)
+        .map(([id]) => `${CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX}${id}`)
+  const snapshotKeys = keys.filter((key) =>
+    key.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX),
+  )
+  let partialSnapshotCount = 0,
+    currentBranchSnapshotCount = 0,
+    unknownCoverageSnapshotCount = 0
+  for (const key of snapshotKeys) {
+    const entry = index[key.slice(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX.length)]
+    if (typeof entry?.snapshotHistoryComplete !== 'boolean') unknownCoverageSnapshotCount += 1
+    else if (!entry.snapshotHistoryComplete) partialSnapshotCount += 1
+    if (entry?.snapshotHistoryScope === 'current_branch') currentBranchSnapshotCount += 1
+  }
+  return {
+    ...summarizeChatgptHistoryLibrary(
+      index,
+      snapshotKeys,
+      catalog[CHATGPT_WEB_CONVERSATION_META_KEY],
+    ),
+    partialSnapshotCount,
+    currentBranchSnapshotCount,
+    unknownCoverageSnapshotCount,
+    snapshotCountEstimated: !hasKeyDiscovery,
+  }
 }
 
 export async function buildChatgptHistoryExportVolumes({
@@ -1005,6 +1037,87 @@ export async function buildChatgptHistoryExportVolumes({
 
 export async function exportChatgptHistoryData(options = {}) {
   return buildChatgptHistoryExportVolumes(options)
+}
+
+// File exports use two bounded passes: measure individual records, then read
+// and hand off one volume at a time. The in-memory API above remains useful
+// for selected-conversation clipboard exports.
+export async function streamChatgptHistoryExport({
+  writeVolume,
+  maxVolumeBytes = DEFAULT_CHATGPT_HISTORY_VOLUME_MAX_BYTES,
+} = {}) {
+  if (typeof writeVolume !== 'function') throw new Error('A volume writer is required')
+  const storage = await getBrowserStorage()
+  const keys = await listChatgptHistoryStorageKeys(storage)
+  const catalog = await storage.get(CHATGPT_WEB_HISTORY_CATALOG_KEYS)
+  const catalogKeys = CHATGPT_WEB_HISTORY_CATALOG_KEYS.filter((key) => Object.hasOwn(catalog, key))
+  const accountant = createStorageSizeAccountant()
+  for (const key of catalogKeys) accountant.remember(key, catalog[key])
+  const snapshotKeys = []
+  let partialSnapshotCount = 0,
+    currentBranchSnapshotCount = 0
+  for (const key of keys
+    .filter((key) => key.startsWith(CHATGPT_WEB_CONVERSATION_SNAPSHOT_KEY_PREFIX))
+    .sort()) {
+    const data = await storage.get([key])
+    if (!Object.hasOwn(data, key)) continue
+    snapshotKeys.push(key)
+    accountant.remember(key, data[key])
+    const snapshot = data[key]?.snapshot
+    if (snapshot && !getChatgptWebConversationHistoryInfo(snapshot).complete)
+      partialSnapshotCount += 1
+    if (Array.isArray(snapshot?.messages)) currentBranchSnapshotCount += 1
+  }
+  const summary = {
+    ...summarizeChatgptHistoryStorageData(catalog),
+    ...summarizeChatgptHistoryLibrary(
+      catalog[CHATGPT_WEB_CONVERSATION_INDEX_KEY],
+      snapshotKeys,
+      catalog[CHATGPT_WEB_CONVERSATION_META_KEY],
+    ),
+    partialSnapshotCount,
+    currentBranchSnapshotCount,
+  }
+  const exportId = createHistoryExportId()
+  const exportedAt = new Date().toISOString()
+  const budget = Math.max(
+    2,
+    maxVolumeBytes - estimateVolumeEnvelopeOverhead({ exportId, exportedAt, summary }) - 32,
+  )
+  const groups = []
+  let current = [...catalogKeys]
+  for (const key of snapshotKeys) {
+    if (current.length && accountant.sizeOf([...current, key]) > budget) {
+      groups.push(current)
+      current = []
+    }
+    current.push(key)
+  }
+  if (current.length || !groups.length) groups.push(current)
+  for (let index = 0; index < groups.length; index += 1) {
+    const volumeStorage = {}
+    for (const key of groups[index]) {
+      if (Object.hasOwn(catalog, key)) volumeStorage[key] = catalog[key]
+      else {
+        const data = await storage.get([key])
+        if (!Object.hasOwn(data, key))
+          throw new Error(
+            'History changed during export. Export again while backups and chats are idle.',
+          )
+        volumeStorage[key] = data[key]
+      }
+    }
+    await writeVolume({
+      scope: CHATGPT_WEB_HISTORY_EXPORT_SCOPE,
+      schemaVersion: CHATGPT_WEB_HISTORY_EXPORT_SCHEMA_VERSION,
+      exportedAt,
+      exportId,
+      volume: { index: index + 1, count: groups.length },
+      storage: volumeStorage,
+      summary,
+    })
+  }
+  return { exportId, summary, volumeCount: groups.length }
 }
 
 export async function importChatgptHistoryData(payload) {

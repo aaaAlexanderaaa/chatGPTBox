@@ -68,7 +68,12 @@ export function ToggleRow({ label, hint, checked, defaultChecked, onChange, clas
         <span className="text-sm text-foreground">{label}</span>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <Toggle checked={checked} defaultChecked={defaultChecked} onChange={onChange} />
+      <Toggle
+        aria-label={label}
+        checked={checked}
+        defaultChecked={defaultChecked}
+        onChange={onChange}
+      />
     </div>
   )
 }

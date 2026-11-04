@@ -6,7 +6,13 @@ import { cn } from '../../utils/cn.mjs'
  * Toggle/Switch component
  * Matches the demo design system
  */
-function Toggle({ checked: controlledChecked, defaultChecked = false, onChange, className }) {
+function Toggle({
+  checked: controlledChecked,
+  defaultChecked = false,
+  onChange,
+  className,
+  'aria-label': ariaLabel,
+}) {
   const [internalChecked, setInternalChecked] = useState(defaultChecked)
 
   // Support both controlled and uncontrolled modes
@@ -26,6 +32,7 @@ function Toggle({ checked: controlledChecked, defaultChecked = false, onChange, 
     <button
       type="button"
       role="switch"
+      aria-label={ariaLabel}
       aria-checked={checked}
       onClick={handleClick}
       className={cn(
@@ -49,6 +56,7 @@ Toggle.propTypes = {
   defaultChecked: PropTypes.bool,
   onChange: PropTypes.func,
   className: PropTypes.string,
+  'aria-label': PropTypes.string,
 }
 
 export { Toggle }
