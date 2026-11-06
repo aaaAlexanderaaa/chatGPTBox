@@ -1,5 +1,5 @@
-import { init, use } from 'echarts/core'
-import { BarChart, LineChart, ScatterChart, PieChart } from 'echarts/charts'
+import { init, use, graphic } from 'echarts/core'
+import { BarChart, LineChart, ScatterChart, PieChart, CustomChart } from 'echarts/charts'
 import {
   GridComponent,
   LegendComponent,
@@ -11,6 +11,7 @@ import { SVGRenderer } from 'echarts/renderers'
 import {
   GENUI_CHART_ATTRIBUTE,
   genuiChartValue,
+  genuiChartBandBounds,
   normalizeGenuiChart,
   parseGenuiChartDescriptor,
 } from '../../services/clients/chatgpt-web/genui-charts.mjs'
@@ -20,6 +21,7 @@ use([
   LineChart,
   ScatterChart,
   PieChart,
+  CustomChart,
   GridComponent,
   LegendComponent,
   TooltipComponent,
@@ -74,6 +76,7 @@ export function buildGenuiChartOption(descriptor, dark = false) {
       },
     },
     legend: {
+      ...(type === 'pie-chart' ? {} : { data: p.series.map((series) => series.dataKey) }),
       show: p.showLegend !== false,
       bottom: 0,
       textStyle: { color: ink },
@@ -95,21 +98,25 @@ export function buildGenuiChartOption(descriptor, dark = false) {
       formatter: (entries) => {
         const values = Array.isArray(entries) ? entries : [entries]
         const lines = []
-        if (type !== 'pie-chart') {
+        if (type !== 'pie-chart' && p.showTooltipLabel !== false) {
           const row = p.data[values[0]?.dataIndex]
           if (row) lines.push(label(row))
         }
         for (const entry of values) {
           const series = p.series[entry.seriesIndex || 0],
             row = p.data[entry.dataIndex]
-          if (!row) continue
+          if (!row || !series) continue
           let value = row.formatted ?? genuiChartValue(row[series.dataKey], series)
           if (type === 'pie-chart' && ['percent', 'both'].includes(p.tooltipValueMode)) {
             const percent = `${Number(entry.percent || 0).toFixed(1)}%`
             value = p.tooltipValueMode === 'percent' ? percent : `${value} (${percent})`
           }
+          const name = type === 'pie-chart' ? label(row) : series.label || series.dataKey
+          const marker = p.showTooltipMarkers === false ? '' : entry.marker || ''
           lines.push(
-            `${type === 'pie-chart' ? label(row) : series.label || series.dataKey}: ${value}`,
+            `${marker}${
+              type === 'pie-chart' && p.showTooltipLabel === false ? '' : `${name}: `
+            }${value}`,
           )
         }
         return lines.join('\n')
@@ -153,30 +160,47 @@ export function buildGenuiChartOption(descriptor, dark = false) {
   const categoryAxis = {
     type: numericX ? 'value' : 'category',
     show: p.xAxis.hide !== true,
+    name: p.xAxis.label,
+    nameLocation: 'middle',
+    nameGap: 30,
     ...(numericX ? {} : { data: p.data.map((row) => row[p.xAxis.dataKey]) }),
     axisLabel: {
       color: ink,
       hideOverlap: true,
+      ...(p.xAxis.ticks ? { customValues: p.xAxis.ticks.map((tick) => tick.value) } : {}),
       formatter: (value) =>
-        p.xAxis.labels?.[String(value)] ?? numberLabel(value, p.xAxis.tickFormatter),
+        p.xAxis.ticks?.find((tick) => tick.value === value)?.label ??
+        p.xAxis.labels?.[String(value)] ??
+        numberLabel(value, p.xAxis.tickFormatter),
     },
     axisLine: { lineStyle: { color: line } },
-    axisTick: { show: false },
+    axisTick: {
+      show: false,
+      ...(p.xAxis.ticks ? { customValues: p.xAxis.ticks.map((tick) => tick.value) } : {}),
+    },
     splitLine: { show: false },
   }
   const valueAxis = {
     type: 'value',
     show: p.showYAxis === true && p.yAxis.hide !== true,
     position: p.yAxis.orientation || 'left',
+    name: p.yAxis.label,
+    nameLocation: 'middle',
+    nameGap: 48,
     axisLabel: {
       color: ink,
+      ...(p.yAxis.ticks ? { customValues: p.yAxis.ticks.map((tick) => tick.value) } : {}),
       formatter: (value) =>
-        p.yAxis.tickFormatter
+        p.yAxis.ticks?.find((tick) => tick.value === value)?.label ??
+        (p.yAxis.tickFormatter
           ? numberLabel(value, p.yAxis.tickFormatter)
-          : genuiChartValue(value, p.series[0]),
+          : genuiChartValue(value, p.series[0])),
     },
     axisLine: { show: false },
-    axisTick: { show: false },
+    axisTick: {
+      show: false,
+      ...(p.yAxis.ticks ? { customValues: p.yAxis.ticks.map((tick) => tick.value) } : {}),
+    },
     splitLine: { show: p.showGrid !== false, lineStyle: { color: line, type: 'dashed' } },
   }
   const domain = (axis, bounds) => {
@@ -188,10 +212,11 @@ export function buildGenuiChartOption(descriptor, dark = false) {
   domain(valueAxis, p.yAxis.domain)
   const vertical = p.layout === 'vertical'
   option.grid = {
-    left: 12,
+    left: p.yAxis.label && !vertical ? 36 : 12,
     right: 16,
     top: p.showValueLabels ? 30 : 16,
-    bottom: p.showLegend === false ? 12 : 54,
+    bottom:
+      (p.showLegend === false ? 12 : 54) + (p.xAxis.label || (vertical && p.yAxis.label) ? 24 : 0),
     containLabel: true,
   }
   option.xAxis = vertical ? valueAxis : categoryAxis
@@ -205,6 +230,9 @@ export function buildGenuiChartOption(descriptor, dark = false) {
       showSymbol: p.showDots === true,
       symbolSize: s.type === 'scatter' ? 8 : 5,
       smooth: ['natural', 'monotone', 'monotoneX', 'monotoneY'].includes(s.curveType),
+      ...(s.curveType?.startsWith('monotone')
+        ? { smoothMonotone: s.curveType === 'monotoneY' ? 'y' : 'x' }
+        : {}),
       ...(s.curveType?.startsWith('step')
         ? { step: { step: 'middle', stepBefore: 'start', stepAfter: 'end' }[s.curveType] }
         : {}),
@@ -238,6 +266,50 @@ export function buildGenuiChartOption(descriptor, dark = false) {
       if (p.barGap != null) series.barGap = p.barGap
     }
     return series
+  })
+  // Draw each adjacent valid interval as a polygon. Stacked positive area
+  // series would distort intervals crossing zero or lying below zero.
+  p.series.forEach((s, seriesIndex) => {
+    if (!s.band) return
+    const segments = []
+    for (let index = 1; index < p.data.length; index++) {
+      if (p.data[index - 1][s.dataKey] == null || p.data[index][s.dataKey] == null) continue
+      const before = genuiChartBandBounds(p.data[index - 1], s)
+      const after = genuiChartBandBounds(p.data[index], s)
+      if (before && after)
+        segments.push([
+          numericX ? p.data[index - 1][p.xAxis.dataKey] : index - 1,
+          ...before,
+          numericX ? p.data[index][p.xAxis.dataKey] : index,
+          ...after,
+        ])
+    }
+    option.series.push({
+      type: 'custom',
+      name: s.dataKey,
+      silent: true,
+      z: 0,
+      tooltip: { show: false },
+      encode: vertical ? { x: [1, 2, 4, 5], y: [0, 3] } : { x: [0, 3], y: [1, 2, 4, 5] },
+      data: segments,
+      renderItem: (params, api) => {
+        const coordinate = (x, y) => api.coord(vertical ? [y, x] : [x, y])
+        const points = [
+          coordinate(api.value(0), api.value(1)),
+          coordinate(api.value(0), api.value(2)),
+          coordinate(api.value(3), api.value(5)),
+          coordinate(api.value(3), api.value(4)),
+        ]
+        return {
+          type: 'polygon',
+          shape: { points: graphic.clipPointsByRect(points, params.coordSys) },
+          style: {
+            fill: s.fillColor || s.color || PALETTE[seriesIndex % PALETTE.length],
+            opacity: 0.18,
+          },
+        }
+      },
+    })
   })
   if (p.scrollable && !p.disableUserScroll) {
     const count =

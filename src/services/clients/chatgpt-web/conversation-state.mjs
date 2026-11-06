@@ -1,4 +1,4 @@
-import { renderChatgptWebGenuiResult } from './genui.mjs'
+import { renderChatgptWebGenuiResult, renderChatgptWebReferencedWidgets } from './genui.mjs'
 import { normalizeChatgptWebReferenceText } from './reference-text.mjs'
 import { getChatgptWebConversationHistoryInfo } from './conversation-pages.mjs'
 
@@ -581,7 +581,12 @@ export function flattenChatgptWebMessageText(content) {
 
 export function extractChatgptWebMessagePresentation(message) {
   if (!message || typeof message !== 'object') return { text: '' }
-  const visual = renderChatgptWebGenuiResult(message)
+  const visual =
+    renderChatgptWebGenuiResult(message) ??
+    renderChatgptWebReferencedWidgets(
+      flattenChatgptWebMessageText(message.content),
+      message.metadata?.content_references,
+    )
   if (visual?.text) {
     const { text, ...rendering } = visual
     return { text, rendering }

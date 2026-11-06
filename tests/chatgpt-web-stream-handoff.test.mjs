@@ -9,6 +9,7 @@ import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-w
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
 import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 import { chartComponentsMessage } from './fixtures/genui-charts.mjs'
+import { mixedNativeWidgetsMessage } from './fixtures/genui-client-widgets.mjs'
 import {
   canFollowChatgptWebTurnViaHttpResume,
   canResumeChatgptWebStreamHandoffViaSse,
@@ -930,6 +931,8 @@ describe('ChatGPT Web client handoff integration', () => {
     ['initial', 'resume', 'poll'].flatMap((transport) => [
       [transport, false],
       [transport, true],
+      [transport, 'native-widgets'],
+      [transport, 'native-references'],
     ]),
   )(
     'keeps the gateway stream valid when GenUI metadata arrives late via %s (client widget: %s)',
@@ -937,7 +940,12 @@ describe('ChatGPT Web client handoff integration', () => {
       const first = assistantMessageDelta('News summary')
       first.v.conversation_id = 'conv-1'
       const final = genuiDelta('News summary').v.message
-      const fixture = clientWidget ? clientWidgetMessage() : staticComponentsMessage()
+      const fixture =
+        typeof clientWidget === 'string'
+          ? mixedNativeWidgetsMessage()
+          : clientWidget
+          ? clientWidgetMessage()
+          : staticComponentsMessage()
       const staticMessage = fixture.metadata.model_dil_v2
       const chartMessage = chartComponentsMessage().metadata.model_dil_v2
       final.metadata = {
@@ -949,6 +957,11 @@ describe('ChatGPT Web client handoff integration', () => {
             .trim()
             .slice(11, -2)},${chartMessage.code.trim().slice(11, -2)}));`,
         },
+      }
+      const referencesOnly = clientWidget === 'native-references'
+      if (referencesOnly) {
+        delete final.metadata.model_dil_v2
+        final.content = fixture.content
       }
       final.status = 'finished_successfully'
       final.end_turn = true
@@ -963,6 +976,7 @@ describe('ChatGPT Web client handoff integration', () => {
           o: 'patch',
           p: '/message',
           v: [
+            ...(referencesOnly ? [{ o: 'replace', p: '/content', v: final.content }] : []),
             { o: 'replace', p: '/status', v: 'finished_successfully' },
             { o: 'replace', p: '/end_turn', v: true },
           ],
@@ -1007,13 +1021,21 @@ describe('ChatGPT Web client handoff integration', () => {
       expect(bridge.wire[0].answer).toContain('chatgptbox-genui')
       expect(bridge.wire[0].answer).toContain('Alpha')
       expect(bridge.wire[0].answer).toContain('Beta')
-      expect(bridge.wire[0].answer).toContain('End of component demonstration')
-      expect(bridge.wire[0].answer).toContain('console.log(value);')
-      expect(bridge.wire[0].answer.match(/data-chatgptbox-chart=/g)).toHaveLength(6)
-      expect(bridge.wire[0].answer).toContain('End of chart demonstration')
+      if (typeof clientWidget === 'string') {
+        expect(bridge.wire[0].answer).toContain('After widgets')
+        expect(bridge.wire[0].answer).toContain('Walk to Place A')
+        expect(bridge.wire[0].answer).toContain('Unit: sample')
+      } else {
+        expect(bridge.wire[0].answer).toContain('End of component demonstration')
+        expect(bridge.wire[0].answer).toContain('console.log(value);')
+      }
+      expect(bridge.wire[0].answer.match(/data-chatgptbox-chart=/g)).toHaveLength(
+        referencesOnly ? 4 : clientWidget === 'native-widgets' ? 10 : 6,
+      )
+      if (!referencesOnly) expect(bridge.wire[0].answer).toContain('End of chart demonstration')
       expect(bridge.session.chatgptWebRendering).toMatchObject({
         format: 'html',
-        status: 'rendered',
+        status: typeof clientWidget === 'string' ? 'partial' : 'rendered',
       })
     },
   )

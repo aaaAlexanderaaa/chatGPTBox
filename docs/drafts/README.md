@@ -2,8 +2,8 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-10-31
-projection_of: ["docs/api-server.md"]
+last_reconciled: 2026-11-06
+projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
 # Drafts Actions For ChatGPTBox
@@ -77,6 +77,15 @@ changing Action 2, Action 3, the preview template, or gateway credentials. See t
 [component contract](../chatgpt-web-genui.md) for the supported data shapes and limits.
 
 ## HTML Preview
+
+For the November 6 client-widget update, update/reload the extension, then run
+Get again to replace older chart JSON/Markdown with the converted answer.
+**Get and Send scripts do not need replacing for this update.** Update the
+**ChatGPTBox Preview** action from `chatgptbox-preview.draftsAction`, or import
+the regenerated `chatgptbox-preview.html` into your existing HTML Preview step.
+The HTML includes the updated chart runtime; the action package contains that
+same HTML. If you use the separate Mac/iPad live preview template, replace its
+HTML copy as well. No address, token or model configuration changes are needed.
 
 For iPhone, iPad and Mac, use the self-contained **ChatGPTBox Preview** action:
 open [`chatgptbox-preview.draftsAction`](./chatgptbox-preview.draftsAction) in Drafts and

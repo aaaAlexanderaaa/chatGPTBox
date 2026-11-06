@@ -76,7 +76,13 @@ describe('static GenUI component adapters', () => {
         message.metadata.content_references[1].data.widget_type = 'future_widget'
       } else dil.code = 'DIL.render(__dil.jsx("text",null,unknownCall()));'
       const result = extractChatgptWebMessagePresentation(message)
-      expect(result.text).toBe(dil.fallbackMarkdown)
+      if (mode === 'unsupported widget') {
+        expect(result.rendering).toMatchObject({ status: 'partial', localFallbacks: 1 })
+        const codes = elements(sanitizedTree(result.text, false), 'code')
+        const textContent = (node) => node.value ?? (node.children || []).map(textContent).join('')
+        expect(textContent(codes[0])).toBe(dil.constants.code)
+        expect(result.text).toContain('End of component demonstration')
+      } else expect(result.text).toBe(dil.fallbackMarkdown)
     },
   )
 

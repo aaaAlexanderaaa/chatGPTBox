@@ -893,7 +893,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     if (!answer || !shouldEmitIncrementalAnswer) return
     // Each GenUI snapshot closes its HTML tags. Buffer it until finishMessage
     // so the gateway never has to replace content already sent as text deltas.
-    if (answerIsGenui) return
+    if (answerIsGenui || answerRendering?.format === 'html') return
 
     const normalizedChannel = typeof channel === 'string' ? channel.trim().toLowerCase() : ''
 

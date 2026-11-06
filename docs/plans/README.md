@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-10-31
+last_reconciled: 2026-11-06
 ---
 
 # Execution records
@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record | State and remaining limit |
 | --- | --- |
+| [Client widgets and Drafts](2026-11-06-genui-client-widgets.md) | Completed local delivery: native charts/static widgets, regenerated Preview assets, installed extension and live gateway readback; native Drafts import/sync unverified |
 | [ChatGPT native input](2026-10-30-chatgpt-native-input.md) | Active: regex/guest workflows verified and v4.3.0 installed with defaults off; logged-in rich-editor, account, IME and BFCache acceptance remain |
 | [Documentation reconciliation](2026-10-22-documentation-discipline.md) | See its metadata and completion record for this bounded change |
 | [Browser assistant first delivery](2026-10-21-browser-assistant.md) | Completed local delivery record; live provider and real-user acceptance were not established |

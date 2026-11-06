@@ -554,6 +554,10 @@
   min-width: 0;
   margin: 16px 0;
 }
+.chatgptbox-genui-widget-source {
+  min-width: 0;
+  max-width: 100%;
+}
 .chatgptbox-genui-chart-viewport {
   display: none;
   width: 100%;

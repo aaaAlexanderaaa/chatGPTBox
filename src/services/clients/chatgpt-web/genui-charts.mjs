@@ -39,6 +39,7 @@ export const GENUI_CHART_PROPERTIES = [
   'paddingAngle',
   'showLabelLines',
   'tooltipValueMode',
+  'meta',
 ]
 const SERIES = [
   'dataKey',
@@ -51,8 +52,19 @@ const SERIES = [
   'valueFormat',
   'valuePrefix',
   'valueSuffix',
+  'band',
 ]
-const AXIS = ['dataKey', 'type', 'hide', 'labels', 'domain', 'orientation', 'tickFormatter']
+const AXIS = [
+  'dataKey',
+  'type',
+  'hide',
+  'labels',
+  'domain',
+  'orientation',
+  'tickFormatter',
+  'label',
+  'ticks',
+]
 const BOOLEAN = [
   'showGrid',
   'showYAxis',
@@ -149,6 +161,18 @@ function axis(value, tag, key) {
   }
   if (value.type != null) result.type = choice(value.type, ['number', 'category'], tag, key)
   if (value.hide != null) result.hide = choice(value.hide, [true, false], tag, key)
+  if (value.label != null) result.label = text(value.label, tag, key)
+  if (value.ticks != null) {
+    if (!Array.isArray(value.ticks) || value.ticks.length > 512) invalid(tag, key)
+    result.ticks = value.ticks.map((tick) => {
+      keys(tick, ['value', 'label'], tag, key)
+      const result = { value: number(tick.value, [-1e15, 1e15], tag, key) }
+      if (tick.label != null) result.label = text(tick.label, tag, key)
+      return result
+    })
+    if (new Set(result.ticks.map((tick) => tick.value)).size !== result.ticks.length)
+      invalid(tag, key)
+  }
   if (value.orientation != null)
     result.orientation = choice(value.orientation, ['left', 'right'], tag, key)
   if (value.labels != null) {
@@ -171,6 +195,14 @@ function axis(value, tag, key) {
   }
   if (value.tickFormatter != null) result.tickFormatter = formatter(value.tickFormatter, tag, key)
   return result
+}
+
+export function genuiChartBandBounds(row, series) {
+  const band = series.band
+  if (!band) return null
+  const lower = band.lowerKey ? row[band.lowerKey] : band.lower
+  const upper = band.upperKey ? row[band.upperKey] : band.upper
+  return lower == null || upper == null ? null : [lower, upper]
 }
 
 // Only data crosses the answer boundary. Chart options and callbacks are built
@@ -227,12 +259,47 @@ export function normalizeGenuiChart(tag, source) {
         tag,
         'series',
       )
+    if (entry.band != null) {
+      if (series.type !== 'line' || series.stack) invalid(tag, 'series')
+      keys(entry.band, ['lower', 'upper', 'lowerKey', 'upperKey'], tag, 'band')
+      const band = {}
+      for (const side of ['lower', 'upper']) {
+        const key = `${side}Key`
+        if (entry.band[key] != null) {
+          if (
+            typeof entry.band[key] !== 'string' ||
+            !SAFE_KEY.test(entry.band[key]) ||
+            entry.band[side] != null
+          )
+            invalid(tag, 'band')
+          band[key] = entry.band[key]
+        } else band[side] = number(entry.band[side], [-1e15, 1e15], tag, 'band')
+      }
+      if (band.lower != null && band.upper != null && band.lower > band.upper) invalid(tag, 'band')
+      series.band = band
+    }
     return series
   })
   if (new Set(props.series.map((entry) => entry.dataKey)).size !== props.series.length)
     invalid(tag, 'series')
   if (!Array.isArray(props.data) || props.data.length > 512) invalid(tag, 'data')
-  const dataKeys = [props.xAxis.dataKey, ...props.series.map((entry) => entry.dataKey)]
+  const dataKeys = [
+    ...new Set([
+      props.xAxis.dataKey,
+      ...props.series.flatMap((entry) =>
+        [entry.dataKey, entry.band?.lowerKey, entry.band?.upperKey].filter(Boolean),
+      ),
+    ]),
+  ]
+  if (
+    props.series.some(
+      (entry) =>
+        entry.dataKey === props.xAxis.dataKey ||
+        entry.band?.lowerKey === props.xAxis.dataKey ||
+        entry.band?.upperKey === props.xAxis.dataKey,
+    )
+  )
+    invalid(tag, 'series')
   props.data = props.data.map((row) => {
     if (
       !isObject(row) ||
@@ -254,8 +321,22 @@ export function normalizeGenuiChart(tag, source) {
     if (numericAxis && typeof result[props.xAxis.dataKey] !== 'number') invalid(tag, 'data')
     if (row.fill != null) result.fill = color(row.fill, tag, 'data')
     if (row.formatted != null) result.formatted = text(row.formatted, tag, 'data')
+    for (const series of props.series) {
+      const bounds = genuiChartBandBounds(result, series)
+      if (bounds && bounds[0] > bounds[1]) invalid(tag, 'band')
+    }
     return result
   })
+  if (props.meta != null) {
+    keys(props.meta, ['title', 'description', 'footer'], tag, 'meta')
+    const meta = {}
+    for (const key of ['title', 'description', 'footer']) {
+      if (props.meta[key] == null) continue
+      if (typeof props.meta[key] !== 'string' || props.meta[key].length > 4096) invalid(tag, 'meta')
+      meta[key] = props.meta[key]
+    }
+    props.meta = meta
+  }
   for (const key of BOOLEAN)
     if (props[key] != null) props[key] = choice(props[key], [true, false], tag, key)
   for (const [key, range] of Object.entries(NUMERIC))
@@ -315,23 +396,42 @@ export function genuiChartValue(value, series = {}) {
 
 export function renderGenuiChart({ node, props, children }) {
   const descriptor = normalizeGenuiChart(node.tag, props),
-    { xAxis, data, series } = descriptor.props
+    { xAxis, data, series, meta } = descriptor.props
+  const columns = series.flatMap((entry) => [
+    { label: entry.label || entry.dataKey, value: (row) => row[entry.dataKey], series: entry },
+    ...(entry.band
+      ? ['lower', 'upper'].map((side, index) => ({
+          label: `${entry.label || entry.dataKey} (${side === 'lower' ? '下界' : '上界'})`,
+          value: (row) => genuiChartBandBounds(row, entry)?.[index],
+          series: entry,
+        }))
+      : []),
+  ])
   const header =
-    `<th scope="col">${escapeHtml(xAxis.dataKey)}</th>` +
-    series
-      .map((entry) => `<th scope="col">${escapeHtml(entry.label || entry.dataKey)}</th>`)
-      .join('')
+    `<th scope="col">${escapeHtml(xAxis.label || xAxis.dataKey)}</th>` +
+    columns.map((entry) => `<th scope="col">${escapeHtml(entry.label)}</th>`).join('')
   const rows = data
     .map(
       (row) =>
         `<tr><td>${escapeHtml(
           xAxis.labels?.[String(row[xAxis.dataKey])] ?? row[xAxis.dataKey],
-        )}</td>${series
-          .map((entry) => `<td>${escapeHtml(genuiChartValue(row[entry.dataKey], entry))}</td>`)
+        )}</td>${columns
+          .map(
+            (entry) =>
+              `<td>${escapeHtml(
+                genuiChartValue(entry.value(row), { ...entry.series, valueFormat: 'raw' }),
+              )}</td>`,
+          )
           .join('')}</tr>`,
     )
     .join('')
   return `<div class="chatgptbox-genui-chart" ${GENUI_CHART_ATTRIBUTE}="${escapeHtml(
     JSON.stringify(descriptor),
-  )}"><div class="chatgptbox-genui-chart-viewport"></div><details class="chatgptbox-genui-chart-data" open><summary>图表数据</summary><div class="chatgptbox-genui-table-scroll"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div></details>${children()}</div>`
+  )}">${meta?.title ? `<h3>${escapeHtml(meta.title)}</h3>` : ''}${
+    meta?.description
+      ? `<div class="chatgptbox-genui-caption">${escapeHtml(meta.description)}</div>`
+      : ''
+  }<div class="chatgptbox-genui-chart-viewport"></div><details class="chatgptbox-genui-chart-data" open><summary>图表数据</summary><div class="chatgptbox-genui-table-scroll"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div></details>${
+    meta?.footer ? `<div class="chatgptbox-genui-caption">${escapeHtml(meta.footer)}</div>` : ''
+  }${children()}</div>`
 }

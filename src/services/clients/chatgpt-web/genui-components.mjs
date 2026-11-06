@@ -8,6 +8,7 @@ import {
   recordGenuiError,
 } from './genui-presentation.mjs'
 import { GENUI_CHART_PROPERTIES, renderGenuiChart } from './genui-charts.mjs'
+import { genuiClientWidgetTree } from './genui-client-widgets.mjs'
 
 const COMMON = [
   'key',
@@ -83,12 +84,22 @@ export const GENUI_COMPONENTS = Object.freeze({
     render: renderLink,
   }),
   'code-block': component('pre', ['content', 'language'], { render: renderCodeBlock }),
+  'widget-source': component('details', ['content', 'language'], {
+    render: ({ props }) =>
+      `<details class="chatgptbox-genui-widget-source"><summary>组件原始数据</summary><pre class="chatgptbox-genui-code-block"><code>${escapeHtml(
+        props.content,
+      )}</code></pre></details>`,
+  }),
   __chatgptClientDefinedWidget: component('pre', ['invocationId'], {
     render: renderClientDefinedWidget,
   }),
-  'writing-block': component('div', ['content', 'subject', 'variant'], {
-    render: renderWritingBlock,
-  }),
+  'writing-block': component(
+    'div',
+    ['content', 'subject', 'variant', 'title', 'recipient', 'cc', 'bcc'],
+    {
+      render: renderWritingBlock,
+    },
+  ),
   chart: component('div', GENUI_CHART_PROPERTIES, { render: renderGenuiChart }),
   'pie-chart': component('div', GENUI_CHART_PROPERTIES, { render: renderGenuiChart }),
 })
@@ -348,7 +359,15 @@ function renderCodeBlock({ node, props, wrap }) {
   return wrap('pre', `<code class="language-${language}">${escapeHtml(props.content)}</code>`)
 }
 
-function renderClientDefinedWidget({ props, dil, contentReferences, render, context, depth }) {
+function renderClientDefinedWidget({
+  props,
+  dil,
+  contentReferences,
+  render,
+  context,
+  depth,
+  diagnostics,
+}) {
   if (typeof props.invocationId !== 'string' || !props.invocationId)
     throw new GenuiError('invalid-props', 'client-widget', 'invocationId')
   const widget = ownValue(ownValue(dil, 'clientDefinedWidgets'), props.invocationId)
@@ -362,27 +381,30 @@ function renderClientDefinedWidget({ props, dil, contentReferences, render, cont
     ownValue(reference, 'type') !== 'client_defined_widget'
   )
     throw new GenuiError('invalid-props', 'client-widget', 'reference')
-  const data = ownValue(reference, 'data')
-  if (ownValue(data, 'widget_type') !== 'code_block')
-    throw new GenuiError('unsupported-component', 'client-widget')
-  return render(
-    {
-      tag: 'code-block',
-      props: { content: ownValue(data, 'content'), language: ownValue(data, 'language') },
-      children: [],
-    },
-    context,
-    depth + 1,
-  )
+  return render(genuiClientWidgetTree(reference, diagnostics), context, depth + 1)
 }
 
 function renderWritingBlock({ props, context, render, depth, children, wrap }) {
   const heading =
     props.variant === 'email' && props.subject
       ? `<strong>${escapeHtml(props.subject)}</strong>`
-      : '<h3>Writing Block</h3>'
+      : `<h3>${escapeHtml(props.title || 'Writing Block')}</h3>`
+  const recipients = [
+    ['recipient', '收件人'],
+    ['cc', '抄送'],
+    ['bcc', '密送'],
+  ]
+    .filter(([key]) => typeof props[key] === 'string' && props[key])
+    .map(
+      ([key, label]) =>
+        `<div class="chatgptbox-genui-caption">${label}：${escapeHtml(props[key])}</div>`,
+    )
+    .join('')
   const body = props.content == null ? children() : render(props.content, context, depth + 1)
-  return wrap('div', `${heading}<div class="chatgptbox-genui-preserve-whitespace">${body}</div>`)
+  return wrap(
+    'div',
+    `${heading}${recipients}<div class="chatgptbox-genui-preserve-whitespace">${body}</div>`,
+  )
 }
 
 export function renderGenuiTree(tree, dil, diagnostics, { contentReferences = [] } = {}) {
