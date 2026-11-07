@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-04
+last_reconciled: 2026-11-06
 ---
 
 # Verification evidence
@@ -26,6 +26,10 @@ repository's audience.
 - [2026-11-04 history backup and functions](2026-11-04-history-backup-and-functions.md)
   records the retained-body and statistics defects, bounded file export,
   template-material repair, interaction checks, and synthetic resource probe.
+- [2026-11-06 gateway process exits](2026-11-06-gateway-process-exits.md)
+  records isolated input-triggered crashes, request containment, lifecycle
+  diagnostics, the later runtime-discovery repair, live Get/MCP validation and
+  the limits of the historical diagnosis.
 
 - [2026-10-30 ChatGPT native input](2026-10-30-chatgpt-native-input.md)
   records local paste/rewrite and regex reviews, corrected defects, controlled

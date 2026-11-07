@@ -175,3 +175,23 @@ inline 列数，宽表放入独立滚动容器。已有回退文本必须在更�
 
 来源：[Drafts Preview 安装与范围](../../../../docs/drafts/README.md)、
 [组件契约](../../../../docs/chatgpt-web-genui.md)。
+
+## 2026-11-06：资源入口消失不等于网页运行时不兼容
+
+实际代理页正常登录并显示，但 script、modulepreload 与 resource timing 中都没有
+官网运行时 JS，原发现器因此返回 `CHATGPT_WEB_RUNTIME_UNSUPPORTED`。同一 MAIN
+文档的 `__reactRouterManifest.entry` 和 `routes.root` 仍声明启动 module/imports。
+尚未确认具体是哪段页面代码清除了其他入口，不能把清理机制当成已知事实。
+
+只读取 entry/root 的有界公开资产列表，并在发现与连接两处同时支持它；继续校验
+HTTPS、官网域名、JS 路径、唯一职责、身份、取消与单次请求。不要扫描私有 bootstrap，
+也不要因为某个 URL 在清单中就跳过能力校验或导入任意未加载路由。
+两处来源顺序保持一致；同路径的 query/hash 不同仍是不同模块身份，遇到冲突就停止。
+文件名前缀只能用于优先排序，未知完整文件名应先只读核对公开 webpack 导出再导入。
+
+先在同一未刷新文档上对照更新前拒绝、更新后原生连接成功，再刷新代理页和桥接页
+复核。生产包中的两段序列化函数也需自包含。实际网络 Get 可证明读取链路，但不能
+冒充未安装在本机的 Drafts App 交互。手机动作转圈在用户重启 Drafts 后恢复，用户
+结束了该分支，不能把它的原因也归到本次运行时发现缺口。
+
+来源：[11 月 6 日调查与部署证据](../../../../docs/evidence/2026-11-06-gateway-process-exits.md#follow-up-runtime-discovery-and-deployment)。

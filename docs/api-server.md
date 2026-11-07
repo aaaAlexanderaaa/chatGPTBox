@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-11-06
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -43,6 +43,42 @@ npm run api-server
    Paste the same API token into the bridge page's `API token` field so its Server Health and ChatGPT Conversations panels can make authenticated HTTP requests.
 7. Keep the bridge page open.
 8. Make sure the browser is logged in at `https://chatgpt.com`.
+
+### Unexpected exits and bridge disconnections
+
+`Extension bridge disconnected (WebSocket)` means the browser connection closed.
+The Node.js server keeps listening, and the extension can reconnect. `/health`
+returns `503` while the bridge is absent and `200` when it is connected. A failed
+health probe alone does not establish that the process exited.
+
+Malformed request URLs or encoded conversation IDs return `400`. Invalid bridge
+messages are ignored over WebSocket and return `400` over HTTP polling. An
+unexpected HTTP handler failure ends that request; an unexpected WebSocket
+message-handler failure closes that bridge. Neither restarts the server or
+replays an upstream write. Existing uncertain-write recovery still applies.
+
+On startup the server prints its PID, Node.js version and process-log location.
+`~/.chatgptbox/gateway-process.log` records startup, listening, catchable termination
+signals, fatal exception locations and exit codes as JSON lines. `--data-dir`
+also relocates this log. The log and its single `.1` backup each have a 1 MiB
+limit and private file permissions. The logger does not collect request URLs,
+headers, prompts or answers, drops the exception-message prefix, and redacts
+gateway tokens from retained stack frames. Custom exception stacks may contain
+other private data. Node's ordinary fatal stderr output is separate and may
+contain exception details. Inspect and redact both logs before sharing them.
+If the process log cannot be written, the server warns and still writes
+lifecycle events to stdout.
+
+To investigate another failure, retain the last lifecycle records and terminal
+output, compare the PID with the startup record, and check whether the HTTP port
+still accepts connections. `SIGINT`, `SIGTERM` and `SIGHUP` are logged before normal
+signal termination. Fatal exceptions remain fatal; diagnostics do not keep a
+possibly damaged process running. `SIGKILL`, power loss and some memory failures
+cannot reliably leave an in-process exit record. A startup with no preceding
+exit record therefore does not identify the cause. There is no automatic restart.
+
+The [November 6 investigation](evidence/2026-11-06-gateway-process-exits.md)
+records controlled crash reproductions and the limits of the historical diagnosis.
 
 ## Bridge Authentication
 

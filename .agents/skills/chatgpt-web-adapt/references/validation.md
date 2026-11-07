@@ -31,7 +31,7 @@
 表中测试名指 `tests/*.test.mjs`，用 `rg --files tests` 找实际文件。
 先运行对应测试，再按代码改动运行完整 `npm test`、`npm run lint`、`npm run build`。
 `npm run verify` 校验搜索站点配置，官网适配不能靠它证明；外部站点 TLS 失败要单独说明。
-项目命令使用 AGENTS 指定的 Node 20；执行前 `nvm use 20`。
+项目命令使用当前 CONTRIBUTING.md 和 package.json 声明的 Node 22 或更新版本；不要沿用旧会话中的 Node 20 指令。
 
 ## 真实长任务观察
 

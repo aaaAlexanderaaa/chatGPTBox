@@ -111,6 +111,50 @@ describe('ChatGPT native request integrity', () => {
     ).toMatchObject({ ok: true })
   })
 
+  it.each(['entry', 'root'])(
+    'uses the current React Router %s boot imports after visible asset references disappear',
+    async (source) => {
+      document.scripts = []
+      const entry = {
+        module: '/cdn/assets/entry.synthetic.js',
+        imports: [`/cdn/assets/${contract.filename}`],
+      }
+      window.__reactRouterManifest = source === 'entry' ? { entry } : { routes: { root: entry } }
+      const load = vi.fn(async () => nativeRuntime())
+      expect(await getChatgptWebPageIntegrityInPage(contracts, load)).toMatchObject({ ok: true })
+      expect(load).toHaveBeenCalledWith(`https://chatgpt.com/cdn/assets/${contract.filename}`)
+    },
+  )
+
+  it.each([
+    { entry: { imports: [`https://example.com/assets/${contract.filename}`] } },
+    { entry: { imports: [`http://chatgpt.com/assets/${contract.filename}`] } },
+    { entry: { imports: { invalid: scriptUrl } } },
+    { routes: { other: { imports: [scriptUrl] } } },
+  ])('rejects untrusted, malformed or unrelated manifest imports', async (manifest) => {
+    document.scripts = []
+    window.__reactRouterManifest = manifest
+    const load = vi.fn()
+    expect(await getChatgptWebPageIntegrityInPage(contracts, load)).toMatchObject({
+      ok: false,
+      code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+    })
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it.each(['?build=other', '#other-instance'])(
+    'rejects mixed module identities across script and manifest sources (%s)',
+    async (suffix) => {
+      window.__reactRouterManifest = { entry: { imports: [scriptUrl + suffix] } }
+      const load = vi.fn()
+      expect(await getChatgptWebPageIntegrityInPage(contracts, load)).toMatchObject({
+        ok: false,
+        code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+      })
+      expect(load).not.toHaveBeenCalled()
+    },
+  )
+
   it('uses the new auth export only for the newly verified page release', async () => {
     const url = `https://chatgpt.com/cdn/assets/${latestContract.filename}`
     document.scripts[0].src = url

@@ -59,6 +59,18 @@ source and pass the same request, response, cancellation, and single-attempt che
 Discovery also recognizes the account-bound `chatgpt-browser` / `chatgpt-native`
 request profile that replaced the former `codex_webview` marker.
 
+The November 6 discovery correction also reads the current page's React Router
+entry/root import manifest. A loaded page can retain that manifest after script
+and preload elements or resource-timing entries no longer expose its runtime.
+Both discovery and connection use the same bounded public asset sources; unknown
+modules must still pass the existing identity, cancellation and single-attempt
+capability checks. Conflicting complete URLs for the same asset path are
+rejected, and an unknown filename must expose the public webpack entry before
+it can be imported; a familiar filename prefix alone is insufficient. This
+correction updates the extension, not Get/Send or the
+preview template. Reload the updated extension and refresh its proxy and bridge
+pages so requests use the corrected running copy.
+
 For the October 8 GPT-6 visualization update, replace both Action 2 and Action 3 again,
 preserving your `BASE_URL` and `API_TOKEN`. The gateway now converts native card, grid,
 table, relationship and citation components into portable HTML. Drafts keeps that HTML in

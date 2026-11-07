@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ImageAttachmentStore, normalizeGatewayImageMessages } from './lib/image-attachments.mjs'
 import { ImageSendOperations } from './lib/image-send-operations.mjs'
+import { installGatewayProcessDiagnostics } from './lib/gateway-process-diagnostics.mjs'
 import { normalizeChatgptProjectId } from '../src/services/clients/chatgpt-web/image-content.mjs'
 import { WebSocketServer } from 'ws'
 import {
@@ -178,6 +179,11 @@ const EXTRA_CLIENT_ORIGINS = (process.env.CHATGPT_GATEWAY_ALLOWED_ORIGINS || '')
   .map((origin) => origin.trim())
   .filter(Boolean)
 
+const processDiagnostics = installGatewayProcessDiagnostics({
+  directory: GATEWAY_DATA_DIR,
+  tokens: [BRIDGE_TOKEN, API_TOKEN],
+})
+
 function isBridgeRequestAuthorized(req, url) {
   return checkBridgeAuth(req, url, BRIDGE_TOKEN)
 }
@@ -262,6 +268,16 @@ function log(msg) {
 
 function logError(msg) {
   console.error(`[${new Date().toISOString()}] ERROR: ${msg}`)
+}
+
+class InvalidPathEncodingError extends Error {}
+
+function decodeRequestId(value) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    throw new InvalidPathEncodingError('Invalid URL path encoding')
+  }
 }
 
 function readBody(req) {
@@ -675,6 +691,23 @@ function handleBridgeMessage(msg) {
     if (msg.dispatched === false) error.dispatched = false
     pending.reject(error)
   }
+}
+
+function isValidBridgeMessage(msg) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string')
+    return false
+  if (msg.type === 'bridge_config') {
+    return ['requestTimeoutSeconds', 'thinkingRequestTimeoutSeconds'].every(
+      (key) => msg[key] == null || ['number', 'string'].includes(typeof msg[key]),
+    )
+  }
+  if (['chunk', 'done', 'error', 'control_response', 'control_error'].includes(msg.type)) {
+    if (typeof msg.id !== 'string' || !msg.id) return false
+    if (['chunk', 'done'].includes(msg.type)) return typeof msg.answer === 'string'
+    if (['error', 'control_error'].includes(msg.type))
+      return msg.error == null || typeof msg.error === 'string'
+  }
+  return true
 }
 
 function sendControlRequestToBridge(
@@ -1897,6 +1930,10 @@ async function handleBridgeRespond(req, res, url) {
     return
   }
 
+  if (!isValidBridgeMessage(msg)) {
+    sendJson(res, 400, { error: { message: 'Invalid bridge message' } })
+    return
+  }
   httpBridgeLastSeen = Date.now()
   handleBridgeMessage(msg)
 
@@ -1933,14 +1970,20 @@ function handleBridgeDisconnect(req, res, url) {
 // HTTP server
 // ---------------------------------------------------------------------------
 
-const server = http.createServer(async (req, res) => {
+async function handleHttpRequest(req, res) {
   res.setHeader('Cache-Control', 'no-store')
   if (!isAllowedHost(req.headers.host, HOST, PORT)) {
     res.writeHead(403)
     res.end()
     return
   }
-  const url = new URL(req.url, `http://${HOST}:${PORT}`)
+  let url
+  try {
+    url = new URL(req.url, `http://${HOST}:${PORT}`)
+  } catch {
+    sendJson(res, 400, { error: { message: 'Invalid request URL', type: 'invalid_request_error' } })
+    return
+  }
   const origin = req.headers.origin
   const isBridgeHttp = url.pathname.startsWith('/bridge/')
   if (
@@ -2000,7 +2043,13 @@ const server = http.createServer(async (req, res) => {
   const conversationRefreshMatch = url.pathname.match(
     /^\/chatgpt\/conversations\/([^/]+)\/refresh$/,
   )
-  const grokRoute = matchGrokConversationRoute(url.pathname)
+  let grokRoute
+  try {
+    grokRoute = matchGrokConversationRoute(url.pathname)
+  } catch (error) {
+    if (error instanceof URIError) throw new InvalidPathEncodingError('Invalid URL path encoding')
+    throw error
+  }
 
   if (url.pathname === '/chatgpt/attachments' && req.method === 'POST') {
     await handleAttachmentUpload(req, res)
@@ -2037,139 +2086,44 @@ const server = http.createServer(async (req, res) => {
   } else if (url.pathname === '/chatgpt/projects' && req.method === 'GET') {
     await handleChatgptProjects(url, res)
   } else if (url.pathname === '/v1/models' && req.method === 'GET') {
-    handleModels(res).catch((err) => {
-      logError(`Model list error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleModels(res)
   } else if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-    handleChatCompletions(req, res).catch((err) => {
-      logError(`Unhandled error: ${err.message}`)
-      stats.totalErrors++
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleChatCompletions(req, res)
   } else if (url.pathname === '/status' && req.method === 'GET') {
     handleStatus(res)
   } else if (url.pathname === '/health' && req.method === 'GET') {
     handleHealth(res)
   } else if (url.pathname === '/chatgpt/conversations' && req.method === 'POST') {
-    handleChatgptConversationCreate(req, res).catch((err) => {
-      logError(`Conversation create error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleChatgptConversationCreate(req, res)
   } else if (url.pathname === '/chatgpt/conversations' && req.method === 'GET') {
-    handleChatgptConversationList(url, res).catch((err) => {
-      logError(`Conversation list error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleChatgptConversationList(url, res)
   } else if (conversationGetMatch && req.method === 'GET') {
-    handleChatgptConversationGet(decodeURIComponent(conversationGetMatch[1]), url, res).catch(
-      (err) => {
-        logError(`Conversation get error: ${err.message}`)
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-        }
-      },
-    )
+    await handleChatgptConversationGet(decodeRequestId(conversationGetMatch[1]), url, res)
   } else if (turnStatusMatch && req.method === 'GET') {
-    handleChatgptTurnStatus(
-      decodeURIComponent(turnStatusMatch[1]),
-      decodeURIComponent(turnStatusMatch[2]),
+    await handleChatgptTurnStatus(
+      decodeRequestId(turnStatusMatch[1]),
+      decodeRequestId(turnStatusMatch[2]),
       url,
       res,
-    ).catch((err) => {
-      logError(`Turn status error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    )
   } else if (conversationMessageMatch && req.method === 'POST') {
-    handleChatgptConversationMessage(
-      req,
-      res,
-      decodeURIComponent(conversationMessageMatch[1]),
-    ).catch((err) => {
-      logError(`Conversation message error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleChatgptConversationMessage(req, res, decodeRequestId(conversationMessageMatch[1]))
   } else if (conversationRefreshMatch && req.method === 'POST') {
-    handleChatgptConversationRefresh(
-      req,
-      res,
-      decodeURIComponent(conversationRefreshMatch[1]),
-    ).catch((err) => {
-      logError(`Conversation refresh error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleChatgptConversationRefresh(req, res, decodeRequestId(conversationRefreshMatch[1]))
   } else if (grokRoute?.kind === 'collection' && req.method === 'GET') {
-    handleGrokConversationList(url, res).catch((err) => {
-      logError(`Grok conversation list error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleGrokConversationList(url, res)
   } else if (grokRoute?.kind === 'collection' && req.method === 'POST') {
-    handleGrokConversationCreate(req, res).catch((err) => {
-      logError(`Grok conversation create error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleGrokConversationCreate(req, res)
   } else if (grokRoute?.kind === 'item' && req.method === 'GET') {
-    handleGrokConversationGet(grokRoute.id, res).catch((err) => {
-      logError(`Grok conversation get error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleGrokConversationGet(grokRoute.id, res)
   } else if (grokRoute?.kind === 'messages' && req.method === 'POST') {
-    handleGrokConversationMessage(req, res, grokRoute.id).catch((err) => {
-      logError(`Grok conversation message error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleGrokConversationMessage(req, res, grokRoute.id)
   } else if (grokRoute?.kind === 'refresh' && req.method === 'POST') {
-    handleGrokConversationRefresh(grokRoute.id, res).catch((err) => {
-      logError(`Grok conversation refresh error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleGrokConversationRefresh(grokRoute.id, res)
   } else if (url.pathname === '/bridge/poll' && req.method === 'GET') {
     handleBridgePoll(req, res, url)
   } else if (url.pathname === '/bridge/respond' && req.method === 'POST') {
-    handleBridgeRespond(req, res, url).catch((err) => {
-      logError(`Bridge respond error: ${err.message}`)
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: { message: 'Internal server error' } }))
-      }
-    })
+    await handleBridgeRespond(req, res, url)
   } else if (url.pathname === '/bridge/disconnect' && req.method === 'POST') {
     handleBridgeDisconnect(req, res, url)
   } else {
@@ -2180,6 +2134,38 @@ const server = http.createServer(async (req, res) => {
       }),
     )
   }
+}
+
+const server = http.createServer((req, res) => {
+  req.on('error', () => res.destroy())
+  res.on('error', () => res.destroy())
+  // EventEmitter does not await an async request listener. Own the rejection at
+  // this boundary, including URL/ID parsing and routes that await local storage.
+  void handleHttpRequest(req, res).catch((error) => {
+    const invalidPath = error instanceof InvalidPathEncodingError
+    if (!invalidPath) {
+      stats.totalErrors++
+      // Raw URLs and error messages can contain bridge tokens or request data.
+      logError(`HTTP request handler failed (${error?.name || 'Error'})`)
+    }
+    if (res.destroyed || res.writableEnded) return
+    try {
+      if (res.headersSent) {
+        res.destroy()
+        return
+      }
+      // Preserve safe read retries; an operation ID means a write has started.
+      if (res.hasHeader('X-Operation-Id')) res.setHeader('x-should-retry', 'false')
+      sendJson(res, invalidPath ? 400 : 500, {
+        error: {
+          message: invalidPath ? 'Invalid URL path encoding' : 'Internal server error',
+          type: invalidPath ? 'invalid_request_error' : 'server_error',
+        },
+      })
+    } catch {
+      res.destroy()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -2189,37 +2175,43 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true })
 
 wss.on('error', () => {
-  // Handled by server 'error' listener
+  logError('WebSocket bridge server error')
 })
 
 // Handled manually rather than with `{ server, path }` so an unauthenticated
 // upgrade is refused before the socket is ever accepted.
 server.on('upgrade', (req, socket, head) => {
-  let url
+  socket.on('error', () => socket.destroy())
   try {
-    url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`)
+    let url
+    try {
+      url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`)
+    } catch {
+      socket.destroy()
+      return
+    }
+
+    if (url.pathname !== '/bridge') {
+      socket.destroy()
+      return
+    }
+
+    if (!isBridgeRequestAuthorized(req, url)) {
+      logError(
+        `Rejected unauthenticated bridge upgrade from origin "${req.headers.origin || 'none'}"`,
+      )
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req)
+    })
   } catch {
+    logError('WebSocket bridge upgrade failed')
     socket.destroy()
-    return
   }
-
-  if (url.pathname !== '/bridge') {
-    socket.destroy()
-    return
-  }
-
-  if (!isBridgeRequestAuthorized(req, url)) {
-    logError(
-      `Rejected unauthenticated bridge upgrade from origin "${req.headers.origin || 'none'}"`,
-    )
-    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
-    socket.destroy()
-    return
-  }
-
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req)
-  })
 })
 
 wss.on('connection', (ws, req) => {
@@ -2274,11 +2266,17 @@ wss.on('connection', (ws, req) => {
     } catch {
       return
     }
-    if (msg.type === 'ping') {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }))
-      return
+    if (!isValidBridgeMessage(msg)) return
+    try {
+      if (msg.type === 'ping') {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }))
+        return
+      }
+      handleBridgeMessage(msg)
+    } catch {
+      logError('WebSocket bridge message handler failed; closing this bridge')
+      ws.terminate()
     }
-    handleBridgeMessage(msg)
   })
 })
 
@@ -2300,7 +2298,10 @@ server.on('error', (err) => {
 })
 
 server.listen(PORT, HOST, () => {
+  processDiagnostics.listening()
   log(`ChatGPT Web API Gateway listening on http://${HOST}:${PORT}`)
+  log(`Process: pid=${process.pid} node=${process.version}`)
+  log(`Process log: ${processDiagnostics.file}`)
   log(``)
   log(`Endpoints:`)
   log(`  POST http://${HOST}:${PORT}/v1/chat/completions  (OpenAI-compatible)`)

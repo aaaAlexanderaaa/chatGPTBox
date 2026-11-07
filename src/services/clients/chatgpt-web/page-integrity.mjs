@@ -25,15 +25,26 @@ export async function getChatgptWebPageIntegrityInPage(
     if (expired) throw new Error('ChatGPT page integrity check timed out.')
   }
   const work = async () => {
+    // Same-document boot imports remain available without script/preload nodes
+    // or resource timing. Keep this in sync with runtime-inspection.mjs; these
+    // functions are serialized independently into MAIN.
+    const manifest = window.__reactRouterManifest
+    const entries = [manifest?.entry, manifest?.routes?.root]
     const urls = [
       ...[...document.scripts].map((node) => node.src),
       ...[...document.querySelectorAll('link[rel="modulepreload"]')].map((node) => node.href),
       ...performance.getEntriesByType('resource').map((entry) => entry.name),
+      ...entries.flatMap((entry) => [
+        entry?.module,
+        ...(Array.isArray(entry?.imports) ? entry.imports.slice(0, 256) : []),
+      ]),
     ]
-    const seenRuntimeUrls = new Set()
+    const seenRuntimeUrls = new Map()
+    let conflictingUrls = false
     const candidates = [...new Set(urls)].flatMap((raw) => {
       try {
-        const url = new URL(raw)
+        if (typeof raw !== 'string' || !raw) return []
+        const url = new URL(raw, location.origin)
         if (
           !(
             url.protocol === 'https:' &&
@@ -46,14 +57,19 @@ export async function getChatgptWebPageIntegrityInPage(
         const contract = contracts.find((entry) =>
           url.pathname.endsWith(`/assets/${entry.filename}`),
         )
-        if (!contract || seenRuntimeUrls.has(url.origin + url.pathname)) return []
-        seenRuntimeUrls.add(url.origin + url.pathname)
-        return [{ url: raw, contract }]
+        if (!contract) return []
+        const key = url.origin + url.pathname
+        if (seenRuntimeUrls.has(key)) {
+          if (seenRuntimeUrls.get(key) !== url.href) conflictingUrls = true
+          return []
+        }
+        seenRuntimeUrls.set(key, url.href)
+        return [{ url: url.href, contract }]
       } catch {
         return []
       }
     })
-    if (candidates.length !== 1) {
+    if (conflictingUrls || candidates.length !== 1) {
       return failure(
         'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
         'The loaded ChatGPT page runtime is not supported. Refresh the proxy tab and check for a ChatGPTBox protocol update.',

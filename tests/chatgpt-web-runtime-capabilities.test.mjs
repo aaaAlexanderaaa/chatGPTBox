@@ -444,6 +444,73 @@ describe('ChatGPT capability discovery', () => {
     expect(load).not.toHaveBeenCalled()
   })
 
+  it('finds declared boot imports when DOM and resource timing no longer retain runtime URLs', async () => {
+    const page = {
+      __reactRouterManifest: {
+        entry: { imports: ['/cdn/assets/633146.synthetic-build.js'] },
+        routes: { root: { imports: ['/cdn/assets/633146.synthetic-build.js'] } },
+      },
+    }
+    page.top = page
+    vi.stubGlobal('window', page)
+    vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
+    vi.stubGlobal('document', { scripts: [], querySelectorAll: () => [] })
+    vi.stubGlobal('performance', { getEntriesByType: () => [] })
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const require = Object.assign(() => ({}), { m: {} })
+    const load = vi.fn(async () => ({ __webpack_require__: require }))
+    const inspected = await inspectChatgptWebRuntimeInPage(
+      [{ filename: '633146.synthetic-build.js' }],
+      load,
+    )
+    expect(inspected).toHaveLength(1)
+    expect(load).toHaveBeenCalledExactlyOnceWith(
+      'https://chatgpt.com/cdn/assets/633146.synthetic-build.js',
+    )
+    expect(fetch).not.toHaveBeenCalled()
+    // Discovering a URL alone cannot authorize a transport without its roles.
+    expect(resolveChatgptWebRuntimeCapabilities(inspected)).toBeNull()
+  })
+
+  it.each(['?build=other', '#other-instance'])(
+    'does not choose between conflicting full module URLs (%s)',
+    async (suffix) => {
+      const url = 'https://chatgpt.com/cdn/assets/633146.synthetic-build.js'
+      const page = { __reactRouterManifest: { entry: { imports: [url + suffix] } } }
+      page.top = page
+      vi.stubGlobal('window', page)
+      vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
+      vi.stubGlobal('document', { scripts: [{ src: url }], querySelectorAll: () => [] })
+      vi.stubGlobal('performance', { getEntriesByType: () => [] })
+      const load = vi.fn()
+      expect(
+        await inspectChatgptWebRuntimeInPage([{ filename: '633146.synthetic-build.js' }], load),
+      ).toEqual([])
+      expect(load).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not import an unknown same-prefix chunk without its public webpack export', async () => {
+    const page = {}
+    page.top = page
+    vi.stubGlobal('window', page)
+    vi.stubGlobal('location', { origin: 'https://chatgpt.com' })
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'https://chatgpt.com/cdn/assets/633146.new-build.js' }],
+      querySelectorAll: () => [],
+    })
+    vi.stubGlobal('performance', { getEntriesByType: () => [] })
+    const fetch = vi.fn(async () => new Response('export const unrelated = true'))
+    vi.stubGlobal('fetch', fetch)
+    const load = vi.fn()
+    expect(
+      await inspectChatgptWebRuntimeInPage([{ filename: '633146.old-build.js' }], load),
+    ).toEqual([])
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it('discovers the account-bound browser/native profile after removal of the codex_webview marker', () => {
     const data = browserFixture()
     const request = data.modules.find((module) => module.id === 'request')
@@ -715,6 +782,10 @@ describe('ChatGPT capability discovery', () => {
         querySelectorAll: () => [],
       })
       vi.stubGlobal('performance', { getEntriesByType: () => [] })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('export { require as __webpack_require__ }')),
+      )
       const inspected = await inspectChatgptWebRuntimeInPage(
         [{ filename: '633146.older-build.js' }],
         async () => ({ __webpack_require__: require }),

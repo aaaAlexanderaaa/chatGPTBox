@@ -6,13 +6,24 @@ export async function inspectChatgptWebRuntimeInPage(
 ) {
   if (location.origin !== 'https://chatgpt.com' || window.top !== window) return []
   const urls = new Map()
+  const conflictingUrls = new Set()
+  // Startup script/preload nodes and resource timing may no longer expose
+  // imports. The current React Router entry/root manifest still names them.
+  // Do not inspect other routes or application bootstrap/account data.
+  const manifest = window.__reactRouterManifest
+  const entries = [manifest?.entry, manifest?.routes?.root]
   for (const raw of [
-    ...[...document.querySelectorAll('link[rel="modulepreload"]')].map((node) => node.href),
     ...[...document.scripts].map((node) => node.src),
+    ...[...document.querySelectorAll('link[rel="modulepreload"]')].map((node) => node.href),
     ...performance.getEntriesByType('resource').map((entry) => entry.name),
+    ...entries.flatMap((entry) => [
+      entry?.module,
+      ...(Array.isArray(entry?.imports) ? entry.imports.slice(0, 256) : []),
+    ]),
   ]) {
     try {
-      const url = new URL(raw)
+      if (typeof raw !== 'string' || !raw) continue
+      const url = new URL(raw, location.origin)
       if (
         url.protocol === 'https:' &&
         !url.username &&
@@ -20,17 +31,21 @@ export async function inspectChatgptWebRuntimeInPage(
         ['chatgpt.com', 'cdn.oaistatic.com'].includes(url.hostname) &&
         /\/assets\/[^/]+\.js$/.test(url.pathname)
       ) {
-        if (!urls.has(url.origin + url.pathname)) urls.set(url.origin + url.pathname, url.href)
+        const key = url.origin + url.pathname
+        if (urls.has(key) && urls.get(key) !== url.href) conflictingUrls.add(key)
+        else urls.set(key, url.href)
       }
     } catch {
       // Ignore non-script resources.
     }
   }
+  const observedUrls = [...urls].filter(([key]) => !conflictingUrls.has(key)).map(([, url]) => url)
+  const knownFilenames = new Set(contracts.map((entry) => entry.filename))
   const prefixes = new Set(contracts.map((entry) => entry.filename.split(/[.-]/)[0]))
-  const hinted = [...urls.values()].filter((url) =>
+  const hinted = observedUrls.filter((url) =>
     prefixes.has(new URL(url).pathname.split('/').pop().split(/[.-]/)[0]),
   )
-  const others = [...urls.values()].filter((url) => !hinted.includes(url))
+  const others = observedUrls.filter((url) => !hinted.includes(url))
   const runtimes = []
   const seen = new Set()
   let inspectedBytes = 0
@@ -38,9 +53,9 @@ export async function inspectChatgptWebRuntimeInPage(
   for (const url of [...hinted, ...others]) {
     if (Date.now() > deadline) break
     try {
-      // The prefix is only a discovery hint. A renamed runtime is found by its
-      // public export; do not execute unrelated application chunks to discover it.
-      if (!hinted.includes(url)) {
+      // Prefixes prioritize discovery, but only an exact verified filename can
+      // skip source inspection. Importing an unknown module executes its code.
+      if (!knownFilenames.has(new URL(url).pathname.split('/').pop())) {
         if (inspectedBytes > 4000000) break
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), 2500)
