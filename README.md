@@ -229,6 +229,14 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.3
+
+- Restored ChatGPT Web runtime discovery when startup script/preload references and resource timing no longer expose the loaded modules. The current page's public boot manifest supplies candidates, with account/session checks, cancellation, single-submit protection and conflicting-module rejection preserved.
+- Hardened the local API gateway against malformed HTTP URLs, encoded conversation IDs and bridge messages. Added bounded private process logs for startup, termination signals and fatal exits; uncertain writes are not automatically replayed.
+- Added native client-widget chart compatibility for bar, line, pie and scatter, including axis settings, interval bands and descriptive text. Writing, map and translation/learning widgets retain readable static content or a visible local fallback; generated code is not executed.
+- Improved offline chart tooltips and curves in the extension and Drafts preview. Reduced memory use during large history exports and live statistics, and improved in-row function editing, template input, focus and save-state handling.
+- After updating, reload ChatGPTBox and refresh its proxy and API Server Bridge pages. Gateway users must also update their local source checkout and restart the Node.js server, keeping their existing address, port and tokens. For the new charts, import the updated [Drafts Preview HTML or Action](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.3/docs/drafts/README.md#html-preview) and run Get again; Get/Send scripts do not need replacing.
+
 ### v4.3.2
 
 - Preserved ChatGPT code blocks and visible reference text through live responses, resumed streams, history reads, and Drafts Get. Resolved code widgets render as escaped static code; unsupported content keeps its visible fallback.
