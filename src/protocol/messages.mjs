@@ -39,6 +39,7 @@ export const RuntimeMessage = {
   CloseChats: 'CLOSE_CHATS',
   DeleteConversation: 'DELETE_CONVERSATION',
   Feedback: 'FEEDBACK',
+  LocalSessionMutation: 'LOCAL_SESSION_MUTATION',
 
   // Tab / window navigation
   NewUrl: 'NEW_URL',
@@ -53,6 +54,7 @@ export const RuntimeMessage = {
   OpenSidePanel: 'OPEN_SIDE_PANEL',
   DshModuleDiagnose: 'DSH_MODULE_DIAGNOSE',
   DshModuleRespond: 'DSH_MODULE_RESPOND',
+  DshModuleWorkspaces: 'DSH_MODULE_WORKSPACES',
   ActivateUrl: 'ACTIVATE_URL',
   PinTab: 'PIN_TAB',
 
@@ -68,6 +70,7 @@ export const RuntimeMessage = {
 
   // ChatGPT Web conversation cache APIs (UI -> background)
   ChatgptWebListConversations: 'CHATGPT_WEB_LIST_CONVERSATIONS',
+  ChatgptWebCacheMutation: 'CHATGPT_WEB_CACHE_MUTATION',
   ChatgptWebGetConversation: 'CHATGPT_WEB_GET_CONVERSATION',
   ChatgptWebGetTurnStatus: 'CHATGPT_WEB_GET_TURN_STATUS',
   ChatgptWebRefreshConversation: 'CHATGPT_WEB_REFRESH_CONVERSATION',

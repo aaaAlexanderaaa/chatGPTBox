@@ -471,7 +471,7 @@ describe('GPT-6 native visualization', () => {
         expect(extractChatgptWebConversationMessages(conversation)[1].isFinal).toBe(isFinal)
         const draft = {
           content:
-            'Conversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
+            '# Conversation\n\nConversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
           update() {},
         }
         vm.runInNewContext(
@@ -495,7 +495,7 @@ describe('GPT-6 native visualization', () => {
       const source = fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8')
       const draft = {
         content:
-          'Conversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
+          '# Conversation\n\nConversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
         update() {},
       }
       const payload = formatChatgptWebConversationSnapshot(conversationWithVisibleFragment())
@@ -518,7 +518,7 @@ describe('GPT-6 native visualization', () => {
       const source = fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8')
       const draft = {
         content:
-          'Conversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
+          '# Conversation\n\nConversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
         update() {},
       }
       const payload = {

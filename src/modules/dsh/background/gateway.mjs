@@ -240,7 +240,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         projections: new Map(),
         queue: [],
         jobs: [],
-        loaded: false,
+        loaded: summary.blank === true,
         autoApprove: false,
       }
       sessions.set(sessionId, session)
@@ -644,9 +644,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
     const value = await api.rpc('session.history', payload)
     session.loaded = true
     const entries = Array.isArray(value?.events) ? value.events : []
-    for (const entry of entries) {
-      session.fold.pushEvent(entry?.event ?? entry)
-    }
+    session.fold.mergeEvents(entries.map((entry) => entry?.event ?? entry))
     const projections = value?.projections
     if (projections && projections.values && typeof projections.values === 'object') {
       for (const [key, value2] of Object.entries(projections.values)) {
@@ -813,13 +811,17 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       broadcastSessionList()
       return value
     },
-    'session.prompt': ({ sessionId, mode, content, clientTimeZone }) =>
-      api.rpc('session.prompt', {
-        sessionId,
-        mode: mode === 'steer' ? 'steer' : 'queue',
-        content,
-        ...(clientTimeZone ? { clientTimeZone } : {}),
-      }),
+    'session.prompt': ({ sessionId, mode, content, clientTimeZone, requestId }) =>
+      api.rpc(
+        'session.prompt',
+        {
+          sessionId,
+          mode: mode === 'steer' ? 'steer' : 'queue',
+          content,
+          ...(clientTimeZone ? { clientTimeZone } : {}),
+        },
+        requestId ? { rpcId: requestId } : undefined,
+      ),
     'session.cancel': ({ sessionId }) => api.rpc('session.cancel', { sessionId }),
     'session.rename': ({ sessionId, title }) => api.rpc('session.rename', { sessionId, title }),
     'session.fork': async ({ sessionId, atSeq }) => {
@@ -1016,6 +1018,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
         sessionId,
         blocks: session.fold.getBlocks(),
         lastSeq: session.fold.getLastSeq(),
+        historyLoaded: session.loaded,
       })
     }
     return () => {
@@ -1033,6 +1036,7 @@ export function createDshGateway({ endpoint, storage, host = {}, client, downlin
       sessionId,
       blocks: session.fold.getBlocks(),
       lastSeq: session.fold.getLastSeq(),
+      historyLoaded: session.loaded,
     }
     for (const watcher of ledgerWatchers.get(sessionId) || []) {
       try {

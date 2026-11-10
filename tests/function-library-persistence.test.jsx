@@ -19,10 +19,17 @@ vi.mock('../src/config/storage.mjs', () => ({
 }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (value) => value }) }))
 
-let root, listeners
+let root, listeners, writeConfig
 function SettingsFunctions() {
-  const [config, updateConfig] = useSettingsConfig()
-  return <FunctionLibrary config={config} updateConfig={updateConfig} />
+  const [config, updateConfig, configReadState] = useSettingsConfig()
+  writeConfig = updateConfig
+  return (
+    <FunctionLibrary
+      config={config}
+      updateConfig={updateConfig}
+      configReadState={configReadState}
+    />
+  )
 }
 
 beforeEach(() => {
@@ -195,4 +202,31 @@ it('restores controls and explains an invalid import without writing configurati
   expect(state.writes).toHaveLength(0)
   expect(root.querySelector('[role="alert"]').textContent).toBe('Unsupported function file')
   expect(switchFor('A').matches(':disabled')).toBe(false)
+})
+
+it('blocks collection writes and editing until the initial read actually succeeds', async () => {
+  const saved = state.config
+  let complete
+  state.config = new Promise((resolve) => {
+    complete = resolve
+  })
+  await mount()
+  expect(button(root, 'New function').matches(':disabled')).toBe(true)
+  await expect(writeConfig({ browserAssistantFunctions: [] })).rejects.toThrow('unavailable')
+  expect(state.writes).toEqual([])
+  await act(async () => {
+    complete(saved)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(button(root, 'New function').matches(':disabled')).toBe(false)
+  expect(row('A')).toBeTruthy()
+})
+it('keeps functions unavailable on a read failure and never overwrites saved collections', async () => {
+  state.config = Promise.reject(new Error('read failed'))
+  state.config.catch(() => {})
+  await mount()
+  expect(root.textContent).toContain('could not be loaded')
+  expect(button(root, 'New function').matches(':disabled')).toBe(true)
+  await expect(writeConfig({ customSelectionTools: [] })).rejects.toThrow('unavailable')
+  expect(state.writes).toEqual([])
 })

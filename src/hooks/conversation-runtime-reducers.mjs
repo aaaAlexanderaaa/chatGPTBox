@@ -66,7 +66,14 @@ export function updateLastAnswer(items, value, appended, newType, done = false) 
   const index = findLastIndex(items, (v) => v.type === 'answer' || v.type === 'error')
   if (index === -1) return items
   const copy = [...items]
-  copy[index] = new ConversationItemData(newType, appended ? copy[index].content + value : value)
+  copy[index] = Object.assign(
+    new ConversationItemData(newType, appended ? copy[index].content + value : value),
+    { ...copy[index], type: newType, content: appended ? copy[index].content + value : value },
+  )
+  if (items[index].done && !done) {
+    delete copy[index].outcome
+    delete copy[index].finalContent
+  }
   copy[index].done = done
   return copy
 }
@@ -85,25 +92,63 @@ export function applyInbound(prev, msg, t) {
   let items = prev.items
   let session = prev.session
   let isReady = prev.isReady
+  if (msg.preparing === true || msg.started === true) {
+    const index = findLastIndex(items, (v) => v.type === 'answer' || v.type === 'error')
+    if (index >= 0) {
+      items = [...items]
+      const item = { ...items[index], done: false }
+      if (msg.preparing === true) {
+        item.type = 'answer'
+        item.content = `<p class="gpt-loading">${t('Waiting for response...')}</p>`
+      }
+      delete item.outcome
+      delete item.finalContent
+      items[index] = item
+    }
+    isReady = false
+  }
+  const previousIndex = findLastIndex(items, (v) => v.type === 'answer' || v.type === 'error')
+  const previousItem = items[previousIndex]
+  if (previousItem?.done) return prev
 
-  if (msg.answer) {
+  // Only an explicit new send/retry resets a terminal state.
+  // A late terminal frame may contain answer text as well as done.
+  if (typeof msg.answer === 'string') {
     items = updateLastAnswer(items, msg.answer, false, 'answer')
   }
   if (msg.session) {
     session = msg.done ? { ...msg.session, isRetry: false } : msg.session
   }
-  if (msg.done) {
-    items = updateLastAnswer(items, '', true, 'answer', true)
-    isReady = true
+  if (msg.done || Object.hasOwn(msg, 'finalContent')) {
+    const index = findLastIndex(items, (v) => v.type === 'answer' || v.type === 'error')
+    if (index >= 0) {
+      items = [...items]
+      const item = { ...items[index] }
+      if (Object.hasOwn(msg, 'finalContent')) item.finalContent = msg.finalContent
+      if (msg.done) {
+        item.done = true
+        // A trailing transport ack cannot turn failure/Stop into success.
+        if (!item.outcome || item.outcome === 'completed')
+          item.outcome = item.type === 'error' ? 'failed' : msg.outcome || 'completed'
+      }
+      items[index] = item
+    }
+    if (msg.done) isReady = true
   }
   if (msg.error) {
     const formatted = formatErrorMessage(msg.error, t)
+    const answerIndex = findLastIndex(items, (item) => item.type === 'answer')
+    if (answerIndex >= 0) {
+      items = [...items]
+      items[answerIndex] = { ...items[answerIndex], done: true, outcome: 'failed' }
+    }
     const lastItem = items.length > 0 ? items[items.length - 1] : null
     if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error')) {
-      items = updateLastAnswer(items, formatted, false, 'error')
+      items = updateLastAnswer(items, formatted, false, 'error', true)
     } else {
-      items = [...items, new ConversationItemData('error', formatted)]
+      items = [...items, new ConversationItemData('error', formatted, true)]
     }
+    items[items.length - 1] = { ...items[items.length - 1], outcome: 'failed' }
     isReady = true
   }
 
@@ -126,10 +171,14 @@ export function popMatchedRetryRecord(session, items) {
   const lastItem = items[items.length - 1]
   const secondToLast = items[items.length - 2]
   if (
+    lastItem?.type === 'answer' &&
     lastItem?.done &&
+    (!lastItem.outcome || lastItem.outcome === 'completed') &&
     items.length > 1 &&
-    secondToLast &&
-    lastRecord.question === secondToLast.content
+    secondToLast?.type === 'question' &&
+    lastRecord.question === secondToLast.content &&
+    (lastRecord.answer === lastItem.content ||
+      (typeof lastItem.finalContent === 'string' && lastRecord.answer === lastItem.finalContent))
   ) {
     records.pop()
   }

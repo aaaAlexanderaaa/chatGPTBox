@@ -102,6 +102,7 @@ function jsonResponse(status, payload) {
   }
 }
 
+const stalledWrites = []
 const originalStorageSet = storageLocal.set
 // Lazy imports made by queued background callbacks can resolve the polyfill
 // alias directly. Keep those reads on the same storage fixture as static imports.
@@ -127,7 +128,10 @@ describe('lifecycle claims — current behavior', () => {
     })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    storageLocal.set = originalStorageSet
+    for (const resolve of stalledWrites.splice(0)) resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     browserAlias.storage.local = originalAliasStorage
     storageLocal.set = originalStorageSet
     vi.unstubAllGlobals()
@@ -593,7 +597,7 @@ describe('lifecycle claims — current behavior', () => {
     })
 
     it('returns the id even if cache writes never settle', async () => {
-      storageLocal.set = async () => new Promise(() => {})
+      storageLocal.set = async () => new Promise((resolve) => stalledWrites.push(resolve))
       registerExecuteApi(async (session, port) => {
         port.postMessage({
           session: { ...session, conversationId: 'streamed-id' },
@@ -609,7 +613,7 @@ describe('lifecycle claims — current behavior', () => {
     it('softens access-denied immediately after create even if index persist never settles', async () => {
       storageLocal.set = async (values = {}) => {
         if (CHATGPT_WEB_CONVERSATION_INDEX_KEY in values) {
-          return new Promise(() => {})
+          return new Promise((resolve) => stalledWrites.push(resolve))
         }
         return originalStorageSet(values)
       }

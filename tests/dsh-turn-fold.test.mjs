@@ -301,3 +301,43 @@ describe('dsh ledger fold', () => {
     expect(fold.getBlocks().at(-1).locations).toEqual([{ path: 'src/a.ts' }, { path: 'src/b.ts' }])
   })
 })
+
+it('merges delayed history behind live frames without dropping tools or reopening settled decisions', () => {
+  const fold = createDshLedgerFold()
+  fold.pushEvent({
+    seq: 5,
+    type: 'assistant/chunk',
+    data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'tail' } },
+  })
+  fold.pushFrame(
+    { type: 'approval/requested', approvalId: 'approval', callId: 'tool' },
+    { rpcId: 'rpc' },
+  )
+  fold.markApprovalOutcome('approval', 'allowed-once')
+  fold.mergeEvents([
+    {
+      seq: 2,
+      type: 'tool/call',
+      data: { turn: 1, step: 0, callId: 'tool', name: 'read', arguments: '{}' },
+    },
+    {
+      seq: 3,
+      type: 'tool/result',
+      data: { message: { toolCallId: 'tool', content: [{ text: 'result' }] } },
+    },
+    {
+      seq: 4,
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'prefix ' } },
+    },
+    {
+      seq: 5,
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'tail' } },
+    },
+  ])
+  expect(fold.getBlocks().find((block) => block.kind === 'text').text).toBe('prefix tail')
+  expect(fold.getToolCall('tool')).toMatchObject({ status: 'done', resultText: 'result' })
+  expect(fold.getPendingDecisions()).toEqual([])
+  expect(fold.getBlocks().find((block) => block.kind === 'approval').status).toBe('allowed-once')
+})

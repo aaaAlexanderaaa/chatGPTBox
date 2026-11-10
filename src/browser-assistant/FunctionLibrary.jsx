@@ -34,7 +34,7 @@ import {
 const SELECT_CLASS =
   'w-full h-10 px-3 text-sm bg-input border border-border rounded-lg text-foreground'
 
-export function FunctionLibrary({ config, updateConfig }) {
+export function FunctionLibrary({ config, updateConfig, configReadState = 'ready' }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
@@ -81,7 +81,7 @@ export function FunctionLibrary({ config, updateConfig }) {
   })
   const persist = async (patch) => {
     // Reserve file reads too, and guard submissions before the disabled state renders.
-    if (persisting.current) return false
+    if (persisting.current || configReadState !== 'ready') return false
     persisting.current = true
     setPending(true)
     try {
@@ -316,8 +316,20 @@ export function FunctionLibrary({ config, updateConfig }) {
         'Choose what AI does, what material it uses, and where the function appears. All entries use the same functions.',
       )}
     >
+      {configReadState !== 'ready' && (
+        <p role={configReadState === 'error' ? 'alert' : 'status'}>
+          {t(
+            configReadState === 'error'
+              ? 'Saved functions could not be loaded. Reload settings before editing.'
+              : 'Loading saved functions...',
+          )}
+          {configReadState === 'error' && (
+            <Button onClick={() => window.location.reload()}>{t('Reload settings')}</Button>
+          )}
+        </p>
+      )}
       <fieldset
-        disabled={pending}
+        disabled={pending || configReadState !== 'ready'}
         aria-busy={pending}
         aria-label={t('Functions')}
         className="min-w-0 space-y-4 disabled:opacity-60"
@@ -494,4 +506,5 @@ export function FunctionLibrary({ config, updateConfig }) {
 FunctionLibrary.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  configReadState: PropTypes.string,
 }

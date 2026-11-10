@@ -1,3 +1,4 @@
+import { v4 as uuid } from 'uuid'
 // dsh bridge provider (roadmap B, "A 路径薄适配").
 //
 // The floating window / popup treat DeepSeek Harness as just another engine:
@@ -115,7 +116,10 @@ function decisionKey(decision) {
  *  decision blocks carry no seq, so the baseline is positional). */
 export function captureLedgerBaseline(blocks) {
   const list = Array.isArray(blocks) ? blocks : []
-  return { position: list.length }
+  return {
+    position: list.length,
+    lastSeq: Math.max(-1, ...list.map((block) => (Number.isFinite(block.seq) ? block.seq : -1))),
+  }
 }
 
 /**
@@ -127,14 +131,24 @@ export function captureLedgerBaseline(blocks) {
 export function ledgerSliceForPrompt(blocks, baseline) {
   if (!baseline) return []
   const list = Array.isArray(blocks) ? blocks : []
-  const fresh = list.slice(baseline.position)
-  const userIdx = fresh.findIndex((block) => block.kind === 'user')
+  const fresh =
+    Number.isFinite(baseline.lastSeq) && list.some((block) => Number.isFinite(block.seq))
+      ? list.filter((block) => Number.isFinite(block.seq) && block.seq > baseline.lastSeq)
+      : list.slice(baseline.position)
+  const userIdx = fresh.findIndex(
+    (block) =>
+      block.kind === 'user' &&
+      (baseline.requestId
+        ? block.sourceRpcId === baseline.requestId
+        : !baseline.question || block.text === baseline.question),
+  )
   if (userIdx === -1) return []
   const afterUser = fresh.slice(userIdx + 1)
   const userTurn = fresh[userIdx].turn
   if (typeof userTurn === 'number') {
     return afterUser.filter((block) => block.turn === userTurn)
   }
+  if (baseline.requestId) return [] // no enclosing turn: wait for history, never guess
   const oldTurns = new Set(
     list
       .slice(0, baseline.position)
@@ -170,9 +184,19 @@ export default {
       return
     }
 
+    if (session.dshEndpoint && session.dshEndpoint !== config.dshEndpoint) {
+      port.postMessage({
+        error: 'The DeepSeek Harness endpoint changed. Choose its workspace again.',
+        done: true,
+        outcome: 'failed',
+      })
+      return
+    }
     let dshSessionId = session.dshSessionId || null
     let unwatch = null
     let cleanedUp = false
+    let promptDispatched = false
+    let finished = false
 
     // The abort listeners must live for the TURN's lifetime, not run()'s:
     // session.prompt resolves on acceptance, seconds before the turn ends.
@@ -184,13 +208,13 @@ export default {
       cleanController()
     }
 
-    const { cleanController } = setAbortController(
+    const { controller, cleanController } = setAbortController(
       port,
       () => {
         // user pressed stop — cancel the running turn, honestly, and end
         // the stream even if the engine's turn-end never arrives.
-        finishRef.current?.()
-        if (dshSessionId) {
+        finishRef.current?.('stopped')
+        if (dshSessionId && promptDispatched) {
           void gateway.rpc('session.cancel', { sessionId: dshSessionId }).catch(() => {})
         }
       },
@@ -203,25 +227,46 @@ export default {
     const finishRef = { current: null }
 
     try {
+      const createdHere = !dshSessionId
       if (!dshSessionId) {
-        const created = await gateway.rpc('session.create')
+        if (!session.dshWorkspaceId)
+          throw new Error('Choose a DeepSeek Harness workspace before starting.')
+        if (session.dshEndpoint && session.dshEndpoint !== config.dshEndpoint)
+          throw new Error('The DeepSeek Harness endpoint changed. Choose its workspace again.')
+        const created = await gateway.rpc('session.create', { workspaceId: session.dshWorkspaceId })
         dshSessionId = created.sessionId
+        if (controller.signal.aborted) {
+          cleanup()
+          return
+        }
         // The conversation keeps its engine-side binding (D-4).
         port.postMessage({ dshSessionId })
       }
 
       let lastAnswer = null
-      let finished = false
       const knownDecisions = new Map()
       let latestBlocks = []
+      let historyLoaded = createdHere
       let baseline = null
       let promptAccepted = false
+      let identityNoticed = false
 
-      const finish = () => {
+      const finish = (requestedOutcome) => {
         if (finished) return
         finished = true
         const answer = lastAnswer || ''
-        pushRecord(session, session.question, answer)
+        const slice = ledgerSliceForPrompt(latestBlocks, baseline)
+        const ending = slice.find((block) => block.kind === 'turn-end')
+        const finalStep = slice.filter((block) => block.kind === 'text').at(-1)
+        const hasFinal =
+          finalStep?.authoritative &&
+          finalStep.text.trim() &&
+          (ending?.finalStep === undefined || ending.finalStep === finalStep.step)
+        const outcome =
+          requestedOutcome ||
+          (ending?.reasonKind === 'completed' && hasFinal ? 'completed' : 'incomplete')
+        const finalContent = outcome === 'completed' ? finalStep.text : ''
+        if (outcome === 'completed') pushRecord(session, session.question, finalContent)
         try {
           port.postMessage({
             session: {
@@ -229,7 +274,10 @@ export default {
               dshSessionId,
               conversationRecords: session.conversationRecords,
             },
+            dshStatus: null,
             answer,
+            finalContent,
+            outcome,
             done: true,
           })
         } catch {
@@ -240,9 +288,10 @@ export default {
       finishRef.current = finish
 
       unwatch = gateway.watchLedger(dshSessionId, (message) => {
-        if (message.sessionId !== dshSessionId) return
+        if (finished || message.sessionId !== dshSessionId) return
         const { blocks } = message
         latestBlocks = blocks
+        if (message.historyLoaded === true) historyLoaded = true
 
         // Pending approvals/questions are relevant no matter when they were
         // raised; announce every state change.
@@ -257,7 +306,17 @@ export default {
         // Stream and finish only after THIS prompt's user echo — a still-
         // running turn on the same session must not fill or close us.
         if (!promptAccepted || baseline === null) return
-        const captured = { position: baseline }
+        const captured = baseline
+        const owned = blocks.some(
+          (block) =>
+            block.kind === 'user' &&
+            block.sourceRpcId === captured.requestId &&
+            Number.isFinite(block.turn),
+        )
+        if (owned && identityNoticed) {
+          identityNoticed = false
+          port.postMessage({ dshStatus: null })
+        }
         const answer = renderLedgerMarkdown(ledgerSliceForPrompt(blocks, captured))
         if (answer !== lastAnswer) {
           lastAnswer = answer
@@ -265,21 +324,66 @@ export default {
         }
 
         if (shouldFinishFromLedger(blocks, captured)) finish()
+        else {
+          const unbound = blocks.find(
+            (block) =>
+              block.kind === 'user' &&
+              block.seq > captured.lastSeq &&
+              block.text === session.question &&
+              (!block.sourceRpcId ||
+                (block.sourceRpcId === captured.requestId && !Number.isFinite(block.turn))),
+          )
+          if (
+            !owned &&
+            !identityNoticed &&
+            unbound &&
+            blocks.some(
+              (block) =>
+                block.kind === 'turn-end' &&
+                block.seq > unbound.seq &&
+                (!Number.isFinite(unbound.turn) || block.turn === unbound.turn),
+            )
+          ) {
+            identityNoticed = true
+            port.postMessage({
+              dshStatus: {
+                text: 'Waiting for the submitted request identity. Other turns are not its result. Open the full client to inspect; this question will not be resent automatically.',
+              },
+            })
+          }
+        }
       })
 
       try {
         // Snapshot BEFORE the RPC: a turn that completes during the await
         // must still finish the bubble. promptAccepted is flipped first so
         // the watcher does not drop those frames.
-        const captured = captureLedgerBaseline(latestBlocks)
-        baseline = captured.position
+        if (!createdHere) {
+          const history = await gateway.rpc('session.history-older', { sessionId: dshSessionId })
+          if (!history || !historyLoaded)
+            throw new Error('Session history is not ready. Retry after it has loaded.')
+        }
+        if (controller.signal.aborted) {
+          cleanup()
+          return
+        }
+        session.dshEndpoint = config.dshEndpoint
+        const captured = {
+          ...captureLedgerBaseline(latestBlocks),
+          requestId: uuid(),
+          question: session.question,
+        }
+        baseline = captured
         promptAccepted = true
+        promptDispatched = true
         await gateway.rpc('session.prompt', {
           sessionId: dshSessionId,
+          requestId: captured.requestId,
           mode: 'queue',
           content: [{ type: 'text', text: session.question }],
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
+        if (finished || controller.signal.aborted) return
         const answer = renderLedgerMarkdown(ledgerSliceForPrompt(latestBlocks, captured))
         if (answer !== lastAnswer) {
           lastAnswer = answer
@@ -287,12 +391,20 @@ export default {
         }
         if (shouldFinishFromLedger(latestBlocks, captured)) finish()
       } catch (error) {
+        if (finished || controller.signal.aborted) {
+          cleanup()
+          return
+        }
         port.postMessage({ error: error?.message || String(error) })
         port.postMessage({ done: true })
         cleanup()
         return
       }
     } catch (error) {
+      if (finished || controller.signal.aborted) {
+        cleanup()
+        return
+      }
       port.postMessage({ error: error?.message || String(error) })
       port.postMessage({ done: true })
       cleanup()

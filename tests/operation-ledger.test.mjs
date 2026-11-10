@@ -116,3 +116,22 @@ describe('gateway operation ledger', () => {
     )
   })
 })
+
+it('rejects capacity before dispatch and retains both completed and ambiguous identities across restart', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatgptbox-capacity-'))
+  try {
+    const file = path.join(dir, 'operations.json')
+    const ledger = new OperationLedger({ file, maxRecords: 2 })
+    const a = ledger.begin({ key: 'a', fingerprint: 'a' }).record
+    const b = ledger.begin({ key: 'b', fingerprint: 'b' }).record
+    ledger.complete(a, 'answer')
+    ledger.ambiguous(b, new Error('lost ack'))
+    expect(() => ledger.begin({ key: 'c', fingerprint: 'c' })).toThrow('full')
+    const restored = new OperationLedger({ file, maxRecords: 2 })
+    expect(restored.begin({ key: 'a', fingerprint: 'a' }).record.operationId).toBe(a.operationId)
+    expect(restored.begin({ key: 'b', fingerprint: 'b' }).record.operationId).toBe(b.operationId)
+    expect(() => restored.begin({ key: 'c', fingerprint: 'c' })).toThrow('full')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

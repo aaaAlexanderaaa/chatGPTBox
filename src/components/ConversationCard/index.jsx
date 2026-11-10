@@ -35,6 +35,7 @@ import { useConfig } from '../../hooks/use-config.mjs'
 import { useConversationRuntime } from '../../hooks/useConversationRuntime.mjs'
 import { createSession } from '../../services/local-session.mjs'
 import { v4 as uuidv4 } from 'uuid'
+import { switchSessionEngine } from '../../services/session-binding.mjs'
 import { initSession } from '../../services/init-session.mjs'
 import {
   deleteChatgptWebSessionSnapshot,
@@ -81,7 +82,6 @@ function ConversationCard(props) {
   // conversationItemData <-> runtime items (aliased to minimize churn below).
   const conversationItemData = runtimeState.items
   const setConversationItemData = runtimeActions.setItems
-  const updateAnswer = runtimeActions.updateAnswer
   const dispatchInbound = runtimeActions.dispatchInbound
   const buildRetry = runtimeActions.buildRetry
   const windowSize = useClampWindowSize([750, 1500], [250, 1100])
@@ -91,11 +91,39 @@ function ConversationCard(props) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [modelPickerQuery, setModelPickerQuery] = useState('')
   const [dshDecisions, setDshDecisions] = useState([])
+  const [dshWorkspaces, setDshWorkspaces] = useState(null)
+  const [workspaceReload, setWorkspaceReload] = useState(0)
+  const sentInitialQuestion = useRef(null)
+  const initialDispatchGeneration = useRef(0)
+  const pendingAdmission = useRef(null)
+  const activeRequestToken = useRef(null)
+  const [dshStatus, setDshStatus] = useState('')
   const [engineMemoryNote, setEngineMemoryNote] = useState('')
   const modelPickerRef = useRef(null)
   const modelPickerInputRef = useRef(null)
 
   const config = useConfig()
+
+  const needsDshWorkspace =
+    isUsingDshHarnessModel(session) &&
+    ((!session.dshSessionId && !session.dshWorkspaceId) ||
+      (session.dshEndpoint && session.dshEndpoint !== config.dshEndpoint))
+  useEffect(() => {
+    if (!needsDshWorkspace) return
+    let disposed = false
+    setDshWorkspaces(null)
+    Browser.runtime
+      .sendMessage({ type: RuntimeMessage.DshModuleWorkspaces })
+      .then((value) => {
+        if (!disposed) setDshWorkspaces(value || { error: 'No workspace response' })
+      })
+      .catch((error) => {
+        if (!disposed) setDshWorkspaces({ error: error.message })
+      })
+    return () => {
+      disposed = true
+    }
+  }, [needsDshWorkspace, workspaceReload, config.dshEndpoint])
 
   useLayoutEffect(() => {
     if (session.conversationRecords.length === 0) {
@@ -123,7 +151,8 @@ function ConversationCard(props) {
   useEffect(() => {
     let cancelled = false
 
-    if (!session?.sessionId) return () => {}
+    if (!session?.sessionId || (!isUsingGrokWebModel(session) && !isUsingChatgptWebModel(session)))
+      return () => {}
     if (isUsingGrokWebModel(session)) {
       if (session.conversationId && session.previousResponseID) return () => {}
     } else if (session.conversationId || session.parentMessageId || session.wsRequestId) {
@@ -147,7 +176,12 @@ function ConversationCard(props) {
         }
 
         setSession((prev) => {
-          if (!prev || prev.sessionId !== restoredSession.sessionId) return prev
+          if (
+            !prev ||
+            prev.sessionId !== restoredSession.sessionId ||
+            prev.remoteBindingGeneration !== restoredSession.remoteBindingGeneration
+          )
+            return prev
           return { ...prev, ...restoredSession }
         })
       })
@@ -156,7 +190,7 @@ function ConversationCard(props) {
     return () => {
       cancelled = true
     }
-  }, [session?.sessionId])
+  }, [session?.sessionId, session?.remoteBindingGeneration, session?.modelName])
 
   useEffect(() => {
     if (!session?.sessionId) return
@@ -165,7 +199,11 @@ function ConversationCard(props) {
       void saveGrokWebSessionSnapshot(session).catch(() => {})
       return
     }
-    if (!session.conversationId && !session.parentMessageId && !session.wsRequestId) return
+    if (
+      !isUsingChatgptWebModel(session) ||
+      (!session.conversationId && !session.parentMessageId && !session.wsRequestId)
+    )
+      return
     void saveChatgptWebSessionSnapshot(session, {
       source: props.pageMode
         ? 'independent-panel'
@@ -187,8 +225,8 @@ function ConversationCard(props) {
   ])
 
   useEffect(() => {
-    if (props.onUpdate) props.onUpdate(port, session, conversationItemData)
-  }, [session, conversationItemData])
+    if (props.onUpdate) props.onUpdate(port, session, needsDshWorkspace ? [] : conversationItemData)
+  }, [port, session, conversationItemData, needsDshWorkspace])
 
   useEffect(() => {
     const { offsetHeight, scrollHeight, scrollTop } = bodyRef.current
@@ -206,28 +244,52 @@ function ConversationCard(props) {
   useEffect(() => {
     // Restore any saved ChatGPT Web state before the first request so a remount
     // continues the same conversation instead of silently starting over.
-    if (!props.question || !triggered) return
+    if (
+      !props.question ||
+      !triggered ||
+      props.readOnly ||
+      needsDshWorkspace ||
+      sentInitialQuestion.current === props.question
+    )
+      return
 
     let cancelled = false
+    const dispatchGeneration = initialDispatchGeneration.current
+    setIsReady(false)
     ;(async () => {
       const restoredSession = await (isUsingGrokWebModel(session)
         ? restoreGrokWebSessionOnto(session)
-        : restoreChatgptWebSessionSnapshot(session)
+        : isUsingChatgptWebModel(session)
+        ? restoreChatgptWebSessionSnapshot(session)
+        : Promise.resolve(session)
       ).catch(() => session)
-      if (cancelled) return
+      if (cancelled || dispatchGeneration !== initialDispatchGeneration.current) return
       const newSession = {
         ...(restoredSession && typeof restoredSession === 'object' ? restoredSession : session),
         question: props.question,
+        isRetry: false,
+        retryReplacement: null,
         updatedAt: new Date().toISOString(),
       }
       setSession(newSession)
+      sentInitialQuestion.current = props.question
       await postMessage({ session: newSession })
-    })()
+    })().catch((error) => dispatchInbound({ error: error.message || String(error) }))
 
     return () => {
       cancelled = true
     }
-  }, [props.question, triggered]) // usually only triggered once
+  }, [
+    props.question,
+    port,
+    props.persistedSession,
+    triggered,
+    session.dshWorkspaceId,
+    needsDshWorkspace,
+    session.modelName,
+    session.remoteBindingGeneration,
+    props.readOnly,
+  ]) // workspace selection releases the first request
 
   useLayoutEffect(() => {
     const selected = getSelectionString(session)
@@ -279,11 +341,77 @@ function ConversationCard(props) {
    * @param {boolean|undefined} stop
    */
   const postMessage = async ({ session, stop }) => {
-    port.postMessage({ session, stop })
+    if (stop) {
+      activeRequestToken.current = null
+      pendingAdmission.current?.finish(false)
+      initialDispatchGeneration.current += 1
+      sentInitialQuestion.current = props.question
+      setDshStatus('')
+      port.postMessage({ stop: true })
+      return true
+    }
+    if (!session) return false
+    pendingAdmission.current?.finish(false)
+    const requestToken = uuidv4()
+    activeRequestToken.current = requestToken
+    dispatchInbound({ preparing: true })
+    if (props.readOnly) {
+      dispatchInbound({ error: 'Reopen saved conversation' })
+      return false
+    }
+    if (
+      session &&
+      isUsingDshHarnessModel(session) &&
+      !session.dshSessionId &&
+      !session.dshWorkspaceId
+    ) {
+      dispatchInbound({ error: 'Choose a DeepSeek Harness workspace before starting.' })
+      return false
+    }
+    return new Promise((resolve) => {
+      const finish = (accepted) => {
+        port.onMessage.removeListener(onMessage)
+        port.onDisconnect.removeListener(onDisconnect)
+        if (pendingAdmission.current?.requestToken === requestToken) pendingAdmission.current = null
+        resolve(accepted)
+      }
+      const onMessage = (message) => {
+        if (message.requestToken !== requestToken) return
+        if (message.started === true) finish(true)
+        else if (message.error) finish(false)
+      }
+      const onDisconnect = () => {
+        finish(false)
+        dispatchInbound({
+          error:
+            'The connection closed before completion could be confirmed. Keep the question and inspect the original conversation before retrying.',
+        })
+      }
+      pendingAdmission.current = { requestToken, finish }
+      port.onMessage.addListener(onMessage)
+      port.onDisconnect.addListener(onDisconnect)
+      try {
+        port.postMessage({
+          session,
+          ...(props.persistedSession ? { localSession: true } : {}),
+          requestToken,
+        })
+      } catch (error) {
+        finish(false)
+        dispatchInbound({ error: error.message || String(error) })
+      }
+    })
   }
 
   useEffect(() => {
     const portListener = () => {
+      initialDispatchGeneration.current += 1
+      activeRequestToken.current = null
+      pendingAdmission.current?.finish(false)
+      dispatchInbound({
+        error:
+          'The connection closed before completion could be confirmed. Keep the question and inspect the original conversation before retrying.',
+      })
       setPort(Browser.runtime.connect())
       setIsReady(true)
     }
@@ -308,6 +436,7 @@ function ConversationCard(props) {
     }
     port.onDisconnect.addListener(portListener)
     return () => {
+      pendingAdmission.current?.finish(false)
       if (props.closeable) {
         Browser.runtime.onMessage.removeListener(closeChatsMessageListener)
         window.removeEventListener('keydown', closeChatsEscListener)
@@ -321,6 +450,12 @@ function ConversationCard(props) {
   // goes to the runtime reducer.
   useEffect(() => {
     const listener = (msg) => {
+      const activeToken = activeRequestToken.current
+      if (msg?.requestToken && msg.requestToken !== activeToken) return
+      if (activeToken && !msg?.requestToken) return
+      if (msg && typeof msg === 'object' && 'dshStatus' in msg) {
+        setDshStatus(msg.dshStatus?.text || '')
+      }
       if (msg && typeof msg === 'object' && 'dshDecision' in msg) {
         const decision = msg.dshDecision
         setDshDecisions((prev) => {
@@ -347,14 +482,17 @@ function ConversationCard(props) {
     return () => {
       port.onMessage.removeListener(listener)
     }
-  }, [port, dispatchInbound, setSession])
+  }, [port, dispatchInbound, setSession, props.persistedSession])
 
   // Retry state machine lives in useConversationRuntime.buildRetry; it needs the
   // transport `postMessage` to (re)send, which we inject here so the runtime
   // stays transport-agnostic and unit-testable.
   const getRetryFn = (session) => buildRetry(session, postMessage)
 
-  const retryFn = useMemo(() => getRetryFn(session), [session])
+  const retryFn = useMemo(
+    () => (props.readOnly ? null : getRetryFn(session)),
+    [session, props.readOnly, props.persistedSession, props.question, port, buildRetry],
+  )
 
   const modelPickerOptions = useMemo(() => {
     const opts = apiModes
@@ -432,10 +570,9 @@ function ConversationCard(props) {
 
   const applyModelSelection = useCallback(
     ({ modelName }) => {
+      if (!isReady || props.readOnly) return
       const newSession = {
-        ...session,
-        modelName,
-        apiMode: null,
+        ...switchSessionEngine(session, modelName),
         aiName: engineSelectionLabel(modelName, t),
       }
       showMemoryNote(modelName)
@@ -447,6 +584,12 @@ function ConversationCard(props) {
     },
     [
       config.autoRegenAfterSwitchModel,
+      isReady,
+      props.readOnly,
+      props.persistedSession,
+      props.question,
+      port,
+      buildRetry,
       config.customModelName,
       conversationItemData.length,
       session,
@@ -456,6 +599,49 @@ function ConversationCard(props) {
 
   return (
     <div className="gpt-inner">
+      {needsDshWorkspace && (
+        <div role="status" className="p-3">
+          <label>
+            {t('DeepSeek Harness workspace')}
+            <select
+              value=""
+              disabled={!dshWorkspaces?.items?.length}
+              onChange={(event) => {
+                const workspaceId = event.target.value
+                if (!workspaceId) return
+                setSession((previous) => ({
+                  ...previous,
+                  dshSessionId: null,
+                  dshWorkspaceId: workspaceId,
+                  dshEndpoint: dshWorkspaces.endpoint,
+                }))
+              }}
+            >
+              <option value="">{t('Choose a workspace')}</option>
+              {(dshWorkspaces?.items || []).map((item) => (
+                <option key={item.workspaceId} value={item.workspaceId}>
+                  {item.title || item.path || item.workspaceId}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>
+            {t(
+              !dshWorkspaces
+                ? 'Loading workspaces...'
+                : dshWorkspaces.error ||
+                    (dshWorkspaces.items.length
+                      ? 'Your question will start after you choose a workspace.'
+                      : 'No workspace is available. Create one in the full client.'),
+            )}
+          </p>
+          <button onClick={() => setWorkspaceReload((value) => value + 1)}>{t('Retry')}</button>
+          <a href={Browser.runtime.getURL('dsh.html')} target="_blank" rel="noreferrer">
+            {t('Open full client')}
+          </a>
+        </div>
+      )}
+
       <div
         className={
           props.draggable ? `gpt-header${completeDraggable ? ' draggable' : ''}` : 'gpt-header'
@@ -505,6 +691,8 @@ function ConversationCard(props) {
               type="button"
               className="normal-button"
               style={{ width: '100%', justifyContent: 'space-between' }}
+              disabled={!isReady || props.readOnly}
+              title={!isReady ? t('Stop the current response before changing connection') : ''}
               onClick={() => setModelPickerOpen((v) => !v)}
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -567,6 +755,16 @@ function ConversationCard(props) {
                   />
                 </div>
 
+                <p className="text-sm" style={{ padding: '10px', margin: 0 }}>
+                  {t(
+                    'Changing provider keeps this local transcript and starts a new remote conversation. API connections resend local history; web and agent connections receive only your next question. Models of the same provider keep their binding.',
+                  )}
+                  {config.autoRegenAfterSwitchModel && (
+                    <strong>
+                      {t('The last question will be sent immediately after selection.')}
+                    </strong>
+                  )}
+                </p>
                 <div style={{ maxHeight: '300px', overflow: 'auto' }}>
                   {filteredModelPickerOptions.length === 0 ? (
                     <div
@@ -772,16 +970,26 @@ function ConversationCard(props) {
             : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical', overflow: 'auto' }
         }
       >
-        {conversationItemData.map(
+        {(needsDshWorkspace && !session.conversationRecords.length ? [] : conversationItemData).map(
           (data, idx) =>
             props.renderAnswer?.(data, idx) || (
-              <ConversationItem
-                content={data.content}
-                key={idx}
-                type={data.type}
-                descName={data.type === 'answer' && session.aiName}
-                onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
-              />
+              <div key={idx}>
+                {data.type === 'answer' && data.outcome && data.outcome !== 'completed' && (
+                  <p role="status">
+                    {t(
+                      data.outcome === 'stopped'
+                        ? 'Stopped waiting. Cancellation was requested; the remote task may still be running. This is partial content.'
+                        : 'This response is incomplete. Run again explicitly before applying a result.',
+                    )}
+                  </p>
+                )}
+                <ConversationItem
+                  content={data.content}
+                  type={data.type}
+                  descName={data.type === 'answer' && session.aiName}
+                  onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+                />
+              </div>
             ),
         )}
       </div>
@@ -839,7 +1047,7 @@ function ConversationCard(props) {
               📄 {t('Selection attached')} · {props.selection.length} {t('chars')}
             </div>
           )}
-          {dshDecisions.length > 0 && (
+          {dshDecisions.length > 0 && !props.readOnly && (
             <div style={{ padding: '0 15px' }}>
               {dshDecisions.map((decision) => (
                 <DshDecisionCard
@@ -868,32 +1076,52 @@ function ConversationCard(props) {
               ))}
             </div>
           )}
-          <InputBox
-            draftKey={props.draftKey}
-            enabled={isReady}
-            postMessage={postMessage}
-            onSubmit={async (question) => {
-              const newQuestion = new ConversationItemData('question', question)
-              const newAnswer = new ConversationItemData(
-                'answer',
-                `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
-              )
-              setConversationItemData([...conversationItemData, newQuestion, newAnswer])
-              setIsReady(false)
-
-              const newSession = { ...session, question, isRetry: false }
-              setSession(newSession)
-              try {
-                await postMessage({ session: newSession })
-              } catch (e) {
-                updateAnswer(e, false, 'error')
+          {dshStatus && <p role="status">{t(dshStatus)}</p>}
+          {!isReady && isUsingDshHarnessModel(session) && (
+            <p role="status">
+              {t(
+                'Once submitted, Stop cancels the current shared harness session, including work from other clients. Close the window to stop watching only.',
+              )}
+            </p>
+          )}
+          {!needsDshWorkspace && (
+            <InputBox
+              readOnly={props.readOnly}
+              draftFlushRef={props.draftFlushRef}
+              draftKey={props.draftKey}
+              stopLabel={isUsingDshHarnessModel(session) ? 'Stop agent session' : 'Stop'}
+              stopPlaceholder={
+                isUsingDshHarnessModel(session)
+                  ? 'Generating... Enter stops the agent session'
+                  : undefined
               }
-              bodyRef.current.scrollTo({
-                top: bodyRef.current.scrollHeight,
-                behavior: 'instant',
-              })
-            }}
-          />
+              enabled={isReady}
+              postMessage={postMessage}
+              onSubmit={async (question) => {
+                const newQuestion = new ConversationItemData('question', question)
+                const newAnswer = new ConversationItemData(
+                  'answer',
+                  `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
+                )
+                setConversationItemData([...conversationItemData, newQuestion, newAnswer])
+                setIsReady(false)
+
+                const newSession = { ...session, question, isRetry: false, retryReplacement: null }
+                setSession(newSession)
+                try {
+                  if ((await postMessage({ session: newSession })) === false) return false
+                } catch (e) {
+                  dispatchInbound({ error: e.message || String(e) })
+                  return false
+                }
+                bodyRef.current.scrollTo({
+                  top: bodyRef.current.scrollHeight,
+                  behavior: 'instant',
+                })
+                return true
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -1097,6 +1325,9 @@ ConversationCard.propTypes = {
   notClampSize: PropTypes.bool,
   pageMode: PropTypes.bool,
   waitForTrigger: PropTypes.bool,
+  readOnly: PropTypes.bool,
+  draftFlushRef: PropTypes.shape({ current: PropTypes.any }),
+  persistedSession: PropTypes.bool,
 }
 
 export default memo(ConversationCard)

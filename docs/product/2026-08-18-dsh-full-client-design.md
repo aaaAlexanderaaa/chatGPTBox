@@ -4,7 +4,7 @@ status: target
 authority: normative
 implementation: partial
 verification_status: partial
-last_reconciled: 2026-10-23
+last_reconciled: 2026-11-09
 ---
 
 > Target design with existing partial implementation. The original
@@ -143,6 +143,27 @@ dsh.html
 - 添加：`host.pickDirectory`（系统选目录，取消为静默）→ `workspace.create({ path })`。扩展不自己做本机文件夹框。
 - 删除工作区只解注册，不删磁盘、不删会话；那些会话落到未分组。
 - 归档会话从所有分组表面消失；不做取消归档（上游也没有）。
+
+轻量浮窗/popup 新建任务也必须先明确选择工作区；通过专用只读 runtime 消息读取
+列表，不开放任意 RPC。未选中、加载失败或空列表时不创建/发送，保留问题并提供
+重试和完整客户端入口。已有有效绑定继续使用，配置端点改变则重新选择，不猜测
+另一个实例的工作区。此修正来自 2026-11-08 的核心流程交付，并非全页客户端对等验收。
+
+轻量桥接以已加载历史序号建立本次基线，历史/live 合并后仍按本问 user echo/turn
+取结果。具体关联使用原生 prompt 外层 `rpcId` 与 `user/message.source.rpcId`，
+有序 `turn/start` / `step/start` 恢复其 turn；不按提问文字猜测。同文并发因此可区分。
+缺少身份或 enclosing turn 时保持观察并明确提示，不以其他同文轮次结束本次
+等待或开放采用；可到完整客户端核查，不自动重发。
+依据是固定上游修订的[会话契约](https://github.com/deepseek-ai/deepseek-harness/blob/99f6f02fecdb7dff40c3fbc9470f5907c29f74ca/packages/host/apiproxy/src/api/sessions.ts)
+与[实际追加顺序](https://github.com/deepseek-ai/deepseek-harness/blob/99f6f02fecdb7dff40c3fbc9470f5907c29f74ca/packages/core/agent-loop/src/agent.ts)，
+不是最新 master 接口迁移的兼容声明。工具轨迹继续展示；仅 completed turn 的
+末步骤、经 assistant/message 确认且非空的正文可作为最终结果。未确认、被打断
+或空末步骤保留进度，不回退采用前一步。
+创建会话或补历史时 Stop 禁止稍后续发 prompt，且本问未提交时不取消已有远端
+任务。请求提交后沿用 harness 的会话级取消；轻量入口明确标为“停止 agent 会话”，
+说明可能影响同会话其他客户端。关闭窗口仍只停止观察。
+独立面板切换或重新打开本地观察对话也只断开观察，不隐式发送会话取消；
+取消共享任务仍由明确的“停止 agent 会话”触发。
 
 ### 模式（Agent Preset）
 

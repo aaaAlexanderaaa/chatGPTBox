@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Send, Square } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/storage.mjs'
 import { cn } from '../../utils/cn.mjs'
 import { shouldHandleInputAction } from '../../utils/should-handle-input-action.mjs'
+import { readInputDraft, writeInputDraft, removeInputDraft } from '../../services/input-drafts.mjs'
 
 // Draft storage lives in the extension's own storage.local, never page
 // localStorage: this component also renders inside content scripts, where
@@ -23,41 +23,107 @@ function autoGrow(el) {
   el.style.height = `${Math.min(el.scrollHeight, AUTO_MAX_INPUT_HEIGHT)}px`
 }
 
-export function InputBox({ onSubmit, enabled, postMessage, draftKey }) {
+export function InputBox({
+  onSubmit,
+  enabled,
+  postMessage,
+  draftKey,
+  stopLabel = 'Stop',
+  stopPlaceholder,
+  readOnly = false,
+  draftFlushRef,
+}) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
+  const valueRef = useRef(value)
+  valueRef.current = value
+  const editVersion = useRef(0)
+  const activeDraftKey = useRef(draftKey)
+  const lastWrite = useRef(null)
+  const mounted = useRef(true)
+  const submitting = useRef(false)
+  const draftSavedRef = useRef(true)
 
-  // Draft autosave (D-19 hard requirement): any blur, crash, or surface
-  // switch keeps every keystroke. Keyed by the owning surface.
-  const draftSavedRef = useRef(true) // false while a debounced save is pending
+  const saveDraft = (key, snapshot, version) => {
+    if (lastWrite.current?.key === key && lastWrite.current.version === version)
+      return lastWrite.current.promise
+    const pending = { key, version, promise: null }
+    pending.promise = writeInputDraft(draftStorageKey(key), snapshot).then(
+      () => {
+        if (activeDraftKey.current === key && editVersion.current === version)
+          draftSavedRef.current = true
+      },
+      (error) => {
+        if (lastWrite.current === pending) lastWrite.current = null
+        throw error
+      },
+    )
+    lastWrite.current = pending
+    return pending.promise
+  }
+  const flushDraft = async (key = activeDraftKey.current) => {
+    if (!key || draftSavedRef.current) return Promise.resolve()
+    do {
+      await saveDraft(key, valueRef.current, editVersion.current)
+    } while (activeDraftKey.current === key && !draftSavedRef.current)
+  }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  // Explicit navigation awaits flush. Blur/pagehide/unmount start a final
+  // write; a process killed before storage acknowledges it is not guaranteed.
+  useLayoutEffect(() => {
+    activeDraftKey.current = draftKey
+    draftSavedRef.current = true
     if (!draftKey) return
     let cancelled = false
-    void Browser.storage.local
-      .get(draftStorageKey(draftKey))
+    const version = editVersion.current
+    const onHide = () => {
+      void flushDraft(draftKey).catch(() => {})
+    }
+    window.addEventListener('pagehide', onHide)
+    void readInputDraft(draftStorageKey(draftKey))
       .then((stored) => {
-        if (cancelled) return
-        setValue(stored?.[draftStorageKey(draftKey)] || '')
+        if (cancelled || editVersion.current !== version) return
+        valueRef.current = stored
+        setValue(stored)
       })
       .catch(() => {})
     return () => {
       cancelled = true
+      window.removeEventListener('pagehide', onHide)
+      void flushDraft(draftKey).catch(() => {})
     }
   }, [draftKey])
 
   useEffect(() => {
     if (!draftKey || draftSavedRef.current) return
+    const version = editVersion.current
     const timer = setTimeout(() => {
-      void Browser.storage.local
-        .set({ [draftStorageKey(draftKey)]: value })
-        .catch(() => {})
-        .then(() => {
-          draftSavedRef.current = true
-        })
+      if (
+        activeDraftKey.current !== draftKey ||
+        editVersion.current !== version ||
+        draftSavedRef.current
+      )
+        return
+      void saveDraft(draftKey, value, version).catch(() => {})
     }, 250)
     return () => clearTimeout(timer)
   }, [draftKey, value])
+
+  useLayoutEffect(() => {
+    if (!draftFlushRef) return
+    const flush = () => flushDraft(draftKey)
+    draftFlushRef.current = flush
+    return () => {
+      if (draftFlushRef.current === flush) draftFlushRef.current = null
+    }
+  }, [draftFlushRef, draftKey])
 
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef(null)
@@ -80,17 +146,38 @@ export function InputBox({ onSubmit, enabled, postMessage, draftKey }) {
       })
   }, [enabled])
 
-  const handleKeyDownOrClick = (e) => {
+  const handleKeyDownOrClick = async (e) => {
     e.stopPropagation()
+    if (readOnly && enabled) return
     if (shouldHandleInputAction(e)) {
       e.preventDefault()
       if (enabled) {
-        if (!value) return
-        onSubmit(value)
+        if (!value || submitting.current) return
+        const snapshot = valueRef.current,
+          version = editVersion.current,
+          submittedKey = activeDraftKey.current
+        submitting.current = true
+        try {
+          const accepted = await onSubmit(snapshot)
+          if (
+            accepted === false ||
+            !mounted.current ||
+            editVersion.current !== version ||
+            activeDraftKey.current !== submittedKey
+          )
+            return
+        } catch {
+          return
+        } finally {
+          submitting.current = false
+        }
+        editVersion.current += 1
+        valueRef.current = ''
         setValue('')
         if (draftKey) {
           draftSavedRef.current = true // suppress the debounced re-save of ''
-          void Browser.storage.local.remove(draftStorageKey(draftKey)).catch(() => {})
+          lastWrite.current = null
+          void removeInputDraft(draftStorageKey(draftKey)).catch(() => {})
         }
       } else {
         postMessage({ stop: true })
@@ -145,25 +232,37 @@ export function InputBox({ onSubmit, enabled, postMessage, draftKey }) {
         ref={inputRef}
         rows={1}
         disabled={false}
+        readOnly={readOnly}
         className="interact-input"
         placeholder={
-          enabled ? t('Type your question here') : t('Generating... Press Enter to stop')
+          readOnly && enabled
+            ? t('Reopen saved conversation')
+            : enabled
+            ? t('Type your question here')
+            : t(stopPlaceholder || 'Generating... Press Enter to stop')
         }
         value={value}
         onChange={(e) => {
+          editVersion.current += 1
+          valueRef.current = e.target.value
           draftSavedRef.current = false
           setValue(e.target.value)
         }}
         onKeyDown={handleKeyDownOrClick}
         onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onBlur={() => {
+          setIsFocused(false)
+          void flushDraft().catch(() => {})
+        }}
       />
 
       {/* Submit/Stop Button */}
       <button
         className={cn('submit-button', !enabled && 'stop')}
         onClick={handleKeyDownOrClick}
-        aria-label={enabled ? t('Send') : t('Stop')}
+        disabled={readOnly && enabled}
+        aria-label={enabled ? t('Send') : t(stopLabel)}
+        title={enabled ? t('Send') : t(stopLabel)}
       >
         {enabled ? <Send size={15} /> : <Square size={15} />}
       </button>
@@ -176,6 +275,10 @@ InputBox.propTypes = {
   enabled: PropTypes.bool.isRequired,
   postMessage: PropTypes.func.isRequired,
   draftKey: PropTypes.string,
+  stopLabel: PropTypes.string,
+  stopPlaceholder: PropTypes.string,
+  readOnly: PropTypes.bool,
+  draftFlushRef: PropTypes.shape({ current: PropTypes.any }),
 }
 
 export default InputBox

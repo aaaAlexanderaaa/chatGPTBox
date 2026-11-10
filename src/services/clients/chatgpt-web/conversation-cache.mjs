@@ -1,3 +1,5 @@
+import { mergeConversationIndexMaps } from './history-merge.mjs'
+import { RuntimeMessage } from '../../../protocol/messages.mjs'
 import {
   formatChatgptWebConversationListItem,
   isPendingChatgptWebConversation,
@@ -108,13 +110,31 @@ export function mergeChatgptWebConversationIndexEntries(
     if (!normalizedItem) continue
 
     const previous = nextEntries[normalizedItem.id] || null
-    const nextEntry = {
+    let nextEntry = {
       ...previous,
       ...normalizedItem,
       firstSeenAt: previous?.firstSeenAt || syncedAt,
       lastSeenAt: syncedAt,
     }
 
+    if (
+      previous?.localTurnMessageId &&
+      timestampToSortableNumber(nextEntry.updateTime) <
+        timestampToSortableNumber(previous.updateTime)
+    ) {
+      nextEntry = {
+        ...nextEntry,
+        pending: previous.pending,
+        asyncStatus: previous.asyncStatus,
+        updateTime: previous.updateTime,
+        rawItem: {
+          ...nextEntry.rawItem,
+          pending: previous.pending,
+          async_status: previous.asyncStatus,
+          update_time: previous.updateTime,
+        },
+      }
+    }
     nextEntries[normalizedItem.id] = nextEntry
     if (!previous) {
       newIds.push(normalizedItem.id)
@@ -299,9 +319,7 @@ export async function importConversationCache(data) {
   const storage = await getBrowserStorage()
 
   // Merge index
-  const currentIndex = await getChatgptWebConversationIndex()
-  const nextIndex = { ...currentIndex, ...index }
-  await setChatgptWebConversationIndex(nextIndex)
+  await mutateChatgptWebConversationIndex('mergeImport', { entries: index })
 
   // Update meta if newer
   if (meta && typeof meta === 'object') {
@@ -388,6 +406,118 @@ export async function setChatgptWebConversationIndex(entries) {
   await storage.set({
     [CHATGPT_WEB_CONVERSATION_INDEX_KEY]: entries && typeof entries === 'object' ? entries : {},
   })
+}
+
+let conversationIndexWriteQueue = Promise.resolve()
+
+function updateConversationIndex(updater) {
+  const run = conversationIndexWriteQueue.then(async () => {
+    const current = await getChatgptWebConversationIndex()
+    const result = await updater(current)
+    await setChatgptWebConversationIndex(result.entries)
+    return result
+  })
+  conversationIndexWriteQueue = run.catch(() => {})
+  return run
+}
+
+let localIndexMutationOwner = false
+
+// Explicit for MV3 workers and MV2 background pages (which also have a DOM).
+export function registerChatgptWebCacheMutationOwner() {
+  localIndexMutationOwner = true
+}
+
+export async function mutateChatgptWebConversationIndex(method, payload) {
+  if (!localIndexMutationOwner && typeof document !== 'undefined') {
+    const { default: Browser } = await import('webextension-polyfill')
+    return Browser.runtime.sendMessage({
+      type: RuntimeMessage.ChatgptWebCacheMutation,
+      data: { method, payload },
+    })
+  }
+  return applyChatgptWebCacheMutation(method, payload)
+}
+
+// Called locally by the background router; never accepts arbitrary keys/updaters.
+export function applyChatgptWebCacheMutation(method, payload = {}) {
+  if (method === 'mergeImport') {
+    if (!payload.entries || typeof payload.entries !== 'object' || Array.isArray(payload.entries))
+      throw new Error('Invalid imported conversation index')
+    return updateConversationIndex(async (entries) => {
+      const merged = mergeConversationIndexMaps(entries, payload.entries)
+      for (const [id, entry] of Object.entries(entries)) {
+        if (!payload.entries[id]) merged[id] = entry
+        else if (entry.localTurnMessageId) {
+          merged[id].localTurnMessageId = entry.localTurnMessageId
+          if (
+            timestampToSortableNumber(merged[id].updateTime) <=
+            timestampToSortableNumber(entry.updateTime)
+          ) {
+            for (const key of ['pending', 'asyncStatus', 'updateTime', 'rawItem'])
+              merged[id][key] = entry[key]
+          }
+        }
+      }
+      return { entries: merged }
+    })
+  }
+  if (method === 'mergePage') {
+    if (!Array.isArray(payload.items) || payload.items.length > 100)
+      throw new Error('Invalid conversation index page')
+    return updateConversationIndex((entries) =>
+      mergeChatgptWebConversationIndexEntries(entries, payload.items, payload.syncedAt),
+    )
+  }
+  if (method === 'snapshot') {
+    const { record, title: snapshotTitle, history } = payload
+    if (!record?.conversationId || typeof record.conversationId !== 'string')
+      throw new Error('Invalid conversation snapshot identity')
+    return updateConversationIndex((entries) => {
+      const existing = entries[record.conversationId]
+      if (!existing) return { entries }
+      const stale =
+        !!existing.localTurnMessageId &&
+        (!record.updateTime ||
+          timestampToSortableNumber(record.updateTime) <
+            timestampToSortableNumber(existing.updateTime))
+      const title = pickChatgptWebConversationTitle(
+        existing.rawItem?.title,
+        existing.title,
+        snapshotTitle,
+      )
+      const status = stale
+        ? {}
+        : {
+            pending: record.pending === true,
+            asyncStatus: record.asyncStatus,
+            updateTime: record.updateTime ?? existing.updateTime,
+          }
+      entries[record.conversationId] = {
+        ...existing,
+        ...status,
+        title,
+        rawItem: {
+          ...existing.rawItem,
+          title,
+          ...(stale
+            ? {}
+            : {
+                pending: record.pending === true,
+                async_status: record.asyncStatus,
+                update_time: record.updateTime ?? existing.updateTime,
+              }),
+        },
+        snapshotCachedAt: record.cachedAt,
+        snapshotUpdateTime: record.updateTime,
+        snapshotAsyncStatus: record.asyncStatus,
+        snapshotHistoryComplete: history?.complete === true,
+        snapshotHistoryScope: history?.scope || null,
+      }
+      return { entries, stale }
+    })
+  }
+  throw new Error('Unsupported conversation index mutation')
 }
 
 export async function getChatgptWebConversationMeta() {
@@ -499,19 +629,12 @@ export async function rememberChatgptWebCreatedConversationIndexEntry(
 
 export async function upsertChatgptWebCreatedConversationIndexEntry(conversationId, options = {}) {
   const entry = await rememberChatgptWebCreatedConversationIndexEntry(conversationId, options)
-  const stored = await getStoredChatgptWebConversationIndex()
-  if (stored[entry.id]) {
-    localCreateAckEntries.delete(entry.id)
-    return stored[entry.id]
-  }
-  if (entry.localCreateAck !== true) return entry
-  stored[entry.id] = entry
-  await setChatgptWebConversationIndex(stored)
+  await updateConversationIndex((entries) => ({
+    entries: { ...entries, [entry.id]: entries[entry.id] || entry },
+  }))
   localCreateAckEntries.delete(entry.id)
   return entry
 }
-
-let turnIndexWriteQueue = Promise.resolve()
 
 export async function updateChatgptWebConversationTurnIndex({
   conversationId,
@@ -519,12 +642,11 @@ export async function updateChatgptWebConversationTurnIndex({
   status,
 } = {}) {
   if (!conversationId || !messageId || !['running', 'completed'].includes(status)) return
-  const run = turnIndexWriteQueue.then(async () => {
-    const index = await getChatgptWebConversationIndex()
+  const run = updateConversationIndex(async (index) => {
     const entry = index[conversationId]
-    if (!entry) return
+    if (!entry) return { entries: index }
     // A delayed completion from an earlier turn must not clear a newer send.
-    if (status === 'completed' && entry.localTurnMessageId !== messageId) return
+    if (status === 'completed' && entry.localTurnMessageId !== messageId) return { entries: index }
     const pending = status === 'running'
     const asyncStatus = pending ? 'in_progress' : null
     const updateTime = new Date().toISOString()
@@ -543,12 +665,11 @@ export async function updateChatgptWebConversationTurnIndex({
         update_time: updateTime,
       },
     }
-    await setChatgptWebConversationIndex(index)
     // The list status is known, but the cached body may still belong to the
     // preceding turn. Fetch that body on the next read instead of fabricating it.
     invalidateConversation(conversationId)
+    return { entries: index }
   })
-  turnIndexWriteQueue = run.catch(() => {})
   return run
 }
 
@@ -556,37 +677,13 @@ export async function saveChatgptWebConversationSnapshot(conversation, options =
   const record = createChatgptWebConversationSnapshotRecord(conversation, options)
   await setCachedChatgptWebConversationRecord(record)
 
-  const index = await getChatgptWebConversationIndex()
-  const existingEntry = index[record.conversationId]
-  if (existingEntry) {
-    const title = pickChatgptWebConversationTitle(
-      existingEntry.rawItem?.title,
-      existingEntry.title,
-      conversation.title,
-    )
-    index[record.conversationId] = {
-      ...existingEntry,
-      title,
-      rawItem: {
-        ...existingEntry.rawItem,
-        id: record.conversationId,
-        title,
-        pending: record.pending === true,
-        async_status: record.asyncStatus,
-        update_time: record.updateTime ?? existingEntry.updateTime,
-      },
-      pending: record.pending === true,
-      asyncStatus: record.asyncStatus,
-      updateTime: record.updateTime ?? existingEntry.updateTime,
-      snapshotCachedAt: record.cachedAt,
-      snapshotUpdateTime: record.updateTime,
-      snapshotAsyncStatus: record.asyncStatus,
-      snapshotHistoryComplete: getChatgptWebConversationHistoryInfo(conversation).complete,
-      snapshotHistoryScope: getChatgptWebConversationHistoryInfo(conversation).scope,
-    }
-    await setChatgptWebConversationIndex(index)
-  }
-
-  clearInvalidation(record.conversationId)
+  const indexRecord = { ...record }
+  delete indexRecord.snapshot
+  const result = await mutateChatgptWebConversationIndex('snapshot', {
+    record: indexRecord,
+    title: conversation.title,
+    history: getChatgptWebConversationHistoryInfo(conversation),
+  })
+  if (!result?.stale) clearInvalidation(record.conversationId)
   return record
 }

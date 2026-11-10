@@ -8,7 +8,12 @@
 import { getUserConfig } from '../../config/storage.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import {
+  completionOutcome,
+  getRequestConversationRecords,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { AgentProtocol, resolveOpenAiCompatibleProtocol } from './openai-protocol.mjs'
 import {
   convertMessagesToResponsesInput,
@@ -68,7 +73,7 @@ export async function generateAnswersWithCustomApi(
 
   const protocol = resolveOpenAiCompatibleProtocol(requestUrl)
   const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
+    getRequestConversationRecords(session).slice(-config.maxConversationContextLength),
     false,
   )
   prompt.push({ role: 'user', content: question })
@@ -81,12 +86,18 @@ export async function generateAnswersWithCustomApi(
     answer = formatCustomApiDisplayAnswer(reasoning, finalContent)
     if (answer) port.postMessage({ answer, done: false, session: null })
   }
-  const finish = () => {
+  const finish = (outcome = 'completed') => {
     if (finished) return
     finished = true
-    pushRecord(session, question, finalContent || answer)
+    if (outcome === 'completed') pushRecord(session, question, finalContent || answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: null, done: true, session: session })
+    port.postMessage({
+      answer: null,
+      finalContent: finalContent || answer,
+      done: true,
+      outcome,
+      session,
+    })
   }
 
   const derivedBaseUrl = deriveOpenAiBaseUrl(requestUrl)
@@ -109,8 +120,13 @@ export async function generateAnswersWithCustomApi(
       )
       answer = extractResponsesOutputText(payload)
       if (answer) port.postMessage({ answer, done: false, session: null })
+      finalContent = answer
       finish()
       return
+    } catch (error) {
+      if (error.partialAnswer)
+        port.postMessage({ answer: error.partialAnswer, done: true, outcome: 'incomplete' })
+      throw error
     } finally {
       cleanupPortListeners()
     }
@@ -156,7 +172,7 @@ export async function generateAnswersWithCustomApi(
       }
 
       if (data.choices?.[0]?.finish_reason) {
-        finish()
+        finish(completionOutcome(data.choices[0].finish_reason))
         return
       }
     },
@@ -165,11 +181,8 @@ export async function generateAnswersWithCustomApi(
       cleanupPortListeners()
       if (result.aborted) return
       if (!finished) {
-        if (answer.trim()) {
-          finish()
-          return
-        }
-        throw new Error('Custom API response ended without answer content')
+        finish('incomplete')
+        return
       }
       port.postMessage({ done: true })
     },

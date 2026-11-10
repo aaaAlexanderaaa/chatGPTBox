@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-06
+last_reconciled: 2026-11-08
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -314,6 +314,13 @@ The protocol contract is:
 
 Network failures, timeouts, HTTP errors, bridge disconnects, and missing acknowledgements after
 dispatch are reported as `ambiguous_dispatch` with `retryable: false`.
+
+Within the seven-day retention period, capacity (2,000 keyed operations) never
+evicts a protected key. At saturation a new key fails with
+`OPERATION_LEDGER_FULL` before submission; existing keys can still recover. Wait
+for expiry or reconcile the original operations; do not clear the ledger or
+change keys to replay uncertain writes. Restart retains the same protection.
+This is bounded retention, not permanent deduplication.
 
 Custom conversation write state is persisted under `~/.chatgptbox/gateway-operations.json`.
 Standard unkeyed requests are not written to that ledger. The initial `/f/conversation` POST is the

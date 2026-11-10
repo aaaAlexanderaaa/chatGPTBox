@@ -1,15 +1,234 @@
 /* global HTTP, app, draft, FileManager */
+// BEGIN CONTROL DOCUMENT
+/* eslint-disable no-unused-vars */
+// Generated into every action. The header authenticates structure, not content secrecy.
+// Model text and user questions never supply control metadata or pending anchors.
+const CONTROL_HEADER_RE = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
+const CONTROL_JSON_VALUES = new Set()
+const CONTROL = openControlDocument(draft.content || '')
+if (CONTROL.migrated) {
+  delete CONTROL.migrated
+  saveControlDocument()
+}
+
+function controlFailure() {
+  const message =
+    'This note has ambiguous or damaged ChatGPTBox controls. Automatic processing stopped. Keep the complete note and its send IDs; update all actions together and inspect the original conversation from a fresh List/Get note before trying again.'
+  app.displayErrorMessage(message)
+  throw new Error(message)
+}
+function controlJson(value) {
+  const text = JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  CONTROL_JSON_VALUES.add(text)
+  return text
+}
+function controlText(value) {
+  return value.replace(/chatgptbox-/g, 'chatgptbox-' + CONTROL.id + '-')
+}
+function controlRegex(value) {
+  return new RegExp(
+    value.source.replace(/chatgptbox-/g, 'chatgptbox-' + CONTROL.id + '-'),
+    value.flags,
+  )
+}
+function controlComments(content, id) {
+  return content.match(new RegExp('<!-- chatgptbox-' + id + '-[^\\n]*? -->', 'g')) || []
+}
+function assertUniqueControls(comments, list) {
+  const counts = {}
+  let textOperations = 0,
+    photoOperation = false,
+    pendingMessage = false
+  for (const comment of comments) {
+    const match = comment.match(
+      /^<!-- chatgptbox-(?:[a-z0-9]{16,80}-)?(waiting-reply:start|waiting-reply:end|photos:|photo-operation:|new-operation:|photo-status:start|photo-status:end|conversation:)(.*?) -->$/,
+    )
+    if (!match) controlFailure()
+    const name = match[1],
+      value = match[2]
+    if (name === 'waiting-reply:end' || name.startsWith('photo-status:')) {
+      if (value !== '') controlFailure()
+    } else if (name === 'conversation:') {
+      if (!/^[A-Za-z0-9-]+$/.test(value)) controlFailure()
+    } else {
+      let json = value
+      if (name === 'new-operation:') {
+        const operation = value.match(/^drafts-[a-z0-9]+-[a-z0-9]+(?: (\{.*\}))?$/)
+        if (!operation) controlFailure()
+        json = operation[1] || '{}'
+      }
+      let metadata
+      try {
+        metadata = JSON.parse(json)
+      } catch {
+        controlFailure()
+      }
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) controlFailure()
+      if (name === 'new-operation:') textOperations += 1
+      if (name === 'photo-operation:') photoOperation = true
+      if (name === 'waiting-reply:start') {
+        if (
+          Object.prototype.hasOwnProperty.call(metadata, 'operationId') &&
+          (typeof metadata.operationId !== 'string' || !metadata.operationId.trim())
+        )
+          controlFailure()
+        if (metadata.operationId && metadata.pendingMessageId) controlFailure()
+        if (metadata.operationId) textOperations += 1
+        else if (metadata.pendingMessageId || metadata.pendingQuery || metadata.pendingSentAt)
+          pendingMessage = true
+      }
+    }
+    if (list && name === 'conversation:') continue
+    counts[name] = (counts[name] || 0) + 1
+    if (counts[name] > 1) controlFailure()
+  }
+  if (!!counts['waiting-reply:start'] !== !!counts['waiting-reply:end']) controlFailure()
+  if (!!counts['photo-status:start'] !== !!counts['photo-status:end']) controlFailure()
+  if (textOperations > 1 || (photoOperation && (textOperations || pendingMessage))) controlFailure()
+}
+function openControlDocument(content) {
+  const match = content.match(CONTROL_HEADER_RE)
+  if (match) {
+    let value
+    try {
+      value = JSON.parse(match[1])
+    } catch {
+      controlFailure()
+    }
+    if (
+      value.version !== 2 ||
+      !/^[a-z0-9]{16,80}$/.test(value.id) ||
+      !Array.isArray(value.controls)
+    )
+      controlFailure()
+    const body = content.slice(match[0].length)
+    const comments = controlComments(body, value.id)
+    const openers = body.match(new RegExp('<!-- chatgptbox-' + value.id + '-', 'g')) || []
+    if (openers.length !== comments.length) controlFailure()
+    assertUniqueControls(comments, value.kind === 'list')
+    if (controlJson(comments) !== controlJson(value.controls)) controlFailure()
+    return value
+  }
+  if (/<!-- chatgptbox-document:|<!-- chatgptbox-[a-z0-9]{16,80}-/.test(content)) controlFailure()
+  const legacy = content.match(/<!-- chatgptbox-[^\n]*? -->/g) || []
+  if ((content.match(/<!-- chatgptbox-/g) || []).length !== legacy.length) controlFailure()
+  const list =
+    legacy.length > 0 &&
+    legacy.every((item) => /^<!-- chatgptbox-conversation:[A-Za-z0-9-]+ -->$/.test(item)) &&
+    content
+      .trim()
+      .split('\n')
+      .every((line) => /^- \[[ x]\].*<!-- chatgptbox-conversation:[A-Za-z0-9-]+ -->\s*$/.test(line))
+  assertUniqueControls(legacy, list)
+  // A bare old operation/photo marker could be a quoted example. Only a
+  // recognizable old conversation or task list can own legacy controls.
+  if (legacy.length && !list && !legacy.some((item) => item.includes('waiting-reply:start')))
+    controlFailure()
+  let fence = null
+  for (const line of content.split('\n')) {
+    const edge = line.match(/^\s{0,3}(`{3,}|~{3,})/)
+    if (edge) {
+      if (/<!-- chatgptbox-/.test(line)) controlFailure()
+      if (!fence) fence = edge[1]
+      else if (edge[1][0] === fence[0] && edge[1].length >= fence.length) fence = null
+    } else if (fence && /<!-- chatgptbox-/.test(line)) controlFailure()
+  }
+  if (
+    legacy.some((item) => item.includes('waiting-reply:start')) &&
+    (!/^# [^\n]+\n+Conversation ID:\s*[A-Za-z0-9-]+\s*\n/.test(content) ||
+      !/^## Waiting Reply[ \t]*\n+<!-- chatgptbox-waiting-reply:start /m.test(content) ||
+      content.indexOf('<!-- chatgptbox-waiting-reply:start') < content.indexOf('## Waiting Reply'))
+  )
+    controlFailure()
+  const headerId = content.match(/^Conversation ID:\s*([A-Za-z0-9-]+)\s*$/m)
+  const waiting = content.match(/<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/)
+  if (waiting) {
+    let metadata
+    try {
+      metadata = JSON.parse(waiting[1])
+    } catch {
+      controlFailure()
+    }
+    if (headerId && metadata.conversationId !== headerId[1]) controlFailure()
+  }
+  if (legacy.length && !list) {
+    const endMarker = '<!-- chatgptbox-waiting-reply:end -->'
+    const end = content.indexOf(endMarker)
+    for (const comment of legacy) {
+      if (comment.includes('waiting-reply:')) continue
+      if (
+        content.indexOf(comment) < end ||
+        !/^<!-- chatgptbox-(?:photos:|photo-operation:|photo-status:)/.test(comment)
+      )
+        controlFailure()
+    }
+    // In original conversation notes these generated blocks follow Waiting
+    // Reply. Transcript examples and arbitrary trailing prose cannot own them.
+    const tail = content
+      .slice(end + endMarker.length)
+      .replace(
+        /<!-- chatgptbox-photo-status:start -->\nPhoto send: [^\n]*\n<!-- chatgptbox-photo-status:end -->/g,
+        '',
+      )
+      .replace(/<!-- chatgptbox-(?:photos:|photo-operation:)\{[^\n]*\} -->/g, '')
+    if (tail.trim()) controlFailure()
+  }
+  const id =
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2) +
+    Math.random().toString(36).slice(2)
+  // Only unique legacy structural controls migrate. Preserve operation identity/payload.
+  draft.content = content.replace(/<!-- chatgptbox-/g, '<!-- chatgptbox-' + id + '-')
+  return {
+    version: 2,
+    id,
+    kind: list ? 'list' : waiting || headerId ? 'conversation' : 'note',
+    conversationId: headerId?.[1] || null,
+    controls: controlComments(draft.content, id),
+    migrated: legacy.length > 0,
+  }
+}
+function plainNoteContent(content) {
+  return content.replace(CONTROL_HEADER_RE, '')
+}
+function saveControlDocument() {
+  const body = plainNoteContent(draft.content || '')
+  const comments = controlComments(body, CONTROL.id)
+  assertUniqueControls(comments, CONTROL.kind === 'list')
+  for (const comment of comments) {
+    const json = comment.match(/(\{.*\}) -->$/)?.[1]
+    if (json && !CONTROL_JSON_VALUES.has(json) && !CONTROL.controls.includes(comment))
+      controlFailure()
+  }
+  CONTROL.controls = comments
+  if (comments.some((item) => item.includes('-waiting-reply:start '))) CONTROL.kind = 'conversation'
+  draft.content = '<!-- chatgptbox-document:' + controlJson(CONTROL) + ' -->\n' + body
+  draft.update()
+}
+function assertOperationAge(operationId) {
+  const match =
+    typeof operationId === 'string' && operationId.match(/^drafts-([a-z0-9]+)-[a-z0-9]+$/)
+  const createdAt = match ? parseInt(match[1], 36) : NaN
+  if (
+    !Number.isFinite(createdAt) ||
+    Date.now() - createdAt >= 7 * 24 * 60 * 60 * 1000 ||
+    createdAt > Date.now() + 60000
+  )
+    throw new Error(
+      'This send is outside the known recovery window. Its ID was kept. Inspect the original conversation; do not resend with a new ID.',
+    )
+}
+/* eslint-enable no-unused-vars */
+// END CONTROL DOCUMENT
 const MODEL_OVERRIDE = null
 // Change this if your API gateway runs on a different host or port.
 const BASE_URL = 'http://127.0.0.1:18080'
 const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
 // Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
 const INCLUDE_THINKING = false
-const WAITING_REPLY_START_RE = /<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/
-const WAITING_REPLY_END = '<!-- chatgptbox-waiting-reply:end -->'
-const USER_HEADING_RE = /^### USER\s*$/gm
+const WAITING_REPLY_START_RE = controlRegex(/<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/)
+const WAITING_REPLY_END = controlText('<!-- chatgptbox-waiting-reply:end -->')
 const PENDING_ANSWER_HEADING = '### ASSISTANT (pending)'
-const PENDING_ANSWER_HEADING_RE = /^### ASSISTANT \(pending\)\s*$/gm
 const PENDING_ANSWER_TEXT = '_Waiting for ChatGPT. Run the Get action to collect the answer._'
 
 function fail(message) {
@@ -77,46 +296,34 @@ function findWaitingReply(content) {
 }
 
 function getCheckedConversationIds(content) {
+  if (CONTROL.kind !== 'list') return []
   return [
-    ...content.matchAll(/^- \[x\].*<!-- chatgptbox-conversation:([A-Za-z0-9-]+) -->\s*$/gm),
+    ...content.matchAll(
+      controlRegex(/^- \[x\].*<!-- chatgptbox-conversation:([A-Za-z0-9-]+) -->\s*$/gm),
+    ),
   ].map((match) => match[1])
 }
 
-function lastMatchIndex(content, regex, beforeIndex) {
-  let result = -1
-  regex.lastIndex = 0
-  let match
-  while ((match = regex.exec(content)) !== null) {
-    if (beforeIndex !== undefined && match.index >= beforeIndex) break
-    result = match.index
-  }
-  return result
-}
-
-// Recovers the question that the Send action appended to the note. The gateway
-// acknowledges a send before ChatGPT has stored the turn, so for a while the
-// snapshot has no trace of it and the note is the only copy.
-function findLocalPendingQuery(content) {
-  const pendingIndex = lastMatchIndex(content, PENDING_ANSWER_HEADING_RE)
-  if (pendingIndex < 0) return ''
-  const userIndex = lastMatchIndex(content, USER_HEADING_RE, pendingIndex)
-  if (userIndex < 0) return ''
-  const userHeadingEnd = content.indexOf('\n', userIndex)
-  if (userHeadingEnd < 0 || userHeadingEnd > pendingIndex) return ''
-  return content.slice(userHeadingEnd, pendingIndex).trim()
-}
-
 // The turn being awaited: its user message id from the metadata plus the
-// question text from the note. Either one is enough to find it in a snapshot.
+// question text retained for display. Only the message id proves identity.
 function readPendingAnchor(content, metadata) {
+  if (
+    metadata?.operationId &&
+    (!metadata.operationRequest ||
+      typeof metadata.operationRequest.query !== 'string' ||
+      !metadata.operationRequest.query.trim())
+  )
+    fail(
+      'The saved send request is missing. The complete note and its ID were kept; inspect the original operation before refreshing.',
+    )
   const messageId =
     metadata && typeof metadata.pendingMessageId === 'string'
       ? metadata.pendingMessageId.trim()
       : ''
   const sentAt =
     metadata && typeof metadata.pendingSentAt === 'string' ? metadata.pendingSentAt.trim() : ''
-  const query = findLocalPendingQuery(content)
-  if (!messageId && !query) return null
+  const query = metadata?.pendingQuery || metadata?.operationRequest?.query || ''
+  if (!messageId && !query && !sentAt) return null
   return { messageId, sentAt, query }
 }
 
@@ -135,7 +342,11 @@ function getOpenConversationId(content) {
     }
   }
 
-  const idMatch = content.match(/^Conversation ID:\s*([A-Za-z0-9-]+)\s*$/m)
+  const idMatch = CONTROL.conversationId
+    ? [null, CONTROL.conversationId]
+    : plainNoteContent(content).match(
+        /^(?:#[^\n]+\n\s*)?Conversation ID:\s*([A-Za-z0-9-]+)\s*(?:\n|$)/,
+      )
   if (idMatch) {
     return {
       conversationId: idMatch[1],
@@ -195,13 +406,6 @@ function getLastMessageText(messages, role) {
   return ''
 }
 
-function sameQuestion(left, right) {
-  const collapse = (text) => normalizeText(text).replace(/\s+/g, ' ')
-  const a = collapse(left)
-  const b = collapse(right)
-  return Boolean(a) && a === b
-}
-
 function isPendingMessageStatus(status) {
   const normalized = normalizeText(status).toLowerCase()
   return (
@@ -213,26 +417,23 @@ function isPendingMessageStatus(status) {
 }
 
 function findPendingTurnIndex(messages, anchor) {
-  if (!anchor) return -1
-  for (let cursor = messages.length - 1; cursor >= 0; cursor -= 1) {
-    const message = messages[cursor]
-    if (normalizeText(message && message.role).toLowerCase() !== 'user') continue
-    if (anchor.messageId) {
-      if (message.messageId === anchor.messageId) return cursor
-      continue
-    }
-    if (sameQuestion(message.text, anchor.query)) return cursor
-  }
-  return -1
+  if (!anchor?.messageId) return -1
+  return messages.findIndex(
+    (message) =>
+      normalizeText(message && message.role).toLowerCase() === 'user' &&
+      message.messageId === anchor.messageId,
+  )
 }
 
 function hasFinishedAssistantAfter(messages, index) {
-  return messages.slice(index + 1).some((message) => {
-    if (normalizeText(message && message.role).toLowerCase() !== 'assistant') return false
-    if (!normalizeText(message && message.text)) return false
-    if (message.isFinal === false || message.endTurn === false) return false
-    return !isPendingMessageStatus(message && message.status)
-  })
+  for (const message of messages.slice(index + 1)) {
+    const role = normalizeText(message && message.role).toLowerCase()
+    if (role === 'user') return false
+    if (role !== 'assistant' || !normalizeText(message && message.text)) continue
+    if (message.isFinal === false || message.endTurn === false) continue
+    if (!isPendingMessageStatus(message && message.status)) return true
+  }
+  return false
 }
 
 // Where the awaited turn stands in this snapshot:
@@ -240,9 +441,8 @@ function hasFinishedAssistantAfter(messages, index) {
 // - `awaiting`: the question is there, the answer is not finished
 // - `answered`: this turn has a finished assistant reply
 // - `none`: nothing is being awaited
-// A stored pendingMessageId matches by id only. Question text is a fallback
-// only after that id is gone, so a repeat of an earlier question cannot
-// resolve to the old turn. `conversation.pending` can veto "answered" but
+// A stored pendingMessageId matches by id only. Without an id, question
+// text cannot identify a send, so its pending anchor stays unresolved. `conversation.pending` can veto "answered" but
 // never decides the match by itself.
 function resolvePendingTurn(messages, anchor, conversation) {
   if (!anchor) return { state: 'none', index: -1 }
@@ -345,7 +545,7 @@ function renderWaitingReplyBlock(conversation, draftReply, existingMetadata, anc
     existingMetadata && typeof existingMetadata.operationId === 'string'
       ? existingMetadata.operationId.trim()
       : ''
-  if (pendingReply && existingOperationId) {
+  if (existingOperationId) {
     metadata.operationId = existingOperationId
     if (existingMetadata.operationRequest)
       metadata.operationRequest = existingMetadata.operationRequest
@@ -357,15 +557,16 @@ function renderWaitingReplyBlock(conversation, draftReply, existingMetadata, anc
   if (anchor && pendingTurn.state !== 'answered') {
     if (anchor.messageId) metadata.pendingMessageId = anchor.messageId
     if (anchor.sentAt) metadata.pendingSentAt = anchor.sentAt
+    if (anchor.query) metadata.pendingQuery = anchor.query
   }
   const body = pendingReply ? '\n' + pendingReply + '\n' : ''
 
   return [
     '## Waiting Reply',
     '',
-    '<!-- chatgptbox-waiting-reply:start ' + JSON.stringify(metadata) + ' -->',
+    controlText('<!-- chatgptbox-waiting-reply:start ') + controlJson(metadata) + ' -->',
     body,
-    '<!-- chatgptbox-waiting-reply:end -->',
+    controlText('<!-- chatgptbox-waiting-reply:end -->'),
   ].join('\n')
 }
 
@@ -416,9 +617,11 @@ function renderConversation(conversation, draftReply, existingMetadata, anchor) 
 
 // BEGIN PHOTO HELPERS
 /* eslint-disable no-unused-vars */
-const PHOTO_METADATA_RE = /<!-- chatgptbox-photos:(\{.*\}) -->/
-const PHOTO_OPERATION_RE = /<!-- chatgptbox-photo-operation:(\{.*\}) -->/
-const PHOTO_STATUS_RE = /^Photo send:.*\n?/gm
+const PHOTO_METADATA_RE = controlRegex(/<!-- chatgptbox-photos:(\{.*\}) -->/)
+const PHOTO_OPERATION_RE = controlRegex(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)
+const PHOTO_STATUS_RE = controlRegex(
+  /<!-- chatgptbox-photo-status:start -->[\s\S]*?<!-- chatgptbox-photo-status:end -->\n?/g,
+)
 
 function readPhotoMetadata(content) {
   const match = content.match(PHOTO_METADATA_RE)
@@ -426,11 +629,11 @@ function readPhotoMetadata(content) {
 }
 
 function writePhotoMetadata(metadata) {
-  const marker = '<!-- chatgptbox-photos:' + JSON.stringify(metadata) + ' -->'
+  const marker = controlText('<!-- chatgptbox-photos:') + controlJson(metadata) + ' -->'
   draft.content = PHOTO_METADATA_RE.test(draft.content || '')
     ? draft.content.replace(PHOTO_METADATA_RE, () => marker)
     : (draft.content || '').trimEnd() + '\n\n' + marker + '\n'
-  draft.update()
+  saveControlDocument()
 }
 
 function readPhotoOperation(content) {
@@ -445,6 +648,7 @@ function photoPrompt(content, waitingReply) {
         .replace(PHOTO_METADATA_RE, '')
         .replace(PHOTO_OPERATION_RE, '')
         .replace(PHOTO_STATUS_RE, '')
+        .replace(CONTROL_HEADER_RE, '')
         .trim()
 }
 
@@ -500,8 +704,13 @@ function photoStatus(status) {
     label +
     (status.error ? ' (' + status.error.replace(/[\r\n]/g, ' ') + ')' : '') +
     '\n'
-  draft.content = (draft.content || '').replace(PHOTO_STATUS_RE, '').trimEnd() + '\n\n' + line
-  draft.update()
+  draft.content =
+    (draft.content || '').replace(PHOTO_STATUS_RE, '').trimEnd() +
+    '\n\n' +
+    controlText('<!-- chatgptbox-photo-status:start -->\n') +
+    line +
+    controlText('<!-- chatgptbox-photo-status:end -->\n')
+  saveControlDocument()
   if (['failed', 'ambiguous'].includes(status.phase)) app.displayErrorMessage(label)
   else app.displaySuccessMessage(label)
 }
@@ -516,6 +725,7 @@ function finishPhotoOperation(status, job) {
   const unsent = edited && edited !== job.request.query ? edited : ''
   const images = metadata.images || []
   const summary = images
+    .filter((image) => job.request.attachments.includes(image.id))
     .map((image) => '_Photo: ' + String(image.name || 'photo').replace(/[\r\n]/g, ' ') + '_')
     .join('\n')
   if (currentReply) {
@@ -526,11 +736,11 @@ function finishPhotoOperation(status, job) {
       currentContent.slice(0, start) + '\n' + job.request.query + '\n' + currentContent.slice(end)
   } else {
     draft.content =
-      '# Conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
-      JSON.stringify({ conversationId: receipt.conversationId }) +
+      controlText('# Conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ') +
+      controlJson({ conversationId: receipt.conversationId }) +
       ' -->\n' +
       job.request.query +
-      '\n<!-- chatgptbox-waiting-reply:end -->\n'
+      controlText('\n<!-- chatgptbox-waiting-reply:end -->\n')
   }
   const match = draft.content.match(WAITING_REPLY_START_RE)
   const waitingMetadata = JSON.parse(match[1])
@@ -539,6 +749,7 @@ function finishPhotoOperation(status, job) {
   waitingMetadata.conversationId = receipt.conversationId
   waitingMetadata.defaultModel = receipt.defaultModel || waitingMetadata.defaultModel || null
   waitingMetadata.pendingMessageId = receipt.messageId
+  waitingMetadata.pendingQuery = job.request.query
   waitingMetadata.pendingSentAt = receipt.createdAt || new Date().toISOString()
   const afterStart = draft.content.indexOf(match[0]) + match[0].length
   const blockEnd = draft.content.indexOf(WAITING_REPLY_END, afterStart)
@@ -553,11 +764,11 @@ function finishPhotoOperation(status, job) {
     (summary ? '\n\n' + summary : '') +
     '\n\n### ASSISTANT (pending)\n\n' +
     PENDING_ANSWER_TEXT +
-    '\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
-    JSON.stringify(waitingMetadata) +
+    controlText('\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ') +
+    controlJson(waitingMetadata) +
     ' -->\n' +
     unsent +
-    '\n<!-- chatgptbox-waiting-reply:end -->\n' +
+    controlText('\n<!-- chatgptbox-waiting-reply:end -->\n') +
     draft.content.slice(blockEnd + WAITING_REPLY_END.length)
   draft.content =
     draft.content
@@ -574,6 +785,16 @@ function finishPhotoOperation(status, job) {
 function sendPhotoOperation(content, waitingReply) {
   let job = readPhotoOperation(content)
   if (!job) {
+    if (
+      waitingReply &&
+      (waitingReply.metadata.pendingMessageId ||
+        waitingReply.metadata.pendingQuery ||
+        waitingReply.metadata.pendingSentAt ||
+        waitingReply.metadata.operationRequest?.query)
+    )
+      fail(
+        'The previous turn is still pending. Your next question and photos were kept; run Get before sending them.',
+      )
     const metadata = stagePhotoFiles(readPhotoMetadata(content))
     const query = photoPrompt(content, waitingReply) || '请分析这些图片，标明不确定的地方。'
     const conversationId = waitingReply && waitingReply.metadata.conversationId
@@ -594,10 +815,10 @@ function sendPhotoOperation(content, waitingReply) {
     }
     draft.content =
       (draft.content || '').trimEnd() +
-      '\n\n<!-- chatgptbox-photo-operation:' +
-      JSON.stringify(job) +
+      controlText('\n\n<!-- chatgptbox-photo-operation:') +
+      controlJson(job) +
       ' -->\n'
-    draft.update()
+    saveControlDocument()
   }
   stagePhotoFiles(readPhotoMetadata(draft.content || ''))
   const createdAt = typeof job.createdAt === 'string' ? new Date(job.createdAt).getTime() : NaN
@@ -697,9 +918,18 @@ try {
           query,
         'GET',
       )
+    if (
+      target.anchor &&
+      !target.anchor.query &&
+      (!target.anchor.messageId ||
+        !(payload.messages || []).some((message) => message.messageId === target.anchor.messageId))
+    )
+      fail(
+        'The awaited message is not visible yet. The original note and send identity were kept; run Get again later.',
+      )
     draft.content = renderConversation(payload, target.draftReply, target.metadata, target.anchor)
     if (photoMetadata) writePhotoMetadata(photoMetadata)
-    draft.update()
+    saveControlDocument()
     const stillWaiting =
       target.anchor &&
       resolvePendingTurn(payload.messages || [], target.anchor, payload).state !== 'answered'

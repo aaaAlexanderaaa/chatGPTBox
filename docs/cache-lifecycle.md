@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-04
+last_reconciled: 2026-11-09
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -34,6 +34,56 @@ The cache uses a safety-first, opt-in approach:
 3. **Event-driven Invalidation**: Actions that modify a conversation mark only its cached snapshot as stale. They do not start a full list scan.
 4. **On-demand Refresh**: When a stale conversation is accessed via the UI or API, that conversation is immediately re-fetched.
 5. **Rate-limit Safety Lock**: HTTP 429 stops the current history job, clears automatic scheduling, preserves completed pages, and remains locked until the user reviews the settings and unlocks it.
+
+## Concurrent index updates
+
+The background owns the single serialized read/merge/write queue for the
+conversation index. Proxy list pages, snapshots and extension-page imports send
+restricted mutations through `CHATGPT_WEB_CACHE_MUTATION`; acknowledged creates
+and turn-status changes use the same owner locally. The router explicitly
+registers the local writer in both MV3 workers and MV2
+background pages; DOM availability does not determine ownership. Snapshot index
+messages contain metadata, not duplicated conversation bodies. Callers await
+persistence before clearing their acknowledgement or reporting a page saved. A failed write
+does not poison subsequent queue entries. Delayed list/snapshot metadata cannot
+clear a newer locally acknowledged turn's running status.
+
+This serializes index changes across extension contexts; it does not make body,
+metadata, and continuation backups one atomic multi-key transaction. Import's
+index merge reads the latest index inside that owner, while other imported keys
+retain the idle-use requirement below. Local Box records and remote binding
+snapshots have separate identities; cross-provider binding generations prevent
+an old provider snapshot from resurrecting a discarded continuation.
+
+Local Box session mutations also use a named background owner. A connection
+switch declares its parent binding generation; an older window cannot replace
+a later stored binding. Such a save fails visibly in the independent panel,
+which offers reopening the stored conversation while retaining the current view.
+This guards binding changes, not automatic merging of simultaneous transcripts
+that still use the same binding.
+
+Persisted-panel sends join this same queue before the provider starts. Admission
+checks that the session still exists, validates its binding transition and saves
+the chosen snapshot; a deleted or superseded session is rejected before dispatch.
+The token-bearing start acknowledgement admits that request and lets the input
+clear. A later connection switch does not cancel a request already admitted.
+Retry admission retains the original completed record. A separate replacement
+target lets API prompt context omit that answer while storage keeps it; only a
+successful producer commits its replacement. Failed, stopped, incomplete and
+rejected retries preserve the record on reopening. A new ordinary question or
+connection choice clears that replacement intent.
+Closing or switching a DSH observation view only disconnects it; the explicit
+Stop agent session action requests shared-session cancellation.
+
+Input drafts use `inputbox-draft:<draftKey>` in extension storage. Within one
+live extension context, reads wait for prior queued writes and writes/removals
+serialize by key. Edit versions prevent late loads or older saves from replacing
+new typing or marking it saved. Explicit panel navigation/reopening awaits a
+flush; failure keeps the view and draft. Blur, pagehide and unmount initiate a
+final write. A delayed autosave checks the current edit/key and dirty flag when
+it runs, so a cleared, admitted draft is not written back by its old timer.
+Separate windows do not merge draft edits, and a process lost before
+storage acknowledges the write has no durability guarantee.
 
 ## Long conversations
 
@@ -109,7 +159,7 @@ For one conversation, open **ChatGPT History Backup** in the ChatGPT Web setting
 
 - **Browser Storage**: The cache is stored in `Browser.storage.local`. If the browser's local storage is cleared, the cache will be lost.
 - **Data Freshness**: While sync intervals and event-driven invalidation help, the cache may still be out of sync if changes occur in another browser tab or on another device.
-- **Concurrent Import**: Import reads the existing cache and writes its merged result in batches. Import while history synchronization, content backup, and chats that update the cache are idle: a write between that read and the import write can be overwritten, including a newer index entry or snapshot. Import is not an atomic transaction across all keys; retain the original volume files if a write fails. This limitation concerns the local cache, not deletion of conversations on ChatGPT's server.
+- **Concurrent Import**: Import reads the existing cache and writes its merged result in batches. Import while history synchronization, content backup, and chats that update the cache are idle: a write between that read and the import write can be overwritten, including a newer body snapshot or continuation record. Index merges separately use the background owner described above. Import is not an atomic transaction across all keys; retain the original volume files if a write fails. This limitation concerns the local cache, not deletion of conversations on ChatGPT's server.
 - **Mixed Timestamp Imports**: Index merging does not yet normalize numeric Unix timestamps and ISO dates to the same unit. Older or mixed-format backups without a newer `lastSeenAt` can prefer older titles, archive flags, or list update times. Snapshot revision comparison separately normalizes seconds and milliseconds. Retain the original backup and verify list metadata after importing such files; v4.3.2 does not fix this boundary.
 - **Performance**: File export measures records individually, then reads/writes one volume at a time, retaining the catalog and current volume. A single conversation or catalog can exceed the approximately 16 MiB target. Import and the explicit in-memory export helper still materialize their input; importing a very large cache can require substantial memory. The backup format is unchanged.
 - **API Limits**: Full sync is deliberately opt-in and RPM-limited. Use a conservative RPM and leave automatic sync off if another client already accesses the account frequently.

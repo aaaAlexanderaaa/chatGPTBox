@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-06
+last_reconciled: 2026-11-09
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -230,22 +230,58 @@ note's `chatgptbox-photos` marker (`images: [metadata]`, `pendingPhotos: []`), t
 use Send/Get. Do not put the base64 bytes into the editable note. API fields,
 limits, expiration and recovery phases are in [the gateway documentation](../api-server.md).
 
-Maintain the shared photo helper in `photo-operation.shared.txt` and picker in
-`photo-picker.html`. `npm run sync-drafts-photos` generates the self-contained
+Maintain `control-document.shared.txt`, the shared photo helper in
+`photo-operation.shared.txt` and picker in `photo-picker.html`.
+`npm run sync-drafts-photos` generates the self-contained
 scripts and new action packages; extension builds also run it. The generated
 scripts are formatted consistently. Repository tests cover local capture,
 interrupted uploads, exact-request retries, ambiguous writes and real local HTTP
 requests against a synthetic extension bridge. These tests do not prove a native
 Drafts import, iPhone camera flow or live ChatGPT upload.
 
+The November 8 scripts use a version-2 document header and document-bound control
+comments. Update **List, Get, Send, Attach Photos and Select Project together**,
+preserving your gateway URL/token and explicit model options. The header owns
+which controls are valid; transcript, thinking, titles and questions stay data.
+Do not edit/copy the header or operation metadata; type only inside Waiting Reply.
+Duplicate or damaged controls stop before HTTP requests and preserve the note.
+Send refuses a conversation-list document before any HTTP request; use Get to
+open the intended conversation first. It never submits the list's titles and
+conversation controls as a new prompt. A recognizable old list may acquire the
+shared document header during migration, but remains a list with its entries kept.
+The whole control set also rejects two unresolved text identities, or a photo
+operation alongside an unresolved text send/awaited message. Appending new photo
+metadata does not hide an existing text operation: Send recovers its frozen
+request first and retains the photos for a later explicit send.
+
+Unique legacy notes with the original title, top Conversation ID and matching
+Waiting Reply structure migrate while retaining operation IDs and requests.
+Legacy task lists also retain their explicit structure. Standalone old photo or
+new-send comments in ordinary notes have no reliable structural owner and are
+not migrated automatically. Fenced examples, duplicate controls and conflicting
+targets are rejected. Keep the complete rejected note and its IDs; recover by reading the original
+conversation with Get or a freshly generated List/Get note. Do not copy an
+uncertain question into a new send or replace its key. If an old pending question
+is not yet visible remotely, Get/Send refresh keeps the old note rather than
+rebuilding it from an unrelated earlier answer.
+
+All text and photo sends respect the gateway's seven-day recovery window. Expired
+or unknown-age text IDs are retained for inspection and cannot be replayed.
+A full ledger rejects new keys before submission; existing keys still recover.
+An unavailable ledger does not prove an earlier send failed, so the original key
+is retained. These are script-level recovery protections; native Drafts import
+and device synchronization still require separate validation.
+
 The custom conversation write API requires `Idempotency-Key`. Action 3 handles this internally: it
 writes a generated operation ID into the draft before sending a new-conversation or follow-up
 request, then reuses that ID if the action is retried after an uncertain result. No manual header or
 ID setup is required in Drafts.
 
-The saved ID also keeps the original request parameters. Retrying the same question uses those
-parameters even if model/thinking settings changed afterwards. Get preserves both the ID and
-the saved request while unsent text remains.
+The saved ID freezes the complete original request, including its question.
+Retrying uses that request even after editing text or model/thinking settings;
+edited text remains unsent. Missing saved request data stops recovery rather
+than guessing. Get preserves the unresolved ID and request even if Waiting Reply
+is emptied. Only an acknowledged result or proven `dispatched: false` releases it.
 
 If an edited question encounters an ID belonging to a confirmed successful send, Action 3
 recovers that original acknowledgement and leaves the edited question in Waiting Reply.
@@ -274,7 +310,7 @@ Expected workflow:
 
 1. Run action 1 to read the cached conversation list and replace the draft with a Markdown task list. Listing does not sync; run Full Sync in the extension when you want fresh data.
 2. Check exactly one conversation line, then run action 2 to load that conversation into the note. The script defaults to a compact user/assistant transcript with per-turn `Thought:` annotations; turn on `INCLUDE_THINKING` if you also want the `Thinking` section.
-3. Type the next user message between the `chatgptbox-waiting-reply` markers at the bottom of the note, then run action 3 to `POST /chatgpt/conversations/:id/messages`.
+3. Type the next user message between the document-bound `waiting-reply:start` / `waiting-reply:end` comments at the bottom of the note, then run action 3 to `POST /chatgpt/conversations/:id/messages`.
 4. Run action 2 on the same note whenever you want to collect the answer. You do not need to List first, and you can come back to it much later. Action 2 keeps any unsent text already typed in the waiting-reply block.
 
 Sending is asynchronous by design. The gateway acknowledges the message and ChatGPT keeps generating in
@@ -292,12 +328,16 @@ state:
 - The snapshot contains the question but no answer. The placeholder stays and so does the anchor.
 - The snapshot contains the answer. The placeholder is replaced by the answer and the anchor is dropped.
 
-The turn is matched by `pendingMessageId` when that id is present. Question text is only a fallback
-after the id is gone, so sending the same wording again cannot resolve to an earlier turn. A turn is
-answered only when that match has a finished assistant reply and the conversation is not still
+The turn is matched by `pendingMessageId`. Without that identity, matching
+question text cannot prove which send completed; the anchor remains unresolved
+for inspection. A turn is answered only when its matched user message has a
+finished assistant reply before the next user message and the conversation is not still
 pending; streaming text does not clear the anchor. `pending` can veto "answered" but never decides
 the match by itself, because a snapshot taken right after send can lack both the async status and
-the turn. The unsent text in the waiting-reply block survives every Get.
+the turn. The unsent text in the waiting-reply block survives every Get. While a
+turn remains pending, Send keeps the next edited question and asks for Get first;
+it does not replace the only pending anchor with a second send. Retrying an
+unresolved operation still uses its frozen original request.
 
 Action 3 also supports two shortcut modes:
 

@@ -65,6 +65,9 @@ export function createDshLedgerFold({ strings = {} } = {}) {
   const workflowByRunId = new Map()
   const turnBounds = new Map() // turn -> {startedAt, endedAt, steps:Set, toolCallIds}
 
+  const eventsBySeq = new Map()
+  let currentTurn = null
+  let currentStep = null
   let lastSeq = -1
   let version = 0
 
@@ -97,7 +100,8 @@ export function createDshLedgerFold({ strings = {} } = {}) {
       else existing.text += text
       return
     }
-    if (!text) return
+    if (!text && !replace) return
+    turnBoundsFor(turn, null).steps.add(step)
     const block = { kind: 'text', seq: lastSeq, turn, step, text }
     blocks.push(block)
     textByStepKey.set(key, block)
@@ -119,19 +123,23 @@ export function createDshLedgerFold({ strings = {} } = {}) {
         return { reasonKind: 'blocked', note: s.turnBlocked }
       case 'max-tokens':
         return { reasonKind: 'max-tokens', note: s.turnMaxTokens }
-      default:
+      case 'completed':
         return { reasonKind: 'completed', note: s.turnCompleted }
+      default:
+        return { reasonKind: 'unknown', note: 'Unknown completion state' }
     }
   }
 
   /** @param {object} event - SessionEvent ({ type, seq, time, data, ... }). */
-  function pushEvent(event) {
+  function applyEvent(event) {
     if (!event || typeof event.type !== 'string') return version
     const { type, seq, time } = event
     if (!acceptSeq(seq)) return version
     const data = event.data ?? {}
     switch (type) {
       case 'turn/start':
+        currentTurn = data.turn
+        currentStep = null
         turnBoundsFor(data.turn, time)
         break
       case 'turn/end': {
@@ -145,43 +153,61 @@ export function createDshLedgerFold({ strings = {} } = {}) {
           reasonKind,
           note,
           steps: bounds.steps.size,
+          finalStep: [...bounds.steps].at(-1),
           tools: bounds.toolCallIds.length,
           startedAt: bounds.startedAt,
           endedAt: bounds.endedAt,
         }
         if (Array.isArray(data.locations)) endBlock.locations = data.locations
         blocks.push(endBlock)
+        currentTurn = null
+        currentStep = null
         break
       }
       case 'step/start':
+        currentTurn = data.turn
+        currentStep = data.step
         turnBoundsFor(data.turn, time).steps.add(data.step)
         break
       case 'step/end':
         break
       case 'user/message': {
-        const text = (data.message?.content || [])
+        const message = data.message ?? data
+        const text = (message.content || [])
           .filter((block) => block?.type === 'text' && typeof block.text === 'string')
           .map((block) => block.text)
           .join('\n\n')
-        if (text) blocks.push({ kind: 'user', seq, turn: data.turn ?? null, text })
+        if (text)
+          blocks.push({
+            kind: 'user',
+            seq,
+            turn: data.turn ?? currentTurn,
+            text,
+            ...(message.source?.rpcId ? { sourceRpcId: message.source.rpcId } : {}),
+          })
         break
       }
       case 'assistant/chunk': {
-        const chunk = data.chunk
+        const chunk = data.chunk ?? data
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
           turnBoundsFor(data.turn, time)
-          setStepText(data.turn, data.step, chunk.text)
+          setStepText(data.turn ?? currentTurn, data.step ?? currentStep, chunk.text)
         }
         // reasoning/tool-call deltas and block boundaries are folded via the
         // authoritative assistant/message + tool/call events instead.
         break
       }
       case 'assistant/message': {
-        const text = (data.message?.content || [])
+        const message = data.message ?? data
+        const turn = data.turn ?? currentTurn,
+          step = data.step ?? currentStep
+        const text = (message.content || [])
           .filter((block) => block?.type === 'text' && typeof block.text === 'string')
           .map((block) => block.text)
           .join('\n\n')
-        setStepText(data.turn, data.step, text, { replace: true })
+        setStepText(turn, step, text, { replace: true })
+        const block = textByStepKey.get(`${turn}:${step}`)
+        if (block) block.authoritative = true
         break
       }
       case 'tool/call': {
@@ -288,6 +314,46 @@ export function createDshLedgerFold({ strings = {} } = {}) {
     return touch()
   }
 
+  function mergeEvents(entries) {
+    let rebuild = false
+    const fresh = []
+    for (const event of entries) {
+      if (!event || typeof event.type !== 'string') continue
+      if (!Number.isFinite(event.seq)) {
+        applyEvent(event)
+        continue
+      }
+      if (eventsBySeq.has(event.seq)) continue
+      eventsBySeq.set(event.seq, event)
+      fresh.push(event)
+      if (event.seq <= lastSeq) rebuild = true
+    }
+    if (!rebuild) {
+      for (const event of fresh.sort((a, b) => a.seq - b.seq)) applyEvent(event)
+      return version
+    }
+    // Decisions have no seq. Keep their actual resolved objects, never replay
+    // a request or an approval side effect while rebuilding ordered history.
+    const decisions = blocks.filter(
+      (block) => block.kind === 'approval' || block.kind === 'question',
+    )
+    blocks.length = 0
+    textByStepKey.clear()
+    toolByCallId.clear()
+    workflowByRunId.clear()
+    turnBounds.clear()
+    lastSeq = -1
+    currentTurn = null
+    currentStep = null
+    for (const event of [...eventsBySeq.values()].sort((a, b) => a.seq - b.seq)) applyEvent(event)
+    blocks.push(...decisions)
+    return touch()
+  }
+
+  function pushEvent(event) {
+    return mergeEvents([event])
+  }
+
   /**
    * @param {object} frame - Mux frame payload (session-scoped by the caller).
    * @param {{ rpcId?: string }} [envelope] - Server-request envelope; the
@@ -361,6 +427,7 @@ export function createDshLedgerFold({ strings = {} } = {}) {
 
   return {
     pushEvent,
+    mergeEvents,
     pushFrame,
     getBlocks: () => blocks,
     getLastSeq: () => lastSeq,

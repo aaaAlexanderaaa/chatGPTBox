@@ -3,6 +3,7 @@ import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
 import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
 import { PASTE_REVIEW_PORT } from '../native-chatgpt/review-contract.mjs'
+import { prepareLocalSessionDispatch } from './local-session.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -65,7 +66,13 @@ export function handlePortError(session, port, err) {
 function isPortLifecycleMessage(message) {
   if (!message || typeof message !== 'object') return false
   return (
+    Object.prototype.hasOwnProperty.call(message, 'session') ||
+    Object.prototype.hasOwnProperty.call(message, 'dshSessionId') ||
+    Object.prototype.hasOwnProperty.call(message, 'dshStatus') ||
     Object.prototype.hasOwnProperty.call(message, 'answer') ||
+    Object.prototype.hasOwnProperty.call(message, 'finalContent') ||
+    Object.prototype.hasOwnProperty.call(message, 'outcome') ||
+    message.started === true ||
     message.done === true ||
     Object.prototype.hasOwnProperty.call(message, 'error')
   )
@@ -78,14 +85,14 @@ function isPortLifecycleMessage(message) {
 export function createPortRunGuard(port) {
   let currentRunId = 0
 
-  function wrapPort(runId) {
+  function wrapPort(runId, requestToken) {
     return new Proxy(port, {
       get(target, prop, receiver) {
         if (prop === '__uiPort') return target
         if (prop === 'postMessage') {
           return (message) => {
             if (runId !== currentRunId && isPortLifecycleMessage(message)) return
-            return target.postMessage(message)
+            return target.postMessage(requestToken ? { ...message, requestToken } : message)
           }
         }
         const value = Reflect.get(target, prop, receiver)
@@ -98,16 +105,20 @@ export function createPortRunGuard(port) {
     isCurrent(runId) {
       return runId === currentRunId
     },
+    dispose() {
+      currentRunId += 1
+      port.__stopRequested = true
+    },
     ackStopWithoutSession() {
       currentRunId += 1
       port.__stopRequested = true
-      port.postMessage({ done: true })
+      port.postMessage({ done: true, outcome: 'stopped' })
     },
-    beginSessionRun() {
+    beginSessionRun(requestToken) {
       currentRunId += 1
       port.__stopRequested = false
       const runId = currentRunId
-      return { runId, port: wrapPort(runId) }
+      return { runId, port: wrapPort(runId, requestToken) }
     },
   }
 }
@@ -167,28 +178,37 @@ export function registerPortListener(executor) {
       }
       const session = msg.session
       if (!session) return
-      const { runId, port: guardedPort } = runGuard.beginSessionRun()
-      const config = await getUserConfig()
-      if (!runGuard.isCurrent(runId)) return
-      if (!session.modelName) session.modelName = config.modelName
-      if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
-      if (!session.aiName)
-        session.aiName = session.apiMode?.displayName?.trim()
-          ? session.apiMode.displayName.trim()
-          : modelNameToDesc(
+      const token = typeof msg.requestToken === 'string' ? msg.requestToken : undefined
+      const { runId, port: guardedPort } = runGuard.beginSessionRun(token)
+      let providerStarted = false
+      try {
+        const config = await getUserConfig()
+        if (!runGuard.isCurrent(runId)) return
+        if (!session.modelName) session.modelName = config.modelName
+        if (!session.apiMode && session.modelName !== 'customModel')
+          session.apiMode = config.apiMode
+        if (!session.aiName)
+          session.aiName =
+            session.apiMode?.displayName?.trim() ||
+            modelNameToDesc(
               session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
               t,
               config.customModelName,
             )
-      guardedPort.postMessage({ session })
-      try {
+        if (msg.localSession === true) await prepareLocalSessionDispatch(session)
+        if (!runGuard.isCurrent(runId)) return
+        guardedPort.postMessage({ session, started: true })
+        providerStarted = true
         await executor(session, guardedPort, config)
       } catch (err) {
-        handlePortError(session, guardedPort, err)
+        const error = err && typeof err === 'object' ? err : new Error(String(err))
+        if (!providerStarted) error.chatgptWebNotDispatched = true
+        handlePortError(session, guardedPort, error)
       }
     }
 
     const onDisconnect = () => {
+      runGuard.dispose()
       console.debug('port disconnected, remove listener')
       port.onMessage.removeListener(onMessage)
       port.onDisconnect.removeListener(onDisconnect)

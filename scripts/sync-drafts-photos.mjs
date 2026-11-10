@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url'
 import prettier from 'prettier'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const directory = path.join(root, 'docs/drafts')
+const controls = fs.readFileSync(path.join(directory, 'control-document.shared.txt'), 'utf8').trim()
 const helpers = fs.readFileSync(path.join(directory, 'photo-operation.shared.txt'), 'utf8').trim()
 for (const name of [
+  'action-1-list-conversations.js',
   'action-2-open-checked-conversation.js',
   'action-3-send-waiting-reply.js',
   'action-4-attach-photos.js',
@@ -14,6 +16,11 @@ for (const name of [
 ]) {
   const file = path.join(directory, name)
   let source = fs.readFileSync(file, 'utf8')
+  source = source.replace(
+    /\/\/ BEGIN CONTROL DOCUMENT[\s\S]*?\/\/ END CONTROL DOCUMENT/,
+    () =>
+      `// BEGIN CONTROL DOCUMENT\n/* eslint-disable no-unused-vars */\n${controls}\n/* eslint-enable no-unused-vars */\n// END CONTROL DOCUMENT`,
+  )
   source = source.replace(
     /\/\/ BEGIN PHOTO HELPERS[\s\S]*?\/\/ END PHOTO HELPERS/,
     () =>

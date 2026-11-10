@@ -5,3 +5,9 @@ src/manifest.v2.json
 tmp/
 .pnpm-store/
 .zcode/
+# Local browser artifacts are not maintained source.
+output/playwright/
+# Local account captures stay outside formatting and version control.
+docs/realdata/
+# Dated reproduction witnesses retain their recorded source bytes.
+docs/evidence/

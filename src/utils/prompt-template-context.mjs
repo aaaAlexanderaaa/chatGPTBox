@@ -164,6 +164,12 @@ function summarizeInteractiveElementsFromDom() {
       'a[href], button, input, select, textarea, [role="button"], [tabindex]',
     ),
   )
+    .filter(
+      (element) =>
+        !element.closest(
+          'input[type="password"], input[type="hidden"], [hidden], [aria-hidden="true"]',
+        ),
+    )
     .slice(0, MAX_INTERACTIVE_ELEMENTS)
     .map((element) => {
       const tag = String(element.tagName || '').toLowerCase()
@@ -502,6 +508,12 @@ function createProviders(options = {}) {
   }
 }
 
+export function resolvePromptTemplateSnapshot(template, options = {}) {
+  const variables = {}
+  const text = resolvePromptTemplate(template, { ...options, resolvedVariables: variables })
+  return { text, variables }
+}
+
 export function resolvePromptTemplate(template, options = {}) {
   const sourceTemplate = typeof template === 'string' ? template : ''
   if (!sourceTemplate.includes('{{')) return sourceTemplate
@@ -526,13 +538,17 @@ export function resolvePromptTemplate(template, options = {}) {
   const resolvedRawValues = {}
 
   for (const key of referencedKeys) {
-    const provider = providers[key]
+    const frozen = options.frozenVariables
+    const provider = frozen && Object.hasOwn(frozen, key) ? () => frozen[key] : providers[key]
     if (typeof provider !== 'function') {
       resolvedRawValues[key] = ''
       continue
     }
     try {
-      resolvedRawValues[key] = provider() || ''
+      resolvedRawValues[key] =
+        options.material !== undefined && ['selection', 'content'].includes(key)
+          ? options.material
+          : provider() || ''
     } catch (error) {
       console.debug(`Failed to resolve template variable ${key}:`, error)
       resolvedRawValues[key] = ''
@@ -545,6 +561,7 @@ export function resolvePromptTemplate(template, options = {}) {
     const text = resolvedValues[key] || ''
     if (!text) continue
     const perVarCap = variableInitialTokenCap[key]
+    if (options.material !== undefined && ['selection', 'content'].includes(key)) continue
     if (Number.isFinite(perVarCap) && perVarCap > 0) {
       resolvedValues[key] = truncateToTokenBudget(text, perVarCap)
     }
@@ -554,7 +571,8 @@ export function resolvePromptTemplate(template, options = {}) {
   const staticTokens = estimateTokenCount(staticText)
   const maxDynamicTokens = Math.max(1, contextTokenCap - staticTokens)
   const dynamicBudget = Math.min(preloadTokenCap, maxDynamicTokens)
-  resolvedValues = enforceVariableBudget(resolvedValues, referencedKeys, dynamicBudget)
+  if (options.material === undefined)
+    resolvedValues = enforceVariableBudget(resolvedValues, referencedKeys, dynamicBudget)
 
   const resolved = sourceTemplate.replace(PLACEHOLDER_PATTERN, (fullMatch, rawKey) => {
     const canonical = keyAliases[normalizeKey(rawKey)]
@@ -562,6 +580,11 @@ export function resolvePromptTemplate(template, options = {}) {
     return resolvedValues[canonical] || ''
   })
 
+  if (options.resolvedVariables) Object.assign(options.resolvedVariables, resolvedValues)
+  if (options.material !== undefined && estimateTokenCount(resolved) > contextTokenCap)
+    throw new Error(
+      'The expanded instruction is too long. Use fewer material variables or select a smaller passage.',
+    )
   if (estimateTokenCount(resolved) <= contextTokenCap) return resolved
   return truncateToTokenBudget(resolved, contextTokenCap)
 }

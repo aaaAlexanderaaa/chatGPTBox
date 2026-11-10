@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-06
+last_reconciled: 2026-11-08
 ---
 
 # Verification evidence
@@ -12,6 +12,12 @@ They support decisions without redefining them. Temporary captures and account
 data stay in ignored local locations; commit only material appropriate for the
 repository's audience.
 
+- [2026-11-07 project review](2026-11-07-project-review.md) follows product
+  promises through workflows, material/result contracts and engine continuity,
+  with independent observations, controlled component trials and the original
+  implementation-defect witnesses. Subsequent repairs and their separate
+  verification are tracked in the [core workflow delivery](../plans/2026-11-08-core-workflows.md);
+  the original witnesses remain dated baseline evidence.
 - [2026-10-22 documentation reconciliation](2026-10-22-documentation-discipline.md)
   records the reference learning, repository findings, changes, and checks.
 - [2026-10-29 discipline refresh](2026-10-29-discipline-refresh.md)

@@ -16,6 +16,27 @@ const sources = Object.fromEntries(
     ),
   ]),
 )
+
+function visible(content) {
+  return content
+    .replace(/^<!-- chatgptbox-document:.* -->\n?/, '')
+    .replace(/chatgptbox-[a-z0-9]{16,80}-/g, 'chatgptbox-')
+}
+// A trusted fixture produced by the new Attach Photos/Project actions. Bare
+// legacy markers in prose are exercised separately as rejected input.
+function managed(content) {
+  const id = 'syntheticdocument0001'
+  const body = content.replace(/<!-- chatgptbox-/g, '<!-- chatgptbox-' + id + '-')
+  const controls = body.match(new RegExp('<!-- chatgptbox-' + id + '-[^\\n]*? -->', 'g')) || []
+  return (
+    '<!-- chatgptbox-document:' +
+    JSON.stringify({ version: 2, id, kind: 'note', controls })
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e') +
+    ' -->\n' +
+    body
+  )
+}
 const photo = {
   id: 'img-' + 'a'.repeat(64),
   name: 'lunch.jpg',
@@ -25,7 +46,7 @@ const photo = {
 const photoMarker = (metadata = { images: [photo], pendingPhotos: [], projectId: 'project-1' }) =>
   '<!-- chatgptbox-photos:' + JSON.stringify(metadata) + ' -->'
 const note = (query = 'Lunch', metadata = { conversationId: 'conversation-1' }) =>
-  '# Prior conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
+  '# Prior conversation\n\nConversation ID: conversation-1\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
   JSON.stringify(metadata) +
   ' -->\n' +
   query +
@@ -77,7 +98,7 @@ function run(action, content, responses, extras = {}) {
 }
 const ok = (payload, statusCode = 200) => ({ success: true, statusCode, responseData: payload })
 const job = (content) =>
-  JSON.parse(content.match(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)[1])
+  JSON.parse(visible(content).match(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)[1])
 describe('Drafts photo sends', () => {
   it('packages native Script steps using the same action format as the shipped Preview action', () => {
     for (const name of ['attach-photos', 'select-project']) {
@@ -102,26 +123,27 @@ describe('Drafts photo sends', () => {
     ])
     expect(first.error.message).toBe('Gateway offline')
     expect(first.files.size).toBe(1)
-    expect(first.draft.content).not.toContain('base64')
-    expect(first.draft.content).toContain('pendingPhotos')
+    expect(visible(first.draft.content)).not.toContain('base64')
+    expect(visible(first.draft.content)).toContain('pendingPhotos')
     const second = run(4, first.draft.content, [ok(photo, 201)], { files: first.files })
     expect(second.error).toBeUndefined()
     expect(second.requests).toHaveLength(1)
     expect(
-      JSON.parse(second.draft.content.match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1])
+      JSON.parse(visible(second.draft.content).match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1])
         .pendingPhotos,
     ).toEqual([])
   })
   it.each([false, true])(
     'sends and retries a Project message when the Drafts date parser returns null (photos=%s)',
     (hasPhotos) => {
-      const content =
+      const content = managed(
         'Lunch\n\n' +
-        photoMarker({
-          images: hasPhotos ? [photo] : [],
-          pendingPhotos: [],
-          projectId: 'g-p-synthetic',
-        })
+          photoMarker({
+            images: hasPhotos ? [photo] : [],
+            pendingPhotos: [],
+            projectId: 'g-p-synthetic',
+          }),
+      )
       const extras = { dateSetup: 'Date.parse = () => null' }
       const first = run(3, content, [ok({ phase: 'preparing' }, 202)], extras)
       expect(first.error).toBeUndefined()
@@ -145,7 +167,7 @@ describe('Drafts photo sends', () => {
     const expiredPhoto = { ...photo, expiresAt: '2000-01-01T00:00:00.000Z' }
     const result = run(
       3,
-      'Lunch\n\n' + photoMarker({ images: [expiredPhoto], pendingPhotos: [] }),
+      managed('Lunch\n\n' + photoMarker({ images: [expiredPhoto], pendingPhotos: [] })),
       [ok(photo, 201), ok({ phase: 'preparing' }, 202)],
       {
         dateSetup: 'Date.parse = () => null',
@@ -162,11 +184,13 @@ describe('Drafts photo sends', () => {
   it.each(['2000-01-01T00:00:00.000Z', 'invalid', null])(
     'preserves the send ID and prevents replay for an old or invalid saved time (%s)',
     (createdAt) => {
-      const sent = run(3, 'Lunch\n\n' + photoMarker(), [ok({ phase: 'sending' }, 202)])
+      const sent = run(3, managed('Lunch\n\n' + photoMarker()), [ok({ phase: 'sending' }, 202)])
       const operation = { ...job(sent.draft.content), createdAt }
-      const content = sent.draft.content.replace(
-        /<!-- chatgptbox-photo-operation:(\{.*\}) -->/,
-        '<!-- chatgptbox-photo-operation:' + JSON.stringify(operation) + ' -->',
+      const content = managed(
+        visible(sent.draft.content).replace(
+          /<!-- chatgptbox-photo-operation:(\{.*\}) -->/,
+          '<!-- chatgptbox-photo-operation:' + JSON.stringify(operation) + ' -->',
+        ),
       )
       const retry = run(3, content, [], { dateSetup: 'Date.parse = () => null' })
       expect(retry.error).toBeDefined()
@@ -194,16 +218,16 @@ describe('Drafts photo sends', () => {
       first.requests[0].headers['Idempotency-Key'],
     )
     expect(second.requests[0].data).toEqual(first.requests[0].data)
-    expect(second.draft.content).toContain('Edited lunch')
+    expect(visible(second.draft.content)).toContain('Edited lunch')
   })
   it('Get checks upload status before a conversation ID exists and keeps the draft intact', () => {
-    const sent = run(3, 'Lunch\n\n' + photoMarker(), [ok({ phase: 'uploading' }, 202)])
+    const sent = run(3, managed('Lunch\n\n' + photoMarker()), [ok({ phase: 'uploading' }, 202)])
     const fetched = run(2, sent.draft.content, [ok({ phase: 'uploading', uploadedCount: 0 })])
     expect(fetched.error).toBeUndefined()
     expect(fetched.requests).toHaveLength(1)
     expect(fetched.requests[0].url).toContain('/chatgpt/operations/')
     expect(job(fetched.draft.content).id).toBe(job(sent.draft.content).id)
-    expect(fetched.draft.content).toContain('Lunch')
+    expect(visible(fetched.draft.content)).toContain('Lunch')
   })
   it('Get transfers an accepted send to the exact message anchor and preserves newly edited text', () => {
     const sent = run(3, note(), [ok({ phase: 'uploading' }, 202)])
@@ -221,11 +245,12 @@ describe('Drafts photo sends', () => {
     ])
     expect(fetched.error).toBeUndefined()
     expect(fetched.requests[1].url).toContain('user_message_id=photo-message')
-    expect(fetched.draft.content).toContain('Next question')
-    expect(fetched.draft.content).toContain('"pendingMessageId":"photo-message"')
-    expect(fetched.draft.content).not.toContain('chatgptbox-photo-operation:')
+    expect(visible(fetched.draft.content)).toContain('Next question')
+    expect(visible(fetched.draft.content)).toContain('"pendingMessageId":"photo-message"')
+    expect(visible(fetched.draft.content)).not.toContain('chatgptbox-photo-operation:')
     expect(
-      JSON.parse(fetched.draft.content.match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1]).images,
+      JSON.parse(visible(fetched.draft.content).match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1])
+        .images,
     ).toEqual([])
   })
   it('Get preserves an uncertain send and never dispatches it again', () => {
@@ -267,19 +292,19 @@ describe('Drafts photo sends', () => {
       expect(target.pathname).toBe('/chatgpt/conversations/conversation-1')
       expect(target.searchParams.get('user_message_id')).toBe('photo-message')
       expect(target.searchParams.get('force_refresh')).toBe('true')
-      expect(fetched.draft.content).not.toContain('chatgptbox-photo-operation:')
-      expect(fetched.draft.content).toContain('Next meal')
+      expect(visible(fetched.draft.content)).not.toContain('chatgptbox-photo-operation:')
+      expect(visible(fetched.draft.content)).toContain('Next meal')
       const metadata = JSON.parse(
-        fetched.draft.content.match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1],
+        visible(fetched.draft.content).match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1],
       )
       expect(metadata.images).toEqual([])
       expect(metadata.projectId).toBe('project-1')
       if (pending) {
-        expect(fetched.draft.content).toContain('"pendingMessageId":"photo-message"')
-        expect(fetched.draft.content).toContain('### ASSISTANT (pending)')
+        expect(visible(fetched.draft.content)).toContain('"pendingMessageId":"photo-message"')
+        expect(visible(fetched.draft.content)).toContain('### ASSISTANT (pending)')
       } else {
-        expect(fetched.draft.content).toContain('Meal analysis')
-        expect(fetched.draft.content).not.toContain('pendingMessageId')
+        expect(visible(fetched.draft.content)).toContain('Meal analysis')
+        expect(visible(fetched.draft.content)).not.toContain('pendingMessageId')
       }
     },
   )
@@ -310,12 +335,12 @@ describe('Drafts photo sends', () => {
       expect(fetched.requests).toHaveLength(2)
       expect(fetched.requests.every((request) => request.method === 'GET')).toBe(true)
       expect(job(fetched.draft.content)).toEqual(job(sent.draft.content))
-      expect(fetched.draft.content).toContain(photo.id)
-      expect(fetched.draft.content).not.toContain('Old answer')
+      expect(visible(fetched.draft.content)).toContain(photo.id)
+      expect(visible(fetched.draft.content)).not.toContain('Old answer')
     },
   )
   it('keeps a new-conversation send protected when no conversation ID is known', () => {
-    const sent = run(3, 'Lunch\n\n' + photoMarker(), [ok({ phase: 'sending' }, 202)])
+    const sent = run(3, managed('Lunch\n\n' + photoMarker()), [ok({ phase: 'sending' }, 202)])
     const fetched = run(2, sent.draft.content, [
       ok({ phase: 'ambiguous', operationId: 'photo-message', dispatched: true }),
     ])
@@ -328,7 +353,47 @@ describe('Drafts photo sends', () => {
       ok({ conversationId: 'conversation-1', pending: false, messages: [] }),
     ])
     expect(fetched.error).toBeUndefined()
-    expect(fetched.draft.content).toContain(photo.id)
-    expect(fetched.draft.content).toContain('Next lunch')
+    expect(visible(fetched.draft.content)).toContain(photo.id)
+    expect(visible(fetched.draft.content)).toContain('Next lunch')
   })
+})
+
+it('records only submitted photos and keeps photos added while the acknowledgement was pending', () => {
+  const first = run(3, note(), [ok({ phase: 'sending' }, 202)])
+  const nextPhoto = { ...photo, id: 'img-' + 'b'.repeat(64), name: 'next.jpg' }
+  const withMorePhotos = managed(
+    visible(first.draft.content).replace(
+      /<!-- chatgptbox-photos:(\{.*\}) -->/,
+      photoMarker({ images: [photo, nextPhoto], pendingPhotos: [], projectId: 'project-1' }),
+    ),
+  )
+  const result = run(3, withMorePhotos, [
+    ok({
+      phase: 'accepted',
+      result: { conversationId: 'conversation-1', messageId: 'photo-message' },
+    }),
+  ])
+  expect(result.error).toBeUndefined()
+  expect(result.requests[0].data.attachments).toEqual([photo.id])
+  expect(visible(result.draft.content)).toContain('_Photo: lunch.jpg_')
+  expect(visible(result.draft.content)).not.toContain('_Photo: next.jpg_')
+  const remaining = JSON.parse(
+    visible(result.draft.content).match(/<!-- chatgptbox-photos:(\{.*\}) -->/)[1],
+  )
+  expect(remaining.images).toEqual([nextPhoto])
+})
+it('keeps the next photos without replacing an acknowledged pending turn', () => {
+  const result = run(
+    3,
+    note('Next lunch', {
+      conversationId: 'conversation-1',
+      pendingMessageId: 'earlier-message',
+      pendingQuery: 'Earlier lunch',
+    }),
+    [],
+  )
+  expect(result.requests).toEqual([])
+  expect(result.error.message).toContain('still pending')
+  expect(visible(result.draft.content)).toContain('Next lunch')
+  expect(visible(result.draft.content)).toContain(photo.id)
 })

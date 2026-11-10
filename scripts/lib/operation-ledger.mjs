@@ -46,6 +46,8 @@ export class OperationLedger {
       }
       const entries = parsed.operations
       for (const record of entries) {
+        if (!Number.isFinite(Date.parse(record?.updatedAt || record?.createdAt || '')))
+          throw new Error('Invalid operation timestamp; protection cannot be determined')
         if (record?.key && record?.operationId && record?.fingerprint) {
           this.records.set(record.key, record)
         }
@@ -93,6 +95,16 @@ export class OperationLedger {
         : { kind: 'conflict', record: existing }
     }
 
+    this.prune(false)
+    if (this.records.size >= this.maxRecords) {
+      const error = new Error(
+        'The operation ledger is full. No message was sent. Wait for retention expiry or inspect existing operations; keep their original keys.',
+      )
+      error.code = 'OPERATION_LEDGER_FULL'
+      error.status = 503
+      error.dispatched = false
+      throw error
+    }
     const now = new Date().toISOString()
     const record = {
       key: normalizedKey,
@@ -149,15 +161,7 @@ export class OperationLedger {
     const cutoff = Date.now() - this.ttlMs
     for (const [key, record] of this.records) {
       const updatedAt = Date.parse(record.updatedAt || record.createdAt || '')
-      if (!Number.isFinite(updatedAt) || updatedAt < cutoff) this.records.delete(key)
-    }
-    if (this.records.size > this.maxRecords) {
-      const oldest = [...this.records.values()].sort(
-        (a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt),
-      )
-      for (const record of oldest.slice(0, this.records.size - this.maxRecords)) {
-        this.records.delete(record.key)
-      }
+      if (Number.isFinite(updatedAt) && updatedAt < cutoff) this.records.delete(key)
     }
     if (persist) this.persist()
   }

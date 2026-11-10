@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { isEnabledEngineSelection, parseEngineSelection } from '../config/engine-selection.mjs'
+import { estimateTokenCount } from '../utils/token-budget.mjs'
 import { jsonAnswerCandidates } from '../services/model-answer.mjs'
 
 export const INPUT_SCOPES = ['url', 'selection', 'page', 'input']
@@ -214,6 +215,10 @@ export function prepareFunctionRun({
           fn.scope
         }.\n${JSON.stringify({ material })}`
   }`
+  if (prompt.length > 200000 || estimateTokenCount(prompt) > 128000)
+    throw new Error(
+      'The expanded instruction is too long. Use fewer material variables or select a smaller passage.',
+    )
   return { id: uuid(), fn, engine, context, snapshot, material, prompt }
 }
 

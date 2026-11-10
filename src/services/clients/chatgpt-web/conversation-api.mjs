@@ -15,10 +15,9 @@ import {
   getChatgptWebConversationIndex,
   getChatgptWebConversationMeta,
   isChatgptWebConversationSnapshotStale,
-  mergeChatgptWebConversationIndexEntries,
+  mutateChatgptWebConversationIndex,
   overlayChatgptWebConversationStatus,
   saveChatgptWebConversationSnapshot,
-  setChatgptWebConversationIndex,
   updateChatgptWebConversationMeta,
   clearInvalidation,
 } from './conversation-cache.mjs'
@@ -698,15 +697,13 @@ export async function syncChatgptWebConversationCache({
             },
           })
           const pageItems = extractChatgptWebConversationListItems(response)
-          const mergeResult = mergeChatgptWebConversationIndexEntries(
-            nextEntries,
-            pageItems,
+          const mergeResult = await mutateChatgptWebConversationIndex('mergePage', {
+            items: pageItems,
             syncedAt,
-          )
+          })
           nextEntries = mergeResult.entries
           mergeResult.newIds.forEach((conversationId) => newIds.add(conversationId))
           mergeResult.updatedIds.forEach((conversationId) => updatedIds.add(conversationId))
-          await setChatgptWebConversationIndex(nextEntries)
 
           pagesCompleted += 1
           itemsFetched += pageItems.length

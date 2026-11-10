@@ -18,6 +18,25 @@ import { ConversationItemData } from '../src/components/ConversationCard/convers
 
 const t = (s) => s
 
+it('keeps a combined error/done/outcome message terminal at an initially loading answer', () => {
+  const result = applyInbound(
+    {
+      items: [new ConversationItemData('answer', '<p class="gpt-loading">Waiting</p>')],
+      session: {},
+      isReady: false,
+    },
+    { error: 'endpoint changed', done: true, outcome: 'failed' },
+    t,
+  )
+  expect(result.items.at(-1)).toMatchObject({
+    type: 'error',
+    done: true,
+    outcome: 'failed',
+    content: 'endpoint changed',
+  })
+  expect(result.isReady).toBe(true)
+})
+
 describe('formatErrorMessage', () => {
   it('maps UNAUTHORIZED to a login prompt mentioning chatgpt.com', () => {
     const msg = formatErrorMessage('UNAUTHORIZED', t)
@@ -120,9 +139,9 @@ describe('applyInbound (send -> stream -> done -> error)', () => {
 
     // last item is a finished answer -> append a new error row
     const finished = {
-      items: [new ConversationItemData('answer', 'done text', true)],
+      items: [new ConversationItemData('answer', 'partial text')],
       session: { id: 's' },
-      isReady: true,
+      isReady: false,
     }
     const err2 = applyInbound(finished, { error: 'boom' }, t)
     expect(err2.items).toHaveLength(2)
@@ -186,4 +205,211 @@ describe('popMatchedRetryRecord', () => {
     expect(popMatchedRetryRecord({}, [])).toEqual([])
     expect(popMatchedRetryRecord({ conversationRecords: [] }, [])).toEqual([])
   })
+
+  it('keeps an earlier completed record when retrying a failed repeat of the same question', () => {
+    const session = { conversationRecords: [{ question: 'repeat', answer: 'earlier answer' }] }
+    const failed = applyInbound(
+      {
+        session,
+        isReady: false,
+        items: [
+          new ConversationItemData('question', 'repeat'),
+          new ConversationItemData('answer', '<p class="gpt-loading">Waiting...</p>'),
+        ],
+      },
+      { error: 'upstream failed' },
+      t,
+    )
+    expect(failed.items.at(-1)).toMatchObject({ type: 'error', done: true, outcome: 'failed' })
+    expect(popMatchedRetryRecord(session, failed.items)).toEqual([
+      { question: 'repeat', answer: 'earlier answer' },
+    ])
+  })
+
+  it.each(['stopped', 'incomplete'])(
+    'keeps the earlier completed exchange when the repeated question ends %s',
+    (outcome) => {
+      const session = {
+        conversationRecords: [{ question: 'repeat', answer: 'same visible text' }],
+      }
+      const result = applyInbound(
+        {
+          session,
+          isReady: false,
+          items: [
+            new ConversationItemData('question', 'repeat'),
+            new ConversationItemData('answer', 'same visible text'),
+          ],
+        },
+        { done: true, outcome },
+        t,
+      )
+      expect(popMatchedRetryRecord(session, result.items)).toEqual([
+        { question: 'repeat', answer: 'same visible text' },
+      ])
+    },
+  )
+
+  it('keeps a same-question record when the visible answer belongs to another exchange', () => {
+    const session = { conversationRecords: [{ question: 'repeat', answer: 'earlier answer' }] }
+    expect(
+      popMatchedRetryRecord(session, [
+        new ConversationItemData('question', 'repeat', true),
+        new ConversationItemData('answer', 'different answer', true),
+      ]),
+    ).toEqual([{ question: 'repeat', answer: 'earlier answer' }])
+  })
+
+  it('matches the confirmed final body when display text also contains tool progress', () => {
+    const session = { conversationRecords: [{ question: 'task', answer: 'final body' }] }
+    const item = Object.assign(
+      new ConversationItemData('answer', 'Tool progress\nfinal body', true),
+      {
+        outcome: 'completed',
+        finalContent: 'final body',
+      },
+    )
+    expect(
+      popMatchedRetryRecord(session, [new ConversationItemData('question', 'task', true), item]),
+    ).toEqual([])
+  })
+  it('also matches a completed provider record that persists its display form', () => {
+    const display = '<details>Reasoning</details>Final body'
+    const session = { conversationRecords: [{ question: 'task', answer: display }] }
+    const item = Object.assign(new ConversationItemData('answer', display, true), {
+      outcome: 'completed',
+      finalContent: 'Final body',
+    })
+    expect(
+      popMatchedRetryRecord(session, [new ConversationItemData('question', 'task', true), item]),
+    ).toEqual([])
+  })
+})
+
+it('keeps Stop/error terminal status through trailing done and allows an explicit new run', () => {
+  const base = {
+    items: [new ConversationItemData('answer', 'partial')],
+    session: {},
+    isReady: false,
+  }
+  const stopped = applyInbound(base, { done: true, outcome: 'stopped' }, t)
+  expect(applyInbound(stopped, { done: true }, t).items[0].outcome).toBe('stopped')
+  const failed = applyInbound(base, { error: 'upstream failed' }, t)
+  expect(applyInbound(failed, { done: true }, t).items[0]).toMatchObject({
+    content: 'partial',
+    outcome: 'failed',
+  })
+  const restarted = updateLastAnswer(stopped.items, 'new run', false, 'answer')
+  expect(restarted[0].outcome).toBeUndefined()
+})
+
+it.each(['stopped', 'incomplete', 'failed'])(
+  'does not revive a %s result when a late terminal frame also carries answer text',
+  (outcome) => {
+    const base = {
+      items: [new ConversationItemData('answer', 'partial')],
+      session: {},
+      isReady: false,
+    }
+    const settled =
+      outcome === 'failed'
+        ? applyInbound(base, { error: 'upstream failed' }, t)
+        : applyInbound(base, { done: true, outcome }, t)
+    const trailing = applyInbound(
+      settled,
+      { answer: 'late text', finalContent: 'late text', done: true, outcome: 'completed' },
+      t,
+    )
+    expect(trailing.items[0]).toMatchObject({ content: 'partial', outcome, done: true })
+    expect(trailing.items.some((item) => item.outcome === 'completed')).toBe(false)
+    expect(trailing.items.at(-1).finalContent).toBeUndefined()
+    expect(trailing.isReady).toBe(true)
+
+    const restarted = {
+      ...trailing,
+      items: updateLastAnswer(trailing.items, 'retry loading', false, 'answer'),
+      isReady: false,
+    }
+    const complete = applyInbound(
+      restarted,
+      { answer: 'fresh answer', finalContent: 'fresh answer', done: true, outcome: 'completed' },
+      t,
+    )
+    expect(complete.items.at(-1)).toMatchObject({
+      content: 'fresh answer',
+      finalContent: 'fresh answer',
+      outcome: 'completed',
+      done: true,
+    })
+  },
+)
+it('keeps completed answers immutable until an explicit new start', () => {
+  const completed = applyInbound(
+    { items: [new ConversationItemData('answer', '')], session: { id: 'current' }, isReady: false },
+    { answer: 'final', finalContent: 'final', done: true, outcome: 'completed' },
+    t,
+  )
+  const late = applyInbound(
+    completed,
+    { answer: 'late delta', error: 'late error', session: { id: 'stale' }, done: true },
+    t,
+  )
+  expect(late).toBe(completed)
+  expect(late.items[0]).toMatchObject({
+    done: true,
+    outcome: 'completed',
+    content: 'final',
+    finalContent: 'final',
+  })
+  const started = applyInbound(completed, { started: true, session: { id: 'new' } }, t)
+  expect(started.isReady).toBe(false)
+  expect(started.items[0].done).toBe(false)
+  expect(started.items[0].finalContent).toBeUndefined()
+  const fresh = applyInbound(
+    started,
+    { answer: 'new answer', finalContent: 'new answer', done: true, outcome: 'completed' },
+    t,
+  )
+  expect(fresh.items[0].finalContent).toBe('new answer')
+})
+it('appends a prepared UI retry without replacing an earlier identical question', async () => {
+  const { pushRecord } = await import('../src/services/apis/shared.mjs')
+  const records = [
+    { question: 'repeat', answer: 'first answer' },
+    { question: 'repeat', answer: 'second answer' },
+  ]
+  const prepared = { conversationRecords: [...records] }
+  popMatchedRetryRecord(prepared, [
+    new ConversationItemData('question', 'repeat', true),
+    new ConversationItemData('answer', 'second answer', true),
+  ])
+  const retry = { ...prepared, isRetry: true, appendRetryRecord: true }
+  pushRecord(retry, 'repeat', 'replacement for second answer')
+  expect(retry.conversationRecords).toEqual([
+    { question: 'repeat', answer: 'first answer' },
+    { question: 'repeat', answer: 'replacement for second answer' },
+  ])
+  expect(records).toEqual([
+    { question: 'repeat', answer: 'first answer' },
+    { question: 'repeat', answer: 'second answer' },
+  ])
+})
+it('keeps a changed replacement target in request context and appends without overwriting it', async () => {
+  const { pushRecord, getRequestConversationRecords } = await import(
+    '../src/services/apis/shared.mjs'
+  )
+  const session = {
+    question: 'repeat',
+    isRetry: true,
+    appendRetryRecord: true,
+    conversationRecords: [{ question: 'repeat', answer: 'Changed saved answer' }],
+    retryReplacement: { index: 0, question: 'repeat', answer: 'Earlier target answer' },
+  }
+  expect(getRequestConversationRecords(session)).toEqual(session.conversationRecords)
+  pushRecord(session, 'repeat', 'New completed answer')
+  expect(session.conversationRecords).toEqual([
+    { question: 'repeat', answer: 'Changed saved answer' },
+    { question: 'repeat', answer: 'New completed answer' },
+  ])
+  expect(session.retryReplacement).toBeUndefined()
 })

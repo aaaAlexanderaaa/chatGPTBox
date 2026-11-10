@@ -1,3 +1,5 @@
+import { readingRoots } from './reading-roots.mjs'
+
 const EDITABLE =
   '[contenteditable="true" i], [contenteditable="plaintext-only" i], [contenteditable=""]'
 const EXCLUDED = `script, style, noscript, nav, header, footer, aside, button, input, textarea, select, ${EDITABLE}, [hidden], [aria-hidden="true"], [data-chatgptbox-assistant], [class*="chatgptbox-"], #chatgptbox-container`
@@ -88,16 +90,24 @@ export function captureReadingSnapshot(context, scope = 'page', { maxChars = 300
       context.range.toString().trim() !== context.selection.trim())
   )
     throw new Error('Select text in the page to annotate it')
-  const root = selected
-    ? context.range.commonAncestorContainer
-    : doc.querySelector('article, main, [role="main"]') || doc.body
+  const { roots, source, excluded } = selected
+    ? { roots: [context.range.commonAncestorContainer], source: 'Selected text' }
+    : readingRoots(doc)
   const groups = new Map()
-  const walker = doc.createTreeWalker(root, 4)
-  const nodes = root.nodeType === 3 ? [root] : []
-  while (walker.nextNode()) nodes.push(walker.currentNode)
+  const nodes = []
+  for (const root of roots) {
+    const walker = doc.createTreeWalker(root, 4)
+    if (root.nodeType === 3) nodes.push(root)
+    while (walker.nextNode()) nodes.push(walker.currentNode)
+  }
   for (const node of nodes) {
     const parent = node.parentElement
-    if (!parent || parent.closest(EXCLUDED) || !node.textContent.trim()) continue
+    if (
+      !parent ||
+      parent.closest(excluded ? `${EXCLUDED}, ${excluded}` : EXCLUDED) ||
+      !node.textContent.trim()
+    )
+      continue
     let hidden = false
     for (let ancestor = parent; ancestor; ancestor = ancestor.parentElement) {
       const style = doc.defaultView.getComputedStyle(ancestor)
@@ -136,7 +146,7 @@ export function captureReadingSnapshot(context, scope = 'page', { maxChars = 300
     remaining -= text.length
   }
   if (!blocks.length) throw new Error('No readable text was found. Select a passage instead.')
-  return { url: context.url, document: doc, blocks, truncated }
+  return { url: context.url, document: doc, blocks, truncated, source }
 }
 
 export function rangeForAnnotation(snapshot, annotation) {

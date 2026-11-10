@@ -9,6 +9,14 @@
 // the rest read only `message.data`.
 
 import Browser from 'webextension-polyfill'
+import {
+  applyChatgptWebCacheMutation,
+  registerChatgptWebCacheMutationOwner,
+} from '../services/clients/chatgpt-web/conversation-cache.mjs'
+import {
+  applyLocalSessionMutation,
+  registerLocalSessionMutationOwner,
+} from '../services/local-session.mjs'
 import { setNativePasteEnabled } from './native-paste-activation.mjs'
 import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
@@ -58,6 +66,8 @@ import {
 // settings-card diagnose) with an instant undefined. Membership comes from
 // this table, so it cannot drift from the handlers.
 export function createMessageRouter() {
+  registerChatgptWebCacheMutationOwner()
+  registerLocalSessionMutationOwner()
   const controlWrite = async (write, payload) => {
     try {
       return await write(payload)
@@ -68,6 +78,35 @@ export function createMessageRouter() {
     }
   }
   const routedHandlers = {
+    [RuntimeMessage.LocalSessionMutation]: async (message, sender) => {
+      if (
+        sender?.id !== Browser.runtime.id ||
+        !(sender?.url || '').startsWith(Browser.runtime.getURL(''))
+      )
+        throw new Error('Local session mutation requires an extension page')
+      try {
+        return {
+          ok: true,
+          value: await applyLocalSessionMutation(message.data?.method, message.data?.payload),
+        }
+      } catch (error) {
+        return { ok: false, error: { code: error.code, message: error.message || String(error) } }
+      }
+    },
+    [RuntimeMessage.ChatgptWebCacheMutation]: (message, sender) => {
+      if (
+        sender?.id !== Browser.runtime.id ||
+        !(
+          (sender?.frameId === 0 &&
+            isDedicatedChatgptProxyTabUrl(sender?.url || sender?.tab?.url)) ||
+          (sender?.url || '').startsWith(Browser.runtime.getURL(''))
+        )
+      )
+        throw new Error(
+          'Conversation cache mutation requires an extension page or the dedicated ChatGPT proxy document',
+        )
+      return applyChatgptWebCacheMutation(message.data?.method, message.data?.payload)
+    },
     [RuntimeMessage.SetNativePasteEnabled]: (message, sender) =>
       setNativePasteEnabled(message, sender),
     [RuntimeMessage.OpenNativePasteReview]: (message, sender) =>

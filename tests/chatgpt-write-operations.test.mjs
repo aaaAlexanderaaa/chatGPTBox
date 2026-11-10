@@ -27,6 +27,8 @@ describe('ChatGPT unsent write recovery', () => {
       source.slice(start).replace('export function', 'function') + '\ncreateMessageRouter()',
       {
         RuntimeMessage,
+        registerChatgptWebCacheMutationOwner: () => {},
+        registerLocalSessionMutationOwner: () => {},
         GrokProxyControlAction,
         createChatgptWebConversation: write,
         sendChatgptWebConversationMessageThroughProxy: write,

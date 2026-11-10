@@ -361,19 +361,23 @@ export async function sendChatgptProxyRequest(tabId, session, uiPort, deps = {})
           await injectContentScript(tabId)
           await new Promise((r) => setTimeout(r, 500))
           if (entry.cancelled || entry.settled) return
-          await doSend()
-          return
         } catch (retryErr) {
           console.debug('[background] Retry after injection failed:', retryErr?.message)
-          settleReject(
-            new Error(
-              'Content script could not be loaded in the ChatGPT tab. ' +
-                'Please make sure ChatGPTBox has permission to access chatgpt.com ' +
-                '(check the extensions icon or extension settings), then reload the tab and retry.',
-            ),
+          const failure = new Error(
+            'Content script could not be loaded in the ChatGPT tab. ' +
+              'Please make sure ChatGPTBox has permission to access chatgpt.com ' +
+              '(check the extensions icon or extension settings), then reload the tab and retry.',
           )
+          failure.chatgptWebNotDispatched = true
+          settleReject(failure)
           return
         }
+        try {
+          await doSend()
+        } catch (error) {
+          settleReject(error)
+        }
+        return
       }
       settleReject(firstErr)
     })
@@ -553,45 +557,59 @@ export async function listChatgptWebProjectsViaProxy(payload) {
 }
 
 export async function sendChatgptWebConversationMessageThroughProxy(payload = {}) {
-  const thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
-  const conversationId =
-    typeof payload.conversationId === 'string' ? payload.conversationId.trim() : ''
-  const query = typeof payload.query === 'string' ? payload.query.trim() : ''
-  const model = typeof payload.model === 'string' ? payload.model.trim() : ''
-  if (!conversationId) throw new Error('conversationId is required')
-  if (!query) throw new Error('query is required')
+  let thinkingEffort,
+    conversationId,
+    query,
+    model,
+    messageId,
+    createdAt,
+    conversation,
+    config,
+    session
+  try {
+    thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
+    conversationId = typeof payload.conversationId === 'string' ? payload.conversationId.trim() : ''
+    query = typeof payload.query === 'string' ? payload.query.trim() : ''
+    model = typeof payload.model === 'string' ? payload.model.trim() : ''
+    if (!conversationId) throw new Error('conversationId is required')
+    if (!query) throw new Error('query is required')
 
-  const messageId =
-    typeof payload.operationId === 'string' && payload.operationId.trim()
-      ? payload.operationId.trim()
-      : crypto.randomUUID()
-  const createdAt = new Date().toISOString()
+    messageId =
+      typeof payload.operationId === 'string' && payload.operationId.trim()
+        ? payload.operationId.trim()
+        : crypto.randomUUID()
+    createdAt = new Date().toISOString()
 
-  const conversation = await getChatgptWebConversationWithFallback({ conversationId })
-  if (payload.projectId && payload.projectId !== conversation?.projectId) {
-    const error = new Error('The conversation does not belong to the selected ChatGPT Project')
-    error.chatgptWebNotDispatched = true
-    throw error
+    conversation = await getChatgptWebConversationWithFallback({ conversationId })
+    if (payload.projectId && payload.projectId !== conversation?.projectId) {
+      const error = new Error('The conversation does not belong to the selected ChatGPT Project')
+      error.chatgptWebNotDispatched = true
+      throw error
+    }
+    if (!conversation?.currentNode) {
+      throw new Error('Conversation current node is required before sending a follow-up')
+    }
+
+    config = await getUserConfig()
+    session = initSession({
+      question: query,
+      modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+      autoClean: false,
+      chatgptWebHistoryDisabledOverride: false,
+      chatgptWebIncrementalOutput: false,
+    })
+    session.conversationId = conversationId
+    session.chatgptWebImagePointers = payload.images || []
+    session.chatgptWebProjectId = payload.projectId || conversation.projectId || null
+    session.messageId = messageId
+    session.parentMessageId = conversation.currentNode
+    session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
+    session.chatgptWebThinkingEffortOverride = thinkingEffort
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error))
+    failure.chatgptWebNotDispatched = true
+    throw failure
   }
-  if (!conversation?.currentNode) {
-    throw new Error('Conversation current node is required before sending a follow-up')
-  }
-
-  const config = await getUserConfig()
-  const session = initSession({
-    question: query,
-    modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
-    autoClean: false,
-    chatgptWebHistoryDisabledOverride: false,
-    chatgptWebIncrementalOutput: false,
-  })
-  session.conversationId = conversationId
-  session.chatgptWebImagePointers = payload.images || []
-  session.chatgptWebProjectId = payload.projectId || conversation.projectId || null
-  session.messageId = messageId
-  session.parentMessageId = conversation.currentNode
-  session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
-  session.chatgptWebThinkingEffortOverride = thinkingEffort
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session
@@ -718,27 +736,34 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
 }
 
 export async function createChatgptWebConversation(payload = {}) {
-  const thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
-  const query = typeof payload.query === 'string' ? payload.query.trim() : ''
-  const model = typeof payload.model === 'string' ? payload.model.trim() : ''
-  if (!query) throw new Error('query is required')
+  let thinkingEffort, query, model, config, session
+  try {
+    thinkingEffort = getChatgptWebThinkingEffortOverride(payload)
+    query = typeof payload.query === 'string' ? payload.query.trim() : ''
+    model = typeof payload.model === 'string' ? payload.model.trim() : ''
+    if (!query) throw new Error('query is required')
 
-  const config = await getUserConfig()
-  const session = initSession({
-    question: query,
-    modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
-    autoClean: false,
-    chatgptWebHistoryDisabledOverride: false,
-    chatgptWebIncrementalOutput: false,
-  })
-  session.messageId =
-    typeof payload.operationId === 'string' && payload.operationId.trim()
-      ? payload.operationId.trim()
-      : crypto.randomUUID()
-  session.chatgptWebModelSlugOverride = model || undefined
-  session.chatgptWebImagePointers = payload.images || []
-  session.chatgptWebProjectId = payload.projectId || null
-  session.chatgptWebThinkingEffortOverride = thinkingEffort
+    config = await getUserConfig()
+    session = initSession({
+      question: query,
+      modelName: CHATGPT_WEB_DEFAULT_MODEL_KEY,
+      autoClean: false,
+      chatgptWebHistoryDisabledOverride: false,
+      chatgptWebIncrementalOutput: false,
+    })
+    session.messageId =
+      typeof payload.operationId === 'string' && payload.operationId.trim()
+        ? payload.operationId.trim()
+        : crypto.randomUUID()
+    session.chatgptWebModelSlugOverride = model || undefined
+    session.chatgptWebImagePointers = payload.images || []
+    session.chatgptWebProjectId = payload.projectId || null
+    session.chatgptWebThinkingEffortOverride = thinkingEffort
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error))
+    failure.chatgptWebNotDispatched = true
+    throw failure
+  }
 
   return await new Promise((resolveOriginal, rejectOriginal) => {
     let latestSession = session

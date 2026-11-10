@@ -67,6 +67,8 @@ export function useSettingsConfig() {
         (key) => Object.hasOwn(value, key),
       )
     ) {
+      if (readState !== 'ready')
+        throw new Error('Saved functions are unavailable. Reload settings before saving.')
       await setUserConfig(value)
       setConfig((prev) => ({ ...prev, ...value }))
       return

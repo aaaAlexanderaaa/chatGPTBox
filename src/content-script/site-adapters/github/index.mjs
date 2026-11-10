@@ -1,3 +1,4 @@
+import { captureContext, captureReadingSnapshot } from '../../../browser-assistant/context.mjs'
 import { limitedFetch } from '../../../utils'
 import { cropText } from '../../../utils/crop-text.mjs'
 import { config } from '../index.mjs'
@@ -26,102 +27,18 @@ const isIssue = () => {
   return location.pathname.match(/\/issues\/\d+$/)
 }
 
-function parseGitHubIssueData() {
-  // Function to parse a single comment
-  function parseComment(commentElement) {
-    // Parse the date
-    const dateElement = commentElement.querySelector('relative-time')
-    const date = dateElement.getAttribute('datetime')
-
-    // Parse the author
-    const authorElement =
-      commentElement.querySelector('.author') || commentElement.querySelector('.author-name')
-    const author = authorElement.textContent.trim()
-
-    // Parse the body
-    const bodyElement = commentElement.querySelector('.comment-body')
-    const body = bodyElement.textContent.trim()
-
-    return { date, author, body }
-  }
-
-  // Function to parse all messages on the page
-  function parseAllMessages() {
-    // Find all comment containers
-    const commentElements = document.querySelectorAll('.timeline-comment-group')
-    const messages = Array.from(commentElements).map(parseComment)
-
-    // The initial post is not a ".timeline-comment-group", so we need to handle it separately
-    const initialPostElement = document.querySelector('.js-comment-container')
-    const initialPost = parseComment(initialPostElement)
-
-    // Combine the initial post with the rest of the comments
-    return [initialPost, ...messages]
-  }
-
-  // Function to get the content of the comment input box
-  function getCommentInputContent() {
-    const commentInput = document.querySelector('.js-new-comment-form textarea')
-    return commentInput ? commentInput.value : ''
-  }
-
-  // Get the issue title
-  const title = document.querySelector('.js-issue-title').textContent.trim()
-
-  // Get all messages
-  const messages = parseAllMessages()
-
-  // Get the content of the new comment box
-  const commentBoxContent = getCommentInputContent()
-
-  // Return an object with both results
-  return {
-    title: title,
-    messages: messages,
-    commentBoxContent: commentBoxContent,
-  }
+export function acquireGitHubDiscussion(doc = document) {
+  return captureReadingSnapshot(captureContext({ doc }), 'page')
 }
 
-function createChatGPtSummaryPrompt(issueData, isIssue = true) {
-  // Destructure the issueData object into messages and commentBoxContent
-  const { title, messages, commentBoxContent } = issueData
-
-  // Start crafting the prompt
-  let prompt = ''
-
-  if (isIssue) {
-    prompt =
-      `You are an expert in analyzing GitHub discussions. ` +
-      `Please provide a concise summary of the following GitHub issue thread. ` +
-      `Identify the main problem reported, key points discussed by participants, proposed solutions (if any), and the current status or next steps. ` +
-      `Present the summary in a structured markdown format.\n\n`
-  } else {
-    prompt =
-      `You are an expert in analyzing GitHub discussions and code reviews. ` +
-      `Please provide a concise summary of the following GitHub pull request thread. ` +
-      `Identify the main problem this pull request aims to solve, the proposed changes, key discussion points from the review, and the overall status of the PR (e.g., approved, needs changes, merged). ` +
-      `Present the summary in a structured markdown format.\n\n`
-  }
-
-  prompt += '---\n\n'
-
-  prompt += `Title:\n${title}\n\n`
-
-  // Add each message to the prompt
-  messages.forEach((message, index) => {
-    prompt += `Message ${index + 1} by ${message.author} on ${message.date}:\n${message.body}\n\n`
-  })
-
-  // If there's content in the comment box, add it as a draft message
-  if (commentBoxContent) {
-    prompt += '---\n\n'
-    prompt += `Draft message in comment box:\n${commentBoxContent}\n\n`
-  }
-
-  // Add a request for summary at the end of the prompt
-  // prompt += 'What is the main issue and key points discussed in this thread?'
-
-  return prompt
+export function createGitHubDiscussionPrompt(snapshot, issue = true) {
+  const instruction = issue
+    ? 'Summarize this GitHub issue: the problem, evidence, proposed solutions and open questions.'
+    : 'Summarize this GitHub pull request discussion: the changes, review concerns and current status.'
+  const material = snapshot.blocks.map((block) => `[${block.ref}] ${block.text}`).join('\n\n')
+  return `${instruction}\nOnly the already-loaded discussion bodies below are included; unsent drafts are excluded.${
+    snapshot.truncated ? ' The material is shortened to this preview.' : ''
+  }\n\n${JSON.stringify({ material })}`
 }
 
 export default {
@@ -150,10 +67,7 @@ export default {
   },
   inputQuery: safeAdapter('github.inputQuery', async () => {
     if (isPull() || isIssue()) {
-      const issueData = parseGitHubIssueData()
-      const summaryPrompt = createChatGPtSummaryPrompt(issueData, isIssue())
-
-      return await cropText(summaryPrompt)
+      return createGitHubDiscussionPrompt(acquireGitHubDiscussion(), !!isIssue())
     }
     const patchUrl = await getPatchUrl()
     const patchData = await getPatchData(patchUrl)

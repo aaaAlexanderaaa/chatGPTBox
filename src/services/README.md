@@ -61,6 +61,13 @@ imported from both the background service worker and content scripts. Keep these
 stateless or storage-backed — module-scope state does **not** survive an MV3
 service-worker restart.
 
+`local-session.mjs` routes mutations to the named background owner. Persisted
+panel requests validate existence and binding generation in that owner's queue
+before execution. `input-drafts.mjs` orders draft reads/writes/removals per key
+within a live UI context; it does not merge edits across windows. The
+[cache lifecycle](../../docs/cache-lifecycle.md#concurrent-index-updates) owns the
+storage and recovery limits.
+
 ## Removed providers
 
 The web-scraper providers (Poe, Bing/Sydney, Bard, Claude web) were removed —

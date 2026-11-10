@@ -4,7 +4,13 @@ import { getUserConfig } from '../../config/storage.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
-import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import {
+  getCompletionPromptBase,
+  completionOutcome,
+  getRequestConversationRecords,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getModelValue, isUsingReasoningModel } from '../../utils/model-name-convert.mjs'
 import { AgentProtocol, resolveOpenAiCompatibleProtocol } from './openai-protocol.mjs'
 import { stripTrailingV1 } from '../../config/engine-selection.mjs'
@@ -89,7 +95,7 @@ export async function generateAnswersWithGptCompletionApi(
   const prompt =
     (await getCompletionPromptBase()) +
     getConversationPairs(
-      session.conversationRecords.slice(-config.maxConversationContextLength),
+      getRequestConversationRecords(session).slice(-config.maxConversationContextLength),
       true,
     ) +
     `Human: ${question}\nAI: `
@@ -97,11 +103,12 @@ export async function generateAnswersWithGptCompletionApi(
 
   let answer = ''
   let finished = false
-  const finish = () => {
+  const finish = (outcome = 'completed') => {
+    if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    if (outcome === 'completed') pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: null, done: true, session: session })
+    port.postMessage({ answer: null, finalContent: answer, done: true, outcome, session })
   }
   await fetchSSE(`${apiUrl}/v1/completions`, {
     method: 'POST',
@@ -133,6 +140,11 @@ export async function generateAnswersWithGptCompletionApi(
         return
       }
 
+      if (data.error) {
+        port.onMessage.removeListener(messageListener)
+        port.onDisconnect.removeListener(disconnectListener)
+        throw new Error(data.error.message || 'OpenAI-compatible stream failed')
+      }
       const choice = data.choices?.[0]
       if (!choice) {
         console.debug('No choice in response data')
@@ -143,13 +155,13 @@ export async function generateAnswersWithGptCompletionApi(
       port.postMessage({ answer: answer, done: false, session: null })
 
       if (choice.finish_reason) {
-        finish()
+        finish(completionOutcome(choice.finish_reason))
         return
       }
     },
     async onStart() {},
-    async onEnd() {
-      port.postMessage({ done: true })
+    async onEnd(result = {}) {
+      if (!result.aborted && !finished) finish('incomplete')
       port.onMessage.removeListener(messageListener)
       port.onDisconnect.removeListener(disconnectListener)
     },
@@ -200,7 +212,7 @@ export async function generateAnswersWithChatgptApiCompat(
   const config = await getUserConfig()
   const protocol = resolveOpenAiCompatibleProtocol(baseUrl)
   const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
+    getRequestConversationRecords(session).slice(-config.maxConversationContextLength),
     false,
   )
 
@@ -217,12 +229,13 @@ export async function generateAnswersWithChatgptApiCompat(
 
   let answer = ''
   let finished = false
-  const finish = () => {
+  const finish = (outcome = 'completed') => {
+    if (finished) return
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    if (outcome === 'completed') pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: null, done: true, session })
+    port.postMessage({ answer: null, finalContent: answer, done: true, outcome, session })
   }
 
   // Build request body with reasoning model-specific parameters
@@ -280,6 +293,10 @@ export async function generateAnswersWithChatgptApiCompat(
       if (answer) port.postMessage({ answer, done: false, session: null })
       finish()
       return
+    } catch (error) {
+      if (error.partialAnswer)
+        port.postMessage({ answer: error.partialAnswer, outcome: 'incomplete', done: true })
+      throw error
     } finally {
       cleanupPortListeners()
     }
@@ -310,6 +327,11 @@ export async function generateAnswersWithChatgptApiCompat(
       }
 
       // Validate response structure early
+      if (data.error) {
+        port.onMessage.removeListener(messageListener)
+        port.onDisconnect.removeListener(disconnectListener)
+        throw new Error(data.error.message || 'OpenAI-compatible stream failed')
+      }
       const choice = data.choices?.[0]
       if (!choice) {
         console.debug('No choice in response data')
@@ -344,7 +366,7 @@ export async function generateAnswersWithChatgptApiCompat(
 
         // Only finish when we have a proper finish reason
         if (choice.finish_reason) {
-          finish()
+          finish(completionOutcome(choice.finish_reason))
         }
       } else {
         // For non-reasoning models (streaming), handle delta content
@@ -364,15 +386,15 @@ export async function generateAnswersWithChatgptApiCompat(
         port.postMessage({ answer, done: false, session: null })
 
         if (choice.finish_reason) {
-          finish()
+          finish(completionOutcome(choice.finish_reason))
           return
         }
       }
     },
     async onStart() {},
-    async onEnd() {
-      port.postMessage({ done: true })
+    async onEnd(result = {}) {
       cleanupPortListeners()
+      if (!result.aborted && !finished) finish('incomplete')
     },
     async onError(resp) {
       cleanupPortListeners()

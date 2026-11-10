@@ -27,6 +27,7 @@ export default {
   async run({ session, port, config }) {
     const releaseChatgptWebSessionLock = acquireChatgptWebSessionLock(session, port, config)
     if (releaseChatgptWebSessionLock === null) return
+    let forwarded = false
     try {
       let tabId
       let proxyTab
@@ -57,6 +58,7 @@ export default {
           selectedModel: getModelValue(session) || null,
           endpointUrl: config.customChatGptWebApiUrl || defaultConfig.customChatGptWebApiUrl,
         })
+        forwarded = true
         await sendChatgptProxyRequest(tabId, session, port)
         return
       }
@@ -68,6 +70,9 @@ export default {
             'ChatGPT Web requests in this extension are sent through a dedicated background chatgpt.com proxy tab so they work reliably in Brave and similar browsers.',
           ),
       )
+    } catch (error) {
+      if (!forwarded) error.chatgptWebNotDispatched = true
+      throw error
     } finally {
       releaseChatgptWebSessionLock()
     }

@@ -62,8 +62,7 @@ export function createDshClient({
   fetchImpl,
   WebSocketImpl,
   newRpcId = () =>
-    (globalThis.crypto?.randomUUID?.() ??
-      `rpc-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    globalThis.crypto?.randomUUID?.() ?? `rpc-${Date.now()}-${Math.random().toString(16).slice(2)}`,
 } = {}) {
   const fetchFn = fetchImpl ?? globalThis.fetch?.bind(globalThis)
   const SocketImpl = WebSocketImpl ?? globalThis.WebSocket
@@ -78,8 +77,8 @@ export function createDshClient({
    * @param {object} payload
    * @param {{ signal?: AbortSignal }} [options]
    */
-  async function rpc(method, payload, { signal } = {}) {
-    const rpcId = newRpcId()
+  async function rpc(method, payload, { signal, rpcId: requestedRpcId } = {}) {
+    const rpcId = requestedRpcId || newRpcId()
     let response
     try {
       response = await fetchFn(`${origin}/api/${method}`, {

@@ -25,7 +25,10 @@ import {
   localizeFunction,
   saveFunctionPatch,
 } from './catalog.mjs'
-import { resolvePromptTemplate } from '../utils/prompt-template-context.mjs'
+import {
+  extractTemplateVariables,
+  resolvePromptTemplateSnapshot,
+} from '../utils/prompt-template-context.mjs'
 import { i18nReady } from '../_locales/i18n-react.mjs'
 import { RuntimeMessage } from '../protocol/messages.mjs'
 
@@ -65,10 +68,15 @@ export function BrowserAssistant({
   const starting = useRef(false)
   const engineOptions = listEnabledEngineSelections(config)
   const functions = listFunctions(config, { entry: 'function-picker', context })
+  const snapshots = useRef(new Map())
+  const [request, setRequest] = useState(null)
+  const [extraConfirmed, setExtraConfirmed] = useState(false)
   const preview = useMemo(() => {
     try {
       if (fn.scope === 'page' || fn.output === 'annotations') {
-        const snapshot = captureReadingSnapshot(context, fn.scope)
+        if (!snapshots.current.has(fn.scope))
+          snapshots.current.set(fn.scope, captureReadingSnapshot(context, fn.scope))
+        const snapshot = snapshots.current.get(fn.scope)
         return {
           snapshot,
           text: snapshot.blocks.map((item) => `[${item.ref}] ${item.text}`).join('\n\n'),
@@ -90,53 +98,94 @@ export function BrowserAssistant({
     setFn((prev) => ({ ...localizeFunction(prev, t), ...patch, customized: true }))
     setSaved(false)
   }
+  const preparationKey = useMemo(() => ({}), [fn, preview, temporaryEngine, siteEngine, config])
+  // Recompute on edits, then consume exactly this object on Run. No DOM reads at dispatch.
+  useEffect(() => {
+    let disposed = false
+    setRequest(null)
+    setExtraConfirmed(false)
+    void (async () => {
+      try {
+        await i18nReady
+        if (preview.error) throw new Error(preview.error)
+        const language = await getPreferredLanguage()
+        let variables = {}
+        const keys = fn.template ? extractTemplateVariables(fn.prompt) : []
+        if (keys.some((key) => ['fullhtml', 'bodyhtml'].includes(key)))
+          throw new Error(
+            'Raw HTML is unavailable in page functions. Choose explicit page variables instead.',
+          )
+        const prepared = prepareFunctionRun({
+          fn: localizeFunction(fn, i18n.t.bind(i18n)),
+          context,
+          temporaryEngine,
+          siteEngine,
+          config,
+          snapshot: preview.snapshot,
+          language,
+          resolveTemplate: (template, material) => {
+            const result = resolvePromptTemplateSnapshot(template, {
+              selection: material,
+              material,
+              customExtractors: config.customContentExtractors,
+              allowFullHtml: false,
+              pageContext: { title: context.title, url: context.url, language, content: material },
+            })
+            variables = result.variables
+            return result.text
+          },
+        })
+        const extras = Object.entries(variables).filter(
+          ([key]) => !['selection', 'content', 'title', 'url', 'language'].includes(key),
+        )
+        if (!disposed) setRequest({ key: preparationKey, prepared, extras })
+      } catch (error) {
+        if (!disposed) setRequest({ key: preparationKey, error: error.message })
+      }
+    })()
+    return () => {
+      disposed = true
+    }
+  }, [preparationKey])
+  const readyRequest = request?.key === preparationKey ? request : null
+  const needsExtraConfirmation = !!readyRequest?.extras?.length
   const start = async () => {
-    if (starting.current) return
+    if (starting.current || !readyRequest?.prepared || (needsExtraConfirmation && !extraConfirmed))
+      return
     starting.current = true
     setBusy(true)
     setError('')
     try {
-      await i18nReady
       if (context.document.location.href !== context.url)
         throw new Error('The page changed. Open the assistant again.')
-      if (preview.error) throw new Error(preview.error)
       const latest = await getUserConfig()
-      const language = await getPreferredLanguage()
-      const prepared = prepareFunctionRun({
-        fn: localizeFunction(fn, i18n.t.bind(i18n)),
-        context,
-        temporaryEngine,
-        siteEngine,
-        config: latest,
-        snapshot: preview.snapshot,
-        language,
-        resolveTemplate: (template, material) =>
-          resolvePromptTemplate(template, {
-            selection: material,
-            customExtractors: latest.customContentExtractors,
-            allowFullHtml: false,
-            pageContext: {
-              title: context.title,
-              url: context.url,
-              language,
-              // Both material variables describe the scope the user chose.
-              content: material,
-            },
-          }),
-      })
+      const prepared = readyRequest.prepared
+      // Validate availability against current settings without changing the previewed payload.
+      if (!listEnabledEngineSelections(latest).some((item) => item.value === prepared.engine))
+        throw new Error(
+          'This engine is unavailable. Choose an enabled engine in Settings → Engines.',
+        )
       setSession(
         initSession({ modelName: prepared.engine, extraCustomModelName: latest.customModelName }),
       )
       setRun(prepared)
       setRefinements([])
       setActualEngine(prepared.engine)
-      setBusy(true)
     } catch (error) {
       setError(error.message)
       setBusy(false)
     } finally {
       starting.current = false
     }
+  }
+  const changeRun = (output = run.fn.output) => {
+    edit({
+      ...functionWithRefinements(run.fn, refinements, t('Additional user instructions:')),
+      output,
+    })
+    if (actualEngine && actualEngine !== run.engine) setTemporaryEngine(actualEngine)
+    setRun(null)
+    setBusy(false)
   }
   const openSave = () => {
     if (!saving && run) {
@@ -168,15 +217,16 @@ export function BrowserAssistant({
   }
   useEffect(() => {
     if (run) dialogRef.current?.focus({ preventScroll: true })
-    else if (!autoRun) instructionRef.current?.focus({ preventScroll: true })
-  }, [run?.id])
+    else if (!autoRun || needsExtraConfirmation)
+      instructionRef.current?.focus({ preventScroll: true })
+  }, [run?.id, needsExtraConfirmation])
   const autoStarted = useRef(false)
   useEffect(() => {
-    if (autoRun && !autoStarted.current) {
+    if (autoRun && readyRequest?.prepared && !needsExtraConfirmation && !autoStarted.current) {
       autoStarted.current = true
       void start()
     }
-  }, [autoRun])
+  }, [autoRun, readyRequest, needsExtraConfirmation])
   return (
     <section
       className="box-assistant"
@@ -215,20 +265,28 @@ export function BrowserAssistant({
                 {t(SCOPE_LABELS[run.fn.scope])} · {run.material.length} {t('chars')} ·{' '}
                 {actualEngine || run.engine}
               </span>
-              <button
-                onClick={() => {
-                  edit({
-                    prompt: functionWithRefinements(
-                      run.fn,
-                      refinements,
-                      t('Additional user instructions:'),
-                    ).prompt,
-                  })
-                  if (actualEngine && actualEngine !== run.engine) setTemporaryEngine(actualEngine)
-                  setRun(null)
-                  setBusy(false)
-                }}
-              >
+              <label>
+                {t('Use result as')}
+                <select
+                  value={run.fn.output}
+                  disabled={busy}
+                  onChange={(event) => changeRun(event.target.value)}
+                >
+                  {OUTPUT_MODES.map((output) => (
+                    <option
+                      key={output}
+                      value={output}
+                      disabled={
+                        (output === 'replacement' && run.fn.scope !== 'input') ||
+                        (output === 'annotations' && !['page', 'selection'].includes(run.fn.scope))
+                      }
+                    >
+                      {t(OUTPUT_LABELS[output])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button disabled={busy} onClick={() => changeRun()}>
                 <ArrowLeft size={14} />
                 {t('Change instruction')}
               </button>
@@ -253,7 +311,7 @@ export function BrowserAssistant({
                     JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
                   )
                   const last = items.at(-1)
-                  if (last) setBusy(last.type === 'answer' && !last.done)
+                  setBusy(!!last && last.type === 'answer' && !last.done)
                 }}
                 renderAnswer={
                   run.fn.output === 'chat'
@@ -263,7 +321,12 @@ export function BrowserAssistant({
                           <AssistantResult
                             key={`${run.id}-${item.content}`}
                             run={run}
-                            text={item.content}
+                            text={
+                              item.outcome && item.outcome !== 'completed'
+                                ? item.content
+                                : item.finalContent ?? item.content
+                            }
+                            outcome={item.outcome || 'completed'}
                             resultId={`${run.id}-${index}`}
                           />
                         ) : (
@@ -418,7 +481,7 @@ export function BrowserAssistant({
                   t(preview.error || 'No material is available for this input scope')}
               </pre>
             </details>
-            {fn.scope === 'url' && (
+            {fn.scope === 'url' && !needsExtraConfirmation && (
               <p className="box-assistant-note">
                 {t(
                   'Only the link is sent. Whether the AI can read it depends on the selected connection.',
@@ -430,10 +493,42 @@ export function BrowserAssistant({
                 {t('Page text was shortened to the preview shown above.')}
               </p>
             )}
+            <details className="box-assistant-preview">
+              <summary>{t('Preview complete request')}</summary>
+              <pre>
+                {readyRequest?.prepared?.prompt ||
+                  t(readyRequest?.error || 'Preparing request preview...')}
+              </pre>
+            </details>
+            {needsExtraConfirmation && (
+              <div className="box-assistant-note" role="status">
+                <p>
+                  {t('This template also reads page information beyond the selected material:')}
+                </p>
+                {readyRequest.extras.map(([key, value]) => (
+                  <details key={key}>
+                    <summary>
+                      {key} · {value.length} {t('chars')}
+                    </summary>
+                    <pre>{value}</pre>
+                  </details>
+                ))}
+                <label className="box-assistant-extra-consent">
+                  <input
+                    type="checkbox"
+                    checked={extraConfirmed}
+                    onChange={(event) => setExtraConfirmed(event.target.checked)}
+                  />
+                  {t('Include the additional page information shown above')}
+                </label>
+              </div>
+            )}
             <div className="box-assistant-actions box-assistant-primary-actions">
               <button
                 className="is-primary"
-                disabled={busy || !fn.prompt.trim() || !!preview.error || !preview.text}
+                disabled={
+                  busy || !readyRequest?.prepared || (needsExtraConfirmation && !extraConfirmed)
+                }
                 onClick={start}
               >
                 <Play size={14} />

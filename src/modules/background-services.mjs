@@ -182,6 +182,18 @@ export async function startModuleBackgrounds() {
         })
       })
     }
+    if (message?.type === RuntimeMessage.DshModuleWorkspaces) {
+      if (!dshGateway || dshGateway.getState().status !== 'online')
+        return Promise.resolve({
+          error: 'DeepSeek Harness is not connected. Open Engines → DeepSeek Harness to diagnose.',
+        })
+      return readConfig()
+        .then(async (config) => {
+          const value = await dshGateway.rpc('workspace.list', {})
+          return { items: value?.items || [], endpoint: config.dshEndpoint }
+        })
+        .catch((error) => ({ error: error.message }))
+    }
     if (message?.type === RuntimeMessage.DshModuleRespond) {
       // Approval/question answers from surfaces that are not gateway ports
       // (floating window cards, the popup's pinned waiting cards).

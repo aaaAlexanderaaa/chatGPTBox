@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('i18next', () => ({
   t: (key) => key,
 }))
+vi.mock('../src/config/index.mjs', async (original) => ({
+  ...(await original()),
+  getUserConfig: async () => ({}),
+}))
 import Browser from 'webextension-polyfill'
 import { PASTE_REVIEW_PORT } from '../src/native-chatgpt/review-contract.mjs'
 import {
@@ -59,13 +63,11 @@ describe('createPortRunGuard', () => {
     runPort.postMessage({ answer: 'stale' })
     runPort.postMessage({ done: true })
     runPort.postMessage({ error: 'nope' })
-    runPort.postMessage({ session: { id: 'still-ok' } })
+    runPort.postMessage({ finalContent: 'stale final' })
+    runPort.postMessage({ started: true })
+    runPort.postMessage({ session: { id: 'still-ok' }, started: true })
 
-    expect(port.posts).toEqual([
-      { answer: 'partial' },
-      { done: true },
-      { session: { id: 'still-ok' } },
-    ])
+    expect(port.posts).toEqual([{ answer: 'partial' }, { done: true, outcome: 'stopped' }])
     expect(isUiPortStopRequested(port)).toBe(true)
   })
 
@@ -173,8 +175,26 @@ describe('registerPortListener', () => {
     onConnect(port)
     await Promise.all(port.messageListeners.map((listener) => listener({ stop: true })))
 
-    expect(port.posts).toEqual([{ done: true }])
+    expect(port.posts).toEqual([{ done: true, outcome: 'stopped' }])
     expect(started).toEqual([])
     expect(isUiPortStopRequested(port)).toBe(true)
+  })
+
+  it('announces a current new run before any provider answer', async () => {
+    let onConnect
+    Browser.runtime.onConnect.addListener = (listener) => {
+      onConnect = listener
+    }
+    registerPortListener(async (_session, providerPort) => {
+      providerPort.postMessage({ answer: 'provider answer', done: true, outcome: 'completed' })
+    })
+    const port = fakePort()
+    onConnect(port)
+    const session = { modelName: 'chatgptweb/test', aiName: 'Controlled engine' }
+    await Promise.all(port.messageListeners.map((listener) => listener({ session })))
+    expect(port.posts).toEqual([
+      { session, started: true },
+      { answer: 'provider answer', done: true, outcome: 'completed' },
+    ])
   })
 })

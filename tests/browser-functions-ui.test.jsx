@@ -132,6 +132,9 @@ describe('function UI across languages and model formats', () => {
     expect(document.activeElement).toBe(root.querySelector('textarea'))
     expect(root.querySelector('[data-testid="submitted-prompt"]')).toBeNull()
     await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await act(async () => {
       button('Run').click()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
@@ -240,6 +243,9 @@ describe('function UI across languages and model formats', () => {
         root,
       )
       await Promise.resolve()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))

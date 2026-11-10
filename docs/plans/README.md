@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-06
+last_reconciled: 2026-11-09
 ---
 
 # Execution records
@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record | State and remaining limit |
 | --- | --- |
+| [Core workflows and confirmed defects](2026-11-08-core-workflows.md) | Completed local delivery: core flows/confirmed defects repaired, final source evaluated and controlled Chromium follow-through verified; native/live acceptance and release remain separate |
 | [Client widgets and Drafts](2026-11-06-genui-client-widgets.md) | Completed local delivery: native charts/static widgets, regenerated Preview assets, installed extension and live gateway readback; native Drafts import/sync unverified |
 | [ChatGPT native input](2026-10-30-chatgpt-native-input.md) | Active: regex/guest workflows verified and v4.3.0 installed with defaults off; logged-in rich-editor, account, IME and BFCache acceptance remain |
 | [Documentation reconciliation](2026-10-22-documentation-discipline.md) | See its metadata and completion record for this bounded change |

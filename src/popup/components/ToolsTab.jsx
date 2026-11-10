@@ -11,12 +11,16 @@ const TEXT_INPUT_CLASS =
  * trigger. Selection tools (built-in + custom) and search-engine query
  * composition live here (roadmap C4, pure relocation from Modules/Advanced).
  */
-export function ToolsTab({ config, updateConfig }) {
+export function ToolsTab({ config, updateConfig, configReadState = 'ready' }) {
   const { t } = useTranslation()
 
   return (
     <div className="space-y-4">
-      <FunctionLibrary config={config} updateConfig={updateConfig} />
+      <FunctionLibrary
+        config={config}
+        updateConfig={updateConfig}
+        configReadState={configReadState}
+      />
 
       <Divider />
 
@@ -58,4 +62,5 @@ export function ToolsTab({ config, updateConfig }) {
 ToolsTab.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  configReadState: PropTypes.string,
 }

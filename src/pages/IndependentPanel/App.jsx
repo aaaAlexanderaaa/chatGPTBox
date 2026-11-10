@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import '../../styles/globals.css'
 import './styles-new.css'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { isUsingDshHarnessModel } from '../../config/predicates.mjs'
 import { setUserConfig } from '../../config/storage.mjs'
 import { useTranslation } from 'react-i18next'
 import ConfirmButton from '../../components/ConfirmButton'
@@ -48,7 +49,10 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
   const [sessionId, setSessionId] = useState(null)
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
+  const [sessionSaveError, setSessionSaveError] = useState(null)
+  const lastPersistedSession = useRef(null)
   const currentPort = useRef(null)
+  const draftFlushRef = useRef(null)
   const chatRootRef = useRef(null)
 
   useEffect(() => {
@@ -63,18 +67,24 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
   }, [isNarrow, config.independentPanelSidebarCollapsed])
 
   const setSessionIdSafe = async (sessionId) => {
+    try {
+      await draftFlushRef.current?.()
+    } catch (error) {
+      setSessionSaveError({ sessionId: currentSession?.sessionId, message: error.message })
+      return false
+    }
+    const { session, currentSessions } = await getSession(sessionId)
+    const nextId = session ? sessionId : currentSessions[0]?.sessionId
+    if (!nextId || nextId === currentSession?.sessionId) return true
     if (currentPort.current) {
       try {
-        currentPort.current.postMessage({ stop: true })
-        currentPort.current.disconnect()
+        if (!isUsingDshHarnessModel(currentSession)) currentPort.current.postMessage({ stop: true })
       } catch (e) {
         /* empty */
       }
       currentPort.current = null
     }
-    const { session, currentSessions } = await getSession(sessionId)
-    if (session) setSessionId(sessionId)
-    else if (currentSessions.length > 0) setSessionId(currentSessions[0].sessionId)
+    setSessionId(nextId)
   }
 
   useEffect(() => {
@@ -175,6 +185,24 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
     const sessions = await resetSessions()
     setSessions(sessions)
     await setSessionIdSafe(sessions[0].sessionId)
+  }
+
+  const reopenSavedConversation = async () => {
+    try {
+      await draftFlushRef.current?.()
+      const saved = await getSession(currentSession.sessionId)
+      const next = saved.session || saved.currentSessions[0]
+      currentPort.current = null
+      setRenderContent(false)
+      setSessions(saved.currentSessions)
+      setCurrentSession(next)
+      setSessionId(next.sessionId)
+      lastPersistedSession.current = next
+      setSessionSaveError(null)
+      setTimeout(() => setRenderContent(true))
+    } catch (error) {
+      setSessionSaveError({ sessionId: currentSession.sessionId, message: error.message })
+    }
   }
 
   return (
@@ -369,22 +397,52 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
         </div>
 
         {/* Chat Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {sessionSaveError && sessionSaveError.sessionId === currentSession?.sessionId && (
+            <div role="alert" className="p-3 shrink-0">
+              <p>{t(sessionSaveError.message)}</p>
+              <button
+                className="px-3 py-2 rounded-lg bg-secondary text-secondary-foreground"
+                onClick={reopenSavedConversation}
+              >
+                {t('Reopen saved conversation')}
+              </button>
+            </div>
+          )}
           {renderContent && currentSession && currentSession.conversationRecords && (
-            <div ref={chatRootRef} className="chatgptbox-container h-full">
-              <ConversationCard
-                session={currentSession}
-                notClampSize={true}
-                pageMode={true}
-                draftKey={`independent-draft-${currentSession.sessionId}`}
-                onUpdate={(port, session, cData) => {
-                  currentPort.current = port
-                  if (cData.length > 0 && cData[cData.length - 1].done) {
-                    updateSession(session).then(setSessions)
-                    setCurrentSession(session)
-                  }
-                }}
-              />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div ref={chatRootRef} className="chatgptbox-container h-full">
+                <ConversationCard
+                  session={currentSession}
+                  persistedSession={true}
+                  disconnectOnUnmount={true}
+                  draftFlushRef={draftFlushRef}
+                  readOnly={sessionSaveError?.sessionId === currentSession.sessionId}
+                  notClampSize={true}
+                  pageMode={true}
+                  draftKey={`independent-draft-${currentSession.sessionId}`}
+                  onUpdate={(port, session) => {
+                    currentPort.current = port
+                    if (lastPersistedSession.current !== session) {
+                      lastPersistedSession.current = session
+                      updateSession(session)
+                        .then((saved) => {
+                          setSessions(saved)
+                          setSessionSaveError((previous) =>
+                            previous?.sessionId === session.sessionId ? null : previous,
+                          )
+                        })
+                        .catch((error) =>
+                          setSessionSaveError({
+                            sessionId: session.sessionId,
+                            message: error.message,
+                          }),
+                        )
+                      setCurrentSession(session)
+                    }
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>

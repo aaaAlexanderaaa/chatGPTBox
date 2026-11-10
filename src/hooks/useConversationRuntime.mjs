@@ -12,7 +12,7 @@
 // / formatErrorMessage) lives in ./conversation-runtime-reducers.mjs and is
 // tested directly; this hook wraps it in React state.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   applyInbound,
   formatErrorMessage,
@@ -33,9 +33,36 @@ export { formatErrorMessage }
  * @param {boolean} [opts.hasInitialQuestion] Whether an initial question is pending.
  */
 export function useConversationRuntime({ initialSession, t, hasInitialQuestion = false }) {
-  const [session, setSession] = useState(initialSession)
-  const [isReady, setIsReady] = useState(!hasInitialQuestion)
-  const [items, setItems] = useState([])
+  const [state, setState] = useState({
+    session: initialSession,
+    isReady: !hasInitialQuestion,
+    items: [],
+  })
+  const { items } = state
+  const setSession = useCallback(
+    (update) =>
+      setState((previous) => {
+        const session = typeof update === 'function' ? update(previous.session) : update
+        return session === previous.session ? previous : { ...previous, session }
+      }),
+    [],
+  )
+  const setIsReady = useCallback(
+    (update) =>
+      setState((previous) => {
+        const isReady = typeof update === 'function' ? update(previous.isReady) : update
+        return isReady === previous.isReady ? previous : { ...previous, isReady }
+      }),
+    [],
+  )
+  const setItems = useCallback(
+    (update) =>
+      setState((previous) => {
+        const next = typeof update === 'function' ? update(previous.items) : update
+        return next === previous.items ? previous : { ...previous, items: next }
+      }),
+    [],
+  )
   // Mirror of `items` for use inside async callbacks that shouldn't capture
   // stale item state. Updated on every render so the inbound-message / retry
   // reducers always read the latest committed items (mirrors the original
@@ -50,24 +77,30 @@ export function useConversationRuntime({ initialSession, t, hasInitialQuestion =
    * @param {'answer'|'error'} newType
    * @param {boolean} done
    */
-  const updateAnswer = useCallback((value, appended, newType, done = false) => {
-    setItems((old) => updateLastAnswer(old, value, appended, newType, done))
-  }, [])
+  const updateAnswer = useCallback(
+    (value, appended, newType, done = false) => {
+      setItems((old) => updateLastAnswer(old, value, appended, newType, done))
+    },
+    [setItems],
+  )
 
   // Seed the item list from a session's persisted records (used on mount and
   // when switching sessions).
-  const hydrateFromSession = useCallback((nextSession, loadingPlaceholder) => {
-    if (!nextSession.conversationRecords || nextSession.conversationRecords.length === 0) {
-      setItems(loadingPlaceholder ? [new ConversationItemData('answer', loadingPlaceholder)] : [])
-      return
-    }
-    const ret = []
-    for (const record of nextSession.conversationRecords) {
-      ret.push(new ConversationItemData('question', record.question, true))
-      ret.push(new ConversationItemData('answer', record.answer, true))
-    }
-    setItems(ret)
-  }, [])
+  const hydrateFromSession = useCallback(
+    (nextSession, loadingPlaceholder) => {
+      if (!nextSession.conversationRecords || nextSession.conversationRecords.length === 0) {
+        setItems(loadingPlaceholder ? [new ConversationItemData('answer', loadingPlaceholder)] : [])
+        return
+      }
+      const ret = []
+      for (const record of nextSession.conversationRecords) {
+        ret.push(new ConversationItemData('question', record.question, true))
+        ret.push(new ConversationItemData('answer', record.answer, true))
+      }
+      setItems(ret)
+    },
+    [setItems],
+  )
 
   /**
    * Apply an inbound port message to the runtime state. Returns void; the
@@ -76,18 +109,9 @@ export function useConversationRuntime({ initialSession, t, hasInitialQuestion =
    */
   const dispatchInbound = useCallback(
     (msg) => {
-      setItems((oldItems) => {
-        const next = applyInbound(
-          { items: oldItems, session, isReady },
-          msg,
-          t,
-        )
-        if (next.session !== session) setSession(next.session)
-        if (next.isReady !== isReady) setIsReady(next.isReady)
-        return next.items
-      })
+      setState((previous) => applyInbound(previous, msg, t))
     },
-    [t, session, isReady],
+    [t],
   )
 
   /**
@@ -95,28 +119,46 @@ export function useConversationRuntime({ initialSession, t, hasInitialQuestion =
    * the transport function ({session, stop} => Promise), so the state machine
    * stays transport-agnostic. The retry:
    *   1. shows the loading placeholder
-   *   2. pops the last record if it matches the just-completed exchange
-   *   3. stops any in-flight request then re-sends with isRetry=true
+   *   2. identifies the completed exchange without removing durable history
+   *   3. re-sends with a replacement target committed only by a successful producer
    */
   const buildRetry = useCallback(
     (retrySession, send) => async () => {
+      const prepared = {
+        ...retrySession,
+        conversationRecords: [...(retrySession.conversationRecords || [])],
+      }
+      const originalRecords = [...prepared.conversationRecords]
+      const target = originalRecords.at(-1)
+      popMatchedRetryRecord(prepared, itemsRef.current)
+      const retryReplacement =
+        prepared.conversationRecords.length < originalRecords.length
+          ? {
+              index: originalRecords.length - 1,
+              question: target.question,
+              answer: target.answer,
+            }
+          : retrySession.retryReplacement || null
+      const newSession = {
+        ...retrySession,
+        conversationRecords: originalRecords,
+        isRetry: true,
+        appendRetryRecord: true,
+        retryReplacement,
+      }
       updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
       setIsReady(false)
-
-      popMatchedRetryRecord(retrySession, itemsRef.current)
-      const newSession = { ...retrySession, isRetry: true }
       setSession(newSession)
       try {
         await send({ stop: true })
-        await send({ session: newSession })
+        return await send({ session: newSession })
       } catch (e) {
-        updateAnswer(e, false, 'error')
+        dispatchInbound({ error: e.message || String(e) })
+        return false
       }
     },
-    [t, updateAnswer],
+    [t, updateAnswer, dispatchInbound, setIsReady, setSession],
   )
-
-  const state = useMemo(() => ({ session, items, isReady }), [session, items, isReady])
 
   return {
     state,

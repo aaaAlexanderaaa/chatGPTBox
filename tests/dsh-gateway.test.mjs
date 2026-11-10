@@ -427,7 +427,7 @@ describe('dsh gateway (against a fake harness)', () => {
     const kinds = fold.getBlocks().map((b) => b.kind)
     expect(kinds).toEqual(['text', 'tool', 'turn-end']) // no duplicates from the replay
     const turnEnd = fold.getBlocks().at(-1)
-    expect(turnEnd).toMatchObject({ kind: 'turn-end', reasonKind: 'completed', steps: 0, tools: 1 })
+    expect(turnEnd).toMatchObject({ kind: 'turn-end', reasonKind: 'completed', steps: 1, tools: 1 })
   })
 
   it('host frames maintain the session rows', async () => {

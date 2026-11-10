@@ -1,5 +1,10 @@
 import { getUserConfig } from '../../config/storage.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import {
+  completionOutcome,
+  getRequestConversationRecords,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
@@ -28,19 +33,20 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   const model = l1?.modelId || getModelValue(session)
 
   const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
+    getRequestConversationRecords(session).slice(-config.maxConversationContextLength),
     false,
   )
   prompt.push({ role: 'user', content: question })
 
   let answer = ''
   let finished = false
-  const finish = () => {
+  let stopReason = null
+  const finish = (outcome = completionOutcome(stopReason)) => {
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    if (outcome === 'completed') pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: null, done: true, session: session })
+    port.postMessage({ answer: null, finalContent: answer, done: true, outcome, session })
   }
 
   await fetchSSE(`${apiUrl}/v1/messages`, {
@@ -75,6 +81,11 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         console.debug('json error', error)
         return
       }
+      if (data?.type === 'error' || data?.error) {
+        cleanupPortListeners()
+        throw new Error(data.error?.message || 'Anthropic stream failed')
+      }
+      if (data?.delta?.stop_reason) stopReason = data.delta.stop_reason
       if (data?.type === 'message_stop') {
         finish()
         return
@@ -87,9 +98,9 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       }
     },
     async onStart() {},
-    async onEnd() {
-      port.postMessage({ done: true })
+    async onEnd(result = {}) {
       cleanupPortListeners()
+      if (!result.aborted && !finished) finish('incomplete')
     },
     async onError(resp) {
       cleanupPortListeners()

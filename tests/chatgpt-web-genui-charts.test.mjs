@@ -226,7 +226,7 @@ describe('portable GenUI charts', () => {
       })
       const draft = {
         content:
-          'Conversation ID: demo\n<!-- chatgptbox-waiting-reply:start {"conversationId":"demo"} -->\n<!-- chatgptbox-waiting-reply:end -->',
+          '# Conversation\n\nConversation ID: demo\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"demo"} -->\n<!-- chatgptbox-waiting-reply:end -->',
         update() {},
       }
       vm.runInNewContext(

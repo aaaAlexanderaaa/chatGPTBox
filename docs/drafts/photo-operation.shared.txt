@@ -1,6 +1,6 @@
-const PHOTO_METADATA_RE = /<!-- chatgptbox-photos:(\{.*\}) -->/
-const PHOTO_OPERATION_RE = /<!-- chatgptbox-photo-operation:(\{.*\}) -->/
-const PHOTO_STATUS_RE = /^Photo send:.*\n?/gm
+const PHOTO_METADATA_RE = controlRegex(/<!-- chatgptbox-photos:(\{.*\}) -->/)
+const PHOTO_OPERATION_RE = controlRegex(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)
+const PHOTO_STATUS_RE = controlRegex(/<!-- chatgptbox-photo-status:start -->[\s\S]*?<!-- chatgptbox-photo-status:end -->\n?/g)
 
 function readPhotoMetadata(content) {
   const match = content.match(PHOTO_METADATA_RE)
@@ -8,11 +8,11 @@ function readPhotoMetadata(content) {
 }
 
 function writePhotoMetadata(metadata) {
-  const marker = '<!-- chatgptbox-photos:' + JSON.stringify(metadata) + ' -->'
+  const marker = controlText('<!-- chatgptbox-photos:') + controlJson(metadata) + ' -->'
   draft.content = PHOTO_METADATA_RE.test(draft.content || '')
     ? draft.content.replace(PHOTO_METADATA_RE, () => marker)
     : (draft.content || '').trimEnd() + '\n\n' + marker + '\n'
-  draft.update()
+  saveControlDocument()
 }
 
 function readPhotoOperation(content) {
@@ -21,7 +21,7 @@ function readPhotoOperation(content) {
 }
 
 function photoPrompt(content, waitingReply) {
-  return waitingReply ? waitingReply.query : content.replace(PHOTO_METADATA_RE, '').replace(PHOTO_OPERATION_RE, '').replace(PHOTO_STATUS_RE, '').trim()
+  return waitingReply ? waitingReply.query : content.replace(PHOTO_METADATA_RE, '').replace(PHOTO_OPERATION_RE, '').replace(PHOTO_STATUS_RE, '').replace(CONTROL_HEADER_RE, '').trim()
 }
 
 function stagePhotoFiles(metadata) {
@@ -59,8 +59,8 @@ function photoStatus(status) {
     interrupted: 'Preparation interrupted; run Send to continue', ambiguous: 'Submission could not be confirmed; inspect the original conversation before sending again' }
   const label = names[status.phase] || 'Checking send status'
   const line = 'Photo send: ' + label + (status.error ? ' (' + status.error.replace(/[\r\n]/g, ' ') + ')' : '') + '\n'
-  draft.content = (draft.content || '').replace(PHOTO_STATUS_RE, '').trimEnd() + '\n\n' + line
-  draft.update()
+  draft.content = (draft.content || '').replace(PHOTO_STATUS_RE, '').trimEnd() + '\n\n' + controlText('<!-- chatgptbox-photo-status:start -->\n') + line + controlText('<!-- chatgptbox-photo-status:end -->\n')
+  saveControlDocument()
   if (['failed', 'ambiguous'].includes(status.phase)) app.displayErrorMessage(label)
   else app.displaySuccessMessage(label)
 }
@@ -74,16 +74,16 @@ function finishPhotoOperation(status, job) {
   const metadata = readPhotoMetadata(currentContent)
   const unsent = edited && edited !== job.request.query ? edited : ''
   const images = metadata.images || []
-  const summary = images.map((image) => '_Photo: ' + String(image.name || 'photo').replace(/[\r\n]/g, ' ') + '_').join('\n')
+  const summary = images.filter((image) => job.request.attachments.includes(image.id)).map((image) => '_Photo: ' + String(image.name || 'photo').replace(/[\r\n]/g, ' ') + '_').join('\n')
   if (currentReply) {
     const match = currentContent.match(WAITING_REPLY_START_RE)
     const start = currentContent.indexOf(match[0]) + match[0].length
     const end = currentContent.indexOf(WAITING_REPLY_END, start)
     draft.content = currentContent.slice(0, start) + '\n' + job.request.query + '\n' + currentContent.slice(end)
   } else {
-    draft.content = '# Conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' +
-      JSON.stringify({ conversationId: receipt.conversationId }) + ' -->\n' + job.request.query +
-      '\n<!-- chatgptbox-waiting-reply:end -->\n'
+    draft.content = controlText('# Conversation\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ') +
+      controlJson({ conversationId: receipt.conversationId }) + ' -->\n' + job.request.query +
+      controlText('\n<!-- chatgptbox-waiting-reply:end -->\n')
   }
   const match = draft.content.match(WAITING_REPLY_START_RE)
   const waitingMetadata = JSON.parse(match[1])
@@ -92,6 +92,7 @@ function finishPhotoOperation(status, job) {
   waitingMetadata.conversationId = receipt.conversationId
   waitingMetadata.defaultModel = receipt.defaultModel || waitingMetadata.defaultModel || null
   waitingMetadata.pendingMessageId = receipt.messageId
+  waitingMetadata.pendingQuery = job.request.query
   waitingMetadata.pendingSentAt = receipt.createdAt || new Date().toISOString()
   const afterStart = draft.content.indexOf(match[0]) + match[0].length
   const blockEnd = draft.content.indexOf(WAITING_REPLY_END, afterStart)
@@ -99,8 +100,8 @@ function finishPhotoOperation(status, job) {
   const prefix = draft.content.slice(0, heading >= 0 ? heading : draft.content.indexOf(match[0])).trimEnd()
   draft.content = prefix + '\n\n### USER\n\n' + job.request.query + (summary ? '\n\n' + summary : '') +
     '\n\n### ASSISTANT (pending)\n\n' + PENDING_ANSWER_TEXT +
-    '\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ' + JSON.stringify(waitingMetadata) + ' -->\n' + unsent +
-    '\n<!-- chatgptbox-waiting-reply:end -->\n' + draft.content.slice(blockEnd + WAITING_REPLY_END.length)
+    controlText('\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start ') + controlJson(waitingMetadata) + ' -->\n' + unsent +
+    controlText('\n<!-- chatgptbox-waiting-reply:end -->\n') + draft.content.slice(blockEnd + WAITING_REPLY_END.length)
   draft.content = draft.content.replace(PHOTO_OPERATION_RE, '').replace(PHOTO_STATUS_RE, '').replace(PHOTO_METADATA_RE, '').trimEnd() + '\n'
   metadata.images = images.filter((image) => !job.request.attachments.includes(image.id))
   metadata.projectId = receipt.projectId || metadata.projectId || null
@@ -111,6 +112,8 @@ function finishPhotoOperation(status, job) {
 function sendPhotoOperation(content, waitingReply) {
   let job = readPhotoOperation(content)
   if (!job) {
+    if (waitingReply && (waitingReply.metadata.pendingMessageId || waitingReply.metadata.pendingQuery || waitingReply.metadata.pendingSentAt || waitingReply.metadata.operationRequest?.query))
+      fail('The previous turn is still pending. Your next question and photos were kept; run Get before sending them.')
     const metadata = stagePhotoFiles(readPhotoMetadata(content))
     const query = photoPrompt(content, waitingReply) || '请分析这些图片，标明不确定的地方。'
     const conversationId = waitingReply && waitingReply.metadata.conversationId
@@ -119,8 +122,8 @@ function sendPhotoOperation(content, waitingReply) {
       request: { query, attachments: (metadata.images || []).map((image) => image.id), async: true,
         ...(metadata.projectId ? { project_id: metadata.projectId } : {}),
         ...(MODEL_OVERRIDE ? { model: MODEL_OVERRIDE } : {}) } }
-    draft.content = (draft.content || '').trimEnd() + '\n\n<!-- chatgptbox-photo-operation:' + JSON.stringify(job) + ' -->\n'
-    draft.update()
+    draft.content = (draft.content || '').trimEnd() + controlText('\n\n<!-- chatgptbox-photo-operation:') + controlJson(job) + ' -->\n'
+    saveControlDocument()
   }
   stagePhotoFiles(readPhotoMetadata(draft.content || ''))
   const createdAt = typeof job.createdAt === 'string' ? new Date(job.createdAt).getTime() : NaN

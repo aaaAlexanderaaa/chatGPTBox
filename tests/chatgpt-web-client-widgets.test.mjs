@@ -169,7 +169,7 @@ describe('native client widgets', () => {
     ]) {
       const draft = {
         content:
-          'Conversation ID: synthetic\n<!-- chatgptbox-waiting-reply:start {"conversationId":"synthetic"} -->\n<!-- chatgptbox-waiting-reply:end -->',
+          '# Conversation\n\nConversation ID: synthetic\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"synthetic"} -->\n<!-- chatgptbox-waiting-reply:end -->',
         update() {},
       }
       vm.runInNewContext(

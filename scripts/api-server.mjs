@@ -379,10 +379,23 @@ function beginWriteOperation(req, route, body, { requireIdempotencyKey = false }
   // to release that one proven unsent operation, including after editing a draft.
   const previous = key && operationLedger.records.get(key)
   if (isLegacyChatgptNotDispatchedOperation(previous)) operationLedger.abort(previous)
-  return operationLedger.begin({
-    key,
-    fingerprint: fingerprintOperation(route, fingerprintBody),
-  })
+  try {
+    return operationLedger.begin({ key, fingerprint: fingerprintOperation(route, fingerprintBody) })
+  } catch (error) {
+    if (!['OPERATION_LEDGER_FULL', 'OPERATION_LEDGER_UNAVAILABLE'].includes(error.code)) throw error
+    return {
+      kind: 'rejected',
+      status: 503,
+      error: {
+        error: {
+          message: error.message,
+          code: error.code.toLowerCase(),
+          ...(error.code === 'OPERATION_LEDGER_FULL' ? { dispatched: false } : {}),
+          retryable: false,
+        },
+      },
+    }
+  }
 }
 
 function makeAmbiguousDispatchError(record, message, product = 'ChatGPT Web') {
@@ -470,6 +483,11 @@ function respondForExistingOperation(
   { stream = false, completionId, model, control = false } = {},
 ) {
   if (beginResult.kind === 'new') return false
+  if (beginResult.kind === 'rejected') {
+    res.setHeader('x-should-retry', 'false')
+    sendJson(res, beginResult.status, beginResult.error)
+    return true
+  }
   const { record } = beginResult
   res.setHeader('X-Operation-Id', record.operationId)
   res.setHeader('x-should-retry', 'false')
@@ -1302,6 +1320,10 @@ function handlePreparedSend(req, res, body, payload) {
       ? `/chatgpt/conversations/${payload.conversationId}/messages`
       : '/chatgpt/conversations'
     const begin = beginWriteOperation(req, route, body, { requireIdempotencyKey: true })
+    if (begin.kind === 'rejected') {
+      respondForExistingOperation(res, begin)
+      return true
+    }
     if (begin.kind === 'missing') {
       sendJson(res, 400, begin.error)
       return true

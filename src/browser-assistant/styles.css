@@ -312,3 +312,14 @@
     max-height: calc(100dvh - 24px);
   }
 }
+
+[data-chatgptbox-assistant] .box-assistant-extra-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+[data-chatgptbox-assistant] .box-assistant-extra-consent input[type='checkbox'] {
+  width: auto;
+  flex: none;
+  margin-top: 4px;
+}

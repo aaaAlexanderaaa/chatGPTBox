@@ -1,4 +1,5 @@
 import Browser from 'webextension-polyfill'
+import { pushRecord } from '../services/apis/shared.mjs'
 import { Models } from '../config/models.mjs'
 import { isGrokChatSlug, pickDefaultGrokWebKey, resolveGrokChatSlug } from '../config/grok-web.mjs'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
@@ -197,12 +198,20 @@ export async function handleGrokProxyRequest({
   }
 
   if (session && typeof session === 'object') {
+    if (!Array.isArray(session.conversationRecords)) session.conversationRecords = []
+    if (result.outcome === 'completed') pushRecord(session, session.question, result.answer)
     if (result.conversationId) session.conversationId = result.conversationId
     if (result.previousResponseID) session.previousResponseID = result.previousResponseID
   }
 
   if (typeof post === 'function') {
-    post({ answer: result.answer, done: true, session })
+    post({
+      answer: result.answer,
+      finalContent: result.outcome === 'completed' ? result.answer : null,
+      outcome: result.outcome,
+      done: true,
+      session,
+    })
   }
 
   // Persist extension-born continuation ids only (never on error / never grok.com import).

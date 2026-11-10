@@ -250,7 +250,13 @@ function SettingsCenter() {
           {active.id === 'grokweb' && <GrokWebTab config={config} updateConfig={updateConfig} />}
           {active.id === 'dsh' && <DshEngineTab config={config} updateConfig={updateConfig} />}
           {active.id === 'behavior' && <BehaviorTab config={config} updateConfig={updateConfig} />}
-          {active.id === 'tools' && <ToolsTab config={config} updateConfig={updateConfig} />}
+          {active.id === 'tools' && (
+            <ToolsTab
+              config={config}
+              updateConfig={updateConfig}
+              configReadState={configReadState}
+            />
+          )}
           {active.id === 'sites' && (
             <FeaturesTab
               config={config}

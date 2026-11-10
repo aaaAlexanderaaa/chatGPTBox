@@ -76,6 +76,7 @@ describe('API gateway compatibility contract', () => {
   it('lets the conversation choose its model for a Drafts follow-up', () => {
     const content = [
       '# Existing conversation',
+      'Conversation ID: conversation-1',
       '## Waiting Reply',
       '<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation-1","defaultModel":"gpt-5-4-thinking"} -->',
       'Continue the conversation',
@@ -88,6 +89,8 @@ describe('API gateway compatibility contract', () => {
 
   it('sends an explicit Drafts model override for new conversations and follow-ups', () => {
     const content = [
+      '# Conversation',
+      'Conversation ID: conversation-1',
       '## Waiting Reply',
       '<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation-1"} -->',
       'Continue the conversation',

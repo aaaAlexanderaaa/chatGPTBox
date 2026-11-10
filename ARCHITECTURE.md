@@ -2,7 +2,7 @@
 doc_type: architecture
 status: current
 authority: normative
-last_reconciled: 2026-10-31
+last_reconciled: 2026-11-09
 ---
 
 # ChatGPTBox architecture
@@ -84,6 +84,63 @@ MV3 service workers can restart. Durable state must use the existing storage or
 recovery owner; module-local memory alone cannot promise restart persistence.
 Page context is sent according to the chosen function scope. Config export and
 function export have different contents; do not infer one from the other.
+
+### Material, execution and binding ownership
+
+The page assistant freezes the prepared request before Run; template-derived extra
+page material is disclosed by that same object. Reading snapshots retain DOM
+anchors locally; saved functions contain methods, never the captured page.
+The GitHub discussion reader is shared by the legacy summary and page functions.
+
+The DSH client preserves the native request `rpcId` into the user-message fold
+and turn association; same-text prompts are not identities.
+
+The conversation Port carries display `answer`, optional `finalContent`, terminal
+`outcome` (`completed`, `stopped`, `incomplete`, `failed`), and `done` (input may
+resume). A transport ack alone cannot replace an earlier non-success outcome.
+Only an explicit new send/retry resets that state; a late terminal frame carrying
+answer text must not reopen the result gate.
+Each Card send/retry creates a local `preparing` transition before waiting, so
+pre-start failure can end that attempt and show its actual cause. It carries a
+`requestToken`; the wrapper echoes that token on the run's messages and emits
+`started: true` with the session before executing the provider. Untagged Stop
+acknowledgements cannot finish a new active attempt. Explicit Stop clears the
+active token and accepts its acknowledgement. Other Port clients can still omit
+the optional token.
+Persisted-panel requests additionally carry `localSession: true`; the background
+validates stored binding/existence before execution. The input clears only after
+the matching `started`, never merely because local preparation began.
+Conversation items, session and readiness transition in one reducer state, so
+batched Stop/start packets cannot reuse stale readiness. A UI retry prepares its
+local history separately from the provider's retry flag before appending a new
+local record. Retry identifies its completed target by both question and stored
+answer (confirmed final content or the provider's persisted display form) without
+removing durable history. API request context can omit that target; only a
+successful producer replaces it through `pushRecord`. Failed, incomplete,
+stopped or unadmitted retries retain the original completed record. A new
+ordinary question or connection choice clears the old replacement intent.
+Result consumers use final content only after successful completion. DSH owns
+its progress projection separately from its final text and cancellation request.
+Its `dshStatus` notice may accompany a terminal result; consumers must process
+both fields. After submission, its explicit Stop agent session action requests
+session-wide cancellation. Closing the surface only detaches observation.
+
+Local conversation records remain separate from remote continuation fields.
+Cross-provider switches advance a stored binding generation and clear remote
+fields; provider snapshots may restore only matching generations and providers.
+ChatGPT index mutations from proxy pages route to the background's serialized
+owner; a page-local Promise queue cannot serialize different JS contexts.
+Local Box session mutations likewise use a named background owner and compare
+binding-parent generations before replacement. A stale window keeps its view
+and draft but blocks further input until the saved conversation is reopened;
+an active request can still be explicitly stopped. Same-binding concurrent
+transcripts are not automatically merged.
+After a Port reconnect, explicit retry and automatic regeneration after a model
+choice use the current connection; reconnecting alone never resends a question.
+Input drafts retain edit versions and serialize writes per storage key within a
+live extension context. Explicit navigation waits for their flush; late loads
+cannot replace a newer edit. Separate windows do not merge drafts, and a process
+lost before storage acknowledgement has no durability guarantee.
 
 ## Build and verification boundaries
 

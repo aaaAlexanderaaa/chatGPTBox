@@ -58,7 +58,7 @@ export async function executeApi(session, port, config, ctx) {
     error = 'Grok Web is disabled. Enable it in Settings → Engines.'
   }
   try {
-    port.postMessage({ error })
+    port.postMessage({ error, dispatched: false })
     port.postMessage({ done: true })
   } catch {
     /* port already gone */

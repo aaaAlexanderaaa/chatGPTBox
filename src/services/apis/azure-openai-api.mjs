@@ -1,5 +1,10 @@
 import { getUserConfig } from '../../config/storage.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import {
+  completionOutcome,
+  getRequestConversationRecords,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
@@ -21,12 +26,19 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
   const apiKey = l1?.apiKey || config.azureApiKey
 
   const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
+    getRequestConversationRecords(session).slice(-config.maxConversationContextLength),
     false,
   )
   prompt.push({ role: 'user', content: question })
 
   let answer = ''
+  let finished = false
+  const finish = (outcome) => {
+    if (finished) return
+    finished = true
+    if (outcome === 'completed') pushRecord(session, question, answer)
+    port.postMessage({ finalContent: answer, done: true, outcome, session })
+  }
   await fetchSSE(
     `${endpoint}/openai/deployments/${model}/chat/completions?api-version=2024-02-01`,
     {
@@ -44,6 +56,7 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
       }),
       onMessage(message) {
         console.debug('sse message', message)
+        if (finished) return
         let data
         try {
           data = JSON.parse(message)
@@ -51,6 +64,7 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
           console.debug('json error', error)
           return
         }
+        if (data.error) throw new Error(data.error.message || 'Azure stream failed')
         // A `content: null` delta means "no text in this chunk" — appending it
         // would render the literal "null" in the answer.
         if (typeof data.choices?.[0]?.delta?.content === 'string') {
@@ -59,14 +73,12 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
         }
 
         if (data.choices && data.choices.length > 0 && data.choices[0]?.finish_reason) {
-          pushRecord(session, question, answer)
-          console.debug('conversation history', { content: session.conversationRecords })
-          port.postMessage({ answer: null, done: true, session: session })
+          finish(completionOutcome(data.choices[0].finish_reason))
         }
       },
       async onStart() {},
-      async onEnd() {
-        port.postMessage({ done: true })
+      async onEnd(result = {}) {
+        if (!result.aborted && !finished) finish('incomplete')
         port.onMessage.removeListener(messageListener)
         port.onDisconnect.removeListener(disconnectListener)
       },

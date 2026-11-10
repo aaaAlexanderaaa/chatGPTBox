@@ -8,7 +8,7 @@ import { rangeForAnnotation } from './context.mjs'
 import { applyInputReplacement, revealAnnotation, showAnnotations } from './effects.mjs'
 import { normalizeModelAnswer, unwrapAnswerFence } from '../services/model-answer.mjs'
 
-export function AssistantResult({ run, text, resultId }) {
+export function AssistantResult({ run, text, resultId, outcome = 'completed' }) {
   const { t } = useTranslation()
   const [error, setError] = useState('')
   const [marked, setMarked] = useState(false)
@@ -58,7 +58,18 @@ export function AssistantResult({ run, text, resultId }) {
           {t(error)}
         </p>
       )}
-      {answer.pending || !answer.text ? (
+      {outcome !== 'completed' ? (
+        <>
+          <p className="box-assistant-note" role="status">
+            {t(
+              outcome === 'stopped'
+                ? 'Stopped waiting. Cancellation was requested; the remote task may still be running. This is partial content.'
+                : 'This response is incomplete. Run again explicitly before applying a result.',
+            )}
+          </p>
+          <ConversationItem content={text} type="answer" />
+        </>
+      ) : answer.pending || !answer.text ? (
         <p className="box-assistant-note" role="status">
           {t(
             'The model returned thinking without a final answer. Continue the conversation to request the result.',
@@ -170,4 +181,5 @@ AssistantResult.propTypes = {
   run: PropTypes.object.isRequired,
   text: PropTypes.string.isRequired,
   resultId: PropTypes.string,
+  outcome: PropTypes.string,
 }

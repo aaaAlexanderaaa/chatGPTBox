@@ -21,7 +21,7 @@ export function setAbortController(port, onStop, onDisconnect) {
     if (msg.stop) {
       port.onMessage.removeListener(messageListener)
       console.debug('stop generating')
-      port.postMessage({ done: true })
+      port.postMessage({ done: true, outcome: 'stopped' })
       controller.abort()
       if (onStop) onStop()
     }
@@ -48,11 +48,53 @@ export function setAbortController(port, onStop, onDisconnect) {
   return { controller, cleanController, messageListener, disconnectListener }
 }
 
+function retryReplacementIndex(session, question = session.question) {
+  const records = session.conversationRecords || []
+  const target = session.retryReplacement
+  const index = target?.index
+  if (
+    session.isRetry &&
+    session.appendRetryRecord === true &&
+    Number.isInteger(index) &&
+    index >= 0 &&
+    index === records.length - 1 &&
+    target.question === question &&
+    records[index]?.question === target.question &&
+    records[index]?.answer === target.answer
+  )
+    return index
+  return -1
+}
+
+// Provider context may omit the answer being regenerated. Durable history
+// keeps it until a successful producer calls pushRecord with its replacement.
+export function getRequestConversationRecords(session) {
+  const records = session.conversationRecords || []
+  return retryReplacementIndex(session) >= 0 ? records.slice(0, -1) : records
+}
+
 export function pushRecord(session, question, answer) {
   const recordLength = session.conversationRecords.length
   let lastRecord
   if (recordLength > 0) lastRecord = session.conversationRecords[recordLength - 1]
 
-  if (session.isRetry && lastRecord && lastRecord.question === question) lastRecord.answer = answer
+  const replacementIndex = retryReplacementIndex(session, question)
+  if (replacementIndex >= 0) {
+    session.conversationRecords[replacementIndex] = { question, answer }
+  } else if (
+    session.isRetry &&
+    !session.appendRetryRecord &&
+    lastRecord &&
+    lastRecord.question === question
+  )
+    lastRecord.answer = answer
   else session.conversationRecords.push({ question: question, answer: answer })
+  delete session.retryReplacement
+}
+
+// Transport closure and a usable final answer are separate facts.
+export function completionOutcome(reason) {
+  return reason === 'stop' || reason === 'end_turn' || reason === 'stop_sequence'
+    ? 'completed'
+    : 'incomplete'
 }

@@ -415,3 +415,36 @@ describe('browser assistant source anchoring and input effects', () => {
     expect(element.innerHTML).toBe(original)
   })
 })
+
+it('reads the main region beyond a teaser and excludes unsent GitHub preview bodies while retaining source anchors', () => {
+  const article = new JSDOM(
+    '<article><p>teaser</p></article><main><p>actual main content</p></main>',
+    { url: 'https://example.com' },
+  )
+  expect(
+    captureReadingSnapshot(captureContext({ doc: article.window.document }))
+      .blocks.map((b) => b.text)
+      .join(),
+  ).toBe('actual main content')
+  const github = new JSDOM(
+    '<main><div class="comment-body"><p>published claim</p></div><form><textarea>private draft</textarea><div class="comment-body"><p>private preview</p></div></form></main>',
+    { url: 'https://github.com/example/project/issues/1' },
+  )
+  const snapshot = captureReadingSnapshot(captureContext({ doc: github.window.document }))
+  expect(snapshot.blocks.map((b) => b.text)).toEqual(['published claim'])
+  expect(rangeForAnnotation(snapshot, { ref: 'b1', quote: 'published claim' }).toString()).toBe(
+    'published claim',
+  )
+})
+
+it('captures current GitHub issue and React comment viewers together, excluding nested previews', () => {
+  const dom = new JSDOM(
+    '<main><div data-testid="issue-body-viewer"><div data-testid="markdown-body"><p>issue body</p></div></div><div data-testid="comment-viewer-outer-box-one"><div data-testid="markdown-body"><p>published reply</p></div><form><div data-testid="markdown-body"><p>private preview</p></div></form></div></main>',
+    { url: 'https://github.com/example/project/issues/1' },
+  )
+  const snapshot = captureReadingSnapshot(captureContext({ doc: dom.window.document }))
+  expect(snapshot.blocks.map((block) => block.text)).toEqual(['issue body', 'published reply'])
+  expect(rangeForAnnotation(snapshot, { ref: 'b2', quote: 'published reply' }).toString()).toBe(
+    'published reply',
+  )
+})

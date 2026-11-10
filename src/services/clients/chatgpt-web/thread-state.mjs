@@ -1,3 +1,4 @@
+import { bindingSnapshotKey, sameBindingGeneration } from '../../session-binding.mjs'
 export const CHATGPT_WEB_SESSION_SNAPSHOTS_KEY = 'chatgptWebSessionSnapshots'
 export const CHATGPT_WEB_API_THREADS_KEY = 'chatgptWebApiThreads'
 export const MAX_CHATGPT_WEB_SESSION_SNAPSHOTS = 200
@@ -130,6 +131,7 @@ export async function saveChatgptWebSessionSnapshot(session, { source = 'unknown
 
   const snapshot = {
     sessionId: session.sessionId,
+    remoteBindingGeneration: session.remoteBindingGeneration || null,
     conversationId: session.conversationId || null,
     parentMessageId: session.parentMessageId || null,
     messageId: session.messageId || null,
@@ -148,7 +150,7 @@ export async function saveChatgptWebSessionSnapshot(session, { source = 'unknown
       ? { ...data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY] }
       : {}
 
-  snapshots[session.sessionId] = snapshot
+  snapshots[bindingSnapshotKey(session)] = snapshot
 
   const trimmedEntries = trimEntriesByCount(
     Object.values(snapshots),
@@ -157,7 +159,7 @@ export async function saveChatgptWebSessionSnapshot(session, { source = 'unknown
   const trimmedSnapshots = Object.fromEntries(
     trimmedEntries
       .filter((entry) => typeof entry?.sessionId === 'string' && entry.sessionId)
-      .map((entry) => [entry.sessionId, entry]),
+      .map((entry) => [bindingSnapshotKey(entry), entry]),
   )
 
   await storage.set({
@@ -178,8 +180,9 @@ export async function restoreChatgptWebSessionSnapshot(session) {
     typeof data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY] === 'object'
       ? data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]
       : {}
-  const snapshot = snapshots[session.sessionId]
-  if (!snapshot || typeof snapshot !== 'object') return session
+  const snapshot = snapshots[bindingSnapshotKey(session)]
+  if (!snapshot || typeof snapshot !== 'object' || !sameBindingGeneration(session, snapshot))
+    return session
 
   const merged = { ...session }
   if (!merged.conversationId && snapshot.conversationId)

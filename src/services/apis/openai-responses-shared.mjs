@@ -89,5 +89,12 @@ export async function postOpenAiResponses(baseUrlOrEndpoint, apiKey, body, signa
       `Responses API request failed: ${response.status} ${response.statusText}\n${text}`,
     )
   }
-  return response.json()
+  const payload = await response.json()
+  if (payload?.error || (payload?.status && payload.status !== 'completed')) {
+    const detail = payload.error?.message || payload.incomplete_details?.reason || payload.status
+    const error = new Error(`Responses API did not complete: ${detail}`)
+    error.partialAnswer = extractResponsesOutputText(payload)
+    throw error
+  }
+  return payload
 }

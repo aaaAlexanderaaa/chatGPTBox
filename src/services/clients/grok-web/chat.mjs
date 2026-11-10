@@ -62,6 +62,7 @@ function createSseFolder(onDelta) {
   let conversationId = ''
   let previousResponseID = ''
   let emittedText = ''
+  let completed = false
 
   const emit = (next) => {
     if (next === answer) return
@@ -75,11 +76,16 @@ function createSseFolder(onDelta) {
     throwIfGrokStreamError(payload)
     const result = payload.result && typeof payload.result === 'object' ? payload.result : null
     const conversation = result?.conversation
-    if (conversation && typeof conversation.conversationId === 'string' && conversation.conversationId) {
+    if (
+      conversation &&
+      typeof conversation.conversationId === 'string' &&
+      conversation.conversationId
+    ) {
       conversationId = conversation.conversationId
     }
 
-    const response = result?.response && typeof result.response === 'object' ? result.response : null
+    const response =
+      result?.response && typeof result.response === 'object' ? result.response : null
     if (!response) return
 
     const userResponse = response.userResponse
@@ -107,6 +113,7 @@ function createSseFolder(onDelta) {
 
     const message = typeof modelResponse.message === 'string' ? modelResponse.message : ''
     if (!message) return
+    completed = true
     if (message.startsWith(emittedText)) {
       const delta = message.slice(emittedText.length)
       if (delta) emit(emittedText + delta)
@@ -120,7 +127,11 @@ function createSseFolder(onDelta) {
       const trimmed = line.trim()
       if (!trimmed.startsWith('data:')) continue
       const jsonText = trimmed.slice(5).trim()
-      if (!jsonText || jsonText === '[DONE]') continue
+      if (jsonText === '[DONE]') {
+        completed = true
+        continue
+      }
+      if (!jsonText) continue
       try {
         applyFrame(JSON.parse(jsonText))
       } catch (err) {
@@ -132,7 +143,12 @@ function createSseFolder(onDelta) {
 
   return {
     feedText,
-    result: () => ({ answer, conversationId, previousResponseID }),
+    result: () => ({
+      answer,
+      conversationId,
+      previousResponseID,
+      outcome: completed ? 'completed' : 'incomplete',
+    }),
   }
 }
 
