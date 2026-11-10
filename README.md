@@ -229,6 +229,18 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.4
+
+- Freeze the complete page-function request before running. Templates disclose and preview extra page context, including automatic entries; oversized requests are refused instead of silently shortened.
+- Keep captured material and added requirements when changing an overview into source annotations, and save the changed result form for reuse on another page. GitHub summaries and page functions share the loaded discussion reader.
+- Separate final answer text from progress and completion status. Stopped, failed, disconnected or output-limited responses retain partial content without enabling normal rewrite adoption or annotations. Cross-provider switches keep local history while starting a new remote conversation; successful Grok answers are saved locally.
+- Preserve the original completed answer until a retry succeeds. Protect drafts, saved functions and conversations against delayed reads/writes, loading failures and stale connection saves. Reconnects, old Stop acknowledgements and pre-start rejections retain the correct request state without automatic resubmission.
+- Bind Drafts controls to their generated document, reject List-as-Send and ambiguous controls, and recover uncertain text/photo sends with their original key and complete request. A full gateway ledger rejects new writes while keeping protected keys recoverable; concurrent ChatGPT cache-index updates share one background writer.
+- Require an explicit workspace for new lightweight DSH tasks, merge history and live events by identity, and use confirmed final text rather than tool progress. Closing a DSH view only detaches; its explicit Stop requests shared-session cancellation. Ollama Stop no longer starts an extra generation.
+- **Update:** reload ChatGPTBox and refresh its proxy and API Server Bridge pages. Gateway users must update their local source checkout and restart the Node.js server, keeping existing addresses, ports and tokens. Replace **all five [Drafts actions](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.4/docs/drafts/README.md)** together, preserving gateway/model options. Keep ambiguous old notes and unresolved send IDs intact; inspect the original conversation through a fresh List/Get note instead of minting a new send ID.
+
+Validated with 1,840 local tests, lint, documentation checks, four production packages and controlled Chromium workflows. Native Drafts import/device sync, live provider/DSH tasks and Firefox runtime acceptance remain separate from these checks.
+
 ### v4.3.3
 
 - Restored ChatGPT Web runtime discovery when startup script/preload references and resource timing no longer expose the loaded modules. The current page's public boot manifest supplies candidates, with account/session checks, cancellation, single-submit protection and conflicting-module rejection preserved.
