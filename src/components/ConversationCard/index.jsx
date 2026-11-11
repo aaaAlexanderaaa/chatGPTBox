@@ -33,10 +33,9 @@ import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useConversationRuntime } from '../../hooks/useConversationRuntime.mjs'
-import { createSession } from '../../services/local-session.mjs'
+import { createSession, updateSession } from '../../services/local-session.mjs'
 import { v4 as uuidv4 } from 'uuid'
-import { switchSessionEngine } from '../../services/session-binding.mjs'
-import { initSession } from '../../services/init-session.mjs'
+import { clearSessionConversation, switchSessionEngine } from '../../services/session-binding.mjs'
 import {
   deleteChatgptWebSessionSnapshot,
   restoreChatgptWebSessionSnapshot,
@@ -96,6 +95,7 @@ function ConversationCard(props) {
   const sentInitialQuestion = useRef(null)
   const initialDispatchGeneration = useRef(0)
   const pendingAdmission = useRef(null)
+  const clearingConversation = useRef(false)
   const activeRequestToken = useRef(null)
   const [dshStatus, setDshStatus] = useState('')
   const [engineMemoryNote, setEngineMemoryNote] = useState('')
@@ -132,6 +132,8 @@ function ConversationCard(props) {
           new ConversationItemData(
             'answer',
             `<p class="gpt-loading">${t(`Waiting for response...`)}</p>`,
+            false,
+            true,
           ),
         ])
     } else {
@@ -225,7 +227,10 @@ function ConversationCard(props) {
   ])
 
   useEffect(() => {
-    if (props.onUpdate) props.onUpdate(port, session, needsDshWorkspace ? [] : conversationItemData)
+    if (props.onUpdate)
+      props.onUpdate(port, session, needsDshWorkspace ? [] : conversationItemData, () =>
+        postMessage({ stop: true }),
+      )
   }, [port, session, conversationItemData, needsDshWorkspace])
 
   useEffect(() => {
@@ -342,15 +347,17 @@ function ConversationCard(props) {
    */
   const postMessage = async ({ session, stop }) => {
     if (stop) {
-      activeRequestToken.current = null
+      const requestToken = activeRequestToken.current
       pendingAdmission.current?.finish(false)
       initialDispatchGeneration.current += 1
       sentInitialQuestion.current = props.question
       setDshStatus('')
-      port.postMessage({ stop: true })
+      setDshDecisions([])
+      port.postMessage({ stop: true, ...(requestToken ? { requestToken } : {}) })
       return true
     }
     if (!session) return false
+    if (clearingConversation.current) return false
     pendingAdmission.current?.finish(false)
     const requestToken = uuidv4()
     activeRequestToken.current = requestToken
@@ -378,7 +385,7 @@ function ConversationCard(props) {
       const onMessage = (message) => {
         if (message.requestToken !== requestToken) return
         if (message.started === true) finish(true)
-        else if (message.error) finish(false)
+        else if (message.error || message.done === true) finish(false)
       }
       const onDisconnect = () => {
         finish(false)
@@ -880,25 +887,54 @@ function ConversationCard(props) {
             size={16}
             text={t('Clear Conversation')}
             onConfirm={async () => {
-              await postMessage({ stop: true })
-              if (isUsingChatgptWebModel(session) && session.conversationId) {
-                Browser.runtime.sendMessage({
-                  type: RuntimeMessage.DeleteConversation,
-                  data: {
-                    conversationId: session.conversationId,
-                  },
+              if (clearingConversation.current) return
+              clearingConversation.current = true
+              try {
+                await postMessage({ stop: true })
+                const newSession = clearSessionConversation(session)
+                if (props.persistedSession) await updateSession(newSession)
+                activeRequestToken.current = null
+                if (isUsingChatgptWebModel(session) && session.conversationId) {
+                  Browser.runtime
+                    .sendMessage({
+                      type: RuntimeMessage.DeleteConversation,
+                      data: {
+                        conversationId: session.conversationId,
+                      },
+                    })
+                    .catch(() => {})
+                }
+                let cleanupFailed = false
+                await deleteChatgptWebSessionSnapshot(session.sessionId).catch(() => {
+                  cleanupFailed = true
                 })
+                await deleteGrokWebSessionSnapshot(session.sessionId).catch(() => {
+                  cleanupFailed = true
+                })
+                setConversationItemData(
+                  cleanupFailed
+                    ? [
+                        new ConversationItemData(
+                          'error',
+                          t(
+                            'Conversation cleared, but saved provider state could not be removed. Clear again to retry cleanup.',
+                          ),
+                          true,
+                        ),
+                      ]
+                    : [],
+                )
+                setSession(newSession)
+              } catch (error) {
+                props.onSaveError?.(error, session)
+                setConversationItemData((items) => [
+                  ...items,
+                  new ConversationItemData('error', error.message || String(error), true),
+                ])
+              } finally {
+                clearingConversation.current = false
+                setIsReady(true)
               }
-              await deleteChatgptWebSessionSnapshot(session.sessionId).catch(() => {})
-              await deleteGrokWebSessionSnapshot(session.sessionId).catch(() => {})
-              setConversationItemData([])
-              const newSession = initSession({
-                ...session,
-                question: null,
-                conversationRecords: [],
-              })
-              newSession.sessionId = session.sessionId
-              setSession(newSession)
             }}
           />
           {!props.pageMode && (
@@ -1002,6 +1038,8 @@ function ConversationCard(props) {
               new ConversationItemData(
                 'answer',
                 `<p class="gpt-loading">${t(`Waiting for response...`)}</p>`,
+                false,
+                true,
               ),
             ])
             setTriggered(true)
@@ -1102,6 +1140,8 @@ function ConversationCard(props) {
                 const newAnswer = new ConversationItemData(
                   'answer',
                   `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
+                  false,
+                  true,
                 )
                 setConversationItemData([...conversationItemData, newQuestion, newAnswer])
                 setIsReady(false)
@@ -1315,6 +1355,7 @@ ConversationCard.propTypes = {
   selection: PropTypes.string,
   draftKey: PropTypes.string,
   onUpdate: PropTypes.func,
+  onSaveError: PropTypes.func,
   renderAnswer: PropTypes.func,
   disconnectOnUnmount: PropTypes.bool,
   draggable: PropTypes.bool,

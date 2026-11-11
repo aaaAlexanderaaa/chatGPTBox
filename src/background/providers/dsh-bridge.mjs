@@ -384,6 +384,7 @@ export default {
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
         if (finished || controller.signal.aborted) return
+        port.postMessage({ accepted: true, session: { ...session, dshSessionId } })
         const answer = renderLedgerMarkdown(ledgerSliceForPrompt(latestBlocks, captured))
         if (answer !== lastAnswer) {
           lastAnswer = answer

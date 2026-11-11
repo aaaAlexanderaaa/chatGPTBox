@@ -16,7 +16,7 @@ import {
   prepareFunctionRun,
   functionWithRefinements,
 } from './functions.mjs'
-import { captureReadingSnapshot } from './context.mjs'
+import { captureInput, captureReadingSnapshot } from './context.mjs'
 import { AssistantResult } from './Result.jsx'
 import {
   listFunctions,
@@ -33,7 +33,7 @@ import { i18nReady } from '../_locales/i18n-react.mjs'
 import { RuntimeMessage } from '../protocol/messages.mjs'
 
 export function BrowserAssistant({
-  context,
+  context: initialContext,
   initialConfig,
   siteEngine,
   onClose,
@@ -41,6 +41,7 @@ export function BrowserAssistant({
   autoRun = false,
 }) {
   const { t, i18n } = useTranslation()
+  const [context, setContext] = useState(initialContext)
   const [config, setConfig] = useState(initialConfig)
   const [fn, setFn] = useState(() => {
     return (
@@ -69,8 +70,9 @@ export function BrowserAssistant({
   const engineOptions = listEnabledEngineSelections(config)
   const functions = listFunctions(config, { entry: 'function-picker', context })
   const snapshots = useRef(new Map())
+  const templateVariables = useRef({})
   const [request, setRequest] = useState(null)
-  const [extraConfirmed, setExtraConfirmed] = useState(false)
+  const [confirmedExtras, setConfirmedExtras] = useState(null)
   const preview = useMemo(() => {
     try {
       if (fn.scope === 'page' || fn.output === 'annotations') {
@@ -103,7 +105,6 @@ export function BrowserAssistant({
   useEffect(() => {
     let disposed = false
     setRequest(null)
-    setExtraConfirmed(false)
     void (async () => {
       try {
         await i18nReady
@@ -130,7 +131,11 @@ export function BrowserAssistant({
               customExtractors: config.customContentExtractors,
               allowFullHtml: false,
               pageContext: { title: context.title, url: context.url, language, content: material },
+              frozenVariables: templateVariables.current,
             })
+            for (const [key, value] of Object.entries(result.variables))
+              if (!['selection', 'content', 'title', 'url', 'language'].includes(key))
+                templateVariables.current[key] = value
             variables = result.variables
             return result.text
           },
@@ -149,6 +154,11 @@ export function BrowserAssistant({
   }, [preparationKey])
   const readyRequest = request?.key === preparationKey ? request : null
   const needsExtraConfirmation = !!readyRequest?.extras?.length
+  const extraKey = JSON.stringify([
+    context.url,
+    [...(readyRequest?.extras || [])].sort(([left], [right]) => left.localeCompare(right)),
+  ])
+  const extraConfirmed = confirmedExtras === extraKey
   const start = async () => {
     if (starting.current || !readyRequest?.prepared || (needsExtraConfirmation && !extraConfirmed))
       return
@@ -179,6 +189,19 @@ export function BrowserAssistant({
     }
   }
   const changeRun = (output = run.fn.output) => {
+    if (run.fn.scope === 'input') {
+      try {
+        if (context.document.location.href !== context.url)
+          throw new Error('The page changed. Open the assistant again.')
+        const input = captureInput(context.input?.element, context.document)
+        if (!input?.element.isConnected)
+          throw new Error('The selected input is no longer available')
+        setContext({ ...context, input })
+      } catch (error) {
+        setError(error.message)
+        return
+      }
+    }
     edit({
       ...functionWithRefinements(run.fn, refinements, t('Additional user instructions:')),
       output,
@@ -517,7 +540,7 @@ export function BrowserAssistant({
                   <input
                     type="checkbox"
                     checked={extraConfirmed}
-                    onChange={(event) => setExtraConfirmed(event.target.checked)}
+                    onChange={(event) => setConfirmedExtras(event.target.checked ? extraKey : null)}
                   />
                   {t('Include the additional page information shown above')}
                 </label>

@@ -121,9 +121,11 @@ describe('API gateway HTTP access', () => {
     expect(otherExtension.status).toBe(403)
 
     let writeDispatches = 0
+    let standardDispatches = 0
     const statusPayloads = []
     bridge.on('message', (raw) => {
       const message = JSON.parse(String(raw))
+      if (message.type === 'request') standardDispatches += 1
       if (message.type === 'control_request' && message.action === 'chatgpt_web_get_turn_status') {
         statusPayloads.push(message.payload)
         bridge.send(JSON.stringify({ type: 'control_response', id: message.id, data: null }))
@@ -183,6 +185,24 @@ describe('API gateway HTTP access', () => {
       { conversationId: 'unknown', messageId: 'unknown', recover: true },
     ])
     expect(writeDispatches).toBe(0)
+    for (const key of ['', 'x'.repeat(201), 'bad\nkey', 42, null, ['valid', 'discarded']]) {
+      const invalid = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer api-test-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-6-thinking',
+          messages: [{ role: 'user', content: 'Synthetic question' }],
+          idempotency_key: key,
+        }),
+        signal: AbortSignal.timeout(2000),
+      })
+      expect(invalid.status).toBe(400)
+      expect(invalid.headers.get('x-should-retry')).toBe('false')
+      expect(await invalid.json()).toMatchObject({
+        error: { code: 'invalid_idempotency_key', dispatched: false },
+      })
+    }
+    expect(standardDispatches).toBe(0)
 
     const write = (key, query) =>
       fetch(`http://127.0.0.1:${port}/chatgpt/conversations`, {

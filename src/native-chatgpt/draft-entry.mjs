@@ -1,5 +1,5 @@
 import { captureContext } from '../browser-assistant/context.mjs'
-import { editorText, isNativeChatgptPage, nativeChatgptEditor, nativeRangeText } from './editor.mjs'
+import { editorText, isNativeChatgptPage, nativeChatgptEditor } from './editor.mjs'
 
 // Receives the existing assistant launcher; it does not own model execution.
 export function installNativeDraftEntry({ doc = document, enabled, t, onRewrite }) {
@@ -25,7 +25,6 @@ export function installNativeDraftEntry({ doc = document, enabled, t, onRewrite 
   const capture = () => {
     if (editor?.isConnected && !composing) {
       captured = captureContext({ target: editor, doc })
-      if (captured.input?.range) captured.input.selectedText = nativeRangeText(captured.input.range)
       capturedText = editorText(editor)
     }
   }

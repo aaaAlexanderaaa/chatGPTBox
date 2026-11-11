@@ -1,4 +1,8 @@
-import { bindingSnapshotKey, sameBindingGeneration } from '../../session-binding.mjs'
+import {
+  bindingSnapshotKey,
+  isSessionSnapshotKey,
+  sameBindingGeneration,
+} from '../../session-binding.mjs'
 export const GROK_WEB_THREAD_SNAPSHOTS_KEY = 'grokWebThreadSnapshots'
 
 async function getBrowserStorage() {
@@ -68,8 +72,9 @@ export async function deleteGrokWebSessionSnapshot(sessionId, options = {}) {
   const { storage, key } = await resolveStorageOptions(options)
   const data = await storage.get(key)
   const snapshots = data?.[key] && typeof data[key] === 'object' ? { ...data[key] } : {}
-  if (!(sessionId in snapshots)) return
-  delete snapshots[sessionId]
+  const keys = Object.keys(snapshots).filter((key) => isSessionSnapshotKey(key, sessionId))
+  if (!keys.length) return
+  for (const key of keys) delete snapshots[key]
   await storage.set({ [key]: snapshots })
 }
 

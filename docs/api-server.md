@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-08
+last_reconciled: 2026-11-11
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -128,13 +128,15 @@ For an OpenAI-compatible client, pass the usual user content array to
 
 ```json
 {
-  "messages": [{
-    "role": "user",
-    "content": [
-      { "type": "text", "text": "Describe this meal and give approximate portions." },
-      { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,<IMAGE_BYTES>" } }
-    ]
-  }],
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Describe this meal and give approximate portions." },
+        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,<IMAGE_BYTES>" } }
+      ]
+    }
+  ],
   "stream": false
 }
 ```
@@ -201,13 +203,13 @@ the original idempotency key in place of the operation ID) until `phase` is
 conversation and turn-status read APIs. `accepted` means the message was
 acknowledged; it does not mean the answer is complete.
 
-| Phase | Meaning | Recovery |
-| --- | --- | --- |
-| `preparing`, `uploading` | No user message has been submitted | Get reads progress; repeated Send keeps the same operation |
-| `interrupted`, `failed` with `dispatched: false` | Preparation stopped before submission | Explicit Send with the same key/request resumes preparation |
-| `sending` | The only message write is in flight | Wait and read the operation |
-| `accepted` | An acknowledgement is available | Read the exact conversation/message from `result` |
-| `ambiguous` | Submission may have succeeded | Inspect the original conversation; never submit a replacement automatically |
+| Phase                                            | Meaning                               | Recovery                                                                    |
+| ------------------------------------------------ | ------------------------------------- | --------------------------------------------------------------------------- |
+| `preparing`, `uploading`                         | No user message has been submitted    | Get reads progress; repeated Send keeps the same operation                  |
+| `interrupted`, `failed` with `dispatched: false` | Preparation stopped before submission | Explicit Send with the same key/request resumes preparation                 |
+| `sending`                                        | The only message write is in flight   | Wait and read the operation                                                 |
+| `accepted`                                       | An acknowledgement is available       | Read the exact conversation/message from `result`                           |
+| `ambiguous`                                      | Submission may have succeeded         | Inspect the original conversation; never submit a replacement automatically |
 
 The gateway persists the submission boundary before forwarding the message. A
 restart during upload permits explicit preparation recovery; a restart during
@@ -303,6 +305,9 @@ Common errors:
 The protocol contract is:
 
 - Standard OpenAI-compatible endpoints use the normal API-key bearer header; no additional private fields are required.
+- If supplied, an idempotency key must have 1–200 characters after trimming and
+  contain no control characters. An invalid key is rejected with HTTP 400 before
+  dispatch; it never downgrades a standard request to an unkeyed write.
 - The gateway dispatches each inbound write request to ChatGPT Web at most once. It never
   automatically re-submits that write after a timeout, transport failure, bridge disconnect, or
   missing acknowledgement.
@@ -312,8 +317,19 @@ The protocol contract is:
 - A separate retry of a standard request is a new request and cannot be safely deduplicated by the
   gateway. Standard clients should decide explicitly whether to retry an `ambiguous_dispatch` error.
 
+Conversation create/follow-up acknowledgements require explicit provider
+acceptance or nonempty normal output. A session binding or progress packet alone
+does not confirm submission.
+
 Network failures, timeouts, HTTP errors, bridge disconnects, and missing acknowledgements after
 dispatch are reported as `ambiguous_dispatch` with `retryable: false`.
+
+An authenticated request-owner error can prove that the prompt write was never
+attempted, including failed initial authentication or native finalization. Only
+that positive evidence permits `dispatched: false`; a missing dispatch notice
+or a failed recovery read does not. Polling an ordinary operation reports
+`phase: sending, pending: true` only while this gateway process still owns its
+active execution. Restarted or unresolved writes remain ambiguous.
 
 Within the seven-day retention period, capacity (2,000 keyed operations) never
 evicts a protected key. At saturation a new key fails with
@@ -523,6 +539,13 @@ The response includes:
 - `query`
 
 ### `POST /chatgpt/conversations/:id/messages`
+
+Before submission, the extension reads the newest remote conversation page to
+select its current parent. A failed background network read tries the dedicated
+proxy page even when a cached snapshot preserved that read's error. If the fresh
+read still fails or only stale cached evidence is available, it reports an unsent
+failure instead of branching from an old parent.
+This does not lock the conversation against simultaneous changes by another client.
 
 Sends a follow-up user message into an existing ChatGPT conversation and returns as soon as ChatGPT acknowledges it. The answer keeps generating in the browser after the HTTP response returns. Collect its final answer with the local turn-status endpoint below.
 

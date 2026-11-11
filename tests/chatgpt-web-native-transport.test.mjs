@@ -138,6 +138,20 @@ function useGenerationRuntime(generation = 7) {
   modules.wl = { c: vi.fn(async () => new Response('{}')) }
 }
 
+it('proves an unsent prompt when native finalization fails before nativeFetch', async () => {
+  await connect()
+  modules.k29.Request.safePost.mockRejectedValueOnce(new Error('Synthetic preflight failure'))
+  await expect(send()).rejects.toMatchObject({ chatgptWebNotDispatched: true })
+  expect(modules.xb.b).not.toHaveBeenCalled()
+})
+
+it('keeps a failed attempted nativeFetch uncertain and does not replay it', async () => {
+  await connect()
+  modules.xb.b.mockRejectedValueOnce(new Error('Synthetic network interruption'))
+  await expect(send()).rejects.not.toHaveProperty('chatgptWebNotDispatched', true)
+  expect(modules.xb.b).toHaveBeenCalledTimes(1)
+})
+
 describe('ChatGPT native page transport with auth generation', () => {
   it('uses the October 10 auth generation without the removed token-context export and sends once', async () => {
     useGenerationRuntime()

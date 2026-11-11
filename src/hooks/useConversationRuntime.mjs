@@ -89,7 +89,11 @@ export function useConversationRuntime({ initialSession, t, hasInitialQuestion =
   const hydrateFromSession = useCallback(
     (nextSession, loadingPlaceholder) => {
       if (!nextSession.conversationRecords || nextSession.conversationRecords.length === 0) {
-        setItems(loadingPlaceholder ? [new ConversationItemData('answer', loadingPlaceholder)] : [])
+        setItems(
+          loadingPlaceholder
+            ? [new ConversationItemData('answer', loadingPlaceholder, false, true)]
+            : [],
+        )
         return
       }
       const ret = []

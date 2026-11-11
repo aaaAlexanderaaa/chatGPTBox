@@ -24,7 +24,7 @@
 - 在任意页面使用浮动聊天、独立对话页面/窗口和侧边栏。
 - 选择工具支持翻译/摘要/解释/改写，以及用户自定义的选择提示词。
 - 网站集成支持搜索引擎和各类网站，包括 Google、GitHub、YouTube、Reddit、Stack Overflow、arXiv、Bilibili 和知乎。
-- Web 引擎：ChatGPT Web（默认，无需 API Key）和 Grok Web（未成熟）。L3 是本机 DeepSeek Harness。L1 是自定义 OpenAI 兼容（以及 Anthropic / Ollama / Completions / Azure）提供商，默认一行 TokenDance。
+- Web 引擎：ChatGPT Web（默认，无需 API Key）和 Grok Web（未成熟）。通过 DeepSeek Harness 连接本机 agent，或配置 OpenAI 兼容、Anthropic、Ollama、Completions 和 Azure 提供商；默认提供商为 TokenDance。
 - 本地 API 服务桥接，通过 OpenAI 兼容的 `/v1/chat/completions` 端点暴露网页引擎，并支持缓存对话查看和跟进 API。
 - Markdown 渲染支持代码块、语法高亮和 KaTeX。
 
@@ -81,9 +81,9 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="./screenshots/preview_modules_tab.webp" alt="模块选项卡" /><br />
-      <b>模块与 API 模式</b><br />
-      <sub>配置 API 模式、选择工具、网站适配器和内容提取器</sub>
+      <img src="./screenshots/preview_modules_tab.webp" alt="引擎与提供商设置" /><br />
+      <b>引擎与提供商</b><br />
+      <sub>配置 ChatGPT Web、Grok Web、DeepSeek Harness 和自定义 API 提供商</sub>
     </td>
   </tr>
 </table>

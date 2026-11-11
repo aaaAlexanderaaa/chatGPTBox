@@ -8,6 +8,7 @@ vi.mock('../src/config/index.mjs', async (original) => ({
   getUserConfig: async () => ({}),
 }))
 import Browser from 'webextension-polyfill'
+import { setAbortController } from '../src/services/apis/shared.mjs'
 import { PASTE_REVIEW_PORT } from '../src/native-chatgpt/review-contract.mjs'
 import {
   createPendingProxyCancellation,
@@ -53,7 +54,22 @@ function fakePort() {
 }
 
 describe('createPortRunGuard', () => {
-  it('acks stop without a session and drops later answer/done/error from that run', () => {
+  it('keeps an old run cancelled when a new run starts before its proxy dispatch is queued', async () => {
+    const port = fakePort()
+    const guard = createPortRunGuard(port)
+    const old = guard.beginSessionRun('old')
+    guard.ackStopWithoutSession('old')
+    const current = guard.beginSessionRun('current')
+    expect(isUiPortStopRequested(old.port)).toBe(true)
+    expect(isUiPortStopRequested(current.port)).toBe(false)
+    const send = vi.fn()
+    const { sendChatgptProxyRequest } = await import('../src/background/chatgpt-proxy-service.mjs')
+    await sendChatgptProxyRequest(1, { sessionId: 'cancelled-old' }, old.port, {
+      sendMessage: send,
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+  it('acks stop after synchronous finalization and drops later answer/done/error from that run', async () => {
     const port = fakePort()
     const guard = createPortRunGuard(port)
     const { port: runPort } = guard.beginSessionRun()
@@ -66,7 +82,7 @@ describe('createPortRunGuard', () => {
     runPort.postMessage({ finalContent: 'stale final' })
     runPort.postMessage({ started: true })
     runPort.postMessage({ session: { id: 'still-ok' }, started: true })
-
+    await Promise.resolve()
     expect(port.posts).toEqual([{ answer: 'partial' }, { done: true, outcome: 'stopped' }])
     expect(isUiPortStopRequested(port)).toBe(true)
   })
@@ -85,6 +101,24 @@ describe('createPortRunGuard', () => {
     expect(port.posts).toEqual([{ answer: 'one' }, { answer: 'two' }, { done: true }])
     expect(guard.isCurrent(first.runId)).toBe(false)
     expect(guard.isCurrent(second.runId)).toBe(true)
+  })
+  it('does not let a queued old Stop or its acknowledgement affect a newer run', async () => {
+    const port = fakePort()
+    const guard = createPortRunGuard(port)
+    guard.beginSessionRun('old')
+    guard.ackStopWithoutSession('old')
+    const current = guard.beginSessionRun('new')
+    const stop = vi.fn()
+    const { controller } = setAbortController(current.port, stop)
+    guard.ackStopWithoutSession('old')
+    port.emit({ stop: true, requestToken: 'old' })
+    guard.ackStopWithoutSession()
+    port.emit({ stop: true })
+    await Promise.resolve()
+    current.port.postMessage({ answer: 'new answer' })
+    expect(controller.signal.aborted).toBe(false)
+    expect(stop).not.toHaveBeenCalled()
+    expect(port.posts).toEqual([{ answer: 'new answer', requestToken: 'new' }])
   })
 })
 
@@ -196,5 +230,51 @@ describe('registerPortListener', () => {
       { session, started: true },
       { answer: 'provider answer', done: true, outcome: 'completed' },
     ])
+  })
+  it('keeps a failure after entering a provider unclassified when it emitted no output', async () => {
+    let onConnect
+    Browser.runtime.onConnect.addListener = (listener) => {
+      onConnect = listener
+    }
+    registerPortListener(async () => {
+      throw new Error('Connection lost before first output')
+    })
+    const port = fakePort()
+    onConnect(port)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await Promise.all(
+      port.messageListeners.map((listener) =>
+        listener({ session: { modelName: 'chatgptweb/test', aiName: 'Synthetic' } }),
+      ),
+    )
+    expect(port.posts).toEqual([{ error: 'Connection lost before first output' }])
+    error.mockRestore()
+  })
+  it('delivers synchronous provider Stop finalization before the fallback acknowledgement', async () => {
+    let onConnect
+    Browser.runtime.onConnect.addListener = (listener) => {
+      onConnect = listener
+    }
+    registerPortListener(async (_session, providerPort) => {
+      setAbortController(providerPort, () => {
+        providerPort.postMessage({
+          session: { dshSessionId: 'retained-session' },
+          dshStatus: null,
+          done: true,
+          outcome: 'stopped',
+        })
+      })
+    })
+    const port = fakePort()
+    onConnect(port)
+    port.emit({ session: { modelName: 'dsh/test', aiName: 'Synthetic engine' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    port.emit({ stop: true })
+    await Promise.resolve()
+    expect(port.posts[0]).toMatchObject({
+      session: { dshSessionId: 'retained-session' },
+      dshStatus: null,
+      outcome: 'stopped',
+    })
   })
 })

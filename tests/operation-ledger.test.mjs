@@ -34,6 +34,24 @@ describe('gateway operation ledger', () => {
     expect(second.record.state).toBe('dispatching')
   })
 
+  it('reports a live ordinary write as pending and a restarted in-flight write as ambiguous', () => {
+    const ledger = createLedger()
+    const record = ledger.begin({ key: 'live', fingerprint: 'request' }).record
+    expect(ledger.snapshot(record)).toMatchObject({ phase: 'sending', pending: true })
+    const restarted = new OperationLedger({ file: ledger.file })
+    expect(restarted.snapshot(restarted.records.get('live'))).toMatchObject({
+      phase: 'ambiguous',
+      pending: false,
+      retryable: false,
+    })
+    ledger.complete(record, { conversationId: 'confirmed' })
+    expect(ledger.snapshot(record)).toMatchObject({
+      phase: 'accepted',
+      pending: false,
+      result: { conversationId: 'confirmed' },
+    })
+  })
+
   it('accepts unkeyed standard-client writes without persisting or deduplicating them', () => {
     const ledger = createLedger()
     const first = ledger.begin({ fingerprint: 'same-request' })
@@ -90,6 +108,17 @@ describe('gateway operation ledger', () => {
     expect(normalizeIdempotencyKey('bad\nkey')).toBe('')
     expect(normalizeIdempotencyKey('x'.repeat(201))).toBe('')
   })
+  it.each(['', 'bad\nkey', 'x'.repeat(201), 42, null, ['valid', 'discarded']])(
+    'rejects an explicitly invalid key before creating unprotected work: %j',
+    (key) => {
+      const ledger = createLedger()
+      expect(() => ledger.begin({ key, fingerprint: 'request' })).toThrowError(
+        expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY', dispatched: false }),
+      )
+      expect(ledger.records.size).toBe(0)
+      expect(fs.existsSync(ledger.file)).toBe(false)
+    },
+  )
 
   it('fails closed when an existing ledger is corrupt', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatgptbox-operation-ledger-'))

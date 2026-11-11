@@ -1,4 +1,8 @@
 // Site semantics live here; the provider module does not own native page UX.
+export {
+  readEditableRange as nativeRangeText,
+  readEditableText as editorText,
+} from '../utils/editable-text.mjs'
 export function isNativeChatgptUrl(value) {
   let url
   try {
@@ -38,38 +42,4 @@ export function nativeChatgptEditor(doc) {
     return null
   const style = doc.defaultView.getComputedStyle(element)
   return style.display === 'none' || style.visibility === 'hidden' ? null : element
-}
-
-// ChatGPT's paragraph/line-break structure must survive material capture.
-const BLOCKS = new Set(['P', 'DIV', 'LI', 'UL', 'OL', 'PRE', 'BLOCKQUOTE'])
-export function nativeRangeText(range) {
-  const read = (node) => {
-    if (node.nodeType === 3) return node.nodeValue || ''
-    if (['SCRIPT', 'STYLE'].includes(node.nodeName)) return ''
-    if (node.nodeName === 'BR') return '\n'
-    if (
-      BLOCKS.has(node.nodeName) &&
-      node.childNodes.length === 1 &&
-      node.firstChild.nodeName === 'BR'
-    )
-      return ''
-    let nodes = Array.from(node.childNodes)
-    if (nodes.some((child) => BLOCKS.has(child.nodeName)))
-      nodes = nodes.filter((child) => child.nodeType !== 3 || child.nodeValue.trim())
-    return nodes
-      .map(
-        (child, index) =>
-          (index && (BLOCKS.has(child.nodeName) || BLOCKS.has(nodes[index - 1].nodeName))
-            ? '\n'
-            : '') + read(child),
-      )
-      .join('')
-  }
-  return read(range.cloneContents())
-}
-export function editorText(element) {
-  if (element.tagName === 'TEXTAREA') return element.value
-  const range = element.ownerDocument.createRange()
-  range.selectNodeContents(element)
-  return nativeRangeText(range)
 }

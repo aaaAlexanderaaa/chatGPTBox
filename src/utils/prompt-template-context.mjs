@@ -1,5 +1,6 @@
 import { getExtractedContentWithMetadata } from './get-core-content-text.mjs'
 import { clampTokenBudget, estimateTokenCount, truncateToTokenBudget } from './token-budget.mjs'
+import { isExtensionUi, pageTextOutsideExtensionUi } from './extension-dom.mjs'
 
 const PLACEHOLDER_PATTERN = /{{\s*([a-zA-Z0-9_.-]+)\s*}}/g
 
@@ -133,7 +134,8 @@ function safeGetMetaDescription() {
 function summarizeHeadingsFromDom() {
   if (!hasDomAccess()) return ''
   const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4'))
-    .map((element) => normalizeText(element.textContent || '', 180))
+    .filter((element) => !isExtensionUi(element))
+    .map((element) => normalizeText(pageTextOutsideExtensionUi(element, 180), 180))
     .filter(Boolean)
     .slice(0, MAX_HEADINGS)
   if (headings.length === 0) return ''
@@ -143,9 +145,10 @@ function summarizeHeadingsFromDom() {
 function summarizeLinksFromDom() {
   if (!hasDomAccess()) return ''
   const links = Array.from(document.querySelectorAll('a[href]'))
+    .filter((element) => !isExtensionUi(element))
     .map((element) => {
       const label = normalizeText(
-        element.textContent || element.getAttribute('aria-label') || '',
+        pageTextOutsideExtensionUi(element, 120) || element.getAttribute('aria-label') || '',
         120,
       )
       const href = normalizeText(element.getAttribute('href') || '', 300)
@@ -166,6 +169,7 @@ function summarizeInteractiveElementsFromDom() {
   )
     .filter(
       (element) =>
+        !isExtensionUi(element) &&
         !element.closest(
           'input[type="password"], input[type="hidden"], [hidden], [aria-hidden="true"]',
         ),
@@ -179,7 +183,7 @@ function summarizeInteractiveElementsFromDom() {
       const href = normalizeText(element.getAttribute('href') || '', 140)
       const value = normalizeText(element.getAttribute('value') || '', 80)
       const label = normalizeText(
-        element.textContent ||
+        pageTextOutsideExtensionUi(element, 120) ||
           element.getAttribute('aria-label') ||
           element.getAttribute('placeholder') ||
           '',
@@ -210,7 +214,7 @@ function nodeLabel(element) {
     .join('')
   const role = element.getAttribute('role')
   const roleSuffix = role ? ` [role=${role.slice(0, 24)}]` : ''
-  const text = normalizeText(element.textContent || '', 52)
+  const text = normalizeText(pageTextOutsideExtensionUi(element, 52), 52)
   const textSuffix = text ? ` "${text}"` : ''
   return `${tag}${id}${classSuffix}${roleSuffix}${textSuffix}`
 }
@@ -225,6 +229,7 @@ function buildDomTreeSummaryFromDom(root) {
     if (!current || !current.node) continue
 
     const element = current.node
+    if (isExtensionUi(element)) continue
     if (current.depth > 9) continue
     lines.push(`${'  '.repeat(current.depth)}- ${nodeLabel(element)}`)
 
@@ -319,6 +324,7 @@ function summarizeStyleFromDom() {
   const sampleSize = Math.min(sample.length, 160)
 
   for (let index = 0; index < sampleSize; index += 1) {
+    if (isExtensionUi(sample[index])) continue
     const style = getComputedStyle(sample[index])
     const family = normalizeText(style.fontFamily || '', 120)
     if (family) fonts.add(family)

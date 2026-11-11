@@ -51,9 +51,11 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
   const [renderContent, setRenderContent] = useState(false)
   const [sessionSaveError, setSessionSaveError] = useState(null)
   const lastPersistedSession = useRef(null)
-  const currentPort = useRef(null)
+  const currentStop = useRef(null)
   const draftFlushRef = useRef(null)
   const chatRootRef = useRef(null)
+  const handleSessionSaveError = (error, session) =>
+    setSessionSaveError({ sessionId: session.sessionId, message: error.message })
 
   useEffect(() => {
     const onResize = () => setIsNarrow(window.innerWidth < 480)
@@ -76,13 +78,13 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
     const { session, currentSessions } = await getSession(sessionId)
     const nextId = session ? sessionId : currentSessions[0]?.sessionId
     if (!nextId || nextId === currentSession?.sessionId) return true
-    if (currentPort.current) {
+    if (currentStop.current) {
       try {
-        if (!isUsingDshHarnessModel(currentSession)) currentPort.current.postMessage({ stop: true })
+        if (!isUsingDshHarnessModel(currentSession)) currentStop.current()
       } catch (e) {
         /* empty */
       }
-      currentPort.current = null
+      currentStop.current = null
     }
     setSessionId(nextId)
   }
@@ -192,7 +194,7 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
       await draftFlushRef.current?.()
       const saved = await getSession(currentSession.sessionId)
       const next = saved.session || saved.currentSessions[0]
-      currentPort.current = null
+      currentStop.current = null
       setRenderContent(false)
       setSessions(saved.currentSessions)
       setCurrentSession(next)
@@ -421,8 +423,9 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
                   notClampSize={true}
                   pageMode={true}
                   draftKey={`independent-draft-${currentSession.sessionId}`}
-                  onUpdate={(port, session) => {
-                    currentPort.current = port
+                  onSaveError={handleSessionSaveError}
+                  onUpdate={(_port, session, _items, stop) => {
+                    currentStop.current = stop
                     if (lastPersistedSession.current !== session) {
                       lastPersistedSession.current = session
                       updateSession(session)
@@ -432,12 +435,7 @@ function App({ embedded = false, showSettingsButton = true, onOpenSettings } = {
                             previous?.sessionId === session.sessionId ? null : previous,
                           )
                         })
-                        .catch((error) =>
-                          setSessionSaveError({
-                            sessionId: session.sessionId,
-                            message: error.message,
-                          }),
-                        )
+                        .catch((error) => handleSessionSaveError(error, session))
                       setCurrentSession(session)
                     }
                   }}

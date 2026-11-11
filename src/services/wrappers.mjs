@@ -4,6 +4,7 @@ import { t } from 'i18next'
 import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
 import { PASTE_REVIEW_PORT } from '../native-chatgpt/review-contract.mjs'
 import { prepareLocalSessionDispatch } from './local-session.mjs'
+import { isProviderAdmissionMessage } from '../protocol/messages.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -69,9 +70,11 @@ function isPortLifecycleMessage(message) {
     Object.prototype.hasOwnProperty.call(message, 'session') ||
     Object.prototype.hasOwnProperty.call(message, 'dshSessionId') ||
     Object.prototype.hasOwnProperty.call(message, 'dshStatus') ||
+    Object.prototype.hasOwnProperty.call(message, 'dshDecision') ||
     Object.prototype.hasOwnProperty.call(message, 'answer') ||
     Object.prototype.hasOwnProperty.call(message, 'finalContent') ||
     Object.prototype.hasOwnProperty.call(message, 'outcome') ||
+    message.accepted === true ||
     message.started === true ||
     message.done === true ||
     Object.prototype.hasOwnProperty.call(message, 'error')
@@ -84,14 +87,44 @@ function isPortLifecycleMessage(message) {
  */
 export function createPortRunGuard(port) {
   let currentRunId = 0
+  let currentToken
+  let stoppingRunId = null
+  let terminalPosted = false
 
   function wrapPort(runId, requestToken) {
+    const listeners = new Map()
+    const onMessage = {
+      addListener(listener) {
+        if (listeners.has(listener)) return
+        const guarded = (message, ...args) => {
+          if (runId !== currentRunId) return
+          if (message?.stop && message.requestToken !== requestToken) return
+          return listener(message, ...args)
+        }
+        listeners.set(listener, guarded)
+        port.onMessage.addListener(guarded)
+      },
+      removeListener(listener) {
+        const guarded = listeners.get(listener)
+        if (guarded) port.onMessage.removeListener(guarded)
+        listeners.delete(listener)
+      },
+    }
     return new Proxy(port, {
       get(target, prop, receiver) {
         if (prop === '__uiPort') return target
+        if (prop === '__stopRequested')
+          return (
+            runId !== currentRunId || stoppingRunId === runId || target.__stopRequested === true
+          )
+        if (prop === 'onMessage') return onMessage
         if (prop === 'postMessage') {
           return (message) => {
-            if (runId !== currentRunId && isPortLifecycleMessage(message)) return
+            if (isPortLifecycleMessage(message)) {
+              if (runId !== currentRunId || terminalPosted) return
+              if (stoppingRunId === runId && message.outcome !== 'stopped') return
+              if (message.done === true || message.error) terminalPosted = true
+            }
             return target.postMessage(requestToken ? { ...message, requestToken } : message)
           }
         }
@@ -109,18 +142,53 @@ export function createPortRunGuard(port) {
       currentRunId += 1
       port.__stopRequested = true
     },
-    ackStopWithoutSession() {
-      currentRunId += 1
+    ackStopWithoutSession(requestToken) {
+      if (requestToken !== currentToken) return
+      const stoppedRunId = currentRunId
+      if (stoppingRunId === stoppedRunId) return
+      stoppingRunId = stoppedRunId
       port.__stopRequested = true
-      port.postMessage({ done: true, outcome: 'stopped' })
+      queueMicrotask(() => {
+        if (currentRunId !== stoppedRunId) return
+        currentRunId += 1
+        if (!terminalPosted)
+          port.postMessage({
+            done: true,
+            outcome: 'stopped',
+            ...(currentToken ? { requestToken: currentToken } : {}),
+          })
+      })
     },
     beginSessionRun(requestToken) {
       currentRunId += 1
+      currentToken = requestToken
+      stoppingRunId = null
+      terminalPosted = false
       port.__stopRequested = false
       const runId = currentRunId
       return { runId, port: wrapPort(runId, requestToken) }
     },
   }
+}
+
+function createProviderAdmissionPort(port, initialSession) {
+  let admitted = false
+  let session = initialSession
+  return new Proxy(port, {
+    get(target, prop, receiver) {
+      if (prop !== 'postMessage') return Reflect.get(target, prop, receiver)
+      return (message) => {
+        if (message.session && !message.error) session = { ...session, ...message.session }
+        if (message.dshSessionId) session = { ...session, dshSessionId: message.dshSessionId }
+        if (message.started === true) admitted = true
+        else if (!admitted && isProviderAdmissionMessage(message)) {
+          admitted = true
+          target.postMessage({ session, started: true })
+        }
+        return target.postMessage(message)
+      }
+    },
+  })
 }
 
 export function isUiPortStopRequested(uiPort) {
@@ -173,14 +241,14 @@ export function registerPortListener(executor) {
     const onMessage = async (msg) => {
       console.debug('received msg', msg)
       if (msg?.stop && !msg.session) {
-        runGuard.ackStopWithoutSession()
+        runGuard.ackStopWithoutSession(msg.requestToken)
         return
       }
       const session = msg.session
       if (!session) return
       const token = typeof msg.requestToken === 'string' ? msg.requestToken : undefined
       const { runId, port: guardedPort } = runGuard.beginSessionRun(token)
-      let providerStarted = false
+      let providerEntered = false
       try {
         const config = await getUserConfig()
         if (!runGuard.isCurrent(runId)) return
@@ -197,12 +265,11 @@ export function registerPortListener(executor) {
             )
         if (msg.localSession === true) await prepareLocalSessionDispatch(session)
         if (!runGuard.isCurrent(runId)) return
-        guardedPort.postMessage({ session, started: true })
-        providerStarted = true
-        await executor(session, guardedPort, config)
+        providerEntered = true
+        await executor(session, createProviderAdmissionPort(guardedPort, session), config)
       } catch (err) {
         const error = err && typeof err === 'object' ? err : new Error(String(err))
-        if (!providerStarted) error.chatgptWebNotDispatched = true
+        if (!providerEntered) error.chatgptWebNotDispatched = true
         handlePortError(session, guardedPort, error)
       }
     }

@@ -10,7 +10,10 @@
     ".github/CONTRIBUTING.md",
     ".github/PULL_REQUEST_TEMPLATE.md",
     "src/services/README.md",
-    "resources/README.md"
+    "resources/README.md",
+    ".agents/skills/chatgpt-web-adapt/SKILL.md",
+    ".agents/skills/chatgpt-web-adapt/references/lessons.md",
+    ".agents/skills/chatgpt-web-adapt/references/validation.md"
   ],
   "requiredFiles": [
     "docs/README.md",

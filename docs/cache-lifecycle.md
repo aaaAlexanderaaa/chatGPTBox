@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-09
+last_reconciled: 2026-11-11
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -60,7 +60,8 @@ switch declares its parent binding generation; an older window cannot replace
 a later stored binding. Such a save fails visibly in the independent panel,
 which offers reopening the stored conversation while retaining the current view.
 This guards binding changes, not automatic merging of simultaneous transcripts
-that still use the same binding.
+that still use the same binding: those writes replace the stored session in
+queue order, so a later stale snapshot can overwrite same-generation updates.
 
 Persisted-panel sends join this same queue before the provider starts. Admission
 checks that the session still exists, validates its binding transition and saves
@@ -138,6 +139,20 @@ To prevent data loss and allow for migration, the cache can be exported and impo
 - **Export**: Creates schema-2 JSON volumes containing the local index, cached snapshots, metadata, and continuation state. Both settings **Export ChatGPT History** and API Server **Export Cache** use the same exporter. Export does not fetch missing remote history.
 - **Import**: Merges volumes into the local cache, preserving native pagination cursors for incomplete snapshots. The former API Server version-1 cache exports remain readable.
 
+Provider continuation snapshots retain both local session identity and binding
+generation. Import preserves their composite keys rather than merging different
+generations into one session entry. Clear removes that session's saved generations
+and advances the authoritative local binding; a late old snapshot cannot restore
+the cleared remote conversation.
+If snapshot deletion fails after the binding commits, Clear keeps the new empty
+conversation and reports the remaining cleanup so the user can retry it.
+Surviving older bare-key entries remain readable only for a matching session
+and generation. Import normalizes aliases before merging by freshness; a later
+save writes the canonical key without letting an older alias replace the new
+continuation position.
+Conflicting conversation IDs within the same binding key are not combined with
+each other's parent/message/WebSocket IDs.
+
 Snapshot merges prefer the newer server revision. For the same revision, a complete snapshot wins over a partial one, a complete legacy tree wins over current-branch coverage, and a partial snapshot with more downloaded messages wins over a shorter one. Download time breaks equal-coverage ties; importing a recently interrupted copy does not discard history already cached locally.
 
 ### How to use:
@@ -150,10 +165,6 @@ For one conversation, open **ChatGPT History Backup** in the ChatGPT Web setting
 - Select a conversation or paste its link/ID, then use **Copy as JSON** / **Copy as Markdown** to put the same contents on the clipboard. JSON keeps the importable backup format. Copying includes the full loaded transcript, regardless of the preview page; success is shown only after the clipboard write completes.
 - A selected JSON backup contains only that conversation's index entry and raw snapshot. Other snapshots, global metadata, session snapshots, and continuation threads are excluded. It stays compatible with the existing schema-2 importer. Markdown includes the readable user/assistant transcript.
 - Preview renders 20 messages at a time, initially showing the newest messages. Export includes the full loaded transcript, regardless of the preview page.
-
-1.  Open the **API Server Bridge** page.
-2.  Locate the **Conversations** section.
-3.  Use the **Export Cache** and **Import Cache** buttons.
 
 ## Risks and Limitations
 

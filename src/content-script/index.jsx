@@ -481,13 +481,17 @@ async function prepareForStaticCard() {
 async function handleChatgptProxyRequest(session, requestId) {
   if (location.hostname !== 'chatgpt.com') return
   const port = Browser.runtime.connect({ name: `chatgpt-proxy-response:${requestId}` })
+  let providerEntered = false
   try {
     const accessToken = await ensureChatgptAccessToken()
     if (isUsingChatgptWebModel(session)) {
+      providerEntered = true
       await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
     }
   } catch (err) {
-    handlePortError(session, port, err)
+    const error = err && typeof err === 'object' ? err : new Error(String(err))
+    if (!providerEntered) error.chatgptWebNotDispatched = true
+    handlePortError(session, port, error)
   } finally {
     try {
       port.disconnect()

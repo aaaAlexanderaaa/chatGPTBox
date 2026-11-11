@@ -344,6 +344,38 @@ describe('browser assistant source anchoring and input effects', () => {
     undo()
     expect(field.value).toBe('Original draft')
   })
+  it('rewrites an email input without using its unsupported selection API', () => {
+    const field = doc.createElement('input')
+    field.type = 'email'
+    field.value = 'old@example.com'
+    doc.body.append(field)
+    const undo = applyInputReplacement(captureInput(field, doc), 'new@example.com')
+    expect(field.value).toBe('new@example.com')
+    undo()
+    expect(field.value).toBe('old@example.com')
+  })
+  it('rejects replacement text a single-line input would silently sanitize', () => {
+    const field = doc.createElement('input')
+    field.value = 'Original'
+    doc.body.append(field)
+    expect(() => applyInputReplacement(captureInput(field, doc), 'First\nSecond')).toThrow(
+      'Copy the result',
+    )
+    expect(field.value).toBe('Original')
+  })
+  it('does not report rich Undo success when the original markup was not restored', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.innerHTML = '<b>Original</b>'
+    doc.body.append(editor)
+    doc.execCommand = vi.fn((command, _ui, value) => {
+      editor.textContent = command === 'undo' ? 'Original' : value
+      editor.dispatchEvent(new dom.window.InputEvent('input', { bubbles: true }))
+      return true
+    })
+    const undo = applyInputReplacement(captureInput(editor, doc), 'Replacement')
+    expect(() => undo()).toThrow('Undo is no longer available')
+  })
   it('refuses to overwrite an edited or detached input', () => {
     const field = doc.querySelector('textarea')
     const input = captureInput(field, doc)
@@ -370,6 +402,33 @@ describe('browser assistant source anchoring and input effects', () => {
     )
     expect(() => applyInputReplacement(input, 'AI rewrite')).toThrow('input changed')
   })
+  it.each(['cancel', 'edit'])(
+    'honors a rich editor beforeinput %s before native insertion',
+    (action) => {
+      const editor = doc.createElement('div')
+      editor.setAttribute('contenteditable', 'true')
+      editor.innerHTML = '<p>Original draft</p>'
+      doc.body.append(editor)
+      const input = captureInput(editor, doc)
+      const beforeInput = vi.fn((event) => {
+        if (action === 'cancel') event.preventDefault()
+        else editor.innerHTML = '<p>Editor edit</p>'
+      })
+      editor.addEventListener('beforeinput', beforeInput)
+      doc.execCommand = vi.fn((_command, _ui, value) => {
+        editor.textContent = value
+        return true
+      })
+      expect(() => applyInputReplacement(input, 'AI rewrite')).toThrow(
+        action === 'cancel' ? 'did not allow' : 'input changed',
+      )
+      expect(beforeInput).toHaveBeenCalledOnce()
+      expect(doc.execCommand).not.toHaveBeenCalled()
+      expect(editor.innerHTML).toBe(
+        action === 'cancel' ? '<p>Original draft</p>' : '<p>Editor edit</p>',
+      )
+    },
+  )
   it('does not undo over a later manual edit', () => {
     const field = doc.querySelector('textarea')
     const undo = applyInputReplacement(captureInput(field, doc), 'AI rewrite')
@@ -387,11 +446,89 @@ describe('browser assistant source anchoring and input effects', () => {
     range.selectNodeContents(element.querySelector('i'))
     dom.window.getSelection().addRange(range)
     const original = element.innerHTML
+    let previous
+    doc.execCommand = vi.fn((command, _ui, value) => {
+      if (command === 'undo') {
+        element.innerHTML = previous
+      } else if (command === 'insertText') {
+        previous = element.innerHTML
+        const selected = dom.window.getSelection().getRangeAt(0)
+        selected.deleteContents()
+        selected.insertNode(doc.createTextNode(value))
+      } else return false
+      element.dispatchEvent(new dom.window.InputEvent('input', { bubbles: true }))
+      return true
+    })
     const undo = applyInputReplacement(captureInput(element, doc), 'writing')
+    expect(doc.execCommand).toHaveBeenCalledWith('insertText', false, 'writing')
     expect(element.textContent).toBe('Keep this writing')
     expect(element.querySelector('b').textContent).toBe('Keep')
     undo()
     expect(element.innerHTML).toBe(original)
+  })
+  it('does not use native Undo after an input event elsewhere changes the document history', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.textContent = 'Original'
+    doc.body.append(editor)
+    doc.execCommand = vi.fn((_command, _ui, value) => {
+      editor.textContent = value
+      editor.dispatchEvent(new dom.window.InputEvent('input', { bubbles: true }))
+      return true
+    })
+    const undo = applyInputReplacement(captureInput(editor, doc), 'Replacement')
+    doc
+      .querySelector('textarea')
+      .dispatchEvent(new dom.window.InputEvent('input', { bubbles: true }))
+    expect(() => undo()).toThrow('Undo is no longer available')
+    expect(doc.execCommand).toHaveBeenCalledTimes(1)
+    expect(editor.textContent).toBe('Replacement')
+    undo.dispose()
+  })
+  it('does not make a second write when native insertion partially changes an editor then fails', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.textContent = 'Original'
+    doc.body.append(editor)
+    doc.execCommand = vi.fn(() => {
+      editor.textContent = 'Partial effect'
+      return false
+    })
+    expect(() => applyInputReplacement(captureInput(editor, doc), 'Replacement')).toThrow(
+      'Check the draft',
+    )
+    expect(doc.execCommand).toHaveBeenCalledTimes(1)
+    expect(editor.textContent).toBe('Partial effect')
+  })
+  it('preserves block and BR boundaries in both whole-input and selected material', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.innerHTML = '<p>First line<br>Second line</p><p>Next paragraph</p>'
+    doc.body.append(editor)
+    const input = captureInput(editor, doc)
+    expect(input.text).toBe('First line\nSecond line\nNext paragraph')
+    expect(input.selectedText).toBe(input.text)
+  })
+  it('rejects a rich editor that rewrites the captured DOM without changing its text', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.innerHTML = '<p>Same text</p>'
+    doc.body.append(editor)
+    const input = captureInput(editor, doc)
+    editor.innerHTML = '<div>Same text</div>'
+    doc.execCommand = vi.fn()
+    expect(() => applyInputReplacement(input, 'Rewritten')).toThrow('input changed')
+    expect(doc.execCommand).not.toHaveBeenCalled()
+  })
+  it('does not fall back to direct DOM writes when a rich editor has no native insertion', () => {
+    const editor = doc.createElement('div')
+    editor.setAttribute('contenteditable', 'true')
+    editor.innerHTML = '<p>Original</p>'
+    doc.body.append(editor)
+    expect(() => applyInputReplacement(captureInput(editor, doc), 'Rewritten')).toThrow(
+      'Copy the result',
+    )
+    expect(editor.innerHTML).toBe('<p>Original</p>')
   })
   it('never captures password fields or read-only inputs', () => {
     const password = doc.querySelector('input')

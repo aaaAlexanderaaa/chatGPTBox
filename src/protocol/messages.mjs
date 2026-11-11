@@ -25,9 +25,28 @@
  *
  * Layering note
  * -------------
- * This module is dependency-free (pure data) so it can be imported from both
+ * This module is dependency-free so it can be imported from both
  * the background bundle and every UI bundle without pulling in services code.
+ *
+ * Conversation Ports use run packets rather than message.type. requestToken
+ * correlates a UI attempt and its Stop. Provider accepted:true confirms that
+ * this prompt was accepted; a session binding or progress notice alone does
+ * not. The wrapper emits started:true before forwarding acceptance/answer
+ * evidence. dispatched:false separately proves that the prompt was unsent;
+ * absence of started does not prove that. A terminal packet carries done and
+ * its outcome; synchronous Stop finalization precedes a fallback acknowledgement.
  */
+
+export function isProviderAdmissionMessage(message) {
+  return !!(
+    message &&
+    !message.error &&
+    (!message.outcome || message.outcome === 'completed') &&
+    (message.accepted === true ||
+      (typeof message.answer === 'string' && message.answer.trim()) ||
+      (typeof message.finalContent === 'string' && message.finalContent.trim()))
+  )
+}
 
 // ---------------------------------------------------------------------------
 // message.type values (the `type` field on a runtime message)

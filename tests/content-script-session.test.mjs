@@ -37,6 +37,35 @@ describe('site enhancements do not bootstrap a disabled ChatGPT provider', () =>
   })
 })
 
+it.each(['authentication', 'provider'])(
+  'classifies only an initial %s failure as unsent',
+  async (phase) => {
+    const start = source.indexOf('async function handleChatgptProxyRequest(')
+    const end = source.indexOf('\nasync function ensureChatgptAccessToken()', start)
+    const observed = []
+    const failure = new Error('Synthetic failure')
+    const context = vm.createContext({
+      location: { hostname: 'chatgpt.com' },
+      Browser: { runtime: { connect: () => ({ disconnect() {} }) } },
+      ensureChatgptAccessToken: async () => {
+        if (phase === 'authentication') throw failure
+        return 'synthetic-token'
+      },
+      isUsingChatgptWebModel: () => true,
+      generateAnswersWithChatgptWebApi: async () => {
+        throw failure
+      },
+      handlePortError: (_session, _port, error) => observed.push(error),
+    })
+    await new vm.Script(
+      source.slice(start, end) +
+        '\nhandleChatgptProxyRequest({ question: "Synthetic" }, "request")',
+    ).runInContext(context)
+    expect(observed).toHaveLength(1)
+    expect(observed[0].chatgptWebNotDispatched).toBe(phase === 'authentication' ? true : undefined)
+  },
+)
+
 const background = readFileSync(new URL('../src/background/index.mjs', import.meta.url), 'utf8')
 const bgStart = background.indexOf('async function ensureChatgptWebFirstRun()')
 const bgEnd = background.indexOf('// --- conversation sync', bgStart)

@@ -14,6 +14,7 @@ import {
   streamChatgptHistoryExport,
   getChatgptHistoryLibraryStats,
   importChatgptHistoryData,
+  mergeChatgptHistoryStorageData,
   listChatgptHistoryStorageKeys,
   getCompactJsonSize,
   summarizeChatgptHistoryExport,
@@ -150,6 +151,71 @@ beforeEach(() => {
 })
 
 describe('ChatGPT history volume packing helpers', () => {
+  it('does not fill a newer conversation binding with IDs from a conflicting conversation', () => {
+    const old = {
+      sessionId: 'local',
+      remoteBindingGeneration: 'generation',
+      conversationId: 'old-thread',
+      parentMessageId: 'old-parent',
+      messageId: 'old-message',
+      wsRequestId: 'old-ws',
+      updatedAt: '2026-11-10T00:00:00Z',
+    }
+    const newer = {
+      sessionId: 'local',
+      remoteBindingGeneration: 'generation',
+      conversationId: 'new-thread',
+      updatedAt: '2026-11-11T00:00:00Z',
+    }
+    const merged = mergeChatgptHistoryStorageData(
+      { chatgptWebSessionSnapshots: { 'local:generation': old } },
+      { chatgptWebSessionSnapshots: { 'local:generation': newer } },
+    )
+    expect(merged.chatgptWebSessionSnapshots['local:generation']).toMatchObject({
+      conversationId: 'new-thread',
+      parentMessageId: null,
+      messageId: null,
+      wsRequestId: null,
+    })
+  })
+  it('merges a legacy bare-key alias with its composite key without replacing newer continuation data', () => {
+    const newer = {
+      sessionId: 'local',
+      remoteBindingGeneration: 'generation',
+      conversationId: 'thread',
+      parentMessageId: 'new-parent',
+      updatedAt: '2026-11-11T00:00:00Z',
+    }
+    const older = { ...newer, parentMessageId: 'old-parent', updatedAt: '2026-11-10T00:00:00Z' }
+    const merged = mergeChatgptHistoryStorageData(
+      { chatgptWebSessionSnapshots: { local: newer } },
+      { chatgptWebSessionSnapshots: { 'local:generation': older } },
+    )
+    expect(Object.keys(merged.chatgptWebSessionSnapshots)).toEqual(['local:generation'])
+    expect(merged.chatgptWebSessionSnapshots['local:generation'].parentMessageId).toBe('new-parent')
+  })
+  it('preserves separate binding generations through import and re-export', async () => {
+    const old = {
+      sessionId: 'local',
+      remoteBindingGeneration: 'old',
+      conversationId: 'old-thread',
+      updatedAt: '2026-11-10T00:00:00Z',
+    }
+    const current = { ...old, remoteBindingGeneration: 'current', conversationId: 'current-thread' }
+    const merged = mergeChatgptHistoryStorageData(
+      { chatgptWebSessionSnapshots: { 'local:old': old } },
+      { chatgptWebSessionSnapshots: { 'local:current': current } },
+    )
+    expect(merged.chatgptWebSessionSnapshots).toEqual({
+      'local:old': expect.objectContaining(old),
+      'local:current': expect.objectContaining(current),
+    })
+    await importChatgptHistoryData(merged)
+    const exported = await buildChatgptHistoryExportVolumes()
+    expect(collectedStorage(exported.volumes).chatgptWebSessionSnapshots).toEqual(
+      merged.chatgptWebSessionSnapshots,
+    )
+  })
   it('measures non-ASCII history in UTF-8 bytes', () => {
     expect(getCompactJsonSize({ text: '中文😀' })).toBe(
       Buffer.byteLength(JSON.stringify({ text: '中文😀' })),

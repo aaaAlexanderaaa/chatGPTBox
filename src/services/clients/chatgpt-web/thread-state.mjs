@@ -1,4 +1,8 @@
-import { bindingSnapshotKey, sameBindingGeneration } from '../../session-binding.mjs'
+import {
+  bindingSnapshotKey,
+  isSessionSnapshotKey,
+  sameBindingGeneration,
+} from '../../session-binding.mjs'
 export const CHATGPT_WEB_SESSION_SNAPSHOTS_KEY = 'chatgptWebSessionSnapshots'
 export const CHATGPT_WEB_API_THREADS_KEY = 'chatgptWebApiThreads'
 export const MAX_CHATGPT_WEB_SESSION_SNAPSHOTS = 200
@@ -150,16 +154,20 @@ export async function saveChatgptWebSessionSnapshot(session, { source = 'unknown
       ? { ...data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY] }
       : {}
 
-  snapshots[bindingSnapshotKey(session)] = snapshot
+  const key = bindingSnapshotKey(session)
+  const legacy = snapshots[session.sessionId]
+  if (key !== session.sessionId && legacy && sameBindingGeneration(legacy, session))
+    delete snapshots[session.sessionId]
+  snapshots[key] = snapshot
 
-  const trimmedEntries = trimEntriesByCount(
-    Object.values(snapshots),
-    MAX_CHATGPT_WEB_SESSION_SNAPSHOTS,
-  )
+  const unique = new Map()
+  for (const entry of sortByUpdatedAtDescending(Object.values(snapshots))) {
+    if (typeof entry?.sessionId !== 'string' || !entry.sessionId) continue
+    const entryKey = bindingSnapshotKey(entry)
+    if (!unique.has(entryKey)) unique.set(entryKey, entry)
+  }
   const trimmedSnapshots = Object.fromEntries(
-    trimmedEntries
-      .filter((entry) => typeof entry?.sessionId === 'string' && entry.sessionId)
-      .map((entry) => [bindingSnapshotKey(entry), entry]),
+    [...unique].slice(0, MAX_CHATGPT_WEB_SESSION_SNAPSHOTS),
   )
 
   await storage.set({
@@ -180,8 +188,12 @@ export async function restoreChatgptWebSessionSnapshot(session) {
     typeof data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY] === 'object'
       ? data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]
       : {}
-  const snapshot = snapshots[bindingSnapshotKey(session)]
-  if (!snapshot || typeof snapshot !== 'object' || !sameBindingGeneration(session, snapshot))
+  const snapshot = snapshots[bindingSnapshotKey(session)] || snapshots[session.sessionId]
+  if (
+    !snapshot ||
+    snapshot.sessionId !== session.sessionId ||
+    !sameBindingGeneration(session, snapshot)
+  )
     return session
 
   const merged = { ...session }
@@ -205,9 +217,9 @@ export async function deleteChatgptWebSessionSnapshot(sessionId) {
       ? { ...data[CHATGPT_WEB_SESSION_SNAPSHOTS_KEY] }
       : {}
 
-  if (!Object.prototype.hasOwnProperty.call(snapshots, sessionId)) return false
-
-  delete snapshots[sessionId]
+  const keys = Object.keys(snapshots).filter((key) => isSessionSnapshotKey(key, sessionId))
+  if (!keys.length) return false
+  for (const key of keys) delete snapshots[key]
   await storage.set({
     [CHATGPT_WEB_SESSION_SNAPSHOTS_KEY]: snapshots,
   })

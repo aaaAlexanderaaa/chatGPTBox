@@ -53,7 +53,11 @@ import {
   upsertChatgptWebCreatedConversationIndexEntry,
   updateChatgptWebConversationTurnIndex,
 } from '../services/clients/chatgpt-web/conversation-cache.mjs'
-import { ChatgptProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
+import {
+  ChatgptProxyControlAction,
+  isProviderAdmissionMessage,
+  RuntimeMessage,
+} from '../protocol/messages.mjs'
 
 const CHATGPT_WEB_DEBUG_LOG_LIMIT = 80
 const CHATGPT_WEB_CONVERSATION_CREATE_ACK_TIMEOUT_MS = 60_000
@@ -446,14 +450,18 @@ export function shouldFallbackToChatgptProxy(error) {
 
 export async function getChatgptWebConversationWithFallback(payload = {}) {
   try {
-    return await getChatgptWebConversation(payload)
+    const conversation = await getChatgptWebConversation(payload)
+    // A cached snapshot can absorb a failed background fetch. Forced refreshes
+    // still need the same proxy fallback as an uncached network failure.
+    if (!payload.forceRefresh || !shouldFallbackToChatgptProxy(conversation?.cache?.refreshError))
+      return conversation
   } catch (error) {
     if (!shouldFallbackToChatgptProxy(error)) throw error
-    return await executeChatgptWebControlRequestViaProxy(
-      ChatgptProxyControlAction.GetConversation,
-      payload,
-    )
   }
+  return await executeChatgptWebControlRequestViaProxy(
+    ChatgptProxyControlAction.GetConversation,
+    payload,
+  )
 }
 
 export const recoverChatgptWebTurnStatus = createChatgptWebTurnRecovery({
@@ -580,7 +588,22 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
         : crypto.randomUUID()
     createdAt = new Date().toISOString()
 
-    conversation = await getChatgptWebConversationWithFallback({ conversationId })
+    conversation = await getChatgptWebConversationWithFallback({
+      conversationId,
+      forceRefresh: true,
+      latestOnly: true,
+      requestTimeoutMs: 10_000,
+    })
+    if (
+      conversation?.conversationId !== conversationId ||
+      conversation?.cache?.source !== 'network' ||
+      conversation.cache.stale ||
+      conversation.cache.refreshError
+    ) {
+      throw new Error(
+        'The current conversation could not be verified. Refresh it before sending a follow-up; no message was sent.',
+      )
+    }
     if (payload.projectId && payload.projectId !== conversation?.projectId) {
       const error = new Error('The conversation does not belong to the selected ChatGPT Project')
       error.chatgptWebNotDispatched = true
@@ -628,30 +651,32 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
     const port = createMemoryPort((message) => {
       if (message?.session && typeof message.session === 'object') {
         latestSession = { ...latestSession, ...message.session }
-        if (!acknowledged) {
-          acknowledged = true
-          recordChatgptWebTurnStatus({ conversationId, messageId, status: 'running', query })
-          indexUpdate = updateChatgptWebConversationTurnIndex({
-            conversationId,
-            messageId,
-            status: 'running',
-          }).catch(() => {})
-          invalidateConversation(conversationId)
-          void saveChatgptWebSessionSnapshot(latestSession, {
-            source: 'conversation_reply_ack',
-          }).catch(() => {})
-          resolvePromise({
-            conversationId,
-            messageId,
-            createdAt,
-            pending: true,
-            query,
-          })
-        }
+      }
+      if (!acknowledged && isProviderAdmissionMessage(message)) {
+        acknowledged = true
+        recordChatgptWebTurnStatus({ conversationId, messageId, status: 'running', query })
+        indexUpdate = updateChatgptWebConversationTurnIndex({
+          conversationId,
+          messageId,
+          status: 'running',
+        }).catch(() => {})
+        invalidateConversation(conversationId)
+        void saveChatgptWebSessionSnapshot(latestSession, {
+          source: 'conversation_reply_ack',
+        }).catch(() => {})
+        resolvePromise({
+          conversationId,
+          messageId,
+          createdAt,
+          pending: true,
+          query,
+        })
       }
 
-      if (typeof message?.answer === 'string') {
-        latestAnswer = message.answer
+      const answer =
+        typeof message?.finalContent === 'string' ? message.finalContent : message?.answer
+      if (typeof answer === 'string') {
+        latestAnswer = answer
         if (acknowledged)
           recordChatgptWebTurnStatus({ conversationId, messageId, text: latestAnswer })
       }
@@ -785,60 +810,62 @@ export async function createChatgptWebConversation(payload = {}) {
     const port = createMemoryPort(async (message) => {
       if (message?.session && typeof message.session === 'object') {
         latestSession = { ...latestSession, ...message.session }
-        if (!acknowledged && latestSession.conversationId) {
-          acknowledged = true
-          acknowledgedConversationId = latestSession.conversationId
-          acknowledgedMessageId = latestSession.messageId || session.messageId
-          recordChatgptWebTurnStatus({
-            conversationId: acknowledgedConversationId,
-            messageId: acknowledgedMessageId,
-            status: 'running',
-            query,
-          })
-          invalidateConversation(latestSession.conversationId)
-          const rememberIndex = rememberChatgptWebCreatedConversationIndexEntry(
-            acknowledgedConversationId,
-            { createdAt },
-          )
-          // Queue completion behind the initial index write while returning
-          // the acknowledgement as soon as the in-memory stub is available.
-          indexUpdate = rememberIndex
-            .then(async () => {
-              await upsertChatgptWebCreatedConversationIndexEntry(acknowledgedConversationId, {
-                createdAt,
-              })
-              await updateChatgptWebConversationTurnIndex({
-                conversationId: acknowledgedConversationId,
-                messageId: acknowledgedMessageId,
-                status: 'running',
-              })
+      }
+      if (!acknowledged && latestSession.conversationId && isProviderAdmissionMessage(message)) {
+        acknowledged = true
+        acknowledgedConversationId = latestSession.conversationId
+        acknowledgedMessageId = latestSession.messageId || session.messageId
+        recordChatgptWebTurnStatus({
+          conversationId: acknowledgedConversationId,
+          messageId: acknowledgedMessageId,
+          status: 'running',
+          query,
+        })
+        invalidateConversation(latestSession.conversationId)
+        const rememberIndex = rememberChatgptWebCreatedConversationIndexEntry(
+          acknowledgedConversationId,
+          { createdAt },
+        )
+        // Queue completion behind the initial index write while returning
+        // the acknowledgement as soon as the in-memory stub is available.
+        indexUpdate = rememberIndex
+          .then(async () => {
+            await upsertChatgptWebCreatedConversationIndexEntry(acknowledgedConversationId, {
+              createdAt,
             })
-            .catch(() => {})
-          try {
-            await rememberIndex
-          } catch {
-            // Create still returns the streamed id if the in-memory stub cannot be recorded.
-          }
-          resolvePromise({
-            conversationId: acknowledgedConversationId,
-            // The id of the user message that opened the thread, so a later GET
-            // can anchor to it the same way follow-up sends do.
-            messageId: acknowledgedMessageId,
-            defaultModel: latestSession.chatgptWebModelSlugOverride || null,
-            projectId: session.chatgptWebProjectId,
-            attachments: session.chatgptWebImagePointers,
-            createdAt,
-            pending: true,
-            query,
+            await updateChatgptWebConversationTurnIndex({
+              conversationId: acknowledgedConversationId,
+              messageId: acknowledgedMessageId,
+              status: 'running',
+            })
           })
-          void saveChatgptWebSessionSnapshot(latestSession, {
-            source: 'conversation_create_ack',
-          }).catch(() => {})
+          .catch(() => {})
+        try {
+          await rememberIndex
+        } catch {
+          // Create still returns the streamed id if the in-memory stub cannot be recorded.
         }
+        resolvePromise({
+          conversationId: acknowledgedConversationId,
+          // The id of the user message that opened the thread, so a later GET
+          // can anchor to it the same way follow-up sends do.
+          messageId: acknowledgedMessageId,
+          defaultModel: latestSession.chatgptWebModelSlugOverride || null,
+          projectId: session.chatgptWebProjectId,
+          attachments: session.chatgptWebImagePointers,
+          createdAt,
+          pending: true,
+          query,
+        })
+        void saveChatgptWebSessionSnapshot(latestSession, {
+          source: 'conversation_create_ack',
+        }).catch(() => {})
       }
 
-      if (typeof message?.answer === 'string') {
-        latestAnswer = message.answer
+      const answer =
+        typeof message?.finalContent === 'string' ? message.finalContent : message?.answer
+      if (typeof answer === 'string') {
+        latestAnswer = answer
         if (acknowledged)
           recordChatgptWebTurnStatus({
             conversationId: acknowledgedConversationId,

@@ -75,6 +75,7 @@ export function updateLastAnswer(items, value, appended, newType, done = false) 
     delete copy[index].finalContent
   }
   copy[index].done = done
+  delete copy[index].placeholder
   return copy
 }
 
@@ -100,6 +101,7 @@ export function applyInbound(prev, msg, t) {
       if (msg.preparing === true) {
         item.type = 'answer'
         item.content = `<p class="gpt-loading">${t('Waiting for response...')}</p>`
+        item.placeholder = true
       }
       delete item.outcome
       delete item.finalContent
@@ -127,6 +129,11 @@ export function applyInbound(prev, msg, t) {
       if (Object.hasOwn(msg, 'finalContent')) item.finalContent = msg.finalContent
       if (msg.done) {
         item.done = true
+        if (item.placeholder && !msg.error) {
+          item.content = typeof msg.finalContent === 'string' ? msg.finalContent : ''
+          item.outcome = msg.outcome || (item.content ? 'completed' : 'incomplete')
+          delete item.placeholder
+        }
         // A trailing transport ack cannot turn failure/Stop into success.
         if (!item.outcome || item.outcome === 'completed')
           item.outcome = item.type === 'error' ? 'failed' : msg.outcome || 'completed'
@@ -170,13 +177,18 @@ export function popMatchedRetryRecord(session, items) {
   const lastRecord = records[records.length - 1]
   const lastItem = items[items.length - 1]
   const secondToLast = items[items.length - 2]
+  const question =
+    secondToLast?.type === 'question'
+      ? secondToLast.content
+      : items.length === 1 && records.length === 1
+      ? session.question
+      : undefined
   if (
     lastItem?.type === 'answer' &&
     lastItem?.done &&
     (!lastItem.outcome || lastItem.outcome === 'completed') &&
-    items.length > 1 &&
-    secondToLast?.type === 'question' &&
-    lastRecord.question === secondToLast.content &&
+    typeof question === 'string' &&
+    lastRecord.question === question &&
     (lastRecord.answer === lastItem.content ||
       (typeof lastItem.finalContent === 'string' && lastRecord.answer === lastItem.finalContent))
   ) {

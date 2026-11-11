@@ -24,7 +24,7 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [中文](./README_CN.md)
 - Chat on any page with floating chat, independent conversation page/window, and side-panel support.
 - Selection tools for translate / summarize / explain / rewrite, plus user-defined custom selection prompts.
 - Site integrations for search engines and supported sites such as Google, GitHub, YouTube, Reddit, Stack Overflow, arXiv, Bilibili, and Zhihu.
-- Web engines: ChatGPT Web (default, no API key) and Grok Web (immature). L3 is DeepSeek Harness for a local agent. L1 is custom OpenAI-compatible (and Anthropic / Ollama / Completions / Azure) providers, with TokenDance as the default row.
+- Web engines: ChatGPT Web (default, no API key) and Grok Web (immature). Connect to a local agent with DeepSeek Harness, or configure OpenAI-compatible, Anthropic, Ollama, Completions, and Azure providers. TokenDance is the default provider row.
 - Local API Server Bridge that exposes web engines through an OpenAI-compatible `/v1/chat/completions` endpoint plus cached conversation inspection and follow-up APIs.
 - Markdown rendering with code blocks, syntax highlighting, and KaTeX in the full build.
 

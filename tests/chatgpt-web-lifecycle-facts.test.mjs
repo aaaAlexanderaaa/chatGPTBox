@@ -388,7 +388,10 @@ describe('lifecycle claims — current behavior', () => {
     it('keeps interim text running until the final done event', async () => {
       let finish
       registerExecuteApi(async (session, port) => {
-        port.postMessage({ session: { ...session, conversationId: 'turn-complete' } })
+        port.postMessage({
+          accepted: true,
+          session: { ...session, conversationId: 'turn-complete' },
+        })
         port.postMessage({ answer: 'partial thought', done: false })
         await new Promise((resolve) => {
           finish = () => {
@@ -440,7 +443,7 @@ describe('lifecycle claims — current behavior', () => {
     it('records a post-ack error for local status readers', async () => {
       let fail
       registerExecuteApi(async (session, port) => {
-        port.postMessage({ session: { ...session, conversationId: 'turn-failed' } })
+        port.postMessage({ accepted: true, session: { ...session, conversationId: 'turn-failed' } })
         await new Promise((resolve) => {
           fail = () => {
             port.postMessage({ error: 'account rate limited' })
@@ -464,7 +467,7 @@ describe('lifecycle claims — current behavior', () => {
         const sessions = []
         registerExecuteApi(async (session, port) => {
           sessions.push(session)
-          port.postMessage({ session: { ...session, conversationId: 'effort-id' } })
+          port.postMessage({ accepted: true, session: { ...session, conversationId: 'effort-id' } })
           port.postMessage({ done: true })
         })
         await createChatgptWebConversation({
@@ -532,6 +535,7 @@ describe('lifecycle claims — current behavior', () => {
     it('upserts a pending list stub so the Bridge owns the streamed id', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -584,7 +588,7 @@ describe('lifecycle claims — current behavior', () => {
         }),
       )
       registerExecuteApi(async (session, port) => {
-        port.postMessage({ session: { ...session, conversationId: 'streamed-id' } })
+        port.postMessage({ accepted: true, session: { ...session, conversationId: 'streamed-id' } })
         port.postMessage({ done: true })
       })
 
@@ -600,6 +604,7 @@ describe('lifecycle claims — current behavior', () => {
       storageLocal.set = async () => new Promise((resolve) => stalledWrites.push(resolve))
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -619,6 +624,7 @@ describe('lifecycle claims — current behavior', () => {
       }
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -647,6 +653,7 @@ describe('lifecycle claims — current behavior', () => {
       }
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -744,6 +751,7 @@ describe('lifecycle claims — current behavior', () => {
     it('returns pending instead of throwing when a locally created stub is not readable yet', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -769,6 +777,7 @@ describe('lifecycle claims — current behavior', () => {
     it('still throws a generic 403 on a local create stub', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })
@@ -883,6 +892,7 @@ describe('lifecycle claims — current behavior', () => {
     it('softens access-denied on get the same way as refresh', async () => {
       registerExecuteApi(async (session, port) => {
         port.postMessage({
+          accepted: true,
           session: { ...session, conversationId: 'streamed-id' },
         })
         port.postMessage({ done: true })

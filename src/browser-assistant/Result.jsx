@@ -17,7 +17,13 @@ export function AssistantResult({ run, text, resultId, outcome = 'completed' }) 
   const undo = useRef(null)
   const answer = useMemo(() => normalizeModelAnswer(text), [text])
   const replacement = unwrapAnswerFence(answer.text)
-  useEffect(() => () => cleanup.current?.(), [])
+  useEffect(
+    () => () => {
+      cleanup.current?.()
+      undo.current?.dispose?.()
+    },
+    [],
+  )
   const reading = useMemo(() => {
     if (run.fn.output !== 'annotations') return null
     try {

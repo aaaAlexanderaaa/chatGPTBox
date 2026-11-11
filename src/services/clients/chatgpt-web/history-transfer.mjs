@@ -122,7 +122,6 @@ function mergeConversationSnapshotRecord(existingRecord = {}, incomingRecord = {
     compareConversationSnapshotRecords(normalizedExisting, normalizedIncoming) <= 0
   const preferred = preferredIsIncoming ? normalizedIncoming : normalizedExisting
   const fallback = preferred === normalizedIncoming ? normalizedExisting : normalizedIncoming
-
   return {
     ...preferred,
     conversationId: preferred.conversationId || fallback.conversationId,
@@ -175,10 +174,10 @@ function trimSessionSnapshotMap(snapshots = {}, limit = MAX_CHATGPT_WEB_SESSION_
       Object.values(isPlainObject(snapshots) ? snapshots : {}).filter(
         (snapshot) => typeof snapshot?.sessionId === 'string' && snapshot.sessionId,
       ),
-      (snapshot) => snapshot?.sessionId || '',
+      (snapshot) => bindingSnapshotKey(snapshot),
     )
       .slice(0, limit)
-      .map((snapshot) => [snapshot.sessionId, snapshot]),
+      .map((snapshot) => [bindingSnapshotKey(snapshot), snapshot]),
   )
 }
 
@@ -241,14 +240,20 @@ function mergeSessionSnapshotRecord(existingRecord = {}, incomingRecord = {}) {
   const preferred = preferredIsIncoming ? normalizedIncoming : normalizedExisting
   const fallback = preferred === normalizedIncoming ? normalizedExisting : normalizedIncoming
 
+  const remoteFallback =
+    preferred.conversationId &&
+    fallback.conversationId &&
+    preferred.conversationId !== fallback.conversationId
+      ? {}
+      : fallback
   return {
     sessionId: preferred.sessionId || fallback.sessionId,
     remoteBindingGeneration: preferred.remoteBindingGeneration || null,
     conversationId: pickNonEmptyString(preferred.conversationId, fallback.conversationId) || null,
     parentMessageId:
-      pickNonEmptyString(preferred.parentMessageId, fallback.parentMessageId) || null,
-    messageId: pickNonEmptyString(preferred.messageId, fallback.messageId) || null,
-    wsRequestId: pickNonEmptyString(preferred.wsRequestId, fallback.wsRequestId) || null,
+      pickNonEmptyString(preferred.parentMessageId, remoteFallback.parentMessageId) || null,
+    messageId: pickNonEmptyString(preferred.messageId, remoteFallback.messageId) || null,
+    wsRequestId: pickNonEmptyString(preferred.wsRequestId, remoteFallback.wsRequestId) || null,
     modelName: pickNonEmptyString(preferred.modelName, fallback.modelName) || null,
     question: pickNonEmptyString(preferred.question, fallback.question) || null,
     updatedAt:
@@ -264,17 +269,12 @@ function mergeSessionSnapshotMaps(existingSnapshots = {}, incomingSnapshots = {}
   const merged = {}
   const existingEntries = isPlainObject(existingSnapshots) ? existingSnapshots : {}
   const incomingEntries = isPlainObject(incomingSnapshots) ? incomingSnapshots : {}
-  const sessionIds = new Set([...Object.keys(existingEntries), ...Object.keys(incomingEntries)])
-
-  sessionIds.forEach((sessionId) => {
-    const mergedSnapshot = mergeSessionSnapshotRecord(
-      existingEntries[sessionId],
-      incomingEntries[sessionId],
-    )
-    if (mergedSnapshot?.sessionId) {
-      merged[bindingSnapshotKey(mergedSnapshot)] = mergedSnapshot
-    }
-  })
+  for (const record of [...Object.values(existingEntries), ...Object.values(incomingEntries)]) {
+    const snapshot = normalizeSessionSnapshotRecord(record)
+    if (!snapshot) continue
+    const key = bindingSnapshotKey(snapshot)
+    merged[key] = mergeSessionSnapshotRecord(merged[key], snapshot)
+  }
 
   return trimSessionSnapshotMap(merged)
 }

@@ -55,7 +55,9 @@ export function createChatgptWebPageTransport(context, page = globalThis.window)
         entry.controller.close()
         entry.cleanup()
       } else if (data.type === 'error') {
-        throw data.aborted ? abortError() : new Error(data.message)
+        const error = data.aborted ? abortError() : new Error(data.message)
+        if (data.dispatched === false) error.chatgptWebNotDispatched = true
+        throw error
       }
     } catch (error) {
       entry.fail(error)

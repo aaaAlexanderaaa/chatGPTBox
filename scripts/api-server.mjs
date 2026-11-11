@@ -349,16 +349,14 @@ function makeStreamChunk(id, model, delta, finishReason) {
 }
 
 function getIdempotencyKey(req, body = {}) {
-  return normalizeIdempotencyKey(
-    req.headers['idempotency-key'] ||
-      req.headers['x-idempotency-key'] ||
-      body.idempotency_key ||
-      body.idempotencyKey,
-  )
+  if (Object.hasOwn(req.headers, 'idempotency-key')) return req.headers['idempotency-key']
+  if (Object.hasOwn(req.headers, 'x-idempotency-key')) return req.headers['x-idempotency-key']
+  return Object.hasOwn(body, 'idempotency_key') ? body.idempotency_key : body.idempotencyKey
 }
 
 function beginWriteOperation(req, route, body, { requireIdempotencyKey = false } = {}) {
-  const key = getIdempotencyKey(req, body)
+  const rawKey = getIdempotencyKey(req, body)
+  const key = normalizeIdempotencyKey(rawKey)
   if (requireIdempotencyKey && !key) {
     return {
       kind: 'missing',
@@ -380,17 +378,27 @@ function beginWriteOperation(req, route, body, { requireIdempotencyKey = false }
   const previous = key && operationLedger.records.get(key)
   if (isLegacyChatgptNotDispatchedOperation(previous)) operationLedger.abort(previous)
   try {
-    return operationLedger.begin({ key, fingerprint: fingerprintOperation(route, fingerprintBody) })
+    return operationLedger.begin({
+      key: rawKey,
+      fingerprint: fingerprintOperation(route, fingerprintBody),
+    })
   } catch (error) {
-    if (!['OPERATION_LEDGER_FULL', 'OPERATION_LEDGER_UNAVAILABLE'].includes(error.code)) throw error
+    if (
+      ![
+        'INVALID_IDEMPOTENCY_KEY',
+        'OPERATION_LEDGER_FULL',
+        'OPERATION_LEDGER_UNAVAILABLE',
+      ].includes(error.code)
+    )
+      throw error
     return {
       kind: 'rejected',
-      status: 503,
+      status: error.status || 503,
       error: {
         error: {
           message: error.message,
           code: error.code.toLowerCase(),
-          ...(error.code === 'OPERATION_LEDGER_FULL' ? { dispatched: false } : {}),
+          ...(error.dispatched === false ? { dispatched: false } : {}),
           retryable: false,
         },
       },
@@ -2096,7 +2104,9 @@ async function handleHttpRequest(req, res) {
       res,
       record ? 200 : 404,
       record
-        ? imageSendOperations.snapshot(record)
+        ? record.phase
+          ? imageSendOperations.snapshot(record)
+          : operationLedger.snapshot(record)
         : {
             error: {
               message:

@@ -1,4 +1,5 @@
 import { readingRoots } from './reading-roots.mjs'
+import { readEditableRange, readEditableText } from '../utils/editable-text.mjs'
 
 const EDITABLE =
   '[contenteditable="true" i], [contenteditable="plaintext-only" i], [contenteditable=""]'
@@ -24,7 +25,7 @@ export function captureInput(target, doc = document) {
         !['text', 'search', 'url', 'tel', 'email', ''].includes(element.type)))
   )
     return null
-  const text = isField ? element.value : element.textContent
+  const text = readEditableText(element)
   let start = 0,
     end = text.length,
     range = null
@@ -51,7 +52,12 @@ export function captureInput(target, doc = document) {
     start,
     end,
     range,
-    selectedText: isField ? text.slice(start, end) : range.toString(),
+    html: isField ? null : element.innerHTML,
+    startNode: range?.startContainer,
+    startOffset: range?.startOffset,
+    endNode: range?.endContainer,
+    endOffset: range?.endOffset,
+    selectedText: isField ? text.slice(start, end) : readEditableRange(range),
     url: doc.location.href,
   }
 }

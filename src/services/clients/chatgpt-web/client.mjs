@@ -551,6 +551,20 @@ export async function registerWebsocket(accessToken) {
  * @param {string} accessToken
  */
 export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
+  const dispatch = { started: false, committed: false }
+  try {
+    return await runChatgptWebRequest(port, question, session, accessToken, dispatch)
+  } catch (error) {
+    const failure = error && typeof error === 'object' ? error : new Error(String(error))
+    if (!dispatch.started) failure.chatgptWebNotDispatched = true
+    else if (dispatch.committed) delete failure.chatgptWebNotDispatched
+    throw failure
+  } finally {
+    dispatch.cleanup?.()
+  }
+}
+
+async function runChatgptWebRequest(port, question, session, accessToken, dispatch) {
   let pageTransport
   let stopRequest
   let resumeConduitToken = ''
@@ -579,14 +593,15 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     else pageTransport?.close()
     removeController()
   }
-  let promptDispatchStarted = false
-  let promptDispatchCommitted = false
+  dispatch.cleanup = cleanController
   let lastEmittedSessionSignature = ''
+  let lastAssistantMessageId = null
 
   function markReplayUnsafe(error) {
+    if (error?.chatgptWebNotDispatched === true && !dispatch.committed) return error
     if (
-      (promptDispatchStarted ||
-        promptDispatchCommitted ||
+      (dispatch.started ||
+        dispatch.committed ||
         session.conversationId ||
         lastAssistantMessageId) &&
       error &&
@@ -844,7 +859,6 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let generatedImageUrl = ''
   let responseMetaLogged = false
   let lastAssistantStatus = ''
-  let lastAssistantMessageId = null
   let lastIncrementalAnswer = ''
   let lastIncrementalSkipSignature = ''
   let finalizationPromise = null
@@ -876,7 +890,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
     if (!force && signature === lastEmittedSessionSignature) return
     lastEmittedSessionSignature = signature
-    port.postMessage({ session: { ...session } })
+    port.postMessage({ session: { ...session }, accepted: true })
   }
 
   function withRichContent(text) {
@@ -1184,6 +1198,8 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
     finalizationPromise = (async () => {
       try {
+        if (terminalError?.chatgptWebNotDispatched === true && !dispatch.committed)
+          throw terminalError
         let resumeResult = null
         const canHttpResume = canFollowChatgptWebTurnViaHttpResume({
           conversationId: session.conversationId || streamHandoff?.conversation_id,
@@ -1244,9 +1260,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   if (useDispatchOnlyConversationObserver) {
     try {
-      promptDispatchStarted = true
+      dispatch.started = true
       const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
-      promptDispatchCommitted = true
+      dispatch.committed = true
       session.conversationId = conversationId || session.conversationId
       session.wsRequestId = wsRequestId || session.wsRequestId
       void appendChatgptWebDebugLog(config, 'conversation-dispatch-ack', {
@@ -1367,7 +1383,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             accessToken,
             options,
           )
-          promptDispatchCommitted = true
+          dispatch.committed = true
           const dispatchResult = requestController.confirmDispatch({
             conversationId,
             wsRequestId,
@@ -1394,13 +1410,13 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       })()
     })
   } else {
-    promptDispatchStarted = true
+    dispatch.started = true
     try {
       await fetchSSE(url, {
         ...options,
         fetchImpl: pageFetch,
         async onResponse(resp) {
-          promptDispatchCommitted = true
+          dispatch.committed = true
           const headerToken = extractChatgptWebConduitTokenFromHeaders(resp?.headers)
           if (headerToken) resumeConduitToken = headerToken
         },
@@ -1440,7 +1456,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           }
         },
         async onStart() {
-          promptDispatchCommitted = true
+          dispatch.committed = true
         },
         async onEnd(info) {
           await finalizeMessage(
@@ -1502,7 +1518,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     if (resumeTokenEvent) {
       resumeConduitToken = resumeTokenEvent.token || resumeConduitToken
       session.conversationId = resumeTokenEvent.conversationId || session.conversationId
-      promptDispatchCommitted = true
+      dispatch.committed = true
       emitSessionUpdate()
       return
     }
@@ -1511,7 +1527,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       streamHandoff = data
       if (data.conversation_id) {
         session.conversationId = data.conversation_id
-        promptDispatchCommitted = true
+        dispatch.committed = true
       }
       void appendChatgptWebDebugLog(config, 'stream-handoff-received', {
         conversationId: session.conversationId || null,
@@ -1525,7 +1541,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
     if (data.conversation_id) {
       session.conversationId = data.conversation_id
-      promptDispatchCommitted = true
+      dispatch.committed = true
     }
     if (
       data.message?.metadata?.is_message_fragment ||
@@ -1536,7 +1552,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       lastAssistantMessageId = data.message.id || lastAssistantMessageId
       if (data.message?.id) {
         session.parentMessageId = data.message.metadata?.continuation_message_id || data.message.id
-        promptDispatchCommitted = true
+        dispatch.committed = true
       }
       lastAssistantStatus =
         typeof data.message?.status === 'string' ? data.message.status : lastAssistantStatus

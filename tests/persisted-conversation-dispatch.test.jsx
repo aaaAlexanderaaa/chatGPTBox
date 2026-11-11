@@ -7,6 +7,7 @@ import Browser from 'webextension-polyfill'
 const state = vi.hoisted(() => ({
   restore: null,
   configError: null,
+  snapshotDeleteError: null,
   config: {
     modelName: 'chatgptweb/one',
     l1Providers: [],
@@ -28,7 +29,9 @@ vi.mock('../src/services/clients/chatgpt-web/thread-state.mjs', () => ({
   restoreChatgptWebSessionSnapshot: (session) =>
     state.restore ? state.restore(session) : Promise.resolve(session),
   saveChatgptWebSessionSnapshot: async () => {},
-  deleteChatgptWebSessionSnapshot: async () => {},
+  deleteChatgptWebSessionSnapshot: async () => {
+    if (state.snapshotDeleteError) throw new Error(state.snapshotDeleteError)
+  },
 }))
 vi.mock('../src/components/ConversationItem', () => ({
   default: ({ content, onRetry }) => (
@@ -73,6 +76,7 @@ beforeEach(() => {
   responses = []
   state.restore = null
   state.configError = null
+  state.snapshotDeleteError = null
   vi.spyOn(Browser.storage.local, 'get').mockImplementation(async (keys) =>
     typeof keys === 'string'
       ? { [keys]: structuredClone(stored[keys]) }
@@ -151,13 +155,20 @@ afterEach(async () => {
   root.remove()
   vi.restoreAllMocks()
 })
-async function mount(session = initial(), onUpdate, question, persistedSession = true) {
+async function mount(
+  session = initial(),
+  onUpdate,
+  question,
+  persistedSession = true,
+  onSaveError,
+) {
   await act(async () => {
     render(
       <ConversationCard
         session={session}
         question={question}
         onUpdate={onUpdate}
+        onSaveError={onSaveError}
         persistedSession={persistedSession}
         disconnectOnUnmount
         draftKey="persisted"
@@ -215,6 +226,147 @@ it('clears only after the matching stored request is admitted', async () => {
   expect(responses[0]).toMatchObject({ started: true, requestToken: request.requestToken })
   expect(root.querySelector('textarea').value).toBe('')
 })
+
+it('keeps the input and stored draft when the provider rejects before producing output', async () => {
+  execute.mockImplementationOnce(async (_session, port) => {
+    port.postMessage({ error: 'Provider is disabled', dispatched: false, done: true })
+  })
+  await mount()
+  await submit('Keep this draft')
+  await settle()
+  expect(execute).toHaveBeenCalledTimes(1)
+  expect(responses.some((message) => message.started)).toBe(false)
+  expect(root.querySelector('textarea').value).toBe('Keep this draft')
+  expect(root.textContent).toContain('Provider is disabled')
+})
+it('replaces the first prop-question answer without duplicate history or old-answer context', async () => {
+  await mount(initial(), undefined, 'Initial prop question')
+  await settle()
+  expect(root.querySelectorAll('.retry-fixture')).toHaveLength(1)
+  let retryContext
+  const { getRequestConversationRecords } = await import('../src/services/apis/shared.mjs')
+  execute.mockImplementationOnce(async (session, port) => {
+    retryContext = structuredClone(getRequestConversationRecords(session))
+    pushRecord(session, session.question, 'Replacement first answer')
+    port.postMessage({ session, answer: 'Replacement first answer', done: true })
+  })
+  await act(async () => {
+    root.querySelector('.retry-fixture').click()
+    await tick()
+  })
+  await settle()
+  expect(retryContext).toEqual([])
+  const replacement = responses.findLast((message) => message.answer === 'Replacement first answer')
+  expect(replacement.session.conversationRecords).toEqual([
+    { question: 'Initial prop question', answer: 'Replacement first answer' },
+  ])
+  expect(execute).toHaveBeenCalledTimes(2)
+})
+
+it.each([false, true, 'snapshot'])(
+  'commits Clear before dropping visible history (storage failure=%s)',
+  async (fail) => {
+    const switched = switchSessionEngine(
+      {
+        ...initial(),
+        question: 'Old question',
+        conversationRecords: [{ question: 'Old question', answer: 'Keep until Clear commits' }],
+      },
+      'grokweb/fast',
+    )
+    stored.sessions = [structuredClone(switched)]
+    vi.spyOn(Browser.runtime, 'sendMessage').mockImplementation(async (message) => {
+      if (message.type !== 'LOCAL_SESSION_MUTATION') return
+      try {
+        return {
+          ok: true,
+          value: await applyLocalSessionMutation(message.data.method, message.data.payload),
+        }
+      } catch (error) {
+        return { ok: false, error: { message: error.message, code: error.code } }
+      }
+    })
+    const saveError = vi.fn()
+    await mount(switched, undefined, undefined, true, saveError)
+    if (fail === true)
+      Browser.storage.local.set.mockRejectedValueOnce(new Error('Clear could not be saved'))
+    if (fail === 'snapshot') state.snapshotDeleteError = 'Snapshot cleanup failed'
+    await act(async () => {
+      root.querySelector('[aria-label="Clear Conversation"]').click()
+      await tick()
+    })
+    await act(async () => {
+      const confirm = [...root.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Confirm',
+      )
+      confirm.click()
+      await tick()
+    })
+    await settle()
+    expect(stored.sessions[0].sessionId).toBe(switched.sessionId)
+    if (fail === true) {
+      expect(root.textContent).toContain('Keep until Clear commits')
+      expect(root.textContent).toContain('Clear could not be saved')
+      expect(stored.sessions[0].remoteBindingGeneration).toBe(switched.remoteBindingGeneration)
+      expect(saveError).toHaveBeenCalledWith(expect.any(Error), switched)
+    } else {
+      expect(root.textContent).not.toContain('Keep until Clear commits')
+      expect(stored.sessions[0].conversationRecords).toEqual([])
+      expect(stored.sessions[0].remoteBindingGeneration).not.toBe(switched.remoteBindingGeneration)
+      expect(saveError).not.toHaveBeenCalled()
+      if (fail === 'snapshot')
+        expect(root.textContent).toContain('saved provider state could not be removed')
+    }
+    expect(execute).not.toHaveBeenCalled()
+  },
+)
+it('ignores an old queued terminal session after Clear commits a new binding', async () => {
+  execute.mockImplementation(async () => {})
+  vi.spyOn(Browser.runtime, 'sendMessage').mockImplementation(async (message) => {
+    if (message.type !== 'LOCAL_SESSION_MUTATION') return
+    return {
+      ok: true,
+      value: await applyLocalSessionMutation(message.data.method, message.data.payload),
+    }
+  })
+  let visible
+  await mount(initial(), (_port, session) => {
+    visible = session
+  })
+  await submit()
+  await settle()
+  const oldRequest = sent.find((message) => message.session)
+  const oldSession = structuredClone(oldRequest.session)
+  pushRecord(oldSession, oldSession.question, 'Queued old answer')
+  const oldPacket = {
+    requestToken: oldRequest.requestToken,
+    session: oldSession,
+    answer: 'Queued old answer',
+    done: true,
+    outcome: 'completed',
+  }
+  await act(async () => {
+    root.querySelector('[aria-label="Clear Conversation"]').click()
+    await tick()
+  })
+  await act(async () => {
+    const confirm = [...root.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Confirm',
+    )
+    confirm.click()
+    await tick()
+  })
+  await settle()
+  const clearedGeneration = visible.remoteBindingGeneration
+  expect(visible.conversationRecords).toEqual([])
+  await act(async () => {
+    clientInbound.fire(structuredClone(oldPacket))
+    await tick()
+  })
+  expect(visible.remoteBindingGeneration).toBe(clearedGeneration)
+  expect(visible.conversationRecords).toEqual([])
+  expect(root.textContent).not.toContain('Queued old answer')
+})
 it('Stop during stored-state validation prevents a late executor start', async () => {
   await mount()
   const get = Browser.storage.local.get.getMockImplementation()
@@ -236,6 +388,23 @@ it('Stop during stored-state validation prevents a late executor start', async (
   expect(execute).not.toHaveBeenCalled()
   expect(responses.some((message) => message.started)).toBe(false)
   expect(root.querySelector('textarea').value).toBe('User intent')
+})
+it('publishes token-bearing cancellation for the panel owner', async () => {
+  execute.mockImplementation(async () => {})
+  let stop
+  await mount(initial(), (_port, _session, _items, cancel) => {
+    stop = cancel
+  })
+  await submit()
+  await settle()
+  const token = sent.find((message) => message.session).requestToken
+  await act(async () => {
+    await stop()
+    await tick()
+  })
+  await settle()
+  expect(sent.findLast((message) => message.stop)).toMatchObject({ requestToken: token })
+  expect(root.querySelector('.submit-button').getAttribute('aria-label')).toBe('Send')
 })
 it('ignores an older queued start/completion after a new request token is active', async () => {
   const ports = []

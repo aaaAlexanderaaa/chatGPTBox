@@ -422,6 +422,8 @@ export async function getChatgptWebPageIntegrityInPage(
       active.set(id, controller)
       clearTimeout(idleTimer)
       let reader
+      let ownsPrompt = false
+      let promptFetchAttempted = false
       try {
         const target = new URL(message.url)
         const method = message.method || 'GET'
@@ -454,6 +456,11 @@ export async function getChatgptWebPageIntegrityInPage(
         ) {
           throw new Error('Unsupported ChatGPT native request.')
         }
+        if (method === 'POST' && path === '/backend-api/f/conversation') {
+          if (submitted) throw new Error('This ChatGPT request was already dispatched.')
+          submitted = true
+          ownsPrompt = true
+        }
         assertCurrent()
         if (
           message.formData &&
@@ -465,8 +472,6 @@ export async function getChatgptWebPageIntegrityInPage(
         const conduit = inputHeaders.get('x-conduit-token')
         if (conduit) additionalHeaders['X-Conduit-Token'] = conduit
         if (path === '/backend-api/f/conversation') {
-          if (submitted) throw new Error('This ChatGPT request was already dispatched.')
-          submitted = true
           Object.assign(additionalHeaders, await finalizedHeaders(controller.signal))
         }
         const nativeTarget = request.getRequestTarget(
@@ -502,6 +507,7 @@ export async function getChatgptWebPageIntegrityInPage(
           // Native fetch copies a plain header object with object spread.
           fetchHeaders = Object.fromEntries(headers)
         }
+        if (ownsPrompt) promptFetchAttempted = true
         const response = await nativeFetch(
           nativeTarget.url,
           {
@@ -551,6 +557,7 @@ export async function getChatgptWebPageIntegrityInPage(
         // Native exceptions may contain credentials or response bodies.
         emit(id, 'error', {
           aborted: controller.signal.aborted,
+          ...(ownsPrompt && !promptFetchAttempted ? { dispatched: false } : {}),
           message:
             'ChatGPT native request failed. Check the proxy tab login and browser verification.',
         })

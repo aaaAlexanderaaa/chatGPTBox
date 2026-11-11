@@ -18,6 +18,45 @@ import { ConversationItemData } from '../src/components/ConversationCard/convers
 
 const t = (s) => s
 
+it('ends an owned loading placeholder on Stop without deleting a provider answer', () => {
+  const base = {
+    items: [new ConversationItemData('answer', '', false)],
+    session: {},
+    isReady: true,
+  }
+  const waiting = applyInbound(base, { preparing: true }, t)
+  const stopped = applyInbound(waiting, { done: true, outcome: 'stopped' }, t)
+  expect(stopped.items[0]).toMatchObject({ content: '', done: true, outcome: 'stopped' })
+  expect(stopped.items[0].placeholder).toBeUndefined()
+  const realText = '<p class="gpt-loading">A model describing this markup</p>'
+  const streamed = applyInbound(waiting, { answer: realText }, t)
+  expect(applyInbound(streamed, { done: true, outcome: 'stopped' }, t).items[0].content).toBe(
+    realText,
+  )
+})
+
+it('identifies the successful first answer when the initial question has no rendered row', () => {
+  const session = {
+    question: 'initial material',
+    conversationRecords: [{ question: 'initial material', answer: 'old answer' }],
+  }
+  const item = Object.assign(new ConversationItemData('answer', 'old answer', true), {
+    outcome: 'completed',
+  })
+  expect(popMatchedRetryRecord(session, [item])).toEqual([])
+})
+
+it.each([
+  { question: 'different material', answer: 'old answer', outcome: 'completed' },
+  { question: 'initial material', answer: 'different answer', outcome: 'completed' },
+  { question: 'initial material', answer: 'old answer', outcome: 'stopped' },
+])('keeps an unmatched or unsuccessful initial answer: %j', ({ question, answer, outcome }) => {
+  const records = [{ question: 'initial material', answer: 'old answer' }]
+  const session = { question, conversationRecords: [...records] }
+  const item = Object.assign(new ConversationItemData('answer', answer, true), { outcome })
+  expect(popMatchedRetryRecord(session, [item])).toEqual(records)
+})
+
 it('keeps a combined error/done/outcome message terminal at an initially loading answer', () => {
   const result = applyInbound(
     {

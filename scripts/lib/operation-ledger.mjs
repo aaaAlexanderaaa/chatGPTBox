@@ -32,6 +32,7 @@ export class OperationLedger {
     this.ttlMs = ttlMs
     this.maxRecords = maxRecords
     this.records = new Map()
+    this.executions = new WeakSet()
     this.available = true
     this.loadError = null
     this.load()
@@ -63,21 +64,32 @@ export class OperationLedger {
 
   begin({ key, fingerprint, operationId = crypto.randomUUID() }) {
     const normalizedKey = normalizeIdempotencyKey(key)
+    if (key !== undefined && (typeof key !== 'string' || !normalizedKey)) {
+      const error = new Error(
+        'Idempotency-Key must contain 1 to 200 characters without control characters.',
+      )
+      error.code = 'INVALID_IDEMPOTENCY_KEY'
+      error.status = 400
+      error.dispatched = false
+      throw error
+    }
     if (!normalizedKey) {
       const now = new Date().toISOString()
+      const record = {
+        key: null,
+        clientKey: null,
+        operationId,
+        fingerprint,
+        state: 'dispatching',
+        createdAt: now,
+        updatedAt: now,
+        result: null,
+        error: null,
+      }
+      this.executions.add(record)
       return {
         kind: 'new',
-        record: {
-          key: null,
-          clientKey: null,
-          operationId,
-          fingerprint,
-          state: 'dispatching',
-          createdAt: now,
-          updatedAt: now,
-          result: null,
-          error: null,
-        },
+        record,
       }
     }
 
@@ -125,7 +137,22 @@ export class OperationLedger {
       this.records.delete(record.key)
       throw error
     }
+    this.executions.add(record)
     return { kind: 'new', record }
+  }
+
+  snapshot(record) {
+    const pending = record.state === 'dispatching' && this.executions.has(record)
+    return {
+      operationId: record.operationId,
+      phase: record.state === 'completed' ? 'accepted' : pending ? 'sending' : 'ambiguous',
+      dispatched: record.dispatched !== false,
+      pending,
+      retryable: false,
+      result: record.state === 'completed' ? record.result : null,
+      error: record.error || null,
+      updatedAt: record.updatedAt,
+    }
   }
 
   complete(record, result) {
@@ -133,6 +160,7 @@ export class OperationLedger {
   }
 
   abort(record) {
+    this.executions.delete(record)
     if (!record?.key) return record
     this.records.delete(record.key)
     this.persist()
@@ -147,6 +175,7 @@ export class OperationLedger {
   }
 
   update(record, patch) {
+    if (patch.state && patch.state !== 'dispatching') this.executions.delete(record)
     if (!record?.key) {
       Object.assign(record, patch, { updatedAt: new Date().toISOString() })
       return record

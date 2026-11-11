@@ -145,6 +145,52 @@ it('freezes extra template context, blocks autoRun until disclosure, and preserv
   expect(state.runs[0]).toContain('PREVIEW_HEADING')
   expect(state.runs[0]).not.toContain('LATER_HEADING')
 })
+it('keeps page-variable material and consent stable while editing an instruction', async () => {
+  state.config.browserAssistantFunctions = [
+    {
+      id: 'page-variables',
+      name: 'Page variables',
+      prompt: '{{headings}} {{links}} {{interactiveElements}}',
+      scope: 'selection',
+      output: 'chat',
+      template: true,
+    },
+  ]
+  document.querySelector('article').insertAdjacentHTML('beforeend', '<h2>ORIGINAL_HEADING</h2>')
+  await mount(captureContext({ selection: 'Selected material' }), 'page-variables')
+  await act(async () => {
+    root.querySelector('input[type="checkbox"]').click()
+    document.querySelector('article h2').textContent = 'LATER_HEADING'
+    const instruction = root.querySelector('textarea')
+    instruction.value += '\nUse short sentences.'
+    instruction.dispatchEvent(new Event('input', { bubbles: true }))
+    await tick()
+  })
+  await act(tick)
+  expect(root.querySelector('input[type="checkbox"]').checked).toBe(true)
+  await click('Run')
+  expect(state.runs[0]).toContain('ORIGINAL_HEADING')
+  expect(state.runs[0]).not.toContain('LATER_HEADING')
+  expect(state.runs[0]).not.toContain('Manage functions')
+  expect(state.runs[0]).not.toContain('options.html')
+})
+
+it('previews the current input before another rewrite and can apply it without reopening', async () => {
+  const draft = document.getElementById('draft')
+  await mount(captureContext({ target: draft }))
+  state.reply = 'First rewrite'
+  await click('Run')
+  await click('Apply rewrite')
+  expect(draft.value).toBe('First rewrite')
+  await click('Change instruction')
+  expect(root.querySelector('.box-assistant-preview pre').textContent).toBe('First rewrite')
+  state.reply = 'Second rewrite'
+  await click('Run')
+  expect(state.runs[1]).toContain('First rewrite')
+  await click('Apply rewrite')
+  expect(draft.value).toBe('Second rewrite')
+  expect(root.querySelector('[role="alert"]')).toBeNull()
+})
 it('changes overview to annotations with the same source and refinements, then saves the changed practice', async () => {
   state.refinements = ['只看个体分配依据']
   await mount(captureContext())

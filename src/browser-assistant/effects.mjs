@@ -1,4 +1,5 @@
 import { rangeForAnnotation } from './context.mjs'
+import { readEditableRange, readEditableText } from '../utils/editable-text.mjs'
 
 export function showAnnotations(snapshot, annotations, id) {
   const win = snapshot.document.defaultView
@@ -30,17 +31,34 @@ export function applyInputReplacement(input, replacement) {
   const { element, text, url, range } = input
   const doc = element.ownerDocument
   const isField = ['INPUT', 'TEXTAREA'].includes(element.tagName)
-  const value = () => (isField ? element.value : element.textContent)
+  const value = () => readEditableText(element)
+  const richSnapshotIsCurrent = () =>
+    isField ||
+    (element.innerHTML === input.html &&
+      input.startNode?.isConnected &&
+      input.endNode?.isConnected &&
+      range?.startContainer === input.startNode &&
+      range.startOffset === input.startOffset &&
+      range.endContainer === input.endNode &&
+      range.endOffset === input.endOffset)
   if (
     !element.isConnected ||
     doc.location.href !== url ||
     value() !== text ||
+    !richSnapshotIsCurrent() ||
     element.disabled ||
     element.readOnly
   )
     throw new Error('The input changed. Run the rewrite again before applying it.')
   if (typeof replacement !== 'string' || !replacement.trim())
     throw new Error('The replacement is empty')
+  const expected = isField ? text.slice(0, input.start) + replacement + text.slice(input.end) : null
+  if (isField) {
+    const probe = element.cloneNode(false)
+    probe.value = expected
+    if (probe.value !== expected)
+      throw new Error('This input cannot preserve the replacement. Copy the result instead.')
+  }
   if (
     !isField &&
     Array.from(element.querySelectorAll('img, video, audio, [contenteditable="false"]')).some(
@@ -58,9 +76,10 @@ export function applyInputReplacement(input, replacement) {
   })
   if (!element.dispatchEvent(before))
     throw new Error('This editor did not allow the replacement. Copy the result instead.')
-  if (!element.isConnected || value() !== text)
+  if (!element.isConnected || value() !== text || !richSnapshotIsCurrent())
     throw new Error('The input changed. Run the rewrite again before applying it.')
   let undo
+  let dispose = () => {}
   if (isField) {
     const write = (next) => {
       const proto =
@@ -69,19 +88,71 @@ export function applyInputReplacement(input, replacement) {
           : win.HTMLInputElement.prototype
       Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, next)
     }
-    const next = text.slice(0, input.start) + replacement + text.slice(input.end)
-    write(next)
+    write(expected)
+    if (typeof element.selectionStart === 'number')
+      element.setSelectionRange(input.start, input.start + replacement.length)
     undo = () => write(text)
   } else {
     if (!range || !element.contains(range.commonAncestorContainer))
       throw new Error('The selected input is no longer available')
-    const original = range.cloneContents()
-    const node = doc.createTextNode(replacement)
-    range.deleteContents()
-    range.insertNode(node)
+    if (typeof doc.execCommand !== 'function')
+      throw new Error('This editor did not allow the replacement. Copy the result instead.')
+    const prefix = doc.createRange(),
+      suffix = doc.createRange()
+    prefix.selectNodeContents(element)
+    prefix.setEnd(range.startContainer, range.startOffset)
+    suffix.selectNodeContents(element)
+    suffix.setStart(range.endContainer, range.endOffset)
+    const beforeText = readEditableRange(prefix),
+      afterText = readEditableRange(suffix)
+    if (beforeText + readEditableRange(range) + afterText !== text)
+      throw new Error('This editor did not allow the replacement. Copy the result instead.')
+    element.focus({ preventScroll: true })
+    if (
+      !element.isConnected ||
+      value() !== text ||
+      !richSnapshotIsCurrent() ||
+      (doc.activeElement !== element && !element.contains(doc.activeElement))
+    )
+      throw new Error('The input changed. Run the rewrite again before applying it.')
+    const selection = win.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range.cloneRange())
+    if (
+      !doc.execCommand('insertText', false, replacement) ||
+      value() !== beforeText + replacement + afterText
+    )
+      throw new Error('The editor did not confirm insertion. Check the draft before retrying.')
+    let invalid = false,
+      used = false
+    const invalidate = () => {
+      invalid = true
+    }
+    doc.addEventListener('beforeinput', invalidate, true)
+    doc.addEventListener('input', invalidate, true)
+    doc.addEventListener('compositionstart', invalidate, true)
+    dispose = () => {
+      doc.removeEventListener('beforeinput', invalidate, true)
+      doc.removeEventListener('input', invalidate, true)
+      doc.removeEventListener('compositionstart', invalidate, true)
+    }
     undo = () => {
-      if (!node.isConnected) throw new Error('The input changed. Undo is no longer available.')
-      node.replaceWith(original)
+      if (invalid || used) throw new Error('The input changed. Undo is no longer available.')
+      element.focus({ preventScroll: true })
+      if (
+        invalid ||
+        value() !== applied ||
+        element.innerHTML !== appliedHtml ||
+        doc.location.href !== url ||
+        element.disabled ||
+        element.readOnly ||
+        (doc.activeElement !== element && !element.contains(doc.activeElement))
+      )
+        throw new Error('The input changed. Undo is no longer available.')
+      used = true
+      dispose()
+      if (!doc.execCommand('undo') || value() !== text || element.innerHTML !== input.html)
+        throw new Error('The input changed. Undo is no longer available.')
     }
   }
   const notify = () => {
@@ -94,12 +165,24 @@ export function applyInputReplacement(input, replacement) {
     )
     element.dispatchEvent(new win.Event('change', { bubbles: true }))
   }
-  notify()
+  if (isField) notify()
+  if (isField && value() !== expected)
+    throw new Error('The editor did not confirm insertion. Check the draft before retrying.')
   const applied = value()
-  return () => {
-    if (!element.isConnected || doc.location.href !== url || value() !== applied)
+  const appliedHtml = isField ? null : element.innerHTML
+  const restore = () => {
+    if (
+      !element.isConnected ||
+      doc.location.href !== url ||
+      value() !== applied ||
+      element.disabled ||
+      element.readOnly ||
+      (!isField && element.innerHTML !== appliedHtml)
+    )
       throw new Error('The input changed. Undo is no longer available.')
     undo()
-    notify()
+    if (isField) notify()
   }
+  restore.dispose = dispose
+  return restore
 }

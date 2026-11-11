@@ -1404,6 +1404,33 @@ describe('ChatGPT Web client handoff integration', () => {
     expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/f/conversation'))).toBe(false)
   })
 
+  it.each([false, true])(
+    'preserves positive unsent proof without resuming or polling an earlier thread (follow-up=%s)',
+    async (followUp) => {
+      const failure = Object.assign(new Error('Native finalization rejected'), {
+        chatgptWebNotDispatched: true,
+      })
+      const fetchMock = mockConversationStreams(() => {
+        throw failure
+      })
+      const session = createSession('gpt-6-thinking')
+      if (followUp) session.conversationId = 'existing-thread'
+      const { generateAnswersWithChatgptWebApi } = await import(
+        '../src/services/clients/chatgpt-web/client.mjs'
+      )
+      await expect(
+        generateAnswersWithChatgptWebApi(createTestPort([]), 'hello', session, 'token'),
+      ).rejects.toMatchObject({ chatgptWebNotDispatched: true })
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/resume'))).toBe(false)
+      expect(
+        fetchMock.mock.calls.some(([url]) => /\/backend-api\/conversations?\//.test(String(url))),
+      ).toBe(false)
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/f/conversation')),
+      ).toHaveLength(1)
+    },
+  )
+
   it.each(['initial', 'resume'])(
     'records reasoning evidence from the %s stream while returning only the final answer',
     async (transport) => {

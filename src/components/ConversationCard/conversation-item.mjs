@@ -9,11 +9,13 @@ export class ConversationItemData extends Object {
    * @param {'question'|'answer'|'error'} type
    * @param {string} content
    * @param {boolean} done
+   * @param {boolean} placeholder An owned loading placeholder, never provider content.
    */
-  constructor(type, content, done = false) {
+  constructor(type, content, done = false, placeholder = false) {
     super()
     this.type = type
     this.content = content
     this.done = done
+    if (placeholder) this.placeholder = true
   }
 }
