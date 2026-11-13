@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-10-30
+last_reconciled: 2026-11-11
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -38,17 +38,31 @@ Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use t
 its final answer. It is the only tool exposed by this MCP server. Consecutive
 calls do not continue a conversation or share task context.
 
+This HTTP MCP connects the caller to ChatGPT Web as **an independent external
+researcher running in the cloud**. The local MCP server and API gateway relay
+the question and answer; they do not supply the caller's environment or project
+state. ChatGPT is fully isolated from the caller's local environment and project.
+It has no implicit knowledge of that project and cannot inspect the caller's
+repository, files, terminal, tools, private documents, conversation or tool
+results. Task context must be explicitly included in `query`.
+
 The server instructions ask MCP clients to treat ChatGPT as a capable peer agent.
 The user's account supplies its configured model, thinking effort and
 personalization; do not override them. Those settings and account memory do not
-supply this coding agent's task context.
+supply this coding agent's task context. The user clarified the cloud-researcher
+and local-project isolation boundary on 2026-11-11; it applies to the HTTP
+interface independently of any client's local file handling.
 
-Every `query` must be self-contained. ChatGPT cannot see earlier calls or their
-answers, the caller's conversation or tool results, local files/repository, or
-private documents unless the relevant contents are included in that question.
-State the subject and desired outcome, define project-specific names, and include
-the relevant source, observations, constraints and findings. When following up,
-repeat the necessary context and prior conclusions. References such as “此前”,
+Every `query` must be a self-contained, natural-language question. Explain the
+actual problem, relevant context and desired outcome as if asking ChatGPT
+directly. Understand and synthesize the material before asking: include the
+facts, constraints, prior findings and source or code excerpts needed for this
+question. Complex questions can need substantial background; self-contained does
+not mean forwarding an unfiltered agent handoff, raw tool output or a collection
+of files. Let ChatGPT choose its investigation and answer structure.
+
+ChatGPT cannot see earlier calls or their answers. When following up, repeat the
+necessary context and prior conclusions. References such as “此前”,
 “我们的方案”, “这个项目”, a local path or a file hash do not convey that material.
 A public namesake or upstream repository found through web search cannot establish
 the private/local working tree's behavior. Supply the facts needed for that
@@ -70,10 +84,10 @@ function changed(changes) {
 请根据这些材料判断原因和修正边界；材料不足的部分请明确指出。
 ````
 
-Ask one clear, natural question. Long background/source can go in code blocks.
-Let ChatGPT choose its investigation and answer structure; use it when that
-judgment would help rather than for keyword search or synthetic connectivity
-tests. The server does not automatically attach local files or earlier results.
+Use ChatGPT when its judgment would help rather than for keyword search or
+synthetic connectivity tests. The HTTP MCP accepts the question text only;
+paths and file references do not attach or read local files, and earlier results
+are not automatically included.
 
 `ask_chatgpt` accepts only `query`. The server automatically appends this response preference to the question: "请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。" Its ordinary text result contains only the final answer; `structuredContent` also contains the conversation and message IDs and `thought_duration_seconds` for diagnostics. The duration sums ChatGPT Web's reported `finished_duration_sec` values for the turn. It is `null` if ChatGPT does not report a duration; it is never inferred from the MCP call's elapsed time. The MCP server does not expose conversation listing, continuation, or turn-status tools. The server generates an internal idempotency key for each dispatch; an ambiguous dispatch is reported as an error, not automatically resent.
 
@@ -83,9 +97,12 @@ The server permits **four active `ask_chatgpt` calls**. A fifth call returns a `
 
 [`scripts/mcp-server.mjs`](../scripts/mcp-server.mjs) owns the initialization
 instructions, `ask_chatgpt` description and `query` schema description. Keep all
-three explicit about isolated sessions and self-contained questions. Verify them
-through MCP `initialize` and `tools/list`; those metadata requests do not send a
-ChatGPT question. The HTTP regression checks their advertised contract.
+three explicit about the independent cloud researcher, isolation from the
+caller's local environment and project, isolated sessions, and synthesized,
+self-contained questions. Verify them through MCP `initialize` and `tools/list`;
+those metadata requests do not send a ChatGPT question. The HTTP regression
+checks their advertised contract. Client-specific local file handling is not a
+capability of this HTTP interface and must not be advertised as one.
 
 Restart only the MCP process after changing those descriptions, preserving its
 working directory, Node runtime, bind address, ports and authentication settings.
@@ -106,6 +123,19 @@ this change. The active coding chat still exposed its old cached tool metadata;
 client reconnection was not completed because the computer-use tool disallowed
 controlling the Codex UI. Server deployment and active-client cache freshness
 are therefore recorded separately. Later prompt quality has not yet been observed.
+
+On 2026-11-11, all three advertised descriptions were updated to state the
+independent cloud researcher's isolation from the caller's environment and
+project, and to ask for synthesized, natural-language questions. Both controlled
+HTTP regression cases, lint and documentation checks passed on Node.js 22.
+The regression checks the advertised boundaries and excludes client-specific
+file expansion from the descriptions; it sends no questions to ChatGPT.
+Restarting only the existing MCP process then returned the updated instructions,
+tool description and query description through authenticated live `initialize`
+and `tools/list`. The Node runtime, bind address, ports and authentication files
+were preserved, and the gateway process was unchanged. No ChatGPT question was
+sent. Clients with cached metadata still need to reconnect/refetch; freshness
+of the active coding chat's cached description was not verified.
 
 ## Waiting and recovery
 

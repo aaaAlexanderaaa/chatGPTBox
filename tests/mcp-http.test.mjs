@@ -202,11 +202,19 @@ describe('MCP HTTP conversation flow', () => {
     expect(listedTools[0].inputSchema.additionalProperties).toBe(false)
     const queryDescription = listedTools[0].inputSchema.properties.query.description
     for (const guidance of [instructions, listedTools[0].description, queryDescription]) {
+      expect(guidance).toContain('HTTP MCP')
+      expect(guidance).toContain('independent external researcher')
+      expect(guidance).toContain('running in the cloud')
+      expect(guidance).toContain('fully isolated')
+      expect(guidance).toContain('local environment and project')
       expect(guidance).toMatch(/NEW, isolated/)
       expect(guidance).toContain('self-contained')
+      expect(guidance).toContain('natural-language question')
+      expect(guidance).toMatch(/synthesize/)
       expect(guidance).toMatch(/previous (?:questions|calls)/)
       expect(guidance).toMatch(/local (?:repository|files)/)
       expect(guidance).toMatch(/prior findings/)
+      expect(guidance).not.toMatch(/Cursor|--describe|@(?:file|path)/i)
     }
     expect(listedTools[0].description).toContain('including consecutive calls')
     expect(instructions).toContain('a file reference does not include its contents')

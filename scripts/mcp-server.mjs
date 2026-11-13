@@ -69,19 +69,23 @@ const maxWaitMs = Math.min(
 const pollMs = Math.max(10, positiveNumber(process.env.CHATGPT_MCP_POLL_MS, 10_000))
 const MAX_CONCURRENT_TURNS = 4
 const withTurnSlot = createTurnCallLimiter(MAX_CONCURRENT_TURNS)
-const statelessContextDescription = [
+const externalResearcherDescription = [
+  'This HTTP MCP connects you to ChatGPT Web, an independent external researcher running in the cloud.',
+  "ChatGPT is fully isolated from the caller's local environment and project: it has no implicit knowledge of that project and cannot inspect the local repository or files, terminal, tools, private documents, or this coding agent's conversation or tool results.",
   'Every call creates a NEW, isolated ChatGPT Web conversation. Calls are stateless, including consecutive calls.',
-  "ChatGPT cannot see previous questions or answers, this coding agent's conversation or tool results, the local repository or files, or private documents unless their relevant contents are included in this query.",
-  'Make every query fully self-contained: identify the subject and desired outcome, define internal names, and include the relevant facts, code, evidence, constraints, and any prior findings needed for this question.',
-  'For a follow-up, restate the necessary context and conclusions; do not rely on references such as "earlier", "our plan", "this project", local file paths, hashes, or labels alone.',
+  'ChatGPT cannot see previous questions or answers. Supply all task context explicitly in query, including necessary context and conclusions for a follow-up; a file reference does not include its contents, and local paths, hashes, labels, or references to earlier work do not supply context.',
   'Account memory and personalization are not a task-context channel. Public web search or a similarly named public repository cannot establish missing local implementation facts; supply those facts or explicitly leave them unknown.',
 ].join(' ')
+const questionGuidance = [
+  'Ask one clear, self-contained, natural-language question as if asking ChatGPT directly: explain the actual problem, relevant context, and desired outcome.',
+  'Understand and synthesize the material before asking. Include the facts, constraints, prior findings, and source or code excerpts needed for this question; provide enough background for complex questions without forwarding an unfiltered agent handoff, raw tool output, or a collection of files.',
+].join(' ')
 const serverInstructions = [
+  externalResearcherDescription,
   'Ask ChatGPT as a capable peer agent, not as a search API or a subordinate research workflow.',
-  statelessContextDescription,
+  questionGuidance,
   'The user has already configured the ChatGPT Web model, thinking effort, custom instructions, memory, and personalization; do not try to override them.',
   'Use ask_chatgpt when its own judgment would materially help, including open-ended or deep questions. Do not leave it unused merely because another search tool exists.',
-  'Pass one clear, natural question with the context needed to understand it and what the user wants. Put long background or source excerpts in a code block if helpful; a file reference does not include its contents.',
   'Let ChatGPT decide how to investigate and answer. Do not prescribe a multi-step research plan, source quotas, or a model setting.',
   'Do not send keyword searches, trivial test questions, or connectivity checks; inspect the MCP tool list or local health instead.',
   'The server automatically requests a text answer with reference links when available and no files, code, or images.',
@@ -97,7 +101,7 @@ const input = {
     .trim()
     .min(1)
     .describe(
-      'One fully self-contained question for a NEW, isolated conversation. ChatGPT cannot see previous calls, this coding context, or local files. Define internal terms and include the relevant facts, source excerpts, evidence, constraints, and any prior findings; paths or references to earlier work are not context. Keep ChatGPT free to decide how to answer.',
+      'One self-contained, natural-language question for an independent external researcher running in the cloud through this HTTP MCP. ChatGPT is fully isolated from your local environment and project: it cannot inspect local files or see previous calls. Every call starts a NEW, isolated conversation. Explain the problem, relevant context, and desired outcome; synthesize necessary facts, constraints, source excerpts, and prior findings. Supply their content explicitly; paths and references to earlier work do not supply context. Let ChatGPT decide how to answer.',
     ),
 }
 const result = (turn) => ({
@@ -166,7 +170,7 @@ const handler = createMcpHandler(
     server.registerTool(
       'ask_chatgpt',
       {
-        description: `${statelessContextDescription} Ask the user's configured ChatGPT Web one clear question and return its final text answer. Use the account's existing model and thinking settings. Let ChatGPT decide how to investigate and respond; do not script its research process. Use when its judgment would help, not for keyword search or trivial tests. The server asks for reference links when available and requests no files, code, or images. Structured output includes reported thinking time when available. ${turnLimitDescription}`,
+        description: `${externalResearcherDescription} ${questionGuidance} Ask the user's configured ChatGPT Web and return its final text answer. Use the account's existing model and thinking settings. Let ChatGPT decide how to investigate and respond; do not script its research process. Use when its judgment would help, not for keyword search or trivial tests. The server asks for reference links when available and requests no files, code, or images. Structured output includes reported thinking time when available. ${turnLimitDescription}`,
         inputSchema: z.object(input).strict(),
       },
       (args, ctx) =>
