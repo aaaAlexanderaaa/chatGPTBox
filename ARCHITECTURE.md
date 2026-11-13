@@ -2,7 +2,7 @@
 doc_type: architecture
 status: current
 authority: normative
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 ---
 
 # ChatGPTBox architecture
@@ -47,6 +47,18 @@ session. The gateway streams or acknowledges the result according to its
 [interface contract](docs/api-server.md); an uncertain write is not silently
 replayed. The [MCP server](docs/mcp-server.md) is an additional client of this
 gateway, not an extension-internal agent runtime.
+
+Gemini Web uses the same provider registry and conversation Port. Its
+[background owner](src/background/gemini-web-service.mjs) coordinates dedicated
+tabs and a durable uncertain-submission hold. The
+[native operation](src/services/clients/gemini-web/native-runtime.mjs) runs in a
+pinned top-level MAIN document, verifies an inspected runtime and the existing
+input/service instances, then invokes the website's input submission handler.
+Native model selection, request preparation, attestation and transport remain
+with Gemini. Native turn IDs and terminal actions govern result acceptance;
+the extension does not reconstruct Google HTTP requests. The
+[Gemini contract](docs/gemini-web.md) owns limits and manual recovery. Its runtime
+is in the core, without a separate optional-module manifest or background probe.
 
 For DeepSeek Harness, the full-page UI talks to the module's background gateway.
 RPCs call the configured loopback harness `/api` endpoints. The two downstream

@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 projection_of: ["docs/product/browser-assistant.md", "docs/product/contracts.md"]
 ---
 
@@ -76,6 +76,10 @@ GitHub issue/PR 页面功能和原有摘要共享已加载讨论正文，评论�
 跨提供商切换保留本地记录并新建远端会话，切回也不恢复旧绑定。API 会按设置
 重发本地历史，网页和 agent 新会话只接收下一条问题；模型菜单在选择前说明。
 同一提供商内换模型保留合法绑定。
+Gemini Web 首批仅支持 4 Argon / High，需先在设置中启用并检查官网页面。
+它保留原生提交校验，追问依赖原专用标签页；不提供重新生成、附件和历史导入。
+中断后先到官网核查已有结果，再明确允许新请求，不自动重发。
+具体边界和验证限制见 [Gemini Web](gemini-web.md)。
 独立窗口若提示另一个窗口已改变连接，会保留当前内容和未发草稿并暂停输入，
 避免覆盖新的存储绑定。通过“重新打开已保存的对话”载入当前版本；这只解除
 旧窗口的观察，不额外取消远端 DSH 任务。

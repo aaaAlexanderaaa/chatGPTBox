@@ -161,6 +161,8 @@ export const defaultConfig = {
   l1Providers: createDefaultL1Providers(),
   chatgptWebEnabled: true,
   grokWebEnabled: false,
+  geminiWebEnabled: false,
+  geminiWebReady: false,
   chatgptWebEnabledModels: [CHATGPT_WEB_DEFAULT_MODEL_SLUG],
   grokWebEnabledModels: [],
   showLegacyProviderNotice: false,

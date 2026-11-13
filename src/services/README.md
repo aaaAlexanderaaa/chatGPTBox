@@ -36,6 +36,7 @@ client-side logic (auth, websocket lifecycle, request signing):
 |---------------------------|-----------------------------|
 | `clients/chatgpt-web/`    | `apis/chatgpt-web.mjs`      |
 | `clients/grok-web/`       | `apis/grok-web.mjs`         |
+| `clients/gemini-web/`     | `background/gemini-web-service.mjs` via `apis/gemini-web.mjs` |
 
 The rule of thumb: if it can be expressed as plain HTTP/SSE, put it in `apis/`.
 If it needs websockets, complex state, or a hand-rolled protocol, extract a
@@ -45,6 +46,13 @@ conversation state, caching, and history-transfer logic lives in
 `clients/chatgpt-web/` (`client.mjs`, `conversation-api.mjs`,
 `conversation-cache.mjs`, `conversation-state.mjs`, `websocket-state.mjs`,
 `thread-state.mjs`, `history-transfer.mjs`, `thinking.mjs`).
+
+Gemini Web's MAIN operation is serialized into its dedicated native document;
+the background service owns submission, account/tab bindings and the durable
+uncertain-write journal. It invokes the native input handler and observes the
+same turn, without reconstructing Google's HTTP protocol. The
+[Gemini contract](../../docs/gemini-web.md) owns supported runtimes, completion
+evidence and manual recovery.
 
 ## `wrappers.mjs`
 

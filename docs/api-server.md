@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -263,7 +263,7 @@ OpenAI-compatible chat completions endpoint.
 - Requires a non-empty `messages` array
 - Defaults to model `gpt-6-thinking` with `xhigh` thinking effort (sent as `max` for Chat Thinking) if `model` and effort are omitted. Explicit per-request overrides are preserved. Chat GPT-6 Pro is `gpt-6-pro` (quota-limited); Work / TPP uses `gpt-6-astra-wm` and other `*-wm` slugs.
 - Accepts `reasoning_effort` or `thinking_effort` per request with `min`, `standard`, `extended`, `xhigh`, or `max`; both are forwarded as ChatGPT Web `thinking_effort`
-- Any model slug is passed through directly to ChatGPT's backend, including `auto` (which enables web search) and new model slugs not yet in the extension's local config
+- ChatGPT model slugs pass through to ChatGPT's backend, including `auto` and new model slugs not yet in the extension's local config. Explicit Grok and Gemini selectors route to their own adapters.
 
 Minimal request:
 
@@ -299,6 +299,34 @@ Common errors:
 - `409` the write result is uncertain, or the same key was used with a different request
 - `503` extension bridge is not connected
 - `500` upstream bridge or ChatGPT Web request failed
+
+#### Gemini Web completions
+
+Enable `Gemini Web` under `Engines`, then use `Check Gemini page` in its settings
+after signing into Gemini and selecting **4 Argon / High**. Requests use
+`model: "gemini-4-argon-high"` (or `geminiweb/gemini-4-argon-high`). Omit effort,
+or pass `reasoning_effort: "high"` / `thinking_effort: "high"`. Other Gemini
+selectors, effort levels, images and Projects are rejected before dispatch.
+
+The originating `ApiServer.html` page forwards this selector through the
+background Gemini provider to a dedicated native Gemini document. No ChatGPT
+upload, history or conversation API runs for this request. Standard messages
+are formatted into one text prompt for a new independent completion. There is
+no Gemini custom history endpoint or MCP tool in this version.
+
+Both streaming and ordinary completions wait for the verified final native
+result. Gemini HTML snapshots can change while generating, so the append-only
+SSE stream receives one final content chunk, with gateway heartbeats while
+waiting. Stop, partial output and disconnection are errors rather than successful
+final completions. The extended thinking deadline applies.
+
+The [Gemini account and recovery contract](gemini-web.md) also applies here:
+one extension native invocation, website-owned transport recovery, one active
+Gemini operation, and a durable hold after uncertain or interrupted work. Check
+the existing result on Gemini before explicitly allowing new requests. Do not
+change the dedicated tab's model during submission. At most three owned tabs
+are retained; close finished tabs before starting more independent completions.
+No successful local test guarantees future account safety or live compatibility.
 
 ### At-most-once writes and bounded recovery
 
@@ -363,6 +391,12 @@ settings before history sync can run again.
 Returns the models available through the gateway.
 
 When the bridge is connected, this endpoint dynamically fetches the model list from ChatGPT's backend API (cached for 5 minutes). If the bridge is not connected or the fetch fails, it falls back to a hardcoded list of known models.
+
+Grok models are merged from their separate catalog. Gemini adds
+`gemini-4-argon-high` with `owned_by: "gemini-web"` only when a fresh local
+configuration reply says it is enabled and page-checked. This Gemini list read
+does not open a website or probe the account, and has no stale Gemini fallback.
+Every actual submission still revalidates the native runtime, account and model.
 
 Example:
 

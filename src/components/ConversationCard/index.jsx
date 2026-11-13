@@ -27,8 +27,10 @@ import {
   isUsingChatgptWebModel,
   isUsingDshHarnessModel,
   isUsingGrokWebModel,
+  isUsingGeminiWebModel,
 } from '../../config/predicates.mjs'
 import { grokWebConversationUrl } from '../../config/grok-web.mjs'
+import { geminiWebConversationUrl } from '../../config/gemini-web.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -497,7 +499,7 @@ function ConversationCard(props) {
   const getRetryFn = (session) => buildRetry(session, postMessage)
 
   const retryFn = useMemo(
-    () => (props.readOnly ? null : getRetryFn(session)),
+    () => (props.readOnly || isUsingGeminiWebModel(session) ? null : getRetryFn(session)),
     [session, props.readOnly, props.persistedSession, props.question, port, buildRetry],
   )
 
@@ -540,6 +542,12 @@ function ConversationCard(props) {
       setEngineMemoryNote(t('ChatGPT Web keeps the conversation server-side'))
     else if (isUsingGrokWebModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('Grok Web keeps the conversation server-side'))
+    else if (isUsingGeminiWebModel({ modelName: nextModelName }))
+      setEngineMemoryNote(
+        t(
+          'Gemini keeps the conversation on its website. Follow-ups require its original dedicated tab.',
+        ),
+      )
     else if (isUsingDshHarnessModel({ modelName: nextModelName }))
       setEngineMemoryNote(t('The agent keeps the conversation engine-side'))
     else setEngineMemoryNote(t('History lives in this window and is re-sent'))
@@ -585,7 +593,11 @@ function ConversationCard(props) {
       showMemoryNote(modelName)
       setModelPickerOpen(false)
       setModelPickerQuery('')
-      if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
+      if (
+        config.autoRegenAfterSwitchModel &&
+        conversationItemData.length > 0 &&
+        !isUsingGeminiWebModel(newSession)
+      )
         getRetryFn(newSession)()
       else setSession(newSession)
     },
@@ -862,6 +874,18 @@ function ConversationCard(props) {
                 <ExternalLink size={16} />
               </a>
             )}
+          {isUsingGeminiWebModel(session) && session.geminiWebTabId && (
+            <a
+              title={t('Inspect the existing Gemini result on its website')}
+              href={geminiWebConversationUrl(session)}
+              target="_blank"
+              rel="nofollow noopener noreferrer"
+              className="gpt-util-icon"
+              style="color: inherit;"
+            >
+              <ExternalLink size={16} />
+            </a>
+          )}
           <span
             className="gpt-util-icon"
             title={t('Float the Window')}

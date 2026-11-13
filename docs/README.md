@@ -2,7 +2,7 @@
 doc_type: authority-map
 status: current
 authority: normative
-last_reconciled: 2026-10-29
+last_reconciled: 2026-11-12
 ---
 
 # Project documentation
@@ -23,6 +23,7 @@ plan, or a successful test run does not acquire product authority.
 | How do I develop and test? | [Contributing](../CONTRIBUTING.md) | Supported runtime and executable commands |
 | How do I use page functions? | [Browser assistant guide](browser-assistant.md) | Current usage and portable function format |
 | How do I use the local gateway? | [API server](api-server.md), [MCP server](mcp-server.md), [Drafts](drafts/README.md) | Interfaces and operator procedures |
+| How does Gemini Web submit and recover? | [Gemini Web](gemini-web.md) | Native website submission, model/readiness checks and account-safety holds |
 | How do ChatGPT Web recovery and rendering work? | [Gateway recovery](api-server.md#at-most-once-writes-and-bounded-recovery), [cache lifecycle](cache-lifecycle.md), [native visualizations](chatgpt-web-genui.md) | Current interface boundaries; [September stream study](chatgpt-web-stream-resume.md) is dated evidence |
 | Which execution records are still active? | [Plans](plans/README.md) | Explicit plan states; no implied backlog |
 | Why did a previous decision change? | [Historical records](history/README.md), [verification evidence](evidence/README.md) | Provenance and observations |

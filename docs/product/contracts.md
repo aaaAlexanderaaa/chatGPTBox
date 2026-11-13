@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: partial
 verification_status: partial
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 supersedes: ["docs/history/2026-08-15-feature-contracts.md"]
 ---
 
@@ -79,7 +79,7 @@ API 使用自定义提供商及其启用模型。厂商模板是预填配置，�
 
 ## 网页引擎与真实账号
 
-ChatGPT Web 与 Grok Web 复用用户自己的站点登录会话，内容质量由服务方决定。
+ChatGPT Web、Grok Web 与 Gemini Web 复用用户自己的站点登录会话，内容质量由服务方决定。
 登录失效、配额、上游变更和访问受限必须如实呈现；不能把账号风险转化为
 后台重复写入、换模型重发或不透明的自动探测。
 
@@ -89,6 +89,8 @@ ChatGPT Web 与 Grok Web 复用用户自己的站点登录会话，内容质量�
 [API 契约](../api-server.md)和[MCP 契约](../mcp-server.md)维护。
 Grok 的账号、只读探测与失败边界保留在
 [专项设计](2026-08-17-grok-web-design.md#账号安全优先对标-chatgpt-web)。
+Gemini 的原生网页提交、4 Argon / High、默认关闭、单路调用与不确定状态拦截
+由 [Gemini Web 契约](../gemini-web.md)维护；原生调用不等于账号风险保证。
 
 2026 年 8 月的 ChatGPT Web“冻结搬迁”只约束当时的结构搬迁，不禁止之后
 已授权的官网协议适配。新的适配以实际请求和当前代码为证据，遵守项目的

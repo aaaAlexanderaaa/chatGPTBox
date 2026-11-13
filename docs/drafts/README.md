@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -12,6 +12,10 @@ Use Drafts to list existing ChatGPT conversations, open one, send a question and
 collect its answer. The [gateway contract](../api-server.md) owns authentication,
 request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
+
+These actions continue to use the ChatGPT conversation endpoints. The gateway's
+separate Gemini completion selector does not change Drafts' model, history or
+recovery behavior, and is not a supported `MODEL_OVERRIDE` here.
 
 ## Install and configure
 

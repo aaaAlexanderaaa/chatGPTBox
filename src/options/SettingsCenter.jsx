@@ -22,6 +22,7 @@ import { AppearanceTab } from '../popup/components/AppearanceTab.jsx'
 import { EnginesTab } from '../popup/components/EnginesTab.jsx'
 import { ChatgptWebTab } from '../popup/components/ChatgptWebTab.jsx'
 import { GrokWebTab } from '../popup/components/GrokWebTab.jsx'
+import { GeminiWebTab } from '../popup/components/GeminiWebTab.jsx'
 import { DshEngineTab } from '../popup/components/DshEngineTab.jsx'
 import { BehaviorTab } from '../popup/components/BehaviorTab.jsx'
 import { ToolsTab } from '../popup/components/ToolsTab.jsx'
@@ -98,6 +99,14 @@ const ENGINE_SECTIONS = [
     enabled: (config) => config.dshModuleEnabled === true,
     enableHint: 'Enable DeepSeek Harness on the Engines tab first.',
   },
+  {
+    id: 'geminiweb',
+    label: 'Gemini Web',
+    icon: Sparkles,
+    description: 'Gemini account, 4 Argon / High, and interrupted requests',
+    enabled: (config) => config.geminiWebEnabled === true,
+    enableHint: 'Enable Gemini Web on the Engines tab first.',
+  },
 ]
 
 const SECTION_ALIASES = { features: 'sites' }
@@ -139,7 +148,12 @@ function SettingsCenter() {
     if (sections.some((section) => section.id === aliased)) {
       setActiveSection(aliased)
     }
-  }, [config.chatgptWebEnabled, config.grokWebEnabled, config.dshModuleEnabled])
+  }, [
+    config.chatgptWebEnabled,
+    config.grokWebEnabled,
+    config.geminiWebEnabled,
+    config.dshModuleEnabled,
+  ])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -248,6 +262,9 @@ function SettingsCenter() {
             <ChatgptWebTab config={config} updateConfig={updateConfig} />
           )}
           {active.id === 'grokweb' && <GrokWebTab config={config} updateConfig={updateConfig} />}
+          {active.id === 'geminiweb' && (
+            <GeminiWebTab config={config} updateConfig={updateConfig} />
+          )}
           {active.id === 'dsh' && <DshEngineTab config={config} updateConfig={updateConfig} />}
           {active.id === 'behavior' && <BehaviorTab config={config} updateConfig={updateConfig} />}
           {active.id === 'tools' && (

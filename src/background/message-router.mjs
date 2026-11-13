@@ -47,6 +47,7 @@ import {
 } from './chatgpt-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
+import { geminiWebService } from './gemini-web-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
 import { getChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
@@ -77,7 +78,26 @@ export function createMessageRouter() {
       throw error
     }
   }
+  const geminiSettingsCall = (method, sender, data) => {
+    if (
+      sender?.id !== Browser.runtime.id ||
+      !(sender?.url || '').startsWith(Browser.runtime.getURL(''))
+    )
+      throw new Error('Gemini account checks and recovery require an extension settings page')
+    return geminiWebService[method](data).catch((error) => ({
+      ok: false,
+      ready: false,
+      message: error.message,
+    }))
+  }
   const routedHandlers = {
+    [RuntimeMessage.GeminiWebInspect]: (_message, sender) => geminiSettingsCall('inspect', sender),
+    [RuntimeMessage.GeminiWebOpen]: (_message, sender) => geminiSettingsCall('open', sender),
+    [RuntimeMessage.GeminiWebReview]: (message, sender) =>
+      geminiSettingsCall('review', sender, {
+        acknowledgeUnverified: message?.data?.acknowledgeUnverified === true,
+      }),
+    [RuntimeMessage.GeminiWebListModels]: () => geminiWebService.listModels(),
     [RuntimeMessage.LocalSessionMutation]: async (message, sender) => {
       if (
         sender?.id !== Browser.runtime.id ||

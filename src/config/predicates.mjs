@@ -3,6 +3,7 @@ import {
   isUsingDshEngine,
   isUsingGrokWebEngine,
   isUsingL1Format,
+  resolveEngine,
 } from './engine-selection.mjs'
 
 export function isUsingChatgptWebModel(configOrSession) {
@@ -15,6 +16,10 @@ export function isUsingDshHarnessModel(configOrSession) {
 
 export function isUsingGrokWebModel(configOrSession) {
   return isUsingGrokWebEngine(configOrSession)
+}
+
+export function isUsingGeminiWebModel(configOrSession) {
+  return resolveEngine(configOrSession).kind === 'gemini-web'
 }
 
 export function isUsingMoonshotWebModel() {

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-12
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -85,6 +85,18 @@ final write. A delayed autosave checks the current edit/key and dirty flag when
 it runs, so a cleared, admitted draft is not written back by its old timer.
 Separate windows do not merge draft edits, and a process lost before
 storage acknowledges the write has no durability guarantee.
+
+## Other provider state
+
+Gemini Web does not join the ChatGPT cache or history exporter. Its separate
+`geminiWebRuntimeV1` journal holds a salted account binding, at most three live
+tab bindings, one uncertain operation and one latest manual-review disposition;
+it does not retain prompts, answers or credentials. The background is its sole
+writer and serializes submission, page checks and recovery. It has no expiry
+that silently releases an uncertain write. The [Gemini contract](gemini-web.md)
+owns its checked-document and explicitly unconfirmed recovery paths; neither
+replays the old request. Clearing browser extension storage also clears this
+local protection and cannot prove an old upstream write failed.
 
 ## Long conversations
 

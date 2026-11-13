@@ -3,11 +3,13 @@
 
 import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from './limits.mjs'
 import { Models } from './models.mjs'
+import { GEMINI_WEB_MODEL } from './gemini-web.mjs'
 
 export const PROVIDER_SCHEMA_VERSION = 2
 
 export const L2_CHATGPT_WEB = 'chatgptweb'
 export const L2_GROK_WEB = 'grokweb'
+export const L2_GEMINI_WEB = 'geminiweb'
 export const L3_DSH = 'dsh'
 
 export const L1_FORMATS = Object.freeze([
@@ -50,7 +52,7 @@ export const L1_PROVIDER_PRESETS = Object.freeze([
   },
 ])
 
-const RESERVED_PROVIDER_IDS = new Set([L2_CHATGPT_WEB, L2_GROK_WEB, L3_DSH])
+const RESERVED_PROVIDER_IDS = new Set([L2_CHATGPT_WEB, L2_GROK_WEB, L2_GEMINI_WEB, L3_DSH])
 
 export function createDefaultL1Providers() {
   return [
@@ -175,6 +177,9 @@ export function resolveEngine(configOrSession, config) {
   }
   if (providerId === L2_GROK_WEB) {
     return { kind: 'grok-web', providerId, modelId, selection }
+  }
+  if (providerId === L2_GEMINI_WEB) {
+    return { kind: 'gemini-web', providerId, modelId, selection }
   }
   if (providerId === L3_DSH) {
     return { kind: 'dsh-bridge', providerId, modelId, selection }
@@ -361,14 +366,27 @@ export function enabledDshSelections(config) {
   ]
 }
 
+export function enabledGeminiWebSelections(config) {
+  if (config?.geminiWebEnabled !== true || config?.geminiWebReady !== true) return []
+  return [
+    {
+      value: formatEngineSelection(L2_GEMINI_WEB, GEMINI_WEB_MODEL),
+      providerId: L2_GEMINI_WEB,
+      modelId: GEMINI_WEB_MODEL,
+      providerName: 'Gemini Web',
+    },
+  ]
+}
+
 /**
- * Enabled picker rows in product order: L1 → ChatGPT Web → Grok Web → DSH.
+ * Enabled picker rows in product order: L1 → ChatGPT Web → Grok Web → Gemini Web → DSH.
  */
 export function listEnabledEngineSelections(config) {
   return [
     ...enabledL1Selections(config),
     ...enabledChatgptWebSelections(config),
     ...enabledGrokWebSelections(config),
+    ...enabledGeminiWebSelections(config),
     ...enabledDshSelections(config),
   ]
 }

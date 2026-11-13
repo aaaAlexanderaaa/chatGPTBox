@@ -151,7 +151,11 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
           // executeScript serializes the runtime inspection/integrity functions into the
           // page. Babel helpers live in the extension and cannot follow it.
           // MV3 browsers already support the syntax used by this module.
-          exclude: [/node_modules/, /\/chatgpt-web\/(page-integrity|runtime-inspection)\.mjs$/],
+          exclude: [
+            /node_modules/,
+            /\/chatgpt-web\/(page-integrity|runtime-inspection)\.mjs$/,
+            /\/gemini-web\/native-runtime\.mjs$/,
+          ],
           resolve: {
             fullySpecified: false,
           },

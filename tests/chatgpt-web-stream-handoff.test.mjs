@@ -4,7 +4,11 @@ import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Browser from 'webextension-polyfill'
 import { initSession } from '../src/services/init-session.mjs'
-import { slugToModelKey, isGrokEngineKey } from '../src/pages/ApiServer/model-slug.mjs'
+import {
+  slugToModelKey,
+  isGrokEngineKey,
+  isGeminiEngineKey,
+} from '../src/pages/ApiServer/model-slug.mjs'
 import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
 import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
@@ -147,6 +151,7 @@ async function createApiBridgeRequest() {
     initSession,
     slugToModelKey,
     isGrokEngineKey,
+    isGeminiEngineKey,
     needsChatgptWebThinkingEffort,
     modelNameToApiMode: () => null,
     formatMessages: (messages) => messages.at(-1).content,

@@ -108,6 +108,10 @@ export const RuntimeMessage = {
   ChatgptWebListProjects: 'CHATGPT_WEB_LIST_PROJECTS',
   ChatgptWebUploadImages: 'CHATGPT_WEB_UPLOAD_IMAGES',
   GrokWebListModels: 'GROK_WEB_LIST_MODELS',
+  GeminiWebInspect: 'GEMINI_WEB_INSPECT',
+  GeminiWebOpen: 'GEMINI_WEB_OPEN',
+  GeminiWebReview: 'GEMINI_WEB_REVIEW',
+  GeminiWebListModels: 'GEMINI_WEB_LIST_MODELS',
   GrokWebListConversations: 'GROK_WEB_LIST_CONVERSATIONS',
   GrokWebGetConversation: 'GROK_WEB_GET_CONVERSATION',
   GrokWebRefreshConversation: 'GROK_WEB_REFRESH_CONVERSATION',
@@ -180,3 +184,6 @@ export const GrokProxyControlAction = {
 export const GROK_PROXY_CONTROL_ACTIONS = Object.freeze(
   new Set(Object.values(GrokProxyControlAction)),
 )
+
+// A local config read only; it never opens or probes the Gemini website.
+export const GeminiProxyControlAction = Object.freeze({ ListModels: 'gemini_web_list_models' })

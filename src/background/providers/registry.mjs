@@ -1,9 +1,10 @@
-// Provider registry: L1 custom providers plus ChatGPT Web, Grok Web, and DSH.
+// Provider registry: L1 custom providers plus ChatGPT Web, Grok Web, Gemini Web, and DSH.
 
 import customApiProvider from './custom-api.mjs'
 import dshBridgeProvider from './dsh-bridge.mjs'
 import chatgptWebHostProvider from './chatgpt-web.mjs'
 import grokWebHostProvider from './grok-web.mjs'
+import geminiWebProvider from './gemini-web.mjs'
 import claudeApiProvider from './claude-api.mjs'
 import ollamaApiProvider from './ollama-api.mjs'
 import azureOpenaiApiProvider from './azure-openai-api.mjs'
@@ -16,6 +17,7 @@ const RAW_PROVIDERS = [
   customApiProvider,
   chatgptWebHostProvider,
   grokWebHostProvider,
+  geminiWebProvider,
   claudeApiProvider,
   ollamaApiProvider,
   azureOpenaiApiProvider,
@@ -56,6 +58,12 @@ export async function executeApi(session, port, config, ctx) {
     error = 'ChatGPT Web is disabled. Enable it in Settings → Engines.'
   } else if (resolved.kind === 'grok-web' && config?.grokWebEnabled !== true) {
     error = 'Grok Web is disabled. Enable it in Settings → Engines.'
+  }
+  if (resolved.kind === 'gemini-web') {
+    error =
+      config?.geminiWebEnabled === true
+        ? 'Gemini Web could not accept this selection. Check Settings → Gemini Web.'
+        : 'Gemini Web is disabled. Enable it in Settings → Engines.'
   }
   try {
     port.postMessage({ error, dispatched: false })

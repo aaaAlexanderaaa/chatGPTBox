@@ -507,6 +507,13 @@ export function EnginesTab({ config, updateConfig, onOpenEngineTab, enablePrompt
             t={t}
           />
           <WebEngineRow
+            title={t('Gemini Web')}
+            enabled={config.geminiWebEnabled === true}
+            onToggle={(value) => toggleWebEngine('geminiWebEnabled', value, 'geminiweb')}
+            onOpen={() => onOpenEngineTab?.('geminiweb')}
+            t={t}
+          />
+          <WebEngineRow
             title={t('DeepSeek Harness')}
             enabled={config.dshModuleEnabled === true}
             onToggle={(value) => toggleWebEngine('dshModuleEnabled', value, 'dsh')}

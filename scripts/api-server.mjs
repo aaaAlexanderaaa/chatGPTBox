@@ -8,6 +8,12 @@ import { installGatewayProcessDiagnostics } from './lib/gateway-process-diagnost
 import { normalizeChatgptProjectId } from '../src/services/clients/chatgpt-web/image-content.mjs'
 import { WebSocketServer } from 'ws'
 import {
+  GEMINI_WEB_MODEL,
+  GEMINI_WEB_SELECTION,
+  isGeminiWebModel,
+} from '../src/config/gemini-web.mjs'
+import { GeminiProxyControlAction } from '../src/protocol/messages.mjs'
+import {
   CHATGPT_WEB_DEFAULT_MODEL_SLUG,
   CHATGPT_WEB_DEFAULT_THINKING_EFFORT,
 } from '../src/config/limits.mjs'
@@ -582,7 +588,7 @@ function respondForControlWriteOperation(res, beginResult) {
 }
 
 function getRequestTimeoutMs(model) {
-  return needsChatgptWebThinkingEffort(model)
+  return isGeminiWebModel(model) || needsChatgptWebThinkingEffort(model)
     ? bridgeRuntimeConfig.thinkingRequestTimeoutMs
     : bridgeRuntimeConfig.requestTimeoutMs
 }
@@ -789,14 +795,17 @@ async function handleChatCompletions(req, res) {
   }
 
   const model = body.model || DEFAULT_MODEL
+  const isGeminiRequest = isGeminiWebModel(model)
   let messages = body.messages
   let images = []
   let projectId
   try {
     projectId = normalizeChatgptProjectId(body.project_id || body.projectId)
     if (Array.isArray(messages)) ({ messages, images } = normalizeGatewayImageMessages(messages))
-    if ((images.length || projectId) && model.startsWith('grok'))
+    if ((images.length || projectId) && (model.startsWith('grok') || isGeminiRequest))
       throw new Error('Image and Project inputs currently require ChatGPT Web')
+    if (isGeminiRequest && ![GEMINI_WEB_MODEL, GEMINI_WEB_SELECTION].includes(model))
+      throw new Error('Gemini Web supports gemini-4-argon-high only')
   } catch (error) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
     res.end(
@@ -826,13 +835,17 @@ async function handleChatCompletions(req, res) {
     return
   }
 
-  if (thinkingEffort && !SUPPORTED_THINKING_EFFORTS.has(thinkingEffort)) {
+  if (
+    thinkingEffort &&
+    (isGeminiRequest ? thinkingEffort !== 'high' : !SUPPORTED_THINKING_EFFORTS.has(thinkingEffort))
+  ) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify({
         error: {
-          message:
-            'reasoning_effort/thinking_effort must be one of: min, standard, extended, xhigh, max',
+          message: isGeminiRequest
+            ? 'Gemini Web requires reasoning_effort/thinking_effort high (or omit it)'
+            : 'reasoning_effort/thinking_effort must be one of: min, standard, extended, xhigh, max',
           type: 'invalid_request_error',
         },
       }),
@@ -1172,12 +1185,24 @@ async function handleModels(res) {
     }
   }
   models = mergeUniqueModelIds(models, cachedGrokModels)
+  if (isBridgeConnected()) {
+    try {
+      const gemini = await sendControlRequestToBridge(GeminiProxyControlAction.ListModels, {}, 1500)
+      models = mergeUniqueModelIds(models, gemini)
+    } catch {
+      /* no advertised Gemini capability without a fresh local config reply */
+    }
+  }
 
   const data = models.map((id) => ({
     id,
     object: 'model',
     created: 1700000000,
-    owned_by: String(id).startsWith('grok-chat-') ? 'grok-web' : 'chatgpt-web',
+    owned_by: isGeminiWebModel(id)
+      ? 'gemini-web'
+      : String(id).startsWith('grok-chat-')
+      ? 'grok-web'
+      : 'chatgpt-web',
   }))
   res.writeHead(200, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ object: 'list', data }))

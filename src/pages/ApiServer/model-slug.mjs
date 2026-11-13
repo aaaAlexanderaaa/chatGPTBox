@@ -1,6 +1,18 @@
-import { CHATGPT_WEB_DEFAULT_MODEL_KEY, CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../../config/limits.mjs'
-import { formatEngineSelection, L2_CHATGPT_WEB, L2_GROK_WEB } from '../../config/engine-selection.mjs'
+import {
+  CHATGPT_WEB_DEFAULT_MODEL_KEY,
+  CHATGPT_WEB_DEFAULT_MODEL_SLUG,
+} from '../../config/limits.mjs'
+import {
+  formatEngineSelection,
+  L2_CHATGPT_WEB,
+  L2_GROK_WEB,
+} from '../../config/engine-selection.mjs'
 import { grokSlugToModelKey, isGrokChatSlug } from '../../config/grok-web.mjs'
+import { GEMINI_WEB_SELECTION, isGeminiWebModel } from '../../config/gemini-web.mjs'
+
+export function isGeminiEngineKey(key) {
+  return typeof key === 'string' && key.startsWith('geminiweb/')
+}
 
 export function isGrokEngineKey(key) {
   if (typeof key !== 'string') return false
@@ -10,6 +22,8 @@ export function isGrokEngineKey(key) {
 
 export function slugToModelKey(slug) {
   const normalized = (slug || '').trim()
+  if (isGeminiWebModel(normalized))
+    return normalized.startsWith('geminiweb/') ? normalized : `geminiweb/${normalized}`
   if (isGrokChatSlug(normalized)) {
     return formatEngineSelection(L2_GROK_WEB, normalized)
   }
@@ -20,4 +34,4 @@ export function slugToModelKey(slug) {
   return CHATGPT_WEB_DEFAULT_MODEL_KEY
 }
 
-export { grokSlugToModelKey, CHATGPT_WEB_DEFAULT_MODEL_SLUG }
+export { grokSlugToModelKey, CHATGPT_WEB_DEFAULT_MODEL_SLUG, GEMINI_WEB_SELECTION }

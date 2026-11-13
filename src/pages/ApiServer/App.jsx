@@ -24,9 +24,10 @@ import {
   ChatgptProxyControlAction,
   GROK_PROXY_CONTROL_ACTIONS,
   GrokProxyControlAction,
+  GeminiProxyControlAction,
   RuntimeMessage,
 } from '../../protocol/messages.mjs'
-import { isGrokEngineKey, slugToModelKey } from './model-slug.mjs'
+import { isGeminiEngineKey, isGrokEngineKey, slugToModelKey } from './model-slug.mjs'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
 import { applyDocumentAppearance } from '../../utils/appearance.mjs'
@@ -217,7 +218,21 @@ function App() {
       const modelKey = slugToModelKey(model)
       const apiMode = modelNameToApiMode(modelKey)
       const isGrokRequest = isGrokEngineKey(modelKey)
-      const isThinkingRequest = !isGrokRequest && needsChatgptWebThinkingEffort(model)
+      const isGeminiRequest = isGeminiEngineKey(modelKey)
+      const isOtherWebRequest = isGrokRequest || isGeminiRequest
+      if (
+        isGeminiRequest &&
+        (images.length || projectId || (thinkingEffort && thinkingEffort !== 'high'))
+      ) {
+        sendWs({
+          type: 'error',
+          id,
+          error: 'Gemini Web supports text chat with 4 Argon / High only.',
+          dispatched: false,
+        })
+        return
+      }
+      const isThinkingRequest = !isOtherWebRequest && needsChatgptWebThinkingEffort(model)
       const continuation =
         isThinkingRequest && !images.length && !projectId
           ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
@@ -239,7 +254,7 @@ function App() {
 
       const runtimeConfigPromise = getUserConfig()
 
-      const session = isGrokRequest
+      const session = isOtherWebRequest
         ? initSession({
             question,
             modelName: modelKey,
@@ -259,7 +274,7 @@ function App() {
               typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
           })
       session.messageId = typeof data.operationId === 'string' ? data.operationId : null
-      if (!isGrokRequest) {
+      if (!isOtherWebRequest) {
         session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
         session.chatgptWebProjectId = projectId
         if (images.length) {
@@ -327,7 +342,7 @@ function App() {
 
         if (msg.session) {
           latestSession = { ...latestSession, ...msg.session }
-          if (!isGrokRequest) {
+          if (!isOtherWebRequest) {
             void saveChatgptWebSessionSnapshot(latestSession, {
               source: 'api-server-bridge',
             }).catch(() => {})
@@ -338,13 +353,31 @@ function App() {
         // null answer must not overwrite the text accumulated so far.
         if (typeof msg.answer === 'string') {
           lastAnswer = msg.answer
-          if (!msg.done) {
+          if (!msg.done && !isGeminiRequest) {
             sendWs({ type: 'chunk', id, answer: msg.answer })
           }
         }
 
         if (msg.done) {
           finished = true
+          if (isGeminiRequest && (msg.outcome !== 'completed' || !msg.finalContent)) {
+            sendWs({
+              type: 'error',
+              id,
+              error:
+                'Gemini ended without a verified final result. Inspect its website; this request will not be resubmitted.',
+            })
+            try {
+              bgPort.disconnect()
+            } catch {
+              /* already disconnected */
+            }
+            return
+          }
+          if (isGeminiRequest) {
+            lastAnswer = msg.finalContent
+            sendWs({ type: 'chunk', id, answer: lastAnswer })
+          }
           addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
           if (
             isThinkingRequest &&
@@ -391,7 +424,7 @@ function App() {
         // A transport disconnect must never cause a second, hidden PATCH write to
         // ChatGPT. History behavior is decided on the initial conversation POST.
         session.autoClean = false
-        if (!isGrokRequest) {
+        if (!isOtherWebRequest) {
           session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
         }
         bgPort.postMessage({ session })
@@ -426,6 +459,7 @@ function App() {
         chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
         chatgpt_web_list_models: RuntimeMessage.ChatgptWebListModels,
         [GrokProxyControlAction.ListModels]: RuntimeMessage.GrokWebListModels,
+        [GeminiProxyControlAction.ListModels]: RuntimeMessage.GeminiWebListModels,
         [GrokProxyControlAction.ListConversations]: RuntimeMessage.GrokWebListConversations,
         [GrokProxyControlAction.GetConversation]: RuntimeMessage.GrokWebGetConversation,
         [GrokProxyControlAction.RefreshConversation]: RuntimeMessage.GrokWebRefreshConversation,

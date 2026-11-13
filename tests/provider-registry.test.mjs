@@ -38,6 +38,10 @@ const SESSION_BY_ROUTE = {
     session: { modelName: 'grokweb/grok-chat-expert' },
     config: { grokWebEnabled: true },
   },
+  'gemini-web': {
+    session: { modelName: 'geminiweb/gemini-4-argon-high' },
+    config: { geminiWebEnabled: true },
+  },
   'claude-api': {
     session: { modelName: 'anth/claude-sonnet' },
     config: l1Config('anthropic', 'anth', 'claude-sonnet'),
@@ -57,8 +61,8 @@ const SESSION_BY_ROUTE = {
 }
 
 describe('provider registry', () => {
-  it('has exactly 8 providers', () => {
-    expect(PROVIDERS.length).toBe(8)
+  it('has exactly 9 providers', () => {
+    expect(PROVIDERS.length).toBe(9)
   })
 
   it('each provider exposes { route, match, run }', () => {
@@ -79,6 +83,7 @@ describe('provider registry', () => {
     'custom-api',
     'chatgpt-web',
     'grok-web',
+    'gemini-web',
     'claude-api',
     'ollama-api',
     'azure-openai-api',
