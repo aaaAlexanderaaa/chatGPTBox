@@ -13,11 +13,8 @@ import {
 import { z } from 'zod'
 import { loadOrCreateBridgeToken, timingSafeEquals } from './lib/bridge-auth.mjs'
 import { isAllowedHost } from './lib/gateway-access.mjs'
-import {
-  createConversationGateway,
-  createTurnCallLimiter,
-  waitForFinalTurn,
-} from './lib/mcp-conversations.mjs'
+import { createTurnCallLimiter } from './lib/mcp-conversations.mjs'
+import { createEngineGateway, waitForEngineRun } from './lib/engine-gateway.mjs'
 
 const option = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`)
@@ -32,7 +29,12 @@ if (![port, gatewayPort].every((value) => Number.isInteger(value) && value > 0 &
 if (!['127.0.0.1', '0.0.0.0'].includes(host)) {
   throw new Error('Invalid MCP host; use 127.0.0.1 or 0.0.0.0')
 }
-const tokenDir = path.join(os.homedir(), '.chatgptbox')
+const tokenDir = path.resolve(
+  option(
+    'data-dir',
+    process.env.CHATGPT_GATEWAY_DATA_DIR || path.join(os.homedir(), '.chatgptbox'),
+  ),
+)
 const mcpTokenFile = path.join(tokenDir, 'mcp-token')
 const {
   token: mcpToken,
@@ -54,7 +56,7 @@ if (!gatewayToken) {
   }
 }
 if (!gatewayToken) throw new Error('Gateway API token is empty')
-const gateway = createConversationGateway({
+const gateway = createEngineGateway({
   baseUrl: `http://127.0.0.1:${gatewayPort}`,
   token: gatewayToken,
 })
@@ -81,6 +83,7 @@ const questionGuidance = [
   'Understand and synthesize the material before asking. Include the facts, constraints, prior findings, and source or code excerpts needed for this question; provide enough background for complex questions without forwarding an unfiltered agent handoff, raw tool output, or a collection of files.',
 ].join(' ')
 const serverInstructions = [
+  'ask_engine creates an independent generation on an explicitly authorized engine. get_engine_run only observes a known run and never creates a conversation. The following ChatGPT-specific instructions describe ask_chatgpt.',
   externalResearcherDescription,
   'Ask ChatGPT as a capable peer agent, not as a search API or a subordinate research workflow.',
   questionGuidance,
@@ -104,15 +107,20 @@ const input = {
       'One self-contained, natural-language question for an independent external researcher running in the cloud through this HTTP MCP. ChatGPT is fully isolated from your local environment and project: it cannot inspect local files or see previous calls. Every call starts a NEW, isolated conversation. Explain the problem, relevant context, and desired outcome; synthesize necessary facts, constraints, source excerpts, and prior findings. Supply their content explicitly; paths and references to earlier work do not supply context. Let ChatGPT decide how to answer.',
     ),
 }
-const result = (turn) => ({
-  content: [{ type: 'text', text: turn.text }],
-  structuredContent: {
-    conversation_id: turn.conversationId,
-    message_id: turn.messageId,
-    status: 'completed',
-    text: turn.text,
-    thought_duration_seconds: turn.thoughtDurationSec ?? null,
-  },
+const result = (run, legacy = false) => ({
+  content: [{ type: 'text', text: run.result.content }],
+  structuredContent: legacy
+    ? {
+        conversation_id: run.result.metadata?.conversationId ?? null,
+        message_id: run.result.metadata?.messageId || run.runId,
+        thought_duration_seconds: run.result.metadata?.thoughtDurationSec ?? null,
+        status: 'completed',
+        text: run.result.content,
+        run_id: run.runId,
+        engine_id: run.engineId,
+        format: run.result.format,
+      }
+    : run,
 })
 const failure = (error, ack) => ({
   isError: true,
@@ -123,26 +131,31 @@ const failure = (error, ack) => ({
         error: error?.message || String(error),
         code: error?.code,
         http_status: error?.status,
-        retryable: error?.retryable,
-        conversation_id: ack?.conversationId,
-        message_id: ack?.messageId,
-        operation_id: error?.operationId,
+        retryable: false,
+        run_id: ack?.runId || error?.runId,
+        submission: error?.submission,
+        outcome: error?.outcome,
       }),
     },
   ],
 })
-
-async function runTurn(ctx, send) {
+async function runTurn(ctx, engineId, args, legacy = false) {
   let ack
   try {
     return await withTurnSlot(async () => {
-      ack = await send(ctx.mcpReq.signal)
-      if (!ack?.conversationId || !ack?.messageId)
-        throw new Error('API bridge returned no turn IDs')
+      ack = await gateway.start(
+        engineId,
+        {
+          prompt: args.query + textOnlyResponseInstruction,
+          modelId: args.model_id,
+          ...(legacy ? { extensions: { chatgptweb: { historyDisabled: false } } } : {}),
+        },
+        ctx.mcpReq.signal,
+      )
+      if (!ack?.runId) throw new Error('API bridge returned no engine run ID')
       const progressToken = ctx.mcpReq._meta?.progressToken
-      const turn = await waitForFinalTurn(gateway, {
-        conversationId: ack.conversationId,
-        messageId: ack.messageId,
+      const run = await waitForEngineRun(gateway, {
+        runId: ack.runId,
         signal: ctx.mcpReq.signal,
         maxWaitMs,
         pollMs,
@@ -150,11 +163,11 @@ async function runTurn(ctx, send) {
           ? (progress) =>
               ctx.mcpReq.notify({
                 method: 'notifications/progress',
-                params: { progressToken, progress, message: 'Waiting for final ChatGPT answer' },
+                params: { progressToken, progress, message: 'Waiting for final engine answer' },
               })
           : undefined,
       })
-      return result(turn)
+      return result(run, legacy)
     })
   } catch (error) {
     return failure(error, ack)
@@ -173,15 +186,41 @@ const handler = createMcpHandler(
         description: `${externalResearcherDescription} ${questionGuidance} Ask the user's configured ChatGPT Web and return its final text answer. Use the account's existing model and thinking settings. Let ChatGPT decide how to investigate and respond; do not script its research process. Use when its judgment would help, not for keyword search or trivial tests. The server asks for reference links when available and requests no files, code, or images. Structured output includes reported thinking time when available. ${turnLimitDescription}`,
         inputSchema: z.object(input).strict(),
       },
-      (args, ctx) =>
-        runTurn(ctx, (signal) =>
-          gateway.create(
-            {
-              query: args.query + textOnlyResponseInstruction,
-            },
-            signal,
-          ),
-        ),
+      (args, ctx) => runTurn(ctx, 'chatgptweb', args, true),
+    )
+    server.registerTool(
+      'ask_engine',
+      {
+        description: `Ask one explicitly authorized engine a self-contained question in a new isolated conversation and return only its verified final result. The engine has no implicit access to local files, tools or previous calls; include necessary context. Supported engines and model policies are supplied by the gateway; use its configured default when model_id is omitted. A wait timeout or cancelled MCP observation never resubmits the question. ${turnLimitDescription}`,
+        inputSchema: z
+          .object({
+            engine_id: z.string().min(1),
+            query: input.query,
+            model_id: z.string().min(1).optional(),
+          })
+          .strict(),
+      },
+      (args, ctx) => runTurn(ctx, args.engine_id, args),
+    )
+    server.registerTool(
+      'get_engine_run',
+      {
+        description:
+          'Read an existing gateway run shared by API and MCP. recover=true requests exact readonly recovery when the adapter supports it; this tool never submits a question or converts a preview into a final result.',
+        inputSchema: z
+          .object({ run_id: z.string().min(1), recover: z.boolean().optional() })
+          .strict(),
+      },
+      async (args, ctx) => {
+        try {
+          const run = await (args.recover
+            ? gateway.recover(args.run_id, ctx.mcpReq.signal)
+            : gateway.read(args.run_id, ctx.mcpReq.signal))
+          return { content: [{ type: 'text', text: JSON.stringify(run) }], structuredContent: run }
+        } catch (error) {
+          return failure(error, { runId: args.run_id })
+        }
+      },
     )
     return server
   },

@@ -59,6 +59,8 @@ export const RuntimeMessage = {
   DeleteConversation: 'DELETE_CONVERSATION',
   Feedback: 'FEEDBACK',
   LocalSessionMutation: 'LOCAL_SESSION_MUTATION',
+  EngineRequest: 'ENGINE_REQUEST',
+  EngineBridgeRequest: 'ENGINE_BRIDGE_REQUEST',
 
   // Tab / window navigation
   NewUrl: 'NEW_URL',

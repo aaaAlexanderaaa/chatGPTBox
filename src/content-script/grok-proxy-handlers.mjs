@@ -64,7 +64,7 @@ function notDispatched(error) {
  * GET-confirm session (and optionally tier) before any chat POST.
  * Never POSTs. On failure clears signed-in and throws a login error.
  */
-async function hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal }) {
+async function hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal, binding }) {
   let sessionJson
   try {
     const response = await fetch(GROK_AUTH_SESSION_URL, signal ? { signal } : {})
@@ -80,6 +80,21 @@ async function hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal }) {
   if (!session.signedIn) {
     await clearGrokSignedIn(setConfig)
     throw new Error(GROK_LOGIN_ERROR)
+  }
+  if (binding?.engineAccountSalt) {
+    const digest = await globalThis.crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(`${binding.engineAccountSalt}:${session.userId || session.email}`),
+    )
+    const fingerprint = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+    if (binding.engineAccountFingerprint && binding.engineAccountFingerprint !== fingerprint)
+      throw Object.assign(new Error('The original Grok account changed. No message was sent.'), {
+        code: 'BINDING_CHANGED',
+        dispatched: false,
+      })
+    binding.engineAccountFingerprint = fingerprint
   }
 
   let tier = 'basic'
@@ -171,7 +186,12 @@ export async function handleGrokProxyRequest({
   const fetch = pageFetchWithCredentials(baseFetch)
   const setConfig = setConfigImpl || setUserConfig
 
-  await hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal })
+  try {
+    await hardConfirmGrokSessionBeforeWrite({ fetch, setConfig, signal, binding: session })
+  } catch (error) {
+    error.dispatched = false
+    throw error
+  }
 
   const modelSlug = resolveGrokChatSlug(session?.modelName)
   const writer = createGrokChatWriter({ fetch })
@@ -345,7 +365,10 @@ export async function handleGrokProxyMessage(
         if (isAbortError(err)) {
           port.postMessage({ done: true })
         } else {
-          port.postMessage({ error: err?.message || String(err) })
+          port.postMessage({
+            error: err?.message || String(err),
+            ...(err.dispatched === false ? { dispatched: false } : {}),
+          })
         }
       } catch {
         /* ignore */

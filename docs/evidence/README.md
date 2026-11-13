@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-08
+last_reconciled: 2026-11-12
 ---
 
 # Verification evidence
@@ -12,6 +12,9 @@ They support decisions without redefining them. Temporary captures and account
 data stay in ignored local locations; commit only material appropriate for the
 repository's audience.
 
+- [2026-11-12 unified engines](2026-11-12-engine-runtime-review.md) records design and
+  completion review, common-runtime/legacy/transport tests, local packaging and
+  installation observations, and the limits of live-provider verification.
 - [2026-11-07 project review](2026-11-07-project-review.md) follows product
   promises through workflows, material/result contracts and engine continuity,
   with independent observations, controlled component trials and the original

@@ -12,7 +12,9 @@ export async function generateAnswersWithGrokWebApi({ port, session, config }, d
     const getCookies = deps.getCookies || (() => Browser.cookies.getAll({ url: GROK_COOKIE_URL }))
     const cookies = await getCookies().catch(() => [])
     if (!Array.isArray(cookies) || cookies.length === 0) {
-      throw new Error('Please login at https://grok.com first')
+      throw Object.assign(new Error('Please login at https://grok.com first'), {
+        dispatched: false,
+      })
     }
   }
 

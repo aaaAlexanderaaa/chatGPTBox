@@ -49,6 +49,7 @@ export class ImageSendOperations {
           'chatgpt_web_upload_images',
           {
             images: [images[index]],
+            operationId: `${record.operationId}:upload:${index}`,
             projectId: payload.projectId,
           },
           190000,

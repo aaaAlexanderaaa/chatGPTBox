@@ -69,7 +69,7 @@ describe('MCP HTTP conversation flow', () => {
     ).toBe(403)
   })
 
-  it('authenticates, holds a tool call, and polls only the local turn endpoint', async () => {
+  it('authenticates, holds a tool call, and polls only the local run endpoint', async () => {
     let creates = 0
     let statusReads = 0
     let conversationReads = 0
@@ -84,46 +84,43 @@ describe('MCP HTTP conversation flow', () => {
         return
       }
       res.setHeader('Content-Type', 'application/json')
-      if (req.method === 'POST' && req.url === '/chatgpt/conversations') {
+      if (req.method === 'POST' && req.url === '/engines/chatgptweb/runs') {
         creates++
         expect(req.headers['idempotency-key']).toBeTruthy()
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         createdBodies.push(JSON.parse(Buffer.concat(chunks).toString()))
-        res.end(JSON.stringify({ conversationId: 'conversation-1', messageId: 'message-1' }))
-      } else if (
-        req.method === 'GET' &&
-        req.url.startsWith('/chatgpt/conversations/conversation-1/turns/message-1')
-      ) {
+        res.writeHead(202).end(JSON.stringify({ runId: 'run-1' }))
+      } else if (req.url === '/runs/run-1' || req.url === '/runs/run-1/recover') {
         statusReads++
         if (bridgeFailures > 0) {
           bridgeFailures--
           res.writeHead(503).end(JSON.stringify({ error: { message: 'Bridge reconnecting' } }))
           return
         }
-        if (missingLocalTurn && !req.url.endsWith('?recover=true')) {
-          res.writeHead(404).end(JSON.stringify({ error: { message: 'Local record missing' } }))
-          return
+        const recovering = req.url.endsWith('/recover')
+        if (recovering) recoveryReads++
+        const run = {
+          contractVersion: 1,
+          engineId: 'chatgptweb',
+          runId: 'run-1',
+          phase: statusReads >= 3 && !holdTurns ? 'settled' : 'running',
+          outcome: statusReads >= 3 && !holdTurns ? 'completed' : null,
+          submission: 'accepted',
+          resultAvailability: missingLocalTurn && !recovering ? 'recoverable' : 'available',
         }
-        if (req.url.endsWith('?recover=true')) recoveryReads++
-        res.end(
-          JSON.stringify(
-            statusReads >= 3 && !holdTurns
-              ? {
-                  conversationId: 'conversation-1',
-                  messageId: 'message-1',
-                  status: 'completed',
-                  text: 'Final answer',
-                  thoughtDurationSec: 12,
-                }
-              : {
-                  conversationId: 'conversation-1',
-                  messageId: 'message-1',
-                  status: 'running',
-                  text: 'Thinking',
-                },
-          ),
-        )
+        if (!holdTurns && statusReads >= 3 && (!missingLocalTurn || recovering))
+          run.result = {
+            version: 1,
+            format: 'markdown',
+            content: 'Final answer',
+            metadata: {
+              conversationId: 'conversation-1',
+              messageId: 'message-1',
+              thoughtDurationSec: 12,
+            },
+          }
+        res.end(JSON.stringify(run))
       } else {
         conversationReads++
         res.writeHead(404).end(JSON.stringify({ error: { message: 'Unexpected path' } }))
@@ -196,7 +193,11 @@ describe('MCP HTTP conversation flow', () => {
       .find((line) => line.startsWith('data: '))
       ?.slice('data: '.length)
     const listedTools = JSON.parse(listedEvent).result.tools
-    expect(listedTools.map((tool) => tool.name)).toEqual(['ask_chatgpt'])
+    expect(listedTools.map((tool) => tool.name)).toEqual([
+      'ask_chatgpt',
+      'ask_engine',
+      'get_engine_run',
+    ])
     expect(listedTools[0].description).toContain('not for keyword search or trivial tests')
     expect(Object.keys(listedTools[0].inputSchema.properties)).toEqual(['query'])
     expect(listedTools[0].inputSchema.additionalProperties).toBe(false)
@@ -282,8 +283,14 @@ describe('MCP HTTP conversation flow', () => {
     expect(output.result.content[0].text).toBe('Final answer')
     expect(creates).toBe(1)
     expect(createdBodies[0]).toEqual({
-      query:
-        'Research something\n\n请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。',
+      contractVersion: 1,
+      engineId: 'chatgptweb',
+      operation: 'generation.start',
+      input: {
+        prompt:
+          'Research something\n\n请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。',
+      },
+      extensions: { chatgptweb: { historyDisabled: false } },
     })
     expect(statusReads).toBe(3)
     expect(conversationReads).toBe(0)

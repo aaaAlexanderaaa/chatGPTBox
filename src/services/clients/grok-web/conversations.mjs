@@ -10,7 +10,13 @@ export function normalizeGrokConversationList(payload) {
     conversationId: typeof entry?.conversationId === 'string' ? entry.conversationId : '',
     title: typeof entry?.title === 'string' ? entry.title : '',
   }))
-  return { items, total: items.length }
+  return {
+    items,
+    returned: items.length,
+    total:
+      Number.isSafeInteger(payload?.total) && payload.total >= items.length ? payload.total : null,
+    completeness: 'unknown',
+  }
 }
 
 export function normalizeGrokConversationSnapshot(payload, conversationId) {
@@ -48,7 +54,8 @@ export function normalizeGrokConversationSnapshot(payload, conversationId) {
     messages,
     defaultModel,
     previousResponseID,
-    pending: false,
+    pending: null,
+    completeness: 'unknown',
   }
 }
 

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-11
+last_reconciled: 2026-11-13
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -13,7 +13,12 @@ last_reconciled: 2026-11-11
 
 # ChatGPTBox MCP Server
 
-The MCP server is a separate local HTTP service for ChatGPT Web conversations. It uses the standard Streamable HTTP MCP transport, with one endpoint at `http://127.0.0.1:18081/mcp`.
+The MCP server is a separate Streamable HTTP service, normally at
+`http://127.0.0.1:18081/mcp`. It uses the same
+[engine operations](engine-contract.md) as API and extension clients.
+`ask_chatgpt(query)` remains the compatible isolated ChatGPT alias; `ask_engine`
+and `get_engine_run` add generic generation and observation without another
+provider-specific waiter.
 
 ## Start
 
@@ -22,7 +27,20 @@ The MCP server is a separate local HTTP service for ChatGPT Web conversations. I
 3. Run `npm run mcp-server` in another terminal.
 4. Configure your MCP client with the HTTP URL `http://127.0.0.1:18081/mcp` and `Authorization: Bearer <MCP token>`. The MCP token is generated in `~/.chatgptbox/mcp-token` on first startup. This is separate from the gateway API token and the extension bridge token.
 
-The MCP server reads the gateway API token from `~/.chatgptbox/gateway-api-token`. If the API gateway uses `--api-token` or `CHATGPT_GATEWAY_API_TOKEN` instead of that file, set the same `CHATGPT_GATEWAY_API_TOKEN` in the MCP server environment. The default API gateway port is 18080; override it with `--gateway-port` or `CHATGPT_GATEWAY_PORT`. Override the MCP port with `--port` or `CHATGPT_MCP_PORT`.
+The MCP process reads the existing gateway API token from
+`~/.chatgptbox/gateway-api-token`. If the gateway uses `--api-token` or
+`CHATGPT_GATEWAY_API_TOKEN`, set that same `CHATGPT_GATEWAY_API_TOKEN` in the MCP
+process environment. API and MCP share the gateway caller identity, engine grants
+and run access. There is no separate gateway MCP token or MCP engine grant.
+The public MCP token stays at `~/.chatgptbox/mcp-token`; the existing API,
+public MCP and bridge tokens do not need to change.
+
+Use `--data-dir` or `CHATGPT_GATEWAY_DATA_DIR` consistently when relocating token
+storage. Gateway port defaults to 18080 (`--gateway-port` or
+`CHATGPT_GATEWAY_PORT`); MCP port defaults to 18081 (`--port` or
+`CHATGPT_MCP_PORT`). In `Settings → Engines → External engine access`, the engine
+must be enabled and externally open for the requested operation. The same grant
+applies to API and MCP, including Grok/Gemini when enabled and externally open.
 
 To accept MCP clients on other devices, explicitly bind the MCP server to all IPv4 interfaces. For an API gateway already running on port 18081, start the MCP server on a different port:
 
@@ -32,10 +50,26 @@ npm run mcp-server -- --host 0.0.0.0 --port 18082 --gateway-port 18081
 
 Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use the MCP bearer token. The `--host` option (or `CHATGPT_MCP_HOST`) defaults to `127.0.0.1`; it accepts `127.0.0.1` or `0.0.0.0`. The API gateway connection remains local to this computer. Keep the MCP token private and use a trusted network or TLS when connecting across networks; plain HTTP exposes the token to network observers.
 
+## Generic tools
+
+- `ask_engine({engine_id, query, model_id?})` starts an independent run on an
+  authorized engine and waits for a verified final result. Omitted `model_id`
+  delegates to that adapter's configured default. Context must be explicit.
+- `get_engine_run({run_id, recover?})` reads an existing gateway run shared with
+  API clients. `recover: true` asks for exact readonly recovery where adapted;
+  it never submits input. It does not grant native-history browsing.
+- `ask_chatgpt({query})` retains its strict query-only schema, account defaults,
+  context-isolation instructions and old final text/structured fields. It adds
+  `run_id`, `engine_id` and result format for observation.
+
+A cancelled or timed-out wait can leave the original engine running. Continue
+by reading the known `run_id`, not by sending the question again. A completed run
+whose result body is no longer obtainable returns an explicit unavailable error.
+
 ## Tool
 
 `ask_chatgpt` creates a **new, isolated conversation on every call** and waits for
-its final answer. It is the only tool exposed by this MCP server. Consecutive
+its final answer through the common run service. Consecutive
 calls do not continue a conversation or share task context.
 
 This HTTP MCP connects the caller to ChatGPT Web as **an independent external
@@ -89,9 +123,9 @@ synthetic connectivity tests. The HTTP MCP accepts the question text only;
 paths and file references do not attach or read local files, and earlier results
 are not automatically included.
 
-`ask_chatgpt` accepts only `query`. The server automatically appends this response preference to the question: "请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。" Its ordinary text result contains only the final answer; `structuredContent` also contains the conversation and message IDs and `thought_duration_seconds` for diagnostics. The duration sums ChatGPT Web's reported `finished_duration_sec` values for the turn. It is `null` if ChatGPT does not report a duration; it is never inferred from the MCP call's elapsed time. The MCP server does not expose conversation listing, continuation, or turn-status tools. The server generates an internal idempotency key for each dispatch; an ambiguous dispatch is reported as an error, not automatically resent.
+`ask_chatgpt` accepts only `query`. The server automatically appends this response preference to the question: "请直接以文本回答；如有参考链接，请附上链接。请不要创建文件、代码或图片，我的浏览器无法在当前页面打开或加载这些内容。" Its ordinary text result contains only the final answer; `structuredContent` also contains the conversation and message IDs and `thought_duration_seconds` for diagnostics. The duration sums ChatGPT Web's reported `finished_duration_sec` values for the turn. It is `null` if ChatGPT does not report a duration; it is never inferred from the MCP call's elapsed time. The MCP server does not expose native conversation listing, continuation, or arbitrary native-turn lookup. `get_engine_run` observes only runs owned by its credential. The server generates an internal idempotency key for each dispatch; an ambiguous dispatch is reported as an error, not automatically resent.
 
-The server permits **four active `ask_chatgpt` calls**. A fifth call returns a `concurrency_limit` error before sending a message to ChatGPT. Wait for an active call to finish before retrying.
+The server permits **four active generation calls across `ask_chatgpt` and `ask_engine`**. A fifth call returns a `concurrency_limit` error before sending a message to an engine. Wait for an active call to finish before retrying.
 
 ### Updating the advertised description
 
@@ -139,12 +173,31 @@ of the active coding chat's cached description was not verified.
 
 ## Waiting and recovery
 
-The MCP server sends one create request to the API gateway. The gateway acknowledges it with `conversationId` and `messageId`; the extension's ChatGPT Web runtime continues processing in the background. The MCP server holds the HTTP response open and polls `GET /chatgpt/conversations/:id/turns/:messageId` every 10 seconds by default. Ordinary polls read only a local record in the extension background. Every minute, the waiter adds `?recover=true`: the extension performs a bounded, read-only ChatGPT conversation GET anchored to the acknowledged user message. This repairs a lost completion notification even if the original stream or resume has stalled. It checks one native page without downloading the conversation's older history. Recovery reads are shared between callers and limited to one per turn per minute.
+The MCP server sends one `POST /engines/:id/runs` with an idempotency key and
+receives a local run receipt. It waits on `GET /runs/:id`, every 10 seconds by
+default. Ordinary polls never read the provider. When the run is recoverable,
+exact readonly recovery is bounded to once per minute and shared by the
+background owner. ChatGPT supports it; Grok/Gemini report it as unadapted.
+Neither missing local output, bridge reconnection nor a lost acknowledgement
+causes another generation request.
 
-Interim answer text and thinking time do not finish the MCP call. It returns when the runtime posts its terminal `done` event with nonempty answer text, or a fresh recovery read confirms a non-pending final answer for the exact user message. A stale cache, an older question with the same text, or a final-looking fragment cannot finish the call. The HTTP response uses SSE with keepalive comments; clients that send a progress token also receive progress notifications. Temporary bridge outages, network failures, and retryable status errors are retried within the original wait deadline; they never trigger another create request. Cancellation and non-retryable errors still stop waiting. Configure the MCP client's tool-call timeout long enough for the question. The server's default maximum wait is 45 minutes (`CHATGPT_MCP_WAIT_SECONDS` changes it, capped at two hours).
+Only a common completed run with nonempty available final content ends a call
+successfully. A stale cache, preview or same-text older question cannot do so.
+The response uses SSE keepalive comments and optional progress notifications.
+The default wait is 45 minutes (`CHATGPT_MCP_WAIT_SECONDS`, maximum two hours).
+Cancellation detaches observation; it does not request remote cancellation.
+Errors retain the known `run_id` and forbid write retries. `get_engine_run` can
+continue observation with the same credential, including after external access
+is turned off. The gateway API credential is shared with API clients; there is
+no separate per-engine MCP grant to revoke.
 
-If the wait times out after acknowledgement, ChatGPT may still finish in the browser and the error result includes the known conversation and message IDs. A disconnected client may receive no result: recovery within a running call does not resume a cancelled or closed MCP client connection. When the IDs are known, an operator with the separate gateway API token can inspect the existing turn with `GET /chatgpt/conversations/:id/turns/:messageId?recover=true`; MCP intentionally exposes no recovery tool. Running turn records and the most recent 30 finished turns are saved in extension local storage. If a local record is missing, the waiter checks the exact existing turn once before reporting it as missing. No recovery path sends a second ChatGPT write. Do not send a new prompt solely to test whether the connection works.
+The runtime protects execution metadata separately from its 30 finished in-memory
+results. Worker restart can make a previously completed body unavailable; exact
+recovery may recover that body when supported. Unknown effects and native holds
+are not cleared by result eviction, toggles or upgrades. Manual review in Engines
+allows new work while retaining the original outcome as unconfirmed and retiring
+its old continuation binding. This does not make an uncertain run completed.
 
 ## Access control
 
-The MCP server binds to `127.0.0.1` by default, requires its own bearer token for every request, and validates HTTP Host and Origin headers. With `--host 0.0.0.0`, IP-address Host headers are allowed while DNS hostnames and non-local browser origins remain rejected. It does not enable browser CORS. The API gateway likewise requires its API token for client endpoints and grants browser CORS only to the paired extension origin or explicitly configured origins. Keep all three tokens private.
+The MCP server binds to `127.0.0.1` by default, requires its own bearer token for every request, and validates HTTP Host and Origin headers. With `--host 0.0.0.0`, IP-address Host headers are allowed while DNS hostnames and non-local browser origins remain rejected. It does not enable browser CORS. The API gateway likewise requires its API token for client endpoints and grants browser CORS only to the paired extension origin or explicitly configured origins. API and MCP use the same gateway principal and can read the same gateway runs. The public MCP endpoint retains its existing MCP token; the extension bridge retains its bridge token.

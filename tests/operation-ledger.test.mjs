@@ -164,3 +164,15 @@ it('rejects capacity before dispatch and retains both completed and ambiguous id
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+it('does not expire an ambiguous write or an acknowledged but unresolved engine run', () => {
+  const ledger = new OperationLedger({ ttlMs: 1 })
+  const uncertain = ledger.begin({ key: 'unknown-effect', fingerprint: 'one' }).record
+  const acknowledged = ledger.begin({ key: 'receipt-only', fingerprint: 'two' }).record
+  ledger.ambiguous(uncertain, new Error('Lost acknowledgement'))
+  ledger.complete(acknowledged, { runId: 'native-run', phase: 'preparing' })
+  uncertain.updatedAt = acknowledged.updatedAt = '2000-01-01T00:00:00.000Z'
+  ledger.prune()
+  expect(ledger.begin({ key: 'unknown-effect', fingerprint: 'one' }).kind).toBe('existing')
+  expect(ledger.begin({ key: 'receipt-only', fingerprint: 'two' }).kind).toBe('existing')
+})

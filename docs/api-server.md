@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-13
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -13,7 +13,19 @@ last_reconciled: 2026-11-12
 
 # API Server Bridge
 
-ChatGPTBox ships with a local API gateway that lets any OpenAI-compatible client talk to ChatGPT Web through the extension.
+ChatGPTBox ships with a local API gateway that lets compatible clients use web
+engines through the extension. Standard completions currently route to ChatGPT
+Web, Grok Web or the explicit Gemini Web selector; custom conversation APIs have
+different coverage, as documented below.
+
+The [engine contract](engine-contract.md) owns shared operations and exposure.
+The gateway now serves `/engines/*` and `/runs/*` through one background runtime.
+Legacy ChatGPT/Grok routes remain compatibility aliases. Their native ID and JSON
+formats, defaults and existing idempotency keys remain supported. During this
+compatibility transition, unversioned standard completions retain their previous
+thinking-transcript continuation; `X-ChatGPTBox-Engine-Contract: 1` selects an
+independent prompt transcript. Neither profile grants native system-role or tool
+execution semantics. A breaking default switch is separate release work.
 
 The gateway has two layers:
 
@@ -26,6 +38,57 @@ The supplied September ChatGPT Web streaming/resume protocol is studied in
 [`docs/chatgpt-web-stream-resume.md`](./chatgpt-web-stream-resume.md). That dated
 reference does not replace the current [gateway recovery boundary](#at-most-once-writes-and-bounded-recovery)
 or current extension code.
+
+## Common engine interface
+
+Enable a web engine in `Settings → Engines`, then use `External engine access`
+to grant external access and the required operations. API and MCP share the
+gateway API token, caller identity and engine grants. Turning external access or the engine off blocks new
+operations; the original caller can still read/stop/recover its existing runs.
+The bridge connection, engine adaptation and account/page readiness are distinct.
+
+| Request | Behavior |
+| --- | --- |
+| `GET /engines` | Registered externally visible engines, supported operations, schemas, shared grants, caller-specific `effectiveOperations` and known readiness; no login probe |
+| `GET /engines/:id/models?refresh=true` | Adapter model catalog with source, freshness and availability |
+| `POST /engines/:id/runs` | Register independent generation or explicit append; requires `Idempotency-Key`; returns `202` and `runId` |
+| `GET /runs/:runId` | Local snapshot only, including whether the final body is still available |
+| `POST /runs/:runId/recover` | Exact readonly recovery if adapted; never resubmits input |
+| `POST /runs/:runId/cancel` | Record local Stop and attempt the matching native cancellation once; remote cancellation is not assumed |
+| `GET /engines/:id/conversations` | Granted native history; list entries include an opaque reference |
+| `GET /engines/:id/conversations/:ref` | Fresh detail and a verified continuation reference/revision; list references alone cannot append |
+
+For example, POST `/engines/geminiweb/runs` with a fresh idempotency key:
+
+```json
+{"contractVersion":1,"operation":"generation.start","input":{"prompt":"Explain the trade-offs in the supplied proposal."}}
+```
+
+For append, use `operation: "conversation.append"` and
+`conversation: {"ref": "<verified reference>", "expectedRevision": 1}` from the
+most recent result/detail. An unavailable or changed binding fails without
+creating another conversation. Gemini's binding requires its original live
+native document. Gemini history and Grok/Gemini exact run recovery remain
+unadapted; capability errors do not redirect to another provider.
+
+A receipt confirms local registration, not provider acceptance. Only
+`phase: settled`, `outcome: completed` and an available `result` permit a success
+body. `preview` never substitutes for a final answer. Results include format
+and version; supported native HTML/GenUI remains intact. Final bodies are bounded
+in memory (30 finished runs); durable metadata and protected identities are
+separate. After a worker restart, reads report unknown or recoverable state,
+not a fresh execution. Unsupported recovery returns a typed capability error.
+
+The bridge uses `chatgptbox-engine/1` for both transports. Upgrade the gateway
+and extension together and reconnect: incompatible private wire messages are
+refused before submission. Old public HTTP clients do not need to implement
+this bridge protocol. Queued writes retain their original installation identity;
+clearing/reinstalling extension storage does not authorize replay.
+
+`/v1/models` uses the same enabled/exposed adapter catalogs, with source and
+availability metadata. It no longer invents an available static fallback.
+Grok native list totals and pending state may be `null` when unknown; returned
+page length is reported separately. These are deliberate accuracy corrections.
 
 ## Startup
 
@@ -41,8 +104,9 @@ npm run api-server
 5. Copy the `Bridge token` the server prints on startup into the `Bridge token` field on the bridge page.
 6. Read the separate API token from `~/.chatgptbox/gateway-api-token` and configure your HTTP client to send `Authorization: Bearer <API token>`.
    Paste the same API token into the bridge page's `API token` field so its Server Health and ChatGPT Conversations panels can make authenticated HTTP requests.
-7. Keep the bridge page open.
-8. Make sure the browser is logged in at `https://chatgpt.com`.
+7. In `Engines → External engine access`, review the engine and operation grants. Existing bridge-enabled configurations migrate only their previous scope.
+8. Keep the bridge page open.
+9. Sign in to the websites of the web engines you want to use. The default examples below use ChatGPT Web.
 
 ### Unexpected exits and bridge disconnections
 
@@ -112,8 +176,8 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 
 1. Your client sends an HTTP request to the local gateway.
 2. The gateway forwards the request to the extension bridge over WebSocket or HTTP polling.
-3. The bridge page asks the extension background to send the request through the ChatGPT Web flow.
-4. The result is streamed back in an OpenAI-compatible response shape.
+3. The bridge forwards the versioned operation to the background engine runtime, which checks current authorization and invokes the selected adapter.
+4. The adapter reaches its native website transport; only a verified final result becomes a successful completion response. Standard SSE keeps the connection alive while the bridge observes that run.
 
 ## Client HTTP Endpoints
 
@@ -312,7 +376,9 @@ The originating `ApiServer.html` page forwards this selector through the
 background Gemini provider to a dedicated native Gemini document. No ChatGPT
 upload, history or conversation API runs for this request. Standard messages
 are formatted into one text prompt for a new independent completion. There is
-no Gemini custom history endpoint or MCP tool in this version.
+no Gemini custom history endpoint. The generic MCP `ask_engine` tool can select
+Gemini using the same external engine grants; the existing Drafts actions still
+use ChatGPT conversation endpoints.
 
 Both streaming and ordinary completions wait for the verified final native
 result. Gemini HTML snapshots can change while generating, so the append-only
@@ -359,12 +425,15 @@ or a failed recovery read does not. Polling an ordinary operation reports
 `phase: sending, pending: true` only while this gateway process still owns its
 active execution. Restarted or unresolved writes remain ambiguous.
 
-Within the seven-day retention period, capacity (2,000 keyed operations) never
+Resolved operations retain their keys for seven days. Ambiguous writes and
+acknowledged engine runs without a verified final disposition do not expire
+automatically; final state reads reconcile their metadata without storing another
+answer body. Capacity (2,000 keyed operations) never
 evicts a protected key. At saturation a new key fails with
 `OPERATION_LEDGER_FULL` before submission; existing keys can still recover. Wait
 for expiry or reconcile the original operations; do not clear the ledger or
 change keys to replay uncertain writes. Restart retains the same protection.
-This is bounded retention, not permanent deduplication.
+Resolved-key retention is bounded; an unresolved effect never becomes safe to replay merely because time passed.
 
 Custom conversation write state is persisted under `~/.chatgptbox/gateway-operations.json`.
 Standard unkeyed requests are not written to that ledger. The initial `/f/conversation` POST is the
@@ -390,15 +459,13 @@ settings before history sync can run again.
 
 Returns the models available through the gateway.
 
-When the bridge is connected, this endpoint dynamically fetches the model list from ChatGPT's backend API (cached for 5 minutes). If the bridge is not connected or the fetch fails, it falls back to a hardcoded list of known models.
-
-Grok models are merged from their separate catalog. Gemini adds
-`gemini-4-argon-high` with `owned_by: "gemini-web"` only when a fresh local
-configuration reply says it is enabled and page-checked. This Gemini list read
-does not open a website or probe the account, and has no stale Gemini fallback.
-Every actual submission still revalidates the native runtime, account and model.
-
-Example:
+The endpoint reads the common engine catalog, then each enabled and externally
+available adapter's model catalog. Entries include their engine, source,
+checked/expiry time and availability. A catalog error omits that engine's entries;
+a bridge error fails the request. There is no hardcoded available-model fallback.
+ChatGPT refreshes its native catalog; Grok uses its account-probe cache and Gemini
+its page-check state, both honestly marked unknown when not freshly observed.
+Opening `/v1/models` does not submit a question.
 
 ```bash
 curl -H "Authorization: Bearer $CHATGPT_GATEWAY_API_TOKEN" http://127.0.0.1:18080/v1/models

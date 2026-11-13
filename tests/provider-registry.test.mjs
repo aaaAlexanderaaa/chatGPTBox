@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import Browser from 'webextension-polyfill'
+import { defaultConfig } from '../src/config/storage.mjs'
 import {
   PROVIDERS,
   detectExecutionRoute,
@@ -132,12 +134,25 @@ describe('provider registry', () => {
 
   it('tells the user when ChatGPT Web is selected but disabled', async () => {
     const posts = []
+    const get = vi
+      .spyOn(Browser.storage.local, 'get')
+      .mockImplementation(async (defaults) =>
+        Array.isArray(defaults)
+          ? { ...defaultConfig, chatgptWebEnabled: false }
+          : typeof defaults === 'object'
+          ? { ...defaults, chatgptWebEnabled: false }
+          : {},
+      )
+    const set = vi.spyOn(Browser.storage.local, 'set').mockResolvedValue()
     await executeApi(
-      { modelName: 'chatgptweb/gpt-5-6-thinking' },
+      { modelName: 'chatgptweb/gpt-5-6-thinking', question: 'Explain the supplied proposal' },
       { postMessage: (msg) => posts.push(msg) },
       { chatgptWebEnabled: false },
+      { engineCaller: { kind: 'extension', principal: 'settings', admin: true } },
     )
     expect(posts[0].error).toMatch(/ChatGPT Web is disabled/)
     expect(posts.some((msg) => msg?.done === true)).toBe(true)
+    get.mockRestore()
+    set.mockRestore()
   })
 })

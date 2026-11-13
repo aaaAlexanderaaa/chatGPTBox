@@ -940,10 +940,6 @@ describe('lifecycle claims — source facts', () => {
     new URL('../src/background/chatgpt-proxy-service.mjs', import.meta.url),
     'utf8',
   )
-  const apiServerPageSource = fs.readFileSync(
-    new URL('../src/pages/ApiServer/App.jsx', import.meta.url),
-    'utf8',
-  )
 
   it('poll retries conversation_not_found only, not access denied', () => {
     expect(clientSource).toContain(
@@ -993,8 +989,10 @@ describe('lifecycle claims — source facts', () => {
   })
 
   it('API Server /v1 path can disable history while conversation create forces it on', () => {
-    expect(apiServerPageSource).toContain(
-      'session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true',
+    expect(
+      fs.readFileSync(new URL('../src/engines/adapters.mjs', import.meta.url), 'utf8'),
+    ).toContain(
+      'converted.session.chatgptWebHistoryDisabledOverride = config.apiServerKeepHistory !== true',
     )
     expect(createServiceSource).toContain('chatgptWebHistoryDisabledOverride: false')
   })

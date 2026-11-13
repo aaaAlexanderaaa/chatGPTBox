@@ -10,7 +10,12 @@ import ollamaApiProvider from './ollama-api.mjs'
 import azureOpenaiApiProvider from './azure-openai-api.mjs'
 import gptCompletionApiProvider from './gpt-completion-api.mjs'
 import { assertProviderAdapter } from './adapter-contract.mjs'
-import { resolveEngine } from '../../config/engine-selection.mjs'
+import {
+  getSelectionString,
+  parseEngineSelection,
+  resolveEngine,
+} from '../../config/engine-selection.mjs'
+import { engineRuntime, executeWebEngineSession } from '../../engines/browser-runtime.mjs'
 
 const RAW_PROVIDERS = [
   dshBridgeProvider,
@@ -44,6 +49,17 @@ export async function executeApi(session, port, config, ctx) {
     modelName: typeof session.modelName === 'string' ? session.modelName : null,
     apiMode: ctx?.summarizeApiMode?.(session.apiMode),
   })
+  const selected = parseEngineSelection(getSelectionString(session))
+  if (selected && engineRuntime().has(selected.providerId)) {
+    try {
+      await executeWebEngineSession(session, port, config, ctx?.engineCaller)
+    } catch (error) {
+      if (error.dispatched !== false) throw error
+      port.postMessage({ error: error.message, errorCode: error.code, dispatched: false })
+      port.postMessage({ done: true, outcome: 'failed' })
+    }
+    return
+  }
   for (const provider of PROVIDERS) {
     if (provider.match(session, config)) {
       await provider.run({ session, port, config, ctx })

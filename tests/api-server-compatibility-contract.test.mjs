@@ -1,3 +1,5 @@
+import { forwardEngineBridgeFrame, engineBridgeFailure } from '../src/engines/bridge-client.mjs'
+import { ENGINE_BRIDGE_PROTOCOL } from '../src/engines/contract.mjs'
 /* eslint-env node */
 import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
@@ -7,10 +9,6 @@ import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
 import { respondChatgptNotDispatched } from '../scripts/lib/chatgpt-write-operations.mjs'
 
 const gatewaySource = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
-const bridgePageSource = fs.readFileSync(
-  new URL('../src/pages/ApiServer/App.jsx', import.meta.url),
-  'utf8',
-)
 const draftsWriteClientSource = fs.readFileSync(
   new URL('../docs/drafts/action-3-send-waiting-reply.js', import.meta.url),
   'utf8',
@@ -60,9 +58,13 @@ describe('API gateway compatibility contract', () => {
     expect(gatewaySource).toContain(
       'const DEFAULT_THINKING_EFFORT = CHATGPT_WEB_DEFAULT_THINKING_EFFORT',
     )
-    expect(
-      sourceBetween(gatewaySource, 'const AVAILABLE_MODELS = [', 'const DEFAULT_MODEL ='),
-    ).toContain(`{ id: '${CHATGPT_WEB_DEFAULT_MODEL_SLUG}'`)
+    const adapterSource = fs.readFileSync(
+      new URL('../src/engines/adapters.mjs', import.meta.url),
+      'utf8',
+    )
+    expect(adapterSource).toContain(
+      "if (definition.id === 'chatgptweb') return CHATGPT_WEB_DEFAULT_MODEL_SLUG",
+    )
   })
 
   it('lets the gateway choose the current model for a new Drafts conversation', () => {
@@ -171,7 +173,7 @@ describe('API gateway compatibility contract', () => {
     const handler = sourceBetween(
       gatewaySource,
       'async function handleChatCompletions',
-      'let cachedModels',
+      'async function handleModels(res)',
     )
 
     expect(handler).toContain("beginWriteOperation(req, '/v1/chat/completions', body)")
@@ -200,18 +202,21 @@ describe('API gateway compatibility contract', () => {
     expect(request.headers['Idempotency-Key']).toMatch(/^drafts-/)
   })
 
-  it('only retries read-only bridge control actions', () => {
-    const retryableActions = bridgePageSource.match(
-      /const RETRYABLE_CONTROL_ACTIONS = new Set\(\[([\s\S]*?)\]\)/,
-    )?.[1]
-
-    expect(retryableActions).toContain('ListConversations')
-    expect(retryableActions).toContain('GetConversation')
-    expect(retryableActions).toContain('ListModels')
-    expect(retryableActions).not.toContain('CreateConversation')
-    expect(retryableActions).not.toContain('SendConversationMessage')
-    expect(retryableActions).not.toContain('RefreshConversation')
-    expect(retryableActions).not.toContain('SyncConversations')
+  it('does not replay an invocation when the background reply is lost', async () => {
+    const send = vi.fn(async () => undefined)
+    await expect(
+      forwardEngineBridgeFrame(
+        {
+          command: {
+            protocol: ENGINE_BRIDGE_PROTOCOL,
+            method: 'engines.invoke',
+            runId: 'known-run',
+          },
+        },
+        send,
+      ),
+    ).rejects.toMatchObject({ code: 'RESULT_UNCERTAIN', runId: 'known-run' })
+    expect(send).toHaveBeenCalledTimes(1)
   })
 
   it('does not mark Grok pre-POST failures as ambiguous_dispatch', () => {
@@ -241,37 +246,37 @@ describe('API gateway compatibility contract', () => {
     expect(gatewaySource).toContain('grokPrePostRetryable')
   })
 
-  it('caches live /v1/models lists only (not AVAILABLE_MODELS fallback)', () => {
-    const handleModels = sourceBetween(
+  it('obtains /v1/models from registered, enabled engine catalogs', () => {
+    const handler = sourceBetween(
       gatewaySource,
       'async function handleModels(res)',
       'function handleStatus(res)',
     )
-
-    expect(handleModels).toContain('fromLiveChatgpt = true')
-    expect(handleModels).toMatch(
-      /if \(fromLiveChatgpt\) \{[\s\S]*?cachedModels = models[\s\S]*?cachedModelsAt = Date\.now\(\)/,
-    )
-    const fallbackIdx = handleModels.indexOf('AVAILABLE_MODELS.map')
-    const cacheGuardIdx = handleModels.indexOf('if (fromLiveChatgpt)')
-    const cacheAssignIdx = handleModels.indexOf('cachedModels = models')
-    expect(fallbackIdx).toBeGreaterThan(-1)
-    expect(cacheGuardIdx).toBeGreaterThan(fallbackIdx)
-    expect(cacheAssignIdx).toBeGreaterThan(cacheGuardIdx)
+    expect(handler).toContain("method: 'engines.list'")
+    expect(handler).toContain("method: 'engines.models'")
+    expect(handler).toContain('item.enabled')
+    expect(handler).not.toContain('AVAILABLE_MODELS')
   })
 
-  it('replaces cached Grok slugs when the live list is empty (signed out)', () => {
-    const handleModels = sourceBetween(
-      gatewaySource,
-      'async function handleModels(res)',
-      'function handleStatus(res)',
+  it('does not restore stale Grok slugs when the native catalog is empty', async () => {
+    const handleModels = vm.runInNewContext(
+      sourceBetween(
+        gatewaySource,
+        'async function handleModels(res)',
+        'function handleStatus(res)',
+      ) + '\nhandleModels',
+      {
+        sendControlRequestToBridge: async (_action, command) =>
+          command.method === 'engines.list'
+            ? [{ id: 'grokweb', route: 'grok-web', enabled: true }]
+            : { items: [], source: 'account-probe', availability: 'unknown' },
+        sendJson: (res, _status, value) => res.end(JSON.stringify(value)),
+        log() {},
+      },
     )
-
-    const emptyListIdx = handleModels.indexOf('if (Array.isArray(grokSlugs))')
-    const cacheAssignIdx = handleModels.indexOf('cachedGrokModels = grokSlugs.filter')
-    expect(emptyListIdx).toBeGreaterThan(-1)
-    expect(cacheAssignIdx).toBeGreaterThan(emptyListIdx)
-    expect(handleModels).not.toContain('grokSlugs.length > 0')
+    const res = { end: vi.fn() }
+    await handleModels(res)
+    expect(JSON.parse(res.end.mock.calls[0][0]).data).toEqual([])
   })
 
   it('maps post-dispatch Grok 429 to HTTP 429 instead of ambiguous_dispatch', () => {
@@ -301,22 +306,15 @@ describe('API gateway compatibility contract', () => {
     expect(helper.indexOf('writeHead(429')).toBeLessThan(helper.indexOf('writeHead(409'))
   })
 
-  it('retries Grok slugs after a ChatGPT model-list cache hit', () => {
-    const handleModels = sourceBetween(
+  it('re-reads model metadata through the same engine service on each catalog request', () => {
+    const handler = sourceBetween(
       gatewaySource,
       'async function handleModels(res)',
       'function handleStatus(res)',
     )
-
-    expect(handleModels).toContain('cachedGrokModels')
-    expect(handleModels).toContain('grokModelsReady')
-    const cacheHitIdx = handleModels.indexOf('models = cachedModels')
-    const grokFetchIdx = handleModels.indexOf("sendControlRequestToBridge('grok_web_list_models'")
-    const uncachedChatgptIdx = handleModels.indexOf('if (!models)')
-    expect(cacheHitIdx).toBeGreaterThan(-1)
-    expect(grokFetchIdx).toBeGreaterThan(-1)
-    expect(uncachedChatgptIdx).toBeGreaterThan(-1)
-    expect(grokFetchIdx).toBeGreaterThan(uncachedChatgptIdx)
+    expect(handler).toContain('for (const engine of')
+    expect(handler).toContain('refresh: true')
+    expect(handler).not.toContain('cachedModels')
   })
 
   it('maps a null Grok conversation GET to 502 like list and refresh', () => {
@@ -347,8 +345,20 @@ describe('API gateway compatibility contract', () => {
     )
   })
 
-  it('points Grok control no-response errors at grok.com', () => {
-    expect(bridgePageSource).toContain('GROK_PROXY_CONTROL_ACTIONS.has(action)')
-    expect(bridgePageSource).toContain("? 'grok.com' : 'chatgpt.com'")
+  it('preserves a common unknown-result error with its original run identity', () => {
+    const frame = engineBridgeFailure(
+      { type: 'control_request', id: 'request' },
+      {
+        code: 'RESULT_UNCERTAIN',
+        message: 'Stream disconnected',
+        runId: 'original-run',
+        submission: 'accepted',
+      },
+    )
+    expect(frame).toMatchObject({
+      type: 'control_error',
+      engineError: { runId: 'original-run', submission: 'accepted' },
+    })
+    expect(frame).not.toHaveProperty('dispatched')
   })
 })

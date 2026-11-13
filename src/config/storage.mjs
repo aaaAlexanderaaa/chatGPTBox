@@ -35,6 +35,7 @@ import {
 
 import { normalizeLanguageKey, preferredLanguageKey } from './language-preference.mjs'
 import { NATIVE_CHATGPT_DEFAULTS, nativeChatgptConfig } from './native-chatgpt.mjs'
+import { engineConfigDefaults } from '../engines/catalog.mjs'
 
 export function getNavigatorLanguage() {
   const l =
@@ -49,6 +50,9 @@ export function getNavigatorLanguage() {
  */
 export const defaultConfig = {
   ...NATIVE_CHATGPT_DEFAULTS,
+  ...engineConfigDefaults(),
+  engineExposureVersion: 0,
+  engineExposure: {},
   chatgptNativePasteActivationError: '',
   browserAssistantEnabled: true,
   browserAssistantFunctions: [],
@@ -159,9 +163,6 @@ export const defaultConfig = {
   enabledProviders: { ...DefaultEnabledProviderGroups },
   providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
   l1Providers: createDefaultL1Providers(),
-  chatgptWebEnabled: true,
-  grokWebEnabled: false,
-  geminiWebEnabled: false,
   geminiWebReady: false,
   chatgptWebEnabledModels: [CHATGPT_WEB_DEFAULT_MODEL_SLUG],
   grokWebEnabledModels: [],

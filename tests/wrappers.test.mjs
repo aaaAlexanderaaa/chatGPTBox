@@ -177,23 +177,26 @@ describe('registerPortListener', () => {
     Browser.runtime.onConnect.addListener = originalAddListener
   })
 
-  it('does not attach generic logging or model execution to private paste-review ports', () => {
-    let onConnect
-    Browser.runtime.onConnect.addListener = (listener) => {
-      onConnect = listener
-    }
-    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
-    const execute = vi.fn()
-    registerPortListener(execute)
-    const port = fakePort()
-    port.name = PASTE_REVIEW_PORT
-    onConnect(port)
-    port.emit({ original: 'synthetic-private-text' })
-    expect(port.messageListeners).toEqual([])
-    expect(execute).not.toHaveBeenCalled()
-    expect(debug).not.toHaveBeenCalled()
-    debug.mockRestore()
-  })
+  it.each([PASTE_REVIEW_PORT, 'chatgpt-proxy-response:run', 'grok-proxy-response:run'])(
+    'does not attach generic logging or model execution to private port %s',
+    (name) => {
+      let onConnect
+      Browser.runtime.onConnect.addListener = (listener) => {
+        onConnect = listener
+      }
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+      const execute = vi.fn()
+      registerPortListener(execute)
+      const port = fakePort()
+      port.name = name
+      onConnect(port)
+      port.emit({ original: 'synthetic-private-text' })
+      expect(port.messageListeners).toEqual([])
+      expect(execute).not.toHaveBeenCalled()
+      expect(debug).not.toHaveBeenCalled()
+      debug.mockRestore()
+    },
+  )
 
   it('acks {stop:true} without a session so the UI can leave Generating', async () => {
     let onConnect

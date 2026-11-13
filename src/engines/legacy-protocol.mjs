@@ -1,0 +1,152 @@
+import {
+  ChatgptProxyControlAction,
+  GrokProxyControlAction,
+  GeminiProxyControlAction,
+  RuntimeMessage,
+} from '../protocol/messages.mjs'
+import { EngineOperation as Op } from './contract.mjs'
+
+// Compatibility names are translated at the edge. Neither the bridge transport
+// nor the engine executor dispatches native provider control actions.
+export const LEGACY_ENGINE_CONTROLS = [
+  [
+    'compat.delete',
+    RuntimeMessage.DeleteConversation,
+    'chatgptweb',
+    'chatgptweb.conversation.delete',
+    'extension',
+  ],
+  [
+    'compat.feedback',
+    RuntimeMessage.Feedback,
+    'chatgptweb',
+    'chatgptweb.message.feedback',
+    'extension',
+  ],
+  [
+    'chatgpt_web_create_conversation',
+    RuntimeMessage.ChatgptWebCreateConversation,
+    'chatgptweb',
+    Op.Generate,
+    'create',
+  ],
+  [
+    'chatgpt_web_send_conversation_message',
+    RuntimeMessage.ChatgptWebSendConversationMessage,
+    'chatgptweb',
+    Op.Append,
+    'append',
+  ],
+  [
+    ChatgptProxyControlAction.ListConversations,
+    RuntimeMessage.ChatgptWebListConversations,
+    'chatgptweb',
+    Op.ListConversations,
+    'list',
+  ],
+  [
+    ChatgptProxyControlAction.GetConversation,
+    RuntimeMessage.ChatgptWebGetConversation,
+    'chatgptweb',
+    Op.ReadConversation,
+    'read',
+  ],
+  [
+    ChatgptProxyControlAction.RefreshConversation,
+    RuntimeMessage.ChatgptWebRefreshConversation,
+    'chatgptweb',
+    Op.ReadConversation,
+    'refresh',
+  ],
+  [
+    'chatgpt_web_get_turn_status',
+    RuntimeMessage.ChatgptWebGetTurnStatus,
+    'chatgptweb',
+    Op.ReadRun,
+    'turn',
+  ],
+  [
+    ChatgptProxyControlAction.ListModels,
+    RuntimeMessage.ChatgptWebListModels,
+    'chatgptweb',
+    Op.Generate,
+    'models',
+  ],
+  [
+    ChatgptProxyControlAction.ListProjects,
+    RuntimeMessage.ChatgptWebListProjects,
+    'chatgptweb',
+    'chatgptweb.projects.list',
+    'extension',
+  ],
+  [
+    ChatgptProxyControlAction.UploadImages,
+    RuntimeMessage.ChatgptWebUploadImages,
+    'chatgptweb',
+    'chatgptweb.attachments.upload',
+    'extension',
+  ],
+  [
+    ChatgptProxyControlAction.SyncConversations,
+    RuntimeMessage.ChatgptWebSyncConversations,
+    'chatgptweb',
+    'chatgptweb.history.sync',
+    'extension',
+  ],
+  [
+    GrokProxyControlAction.CreateConversation,
+    RuntimeMessage.GrokWebCreateConversation,
+    'grokweb',
+    Op.Generate,
+    'create',
+  ],
+  [
+    GrokProxyControlAction.SendConversationMessage,
+    RuntimeMessage.GrokWebSendConversationMessage,
+    'grokweb',
+    Op.Append,
+    'append',
+  ],
+  [
+    GrokProxyControlAction.ListConversations,
+    RuntimeMessage.GrokWebListConversations,
+    'grokweb',
+    Op.ListConversations,
+    'list',
+  ],
+  [
+    GrokProxyControlAction.GetConversation,
+    RuntimeMessage.GrokWebGetConversation,
+    'grokweb',
+    Op.ReadConversation,
+    'read',
+  ],
+  [
+    GrokProxyControlAction.RefreshConversation,
+    RuntimeMessage.GrokWebRefreshConversation,
+    'grokweb',
+    Op.ReadConversation,
+    'refresh',
+  ],
+  [
+    GrokProxyControlAction.ListModels,
+    RuntimeMessage.GrokWebListModels,
+    'grokweb',
+    Op.Generate,
+    'models',
+  ],
+  [
+    GeminiProxyControlAction.ListModels,
+    RuntimeMessage.GeminiWebListModels,
+    'geminiweb',
+    Op.Generate,
+    'models',
+  ],
+].map(([action, message, engineId, operation, mode]) =>
+  Object.freeze({ action, message, engineId, operation, mode }),
+)
+
+export const legacyControlForAction = (action) =>
+  LEGACY_ENGINE_CONTROLS.find((entry) => entry.action === action)
+export const legacyControlForMessage = (message) =>
+  LEGACY_ENGINE_CONTROLS.find((entry) => entry.message === message)

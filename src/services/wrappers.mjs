@@ -36,7 +36,11 @@ export async function getChatGptAccessToken() {
 
 export function handlePortError(session, port, err) {
   console.error(err)
-  if (err.chatgptWebNotDispatched === true) {
+  if (
+    err.chatgptWebNotDispatched === true ||
+    err.dispatched === false ||
+    err.submission === 'not_attempted'
+  ) {
     port.postMessage({ error: err.message, errorCode: err.code, dispatched: false })
     return
   }
@@ -235,7 +239,12 @@ export function createPendingProxyCancellation(uiPort) {
 
 export function registerPortListener(executor) {
   Browser.runtime.onConnect.addListener((port) => {
-    if (port.name === 'api-bridge-proxy' || port.name === PASTE_REVIEW_PORT) return
+    if (
+      port.name === 'api-bridge-proxy' ||
+      port.name === PASTE_REVIEW_PORT ||
+      /^(chatgpt|grok)-proxy-response:/.test(port.name || '')
+    )
+      return
     console.debug('connected')
     const runGuard = createPortRunGuard(port)
     const onMessage = async (msg) => {

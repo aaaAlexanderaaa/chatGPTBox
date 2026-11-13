@@ -13,8 +13,14 @@ export const CHATGPT_WEB_INTEGRITY_RUNTIMES = Object.freeze(
 // extension neither implements challenges nor copies previously captured tokens.
 export async function getChatgptWebPageIntegrityInPage(
   contracts,
-  loadModule = (url) => import(/* webpackIgnore: true */ url),
+  loadModuleOrBinding,
+  binding = {},
 ) {
+  const loadModule =
+    typeof loadModuleOrBinding === 'function'
+      ? loadModuleOrBinding
+      : (url) => import(/* webpackIgnore: true */ url)
+  if (loadModuleOrBinding && typeof loadModuleOrBinding === 'object') binding = loadModuleOrBinding
   const failure = (code, message) => ({ ok: false, code, message })
   if (location.origin !== 'https://chatgpt.com' || window.top !== window) {
     return failure('CHATGPT_WEB_PAGE_REQUIRED', 'Open the ChatGPT proxy tab and sign in first.')
@@ -255,6 +261,21 @@ export async function getChatgptWebPageIntegrityInPage(
         'The ChatGPT native authentication generation is unavailable. Reload the proxy tab.',
       )
     const expectedIdentity = { accountId: identity.accountId, userId: identity.userId }
+    let accountFingerprint = null
+    if (binding.salt) {
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(`${binding.salt}:${identity.accountId}:${identity.userId}`),
+      )
+      accountFingerprint = [...new Uint8Array(digest)]
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+      if (binding.expectedFingerprint && accountFingerprint !== binding.expectedFingerprint)
+        return failure(
+          'BINDING_CHANGED',
+          'The original ChatGPT account or workspace changed. No question was submitted.',
+        )
+    }
     const assertCurrent = () => {
       if (!capabilitiesCurrent())
         throw new Error(
@@ -578,6 +599,7 @@ export async function getChatgptWebPageIntegrityInPage(
       profile: contract.profile,
       transport: 'native',
       channel,
+      accountFingerprint,
       baseHeaders: {},
       integrityHeaders: {},
     }
@@ -608,7 +630,7 @@ export async function getChatgptWebPageIntegrityInPage(
   }
 }
 
-export async function getChatgptWebPageIntegrity({ signal, apiUrl, apiPath }) {
+export async function getChatgptWebPageIntegrity({ signal, apiUrl, apiPath, binding }) {
   if (
     apiUrl?.replace(/\/$/, '') !== 'https://chatgpt.com' ||
     !['/backend-api/f/conversation', '/backend-api/conversation'].includes(
@@ -627,7 +649,10 @@ export async function getChatgptWebPageIntegrity({ signal, apiUrl, apiPath }) {
   })
   try {
     const result = await Promise.race([
-      Browser.runtime.sendMessage({ type: RuntimeMessage.ChatgptWebPageIntegrity }),
+      Browser.runtime.sendMessage({
+        type: RuntimeMessage.ChatgptWebPageIntegrity,
+        data: { binding },
+      }),
       cancelled,
     ])
     if (!result?.ok || !result.baseHeaders || !result.integrityHeaders) {

@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-13
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -14,8 +14,9 @@ request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
 
 These actions continue to use the ChatGPT conversation endpoints. The gateway's
-separate Gemini completion selector does not change Drafts' model, history or
-recovery behavior, and is not a supported `MODEL_OVERRIDE` here.
+Gemini completion and common run interfaces do not change Drafts' model, history
+or recovery behavior. Gemini is not a supported `MODEL_OVERRIDE` here; the
+existing List/Get/Send actions have not been adapted for Gemini.
 
 ## Install and configure
 

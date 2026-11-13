@@ -1,8 +1,7 @@
+import { createLegacyEngineControls } from '../src/engines/legacy-controls.mjs'
 /* eslint-env node */
 import { describe, expect, it, vi } from 'vitest'
-import fs from 'node:fs'
-import vm from 'node:vm'
-import { GrokProxyControlAction, RuntimeMessage } from '../src/protocol/messages.mjs'
+import { RuntimeMessage } from '../src/protocol/messages.mjs'
 import { OperationLedger } from '../scripts/lib/operation-ledger.mjs'
 import {
   isLegacyChatgptNotDispatchedOperation,
@@ -10,45 +9,55 @@ import {
 } from '../scripts/lib/chatgpt-write-operations.mjs'
 
 describe('ChatGPT unsent write recovery', () => {
-  it('passes only proven unsent failures through both write controls', async () => {
-    const source = fs.readFileSync(
-      new URL('../src/background/message-router.mjs', import.meta.url),
-      'utf8',
-    )
-    const start = source.indexOf('export function createMessageRouter()')
-    let failure = Object.assign(new Error('Verification failed'), {
-      chatgptWebNotDispatched: true,
-      code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+  it('projects only a proven unsent common run through both legacy write controls', async () => {
+    const invoke = vi.fn(async () => ({ runId: 'run' }))
+    const service = {
+      invoke,
+      wait: async () => ({
+        submission: 'not_attempted',
+        error: { code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED', message: 'Verification failed' },
+      }),
+      privateBindings: async () => [
+        { ref: 'ref', revision: 1, nativeRef: { session: { conversationId: 'conversation' } } },
+      ],
+    }
+    const control = createLegacyEngineControls({
+      service,
+      adapters: [
+        {
+          describe: () => ({ id: 'chatgptweb' }),
+          fromLegacyControl: () => ({
+            request: {
+              engineId: 'chatgptweb',
+              operation: 'generation.start',
+              input: { prompt: 'hello' },
+            },
+            session: {},
+          }),
+        },
+      ],
+      getConfig: async () => ({}),
     })
-    const write = vi.fn(async () => {
-      throw failure
-    })
-    const route = vm.runInNewContext(
-      source.slice(start).replace('export function', 'function') + '\ncreateMessageRouter()',
-      {
-        RuntimeMessage,
-        registerChatgptWebCacheMutationOwner: () => {},
-        registerLocalSessionMutationOwner: () => {},
-        GrokProxyControlAction,
-        createChatgptWebConversation: write,
-        sendChatgptWebConversationMessageThroughProxy: write,
-      },
-    )
     for (const type of [
       RuntimeMessage.ChatgptWebCreateConversation,
       RuntimeMessage.ChatgptWebSendConversationMessage,
     ]) {
-      expect(await route({ type, data: { query: 'hello' } })).toMatchObject({
+      expect(
+        await control(
+          { type, data: { conversationId: 'conversation' } },
+          { kind: 'api', principal: 'gateway-api' },
+        ),
+      ).toMatchObject({
         dispatched: false,
-        code: failure.code,
-        error: failure.message,
+        code: 'CHATGPT_WEB_RUNTIME_UNSUPPORTED',
+        error: 'Verification failed',
       })
-      expect(write).toHaveBeenLastCalledWith({ query: 'hello' })
     }
-    failure = new Error('Acknowledgement lost')
-    await expect(route({ type: RuntimeMessage.ChatgptWebCreateConversation })).rejects.toThrow(
-      'Acknowledgement lost',
-    )
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke.mock.calls[1][0]).toMatchObject({
+      operation: 'conversation.append',
+      conversation: { ref: 'ref', expectedRevision: 1 },
+    })
   })
   it('releases a proven unsent write so an edited request can use the same key', () => {
     const ledger = new OperationLedger()

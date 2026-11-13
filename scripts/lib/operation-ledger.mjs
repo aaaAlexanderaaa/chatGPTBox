@@ -156,7 +156,13 @@ export class OperationLedger {
   }
 
   complete(record, result) {
-    return this.update(record, { state: 'completed', result, error: null })
+    const runResolved = result?.runId
+      ? (result.phase === 'settled' &&
+          (result.outcome === 'completed' || result.submission === 'not_attempted')) ||
+        result.status === 'completed' ||
+        (result.pending === false && typeof result.answer === 'string')
+      : true
+    return this.update(record, { state: 'completed', result, error: null, runResolved })
   }
 
   abort(record) {
@@ -190,7 +196,13 @@ export class OperationLedger {
     const cutoff = Date.now() - this.ttlMs
     for (const [key, record] of this.records) {
       const updatedAt = Date.parse(record.updatedAt || record.createdAt || '')
-      if (Number.isFinite(updatedAt) && updatedAt < cutoff) this.records.delete(key)
+      if (
+        record.state === 'completed' &&
+        record.runResolved !== false &&
+        Number.isFinite(updatedAt) &&
+        updatedAt < cutoff
+      )
+        this.records.delete(key)
     }
     if (persist) this.persist()
   }

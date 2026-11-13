@@ -1,3 +1,4 @@
+import { announceEngineBridge, decodeCompatibilityFrame } from './helpers/engine-wire-fixture.mjs'
 /* eslint-env node */
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { spawn } from 'node:child_process'
@@ -76,10 +77,11 @@ describe('real HTTP gateway photo requests', () => {
       bridge.once('open', resolve)
       bridge.once('error', reject)
     })
+    await announceEngineBridge(bridge)
     const dispatches = []
     let releaseUpload
     bridge.on('message', (raw) => {
-      const message = JSON.parse(String(raw))
+      const message = decodeCompatibilityFrame(JSON.parse(String(raw)))
       if (message.type !== 'control_request') return
       dispatches.push(message)
       const reply = (data) =>

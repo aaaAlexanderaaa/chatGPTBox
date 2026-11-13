@@ -6,6 +6,11 @@ const REMOTE_FIELDS = [
   'messageId',
   'parentMessageId',
   'wsRequestId',
+  'engineRunId',
+  'engineConversationRef',
+  'engineConversationRevision',
+  'engineAccountSalt',
+  'engineAccountFingerprint',
   'previousResponseID',
   'geminiWebTabId',
   'geminiWebOwnerId',
@@ -52,7 +57,14 @@ export function isSessionSnapshotKey(key, sessionId) {
 export function switchSessionEngine(session, modelName) {
   const previous = parseEngineSelection(getSelectionString(session))?.providerId
   const next = parseEngineSelection(modelName)?.providerId
-  const result = { ...session, modelName, apiMode: null, isRetry: false, retryReplacement: null }
+  const result = {
+    ...session,
+    modelName,
+    apiMode: null,
+    isRetry: false,
+    retryReplacement: null,
+    chatgptWebModelSlugOverride: null,
+  }
   if (!previous || previous !== next) {
     advanceRemoteBinding(session, result)
   }

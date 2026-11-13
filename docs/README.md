@@ -16,6 +16,7 @@ plan, or a successful test run does not acquire product authority.
 | --- | --- | --- |
 | What is ChatGPTBox for? | [Product definition](product/definition.md), then the [browser assistant direction](product/browser-assistant.md) | Accepted purpose, user outcomes, and scope |
 | What must a feature preserve? | [Product contracts](product/contracts.md) | Product behavior and failure boundaries |
+| What should an engine operation mean across pages, API and MCP? | [Engine contract](engine-contract.md) | Shared operation semantics, adapter interface, exposure rules and compatibility |
 | Where does code belong? | [Architecture](../ARCHITECTURE.md) | Runtime boundaries, state owners, and dependency direction |
 | How should a change be delivered? | [Development discipline](contracts/development.md) | Investigation, authority, implementation, and verification |
 | How are documents maintained? | [Documentation discipline](contracts/documentation.md) | Ownership, lifecycle, evidence, and checks |

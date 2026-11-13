@@ -11,20 +11,24 @@ export function allowedClientOrigin(origin, pairedOrigin, extraOrigins = []) {
   return Boolean(origin && (origin === pairedOrigin || extraOrigins.includes(origin)))
 }
 
-export function isClientAuthorized(req, { apiToken, bridgeToken, pairedOrigin } = {}) {
+export function clientRole(req, { apiToken, bridgeToken, pairedOrigin } = {}) {
   const authorization = req?.headers?.authorization
   const token =
     typeof authorization === 'string' && /^Bearer\s+\S+$/i.test(authorization)
       ? authorization.replace(/^Bearer\s+/i, '')
       : ''
-  if (!token) return false
-  if (apiToken && timingSafeEquals(token, apiToken)) return true
-  return Boolean(
-    bridgeToken &&
-      req?.headers?.origin === pairedOrigin &&
-      isExtensionOrigin(pairedOrigin) &&
-      timingSafeEquals(token, bridgeToken),
-  )
+  if (!token) return null
+  if (apiToken && timingSafeEquals(token, apiToken)) return 'api'
+  return bridgeToken &&
+    req?.headers?.origin === pairedOrigin &&
+    isExtensionOrigin(pairedOrigin) &&
+    timingSafeEquals(token, bridgeToken)
+    ? 'api'
+    : null
+}
+
+export function isClientAuthorized(req, options) {
+  return Boolean(clientRole(req, options))
 }
 
 export function isAllowedHost(hostHeader, host, port) {

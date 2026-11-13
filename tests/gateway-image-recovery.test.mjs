@@ -1,3 +1,4 @@
+import { announceEngineBridge, decodeCompatibilityFrame } from './helpers/engine-wire-fixture.mjs'
 /* eslint-env node */
 import { once } from 'node:events'
 import fs from 'node:fs'
@@ -47,6 +48,7 @@ beforeAll(async () => {
     headers: { Origin: 'chrome-extension://image-recovery-test' },
   })
   await once(bridge, 'open')
+  await announceEngineBridge(bridge)
 }, 15000)
 
 afterAll(async () => {
@@ -99,7 +101,7 @@ describe('OpenAI-compatible image send recovery', () => {
     async (stream) => {
       const requests = []
       const onRequest = (raw) => {
-        const message = JSON.parse(String(raw))
+        const message = decodeCompatibilityFrame(JSON.parse(String(raw)))
         if (message.type !== 'request') return
         requests.push(message)
         bridge.send(
@@ -151,7 +153,7 @@ describe('OpenAI-compatible image send recovery', () => {
     async (stream, dispatched) => {
       let count = 0
       const onRequest = (raw) => {
-        const message = JSON.parse(String(raw))
+        const message = decodeCompatibilityFrame(JSON.parse(String(raw)))
         if (message.type !== 'request') return
         count++
         bridge.send(

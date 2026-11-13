@@ -622,6 +622,10 @@ async function runChatgptWebRequest(port, question, session, accessToken, dispat
       signal: controller.signal,
       apiUrl: config.customChatGptWebApiUrl,
       apiPath,
+      binding: {
+        salt: session.engineAccountSalt,
+        expectedFingerprint: session.engineAccountFingerprint,
+      },
     })
     throwIfAborted(controller.signal)
   } catch (error) {
@@ -629,6 +633,8 @@ async function runChatgptWebRequest(port, question, session, accessToken, dispat
     throw error
   }
   if (pageContext.profile === 'codex-webview') apiPath = '/backend-api/f/conversation'
+  if (pageContext.accountFingerprint)
+    session.engineAccountFingerprint = pageContext.accountFingerprint
   const usesStreamHandoffEndpoint = isChatgptWebStreamHandoffEndpoint(apiPath)
   pageTransport = createChatgptWebPageTransport(pageContext)
   const pageFetch = pageTransport.fetch
@@ -1618,6 +1624,12 @@ async function runChatgptWebRequest(port, question, session, accessToken, dispat
     })
     pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
-    port.postMessage({ answer: answer, done: true, session: session })
+    port.postMessage({
+      answer: answer,
+      finalContent: answer,
+      outcome: 'completed',
+      done: true,
+      session: session,
+    })
   }
 }

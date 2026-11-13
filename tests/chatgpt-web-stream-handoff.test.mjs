@@ -1,15 +1,7 @@
+import { createProviderBridgeFixture as createApiBridgeRequest } from './helpers/engine-provider-fixture.mjs'
 /* eslint-env node */
-import fs from 'node:fs'
-import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Browser from 'webextension-polyfill'
-import { initSession } from '../src/services/init-session.mjs'
-import {
-  slugToModelKey,
-  isGrokEngineKey,
-  isGeminiEngineKey,
-} from '../src/pages/ApiServer/model-slug.mjs'
-import { needsChatgptWebThinkingEffort } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { fetchSSE } from '../src/utils/fetch-sse.mjs'
 import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 import { chartComponentsMessage } from './fixtures/genui-charts.mjs'
@@ -55,6 +47,7 @@ afterEach(() => {
 })
 
 vi.mock('../src/config/storage.mjs', () => ({
+  setUserConfig: vi.fn(async () => {}),
   getUserConfig: vi.fn(async () => ({
     customChatGptWebApiUrl: 'https://chatgpt.com',
     customChatGptWebApiPath: '/backend-api/f/conversation',
@@ -133,54 +126,6 @@ function createSession(model) {
     conversationId: null,
     autoClean: false,
   }
-}
-
-// Execute the real bridge request handler without mounting the settings page.
-// Its session options and answer forwarding are part of the streaming contract.
-async function createApiBridgeRequest() {
-  const source = fs.readFileSync(new URL('../src/pages/ApiServer/App.jsx', import.meta.url), 'utf8')
-  const handlerSource = source.slice(
-    source.indexOf('const handleRequest = useCallback('),
-    source.indexOf('const handleControlRequest = useCallback('),
-  )
-  const wire = []
-  let session
-  let receive
-  const handleRequest = vm.runInNewContext(`${handlerSource}\nhandleRequest`, {
-    useCallback: (handler) => handler,
-    initSession,
-    slugToModelKey,
-    isGrokEngineKey,
-    isGeminiEngineKey,
-    needsChatgptWebThinkingEffort,
-    modelNameToApiMode: () => null,
-    formatMessages: (messages) => messages.at(-1).content,
-    findStoredChatgptWebApiThreadContinuation: async () => null,
-    getUserConfig: async () => ({ apiServerKeepHistory: true }),
-    saveChatgptWebSessionSnapshot: async () => {},
-    saveChatgptWebApiThread: async () => {},
-    addLog() {},
-    setRequestCount() {},
-    sendWs: (message) => wire.push(message),
-    Browser: {
-      runtime: {
-        connect: () => ({
-          onMessage: { addListener: (listener) => (receive = listener) },
-          onDisconnect: { addListener() {} },
-          postMessage: (message) => (session = message.session),
-          disconnect() {},
-        }),
-      },
-    },
-  })
-  await handleRequest({
-    id: 'request-1',
-    operationId: 'user-1',
-    model: 'gpt-6-thinking',
-    messages: [{ role: 'user', content: 'hello' }],
-    stream: true,
-  })
-  return { session, wire, receive }
 }
 
 function assistantMessageDelta(text, extra = {}) {
@@ -368,6 +313,7 @@ describe('API bridge dispatch errors', () => {
     async (dispatched) => {
       const bridge = await createApiBridgeRequest()
       bridge.receive({ error: 'Request failed', dispatched })
+      await bridge.done
       expect(bridge.wire).toHaveLength(1)
       expect(bridge.wire[0]).toMatchObject({
         type: 'error',
@@ -1019,6 +965,7 @@ describe('ChatGPT Web client handoff integration', () => {
         '../src/services/clients/chatgpt-web/client.mjs'
       )
       await generateAnswersWithChatgptWebApi(port, 'hello', bridge.session, 'token')
+      await bridge.done
       // The gateway converts this single completed snapshot to content, stop,
       // and [DONE], without ever having published the incompatible raw text.
       expect(bridge.wire).toHaveLength(1)
@@ -1093,6 +1040,7 @@ describe('ChatGPT Web client handoff integration', () => {
       '../src/services/clients/chatgpt-web/client.mjs'
     )
     await generateAnswersWithChatgptWebApi(port, 'hello', bridge.session, 'token')
+    await bridge.done
     expect(bridge.wire).toHaveLength(1)
     expect(bridge.wire[0]).toMatchObject({ type: 'done' })
     expect(bridge.wire[0].answer).toContain('Complete merged answer')

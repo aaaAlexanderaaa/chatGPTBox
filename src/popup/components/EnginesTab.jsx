@@ -6,6 +6,7 @@ import { SettingRow, SettingSection, ToggleSwitch, Divider } from './SettingComp
 import { SearchableSelect } from './SearchableSelect.jsx'
 import { buildEngineOptions, patchEngineSelection } from './engine-options.mjs'
 import { cn } from '../../utils/cn.mjs'
+import { EngineAccessPanel } from './EngineAccessPanel.jsx'
 import {
   deriveV1BaseUrlFromEndpoint,
   fetchOllamaTags,
@@ -522,6 +523,8 @@ export function EnginesTab({ config, updateConfig, onOpenEngineTab, enablePrompt
           />
         </div>
       </SettingSection>
+      <Divider />
+      <EngineAccessPanel />
     </div>
   )
 }

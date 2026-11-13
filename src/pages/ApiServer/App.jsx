@@ -2,12 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import { useTranslation } from 'react-i18next'
 import Browser from 'webextension-polyfill'
 import { getUserConfig, setUserConfig } from '../../config/storage.mjs'
-import { initSession } from '../../services/init-session.mjs'
-import {
-  findStoredChatgptWebApiThreadContinuation,
-  saveChatgptWebApiThread,
-  saveChatgptWebSessionSnapshot,
-} from '../../services/clients/chatgpt-web/thread-state.mjs'
 import {
   extractChatgptWebConversationListItems,
   formatChatgptWebConversationListItem,
@@ -18,16 +12,12 @@ import {
   importChatgptHistoryData,
 } from '../../services/clients/chatgpt-web/history-transfer.mjs'
 import { downloadChatgptHistoryVolumes } from '../../popup/file-transfer.mjs'
-import { modelNameToApiMode } from '../../utils/model-name-convert.mjs'
-import { needsChatgptWebThinkingEffort } from '../../services/clients/chatgpt-web/thinking.mjs'
+import { RuntimeMessage } from '../../protocol/messages.mjs'
 import {
-  ChatgptProxyControlAction,
-  GROK_PROXY_CONTROL_ACTIONS,
-  GrokProxyControlAction,
-  GeminiProxyControlAction,
-  RuntimeMessage,
-} from '../../protocol/messages.mjs'
-import { isGeminiEngineKey, isGrokEngineKey, slugToModelKey } from './model-slug.mjs'
+  forwardEngineBridgeFrame,
+  engineBridgeFailure,
+  observeEngineBridgeRun,
+} from '../../engines/bridge-client.mjs'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useWindowTheme } from '../../hooks/use-window-theme.mjs'
 import { applyDocumentAppearance } from '../../utils/appearance.mjs'
@@ -38,28 +28,6 @@ const RECONNECT_DELAY = 3000
 const MAX_LOG_ENTRIES = 200
 const HEALTH_CHECK_INTERVAL = 15000
 const PORT_KEEPALIVE_MS = 20_000
-const RETRYABLE_CONTROL_ACTIONS = new Set([
-  ChatgptProxyControlAction.ListConversations,
-  ChatgptProxyControlAction.GetConversation,
-  ChatgptProxyControlAction.ListModels,
-  ChatgptProxyControlAction.ListProjects,
-  GrokProxyControlAction.ListConversations,
-  GrokProxyControlAction.GetConversation,
-  GrokProxyControlAction.ListModels,
-])
-
-function formatMessages(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return ''
-  if (messages.length === 1) return messages[0].content
-  return messages
-    .map((msg) => {
-      const role =
-        msg.role === 'system' ? 'System' : msg.role === 'assistant' ? 'Assistant' : 'User'
-      return `${role}: ${msg.content}`
-    })
-    .join('\n\n')
-}
-
 function buildBridgeWsUrl(targetPort, token) {
   return `ws://127.0.0.1:${targetPort}/bridge${token ? `?token=${encodeURIComponent(token)}` : ''}`
 }
@@ -194,10 +162,17 @@ function App() {
     if (!targetPort) return
     try {
       const runtimeConfig = await getUserConfig()
+      const identity = await Browser.runtime.sendMessage({
+        type: RuntimeMessage.EngineRequest,
+        data: { method: 'engine.installation' },
+      })
+      if (!identity?.ok) throw new Error('Engine installation identity is unavailable')
       targetPort.postMessage({
         action: 'send',
         payload: JSON.stringify({
           type: 'bridge_config',
+          engineProtocol: identity.value.protocol,
+          installationId: identity.value.installationId,
           origin: location.origin,
           requestTimeoutSeconds: runtimeConfig.apiServerRequestTimeoutSeconds,
           thinkingRequestTimeoutSeconds: runtimeConfig.apiServerThinkingTimeoutSeconds,
@@ -212,304 +187,35 @@ function App() {
   // Handle incoming request from API server
   // -----------------------------------------------------------------------
 
-  const handleRequest = useCallback(
+  const forwardBridgeRequest = useCallback(
     async (data) => {
-      const { id, model, messages, thinkingEffort, images = [], projectId = null } = data
-      const modelKey = slugToModelKey(model)
-      const apiMode = modelNameToApiMode(modelKey)
-      const isGrokRequest = isGrokEngineKey(modelKey)
-      const isGeminiRequest = isGeminiEngineKey(modelKey)
-      const isOtherWebRequest = isGrokRequest || isGeminiRequest
-      if (
-        isGeminiRequest &&
-        (images.length || projectId || (thinkingEffort && thinkingEffort !== 'high'))
-      ) {
-        sendWs({
-          type: 'error',
-          id,
-          error: 'Gemini Web supports text chat with 4 Argon / High only.',
-          dispatched: false,
-        })
-        return
-      }
-      const isThinkingRequest = !isOtherWebRequest && needsChatgptWebThinkingEffort(model)
-      const continuation =
-        isThinkingRequest && !images.length && !projectId
-          ? await findStoredChatgptWebApiThreadContinuation({ model, messages }).catch(() => null)
-          : null
-      const question = continuation
-        ? continuation.nextUserMessage.content
-        : formatMessages(messages)
-
-      addLog(`Request ${id.slice(0, 8)}...: model=${model} → ${modelKey}`)
-      if (continuation) {
-        addLog(
-          `Reusing ChatGPT conversation ${continuation.conversationId.slice(
-            0,
-            8,
-          )}... for follow-up thinking request`,
+      try {
+        setRequestCount((count) => count + 1)
+        let value = await forwardEngineBridgeFrame(data, (message) =>
+          Browser.runtime.sendMessage(message),
         )
-      }
-      setRequestCount((c) => c + 1)
-
-      const runtimeConfigPromise = getUserConfig()
-
-      const session = isOtherWebRequest
-        ? initSession({
-            question,
-            modelName: modelKey,
-            apiMode: apiMode || null,
-            conversationRecords: [],
-          })
-        : initSession({
-            question,
-            modelName: modelKey,
-            apiMode: apiMode || null,
-            conversationRecords: [],
-            // GenUI metadata and citations may arrive after plain text. The
-            // OpenAI stream can only append, so publish the completed snapshot.
-            // The gateway keeps the SSE connection alive while we wait.
-            chatgptWebIncrementalOutput: false,
-            chatgptWebThinkingEffortOverride:
-              typeof thinkingEffort === 'string' ? thinkingEffort.trim() || null : null,
-          })
-      session.messageId = typeof data.operationId === 'string' ? data.operationId : null
-      if (!isOtherWebRequest) {
-        session.chatgptWebModelSlugOverride = (model || '').trim() || undefined
-        session.chatgptWebProjectId = projectId
-        if (images.length) {
-          try {
-            session.chatgptWebImagePointers = await Browser.runtime.sendMessage({
-              type: RuntimeMessage.ChatgptWebUploadImages,
-              data: { images, projectId },
-            })
-            if (
-              !Array.isArray(session.chatgptWebImagePointers) ||
-              session.chatgptWebImagePointers.length !== images.length
+        if (data.type === 'request') {
+          if (value.answer === undefined)
+            value = await observeEngineBridgeRun(data, value, (message) =>
+              Browser.runtime.sendMessage(message),
             )
-              throw new Error('Image upload returned no usable attachments')
-          } catch (error) {
-            sendWs({ type: 'error', id, error: error.message, dispatched: false })
-            return
-          }
-        }
-      }
-      if (continuation) {
-        session.conversationId = continuation.conversationId
-        session.parentMessageId = continuation.parentMessageId
-        void saveChatgptWebSessionSnapshot(session, { source: 'api-server-bridge' }).catch(() => {})
-      }
-
-      let bgPort
-      try {
-        bgPort = Browser.runtime.connect()
-      } catch (err) {
-        addLog(`Failed to connect to extension background: ${err.message}`, 'error')
-        sendWs({ type: 'error', id, error: err.message || 'Failed to connect to extension' })
-        return
-      }
-
-      let lastAnswer = ''
-      let finished = false
-      let latestSession = session
-
-      bgPort.onMessage.addListener((msg) => {
-        if (finished) return
-
-        if (msg.error) {
-          finished = true
-          const errText = msg.error
-          addLog(`Error ${id.slice(0, 8)}...: ${errText}`, 'error')
-          if (/failed to fetch/i.test(errText)) {
-            addLog(
-              'Tip: Open chatgpt.com in this browser and log in. The extension routes ChatGPT Web requests through a dedicated background proxy tab.',
-              'warn',
-            )
-          }
           sendWs({
-            type: 'error',
-            id,
-            error: msg.error,
-            ...(msg.dispatched === false && { dispatched: false }),
+            type: 'done',
+            id: data.id,
+            answer: value.answer,
+            runId: value.runId,
+            format: value.format,
           })
-          try {
-            bgPort.disconnect()
-          } catch {
-            /* ignore */
-          }
-          return
-        }
-
-        if (msg.session) {
-          latestSession = { ...latestSession, ...msg.session }
-          if (!isOtherWebRequest) {
-            void saveChatgptWebSessionSnapshot(latestSession, {
-              source: 'api-server-bridge',
-            }).catch(() => {})
-          }
-        }
-
-        // Adapters signal completion with `{ answer: null, done: true }`, so a
-        // null answer must not overwrite the text accumulated so far.
-        if (typeof msg.answer === 'string') {
-          lastAnswer = msg.answer
-          if (!msg.done && !isGeminiRequest) {
-            sendWs({ type: 'chunk', id, answer: msg.answer })
-          }
-        }
-
-        if (msg.done) {
-          finished = true
-          if (isGeminiRequest && (msg.outcome !== 'completed' || !msg.finalContent)) {
-            sendWs({
-              type: 'error',
-              id,
-              error:
-                'Gemini ended without a verified final result. Inspect its website; this request will not be resubmitted.',
-            })
-            try {
-              bgPort.disconnect()
-            } catch {
-              /* already disconnected */
-            }
-            return
-          }
-          if (isGeminiRequest) {
-            lastAnswer = msg.finalContent
-            sendWs({ type: 'chunk', id, answer: lastAnswer })
-          }
-          addLog(`Done ${id.slice(0, 8)}...: ${lastAnswer.length} chars`)
-          if (
-            isThinkingRequest &&
-            !images.length &&
-            !projectId &&
-            lastAnswer &&
-            latestSession?.conversationId
-          ) {
-            void saveChatgptWebApiThread({
-              model,
-              messages,
-              answer: lastAnswer,
-              session: latestSession,
-            }).catch(() => {})
-          }
-          sendWs({ type: 'done', id, answer: lastAnswer })
-          try {
-            bgPort.disconnect()
-          } catch {
-            /* ignore */
-          }
-        }
-      })
-
-      bgPort.onDisconnect.addListener(() => {
-        if (finished) return
-        finished = true
-        const errorMessage = lastAnswer
-          ? 'Extension background disconnected before response completed'
-          : 'Extension background disconnected before responding'
-        addLog(
-          `${errorMessage}${lastAnswer ? ` (${lastAnswer.length} chars received)` : ''}`,
-          'error',
-        )
-        sendWs({
-          type: 'error',
-          id,
-          error: errorMessage,
-        })
-      })
-
-      try {
-        const runtimeConfig = await runtimeConfigPromise
-        // A transport disconnect must never cause a second, hidden PATCH write to
-        // ChatGPT. History behavior is decided on the initial conversation POST.
-        session.autoClean = false
-        if (!isOtherWebRequest) {
-          session.chatgptWebHistoryDisabledOverride = runtimeConfig.apiServerKeepHistory !== true
-        }
-        bgPort.postMessage({ session })
-      } catch (err) {
-        if (!finished) {
-          finished = true
-          addLog(`Send error: ${err.message}`, 'error')
-          sendWs({ type: 'error', id, error: err.message || 'Failed to send to extension' })
-        }
-      }
-    },
-    [addLog, sendWs],
-  )
-
-  const handleControlRequest = useCallback(
-    async (data) => {
-      const { id, action, payload } = data
-
-      // Maps a local API-bridge action name (the wire value shared with the
-      // Node gateway) to the runtime message type dispatched in the background.
-      // Both sides reference the protocol constants so this table can't drift
-      // out of sync with the background receiver.
-      const actionToMessageType = {
-        [ChatgptProxyControlAction.ListProjects]: RuntimeMessage.ChatgptWebListProjects,
-        [ChatgptProxyControlAction.UploadImages]: RuntimeMessage.ChatgptWebUploadImages,
-        chatgpt_web_create_conversation: RuntimeMessage.ChatgptWebCreateConversation,
-        chatgpt_web_list_conversations: RuntimeMessage.ChatgptWebListConversations,
-        chatgpt_web_get_conversation: RuntimeMessage.ChatgptWebGetConversation,
-        chatgpt_web_get_turn_status: RuntimeMessage.ChatgptWebGetTurnStatus,
-        chatgpt_web_refresh_conversation: RuntimeMessage.ChatgptWebRefreshConversation,
-        chatgpt_web_send_conversation_message: RuntimeMessage.ChatgptWebSendConversationMessage,
-        chatgpt_web_sync_conversations: RuntimeMessage.ChatgptWebSyncConversations,
-        chatgpt_web_list_models: RuntimeMessage.ChatgptWebListModels,
-        [GrokProxyControlAction.ListModels]: RuntimeMessage.GrokWebListModels,
-        [GeminiProxyControlAction.ListModels]: RuntimeMessage.GeminiWebListModels,
-        [GrokProxyControlAction.ListConversations]: RuntimeMessage.GrokWebListConversations,
-        [GrokProxyControlAction.GetConversation]: RuntimeMessage.GrokWebGetConversation,
-        [GrokProxyControlAction.RefreshConversation]: RuntimeMessage.GrokWebRefreshConversation,
-        [GrokProxyControlAction.CreateConversation]: RuntimeMessage.GrokWebCreateConversation,
-        [GrokProxyControlAction.SendConversationMessage]:
-          RuntimeMessage.GrokWebSendConversationMessage,
-      }
-
-      try {
-        const messageType = actionToMessageType[action]
-        if (!messageType) throw new Error(`Unsupported control action: ${action}`)
-        const canRetry = RETRYABLE_CONTROL_ACTIONS.has(action)
-
-        let response = await Browser.runtime.sendMessage({
-          type: messageType,
-          data: payload || {},
-        })
-
-        // Service worker may have been terminated mid-request (MV3), retry once
-        if (response == null && canRetry) {
-          addLog(`Control ${action}: no response, retrying once...`, 'warn')
-          response = await Browser.runtime.sendMessage({
-            type: messageType,
-            data: payload || {},
-          })
-        }
-
-        if (response === null && action === 'chatgpt_web_get_turn_status') {
-          sendWs({ type: 'control_response', id, data: null })
-        } else if (response == null) {
-          addLog(
-            `Control ${action}: background returned no response${canRetry ? ' after retry' : ''}`,
-            'error',
-          )
-          const site = GROK_PROXY_CONTROL_ACTIONS.has(action) ? 'grok.com' : 'chatgpt.com'
-          sendWs({
-            type: 'control_error',
-            id,
-            error: `Background returned no response for ${action}. The service worker may have been terminated. Check that ${site} is open and you are logged in.`,
-          })
-        } else {
-          sendWs({ type: 'control_response', id, data: response })
-        }
+        } else sendWs({ type: 'control_response', id: data.id, data: value })
       } catch (error) {
-        addLog(`Control ${action}: ${error.message || error}`, 'error')
-        sendWs({ type: 'control_error', id, error: error.message || String(error) })
+        addLog(`Engine request ${data.id}: ${error.message}`, 'error')
+        sendWs(engineBridgeFailure(data, error))
       }
     },
     [addLog, sendWs],
   )
+  const handleRequest = forwardBridgeRequest
+  const handleControlRequest = forwardBridgeRequest
 
   const loadConversationList = useCallback(async () => {
     setConversationListLoading(true)
@@ -1118,13 +824,9 @@ function App() {
             Copy the separate API token into the API token field for health and conversation
             requests
           </li>
-          <li>Keep this page open (it bridges the API server to ChatGPT)</li>
-          <li>
-            Make sure you are logged in at{' '}
-            <a href="https://chatgpt.com" target="_blank" rel="noreferrer">
-              chatgpt.com
-            </a>
-          </li>
+          <li>In Engines, allow external API access for the engines and operations you need.</li>
+          <li>Keep this page open to connect the API server to the enabled web engines.</li>
+          <li>Sign in to the website of each web engine you want to use.</li>
           <li>
             Send requests to <code>http://127.0.0.1:{port}/v1/chat/completions</code>
           </li>

@@ -51,6 +51,7 @@ import { applyActionBadge, setRateLimitedFlag } from './action-badge.mjs'
 import { sidePanelPaths } from './sidepanel-path.mjs'
 import { createMessageRouter } from './message-router.mjs'
 import { startNativePasteActivation } from './native-paste-activation.mjs'
+import { engineRuntime } from '../engines/browser-runtime.mjs'
 
 // Pure diagnostic helper surfaced to the provider router via ctx so the router
 // can log a normalized apiMode shape without importing config internals.
@@ -153,7 +154,10 @@ async function ensureChatgptWebConversationSyncAlarm({ replaceExisting = false }
   })
 }
 
-Browser.runtime.onInstalled.addListener(() => {
+Browser.runtime.onInstalled.addListener((details) => {
+  void engineRuntime()
+    .initialize({ freshInstall: details?.reason === 'install' })
+    .catch(() => {})
   void ensureChatgptWebConversationSyncAlarm()
   void ensureChatgptWebFirstRun()
   void reconcileChatgptWebHydrateStateWithFallback()

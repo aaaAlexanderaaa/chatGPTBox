@@ -1,3 +1,4 @@
+import { announceEngineBridge, decodeCompatibilityFrame } from './helpers/engine-wire-fixture.mjs'
 /* eslint-env node */
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
@@ -81,6 +82,7 @@ async function connectBridge(instance) {
   })
   bridges.push(bridge)
   await once(bridge, 'open')
+  await announceEngineBridge(bridge)
   return bridge
 }
 
@@ -198,7 +200,7 @@ describe('gateway request isolation', () => {
     const bridge = await connectBridge(instance)
     const requests = []
     bridge.on('message', (raw) => {
-      const message = JSON.parse(String(raw))
+      const message = decodeCompatibilityFrame(JSON.parse(String(raw)))
       requests.push(message)
       bridge.send(
         JSON.stringify({
@@ -228,7 +230,9 @@ describe('gateway request isolation', () => {
       })
     const pending = send()
     const [raw] = await dispatched
-    expect(JSON.parse(String(raw)).action).toBe('chatgpt_web_create_conversation')
+    expect(decodeCompatibilityFrame(JSON.parse(String(raw))).action).toBe(
+      'chatgpt_web_create_conversation',
+    )
     bridge.close(1001, 'Simulated bridge interruption')
     const failed = await pending
     expect(failed.status).toBe(409)

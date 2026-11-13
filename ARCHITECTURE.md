@@ -2,7 +2,7 @@
 doc_type: architecture
 status: current
 authority: normative
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-13
 ---
 
 # ChatGPTBox architecture
@@ -65,6 +65,42 @@ RPCs call the configured loopback harness `/api` endpoints. The two downstream
 event streams run from a harness-origin content script and return through the
 module's carrier-tab bridge. The harness owns tool execution and authoritative
 sessions; the extension owns its client presentation and user responses.
+
+## Unified engine runtime
+
+The [engine contract](docs/engine-contract.md) owns generation, explicit append,
+history and run semantics. [contract](src/engines/contract.mjs),
+[catalog](src/engines/catalog.mjs), [schema](src/engines/schema.mjs) and
+[policy](src/engines/policy.mjs) are pure data/validation boundaries. The
+[runtime](src/engines/runtime.mjs) owns admission, run identity, observation,
+resource effects and terminal reduction; the serialized
+[store](src/engines/store.mjs) owns durable claims, bindings and leases.
+[Native adapters](src/engines/adapters.mjs) retain provider protocols and evidence.
+
+[browser-runtime](src/engines/browser-runtime.mjs) authenticates extension senders
+and projects the existing UI Port. [Legacy controls](src/engines/legacy-controls.mjs)
+and [completion compatibility](src/engines/compat-completions.mjs) translate old
+interfaces into those operations. The registry selects registered web engines
+before its retained API/DSH providers. Native proxy response Ports are excluded
+from generic UI dispatch. Existing exported native-service helpers are retained
+for internal compatibility; production public controls use the common owner.
+
+HTTP clients enter [the gateway](scripts/api-server.mjs), then
+[ApiServer.html](src/pages/ApiServer/App.jsx), then the same background runtime.
+[Versioned envelopes](scripts/lib/engine-bridge.mjs) pin the authenticated role,
+operation ID and installation epoch across WebSocket and HTTP polling. The bridge
+only forwards methods and observes common runs. MCP uses the
+[generic gateway/waiter](scripts/lib/engine-gateway.mjs) with the existing gateway
+API credential, principal and external engine grants. It has no separate gateway
+token or per-engine MCP authorization switch.
+
+Run protection is separate from its bounded, volatile result cache. An orphaned
+possibly submitted run remains unknown and protected; metadata eviction cannot
+permit replay. Native conversation leases follow the actual conversation ID,
+including alternative opaque references. Active runs use bounded extension API
+activity for MV3 lifetime; termination still relies on the journal and exact
+readonly recovery. See the [execution evidence](docs/evidence/2026-11-12-engine-runtime-review.md)
+for what was actually tested, installed and observed.
 
 ## Dependency and state boundaries
 

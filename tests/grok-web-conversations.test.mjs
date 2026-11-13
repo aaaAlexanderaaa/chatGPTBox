@@ -12,7 +12,8 @@ describe('normalizeGrokConversationList', () => {
       conversations: [{ conversationId: 'c1', title: 'Hello' }],
     })
     expect(out.items[0]).toMatchObject({ conversationId: 'c1', title: 'Hello' })
-    expect(out.total).toBe(1)
+    expect(out.returned).toBe(1)
+    expect(out.total).toBeNull()
   })
 })
 

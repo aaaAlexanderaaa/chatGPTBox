@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record                                                                 | State and remaining limit                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Unified engine runtime](2026-11-12-engine-runtime.md) | Completed local implementation: common operations, access, compatible API/bridge/MCP; 2,007 tests, installed/reconnected; live three-provider trials remain unclaimed |
 | [Gemini Web adapter](2026-11-12-gemini-web.md) | Completed and installed in Brave; corrected runtime mapping, 1,951 tests passed, one live 4 Argon / High response completed without resubmission |
 | [Review workflow fixes](2026-11-11-review-fixes.md)                    | Completed for source, documentation, controlled workflows and production bundles; recovered review findings reconciled, MCP terminal state and live acceptance remain unconfirmed           |
 | [Core workflows and confirmed defects](2026-11-08-core-workflows.md)   | Completed local delivery: core flows/confirmed defects repaired, final source evaluated and controlled Chromium follow-through verified; native/live acceptance and release remain separate |

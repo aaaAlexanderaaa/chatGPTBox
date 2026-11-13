@@ -57,6 +57,35 @@ describe('acquireGrokWebSessionLock', () => {
 })
 
 describe('handleGrokProxyRequest', () => {
+  it('refuses a switched account on a later engine append before its chat POST', async () => {
+    const session = {
+      question: 'First request',
+      modelName: 'grokweb/grok-chat-expert',
+      engineAccountSalt: 'synthetic-engine-salt',
+    }
+    await handleGrokProxyRequest({
+      session,
+      hostname: 'grok.com',
+      fetch: signedInSessionFetch(),
+      setUserConfig: async () => {},
+    })
+    expect(session.engineAccountFingerprint).toMatch(/^[a-f0-9]{64}$/)
+    let writes = 0
+    await expect(
+      handleGrokProxyRequest({
+        session: { ...session, question: 'Follow up' },
+        hostname: 'grok.com',
+        setUserConfig: async () => {},
+        fetch: async (url) => {
+          if (String(url).includes('/api/auth/session'))
+            return Response.json({ user: { userId: 'different-user' } })
+          writes++
+          throw new Error('A switched identity must not reach another request')
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BINDING_CHANGED', dispatched: false })
+    expect(writes).toBe(0)
+  })
   it('hard-confirms session then POSTs once and returns folded text', async () => {
     let chatPosts = 0
     const configs = []

@@ -105,6 +105,7 @@ async function connect(
   selectedContract = contract,
   discovery = 'script',
   contracts = CHATGPT_WEB_INTEGRITY_RUNTIMES,
+  binding = {},
 ) {
   const runtimeUrl = `https://chatgpt.com/cdn/assets/${selectedContract.filename}`
   document.scripts = discovery === 'preload' ? [] : [{ src: runtimeUrl }]
@@ -112,9 +113,13 @@ async function connect(
   const require = Object.assign((id) => modules[id], {
     m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
   })
-  const context = await getChatgptWebPageIntegrityInPage(contracts, async () => ({
-    __webpack_require__: require,
-  }))
+  const context = await getChatgptWebPageIntegrityInPage(
+    contracts,
+    async () => ({
+      __webpack_require__: require,
+    }),
+    binding,
+  )
   expect(context.ok).toBe(true)
   transport = createChatgptWebPageTransport(context)
   return context
@@ -153,6 +158,26 @@ it('keeps a failed attempted nativeFetch uncertain and does not replay it', asyn
 })
 
 describe('ChatGPT native page transport with auth generation', () => {
+  it('pins a salted account identity across separate engine requests without exporting credentials', async () => {
+    useGenerationRuntime()
+    const context = await connect(generationContract, 'preload', CHATGPT_WEB_INTEGRITY_RUNTIMES, {
+      salt: 'synthetic-engine-salt',
+    })
+    expect(context.accountFingerprint).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(context)).not.toContain(identity.accessToken)
+    transport.close()
+    identity = { ...identity, accountId: 'changed-workspace' }
+    const require = Object.assign((id) => modules[id], {
+      m: Object.fromEntries(Object.keys(modules).map((id) => [id, () => {}])),
+    })
+    const changed = await getChatgptWebPageIntegrityInPage(
+      CHATGPT_WEB_INTEGRITY_RUNTIMES,
+      async () => ({ __webpack_require__: require }),
+      { salt: 'synthetic-engine-salt', expectedFingerprint: context.accountFingerprint },
+    )
+    expect(changed).toMatchObject({ ok: false, code: 'BINDING_CHANGED' })
+    expect(modules.wl.c).not.toHaveBeenCalled()
+  })
   it('uses the October 10 auth generation without the removed token-context export and sends once', async () => {
     useGenerationRuntime()
     const context = await connect(generationContract, 'preload')

@@ -18,18 +18,12 @@ import {
   registerLocalSessionMutationOwner,
 } from '../services/local-session.mjs'
 import { setNativePasteEnabled } from './native-paste-activation.mjs'
-import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import { openUrl } from '../utils/open-url'
-import { getChatGptAccessToken } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
 import { isDedicatedChatgptProxyTabUrl } from '../utils/chatgpt-proxy-tab.mjs'
-import { GrokProxyControlAction, RuntimeMessage } from '../protocol/messages.mjs'
+import { RuntimeMessage } from '../protocol/messages.mjs'
 import {
-  refreshChatgptWebConversationWithFallback,
-  sendChatgptWebConversationMessageThroughProxy,
-  createChatgptWebConversation,
-  syncChatgptWebConversationCacheWithFallback,
   stopChatgptWebConversationCacheSyncWithFallback,
   unlockChatgptWebConversationSyncWithFallback,
   runChatgptWebConversationHydrateWithFallback,
@@ -38,19 +32,13 @@ import {
   clearChatgptWebHydrateFailuresWithFallback,
   resetChatgptWebHydrateCircuitWithFallback,
   reconcileChatgptWebHydrateStateWithFallback,
-  listChatgptWebConversationsWithFallback,
-  listChatgptWebModelsWithFallback,
-  getChatgptWebConversationWithFallback,
-  recoverChatgptWebTurnStatus,
-  uploadChatgptWebImagesViaProxy,
-  listChatgptWebProjectsViaProxy,
 } from './chatgpt-proxy-service.mjs'
 import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
-import { executeGrokWebControlRequest } from './grok-proxy-service.mjs'
 import { geminiWebService } from './gemini-web-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
-import { getChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
+import { engineRequestReply, executeLegacyEngineControl } from '../engines/browser-runtime.mjs'
+import { legacyControlForMessage } from '../engines/legacy-protocol.mjs'
 import {
   openNativePasteReview,
   authenticateNativePasteReview,
@@ -69,15 +57,6 @@ import {
 export function createMessageRouter() {
   registerChatgptWebCacheMutationOwner()
   registerLocalSessionMutationOwner()
-  const controlWrite = async (write, payload) => {
-    try {
-      return await write(payload)
-    } catch (error) {
-      if (error.chatgptWebNotDispatched === true)
-        return { dispatched: false, error: error.message, code: error.code }
-      throw error
-    }
-  }
   const geminiSettingsCall = (method, sender, data) => {
     if (
       sender?.id !== Browser.runtime.id ||
@@ -91,13 +70,16 @@ export function createMessageRouter() {
     }))
   }
   const routedHandlers = {
+    [RuntimeMessage.EngineRequest]: (message, sender) =>
+      engineRequestReply(message.data || {}, sender),
+    [RuntimeMessage.EngineBridgeRequest]: (message, sender) =>
+      engineRequestReply(message.data || {}, sender, { bridge: true }),
     [RuntimeMessage.GeminiWebInspect]: (_message, sender) => geminiSettingsCall('inspect', sender),
     [RuntimeMessage.GeminiWebOpen]: (_message, sender) => geminiSettingsCall('open', sender),
     [RuntimeMessage.GeminiWebReview]: (message, sender) =>
       geminiSettingsCall('review', sender, {
         acknowledgeUnverified: message?.data?.acknowledgeUnverified === true,
       }),
-    [RuntimeMessage.GeminiWebListModels]: () => geminiWebService.listModels(),
     [RuntimeMessage.LocalSessionMutation]: async (message, sender) => {
       if (
         sender?.id !== Browser.runtime.id ||
@@ -135,20 +117,8 @@ export function createMessageRouter() {
       authenticateNativePasteReview(message, sender),
     [RuntimeMessage.CloseNativePasteReview]: (message, sender) =>
       closeNativePasteReview(message, sender),
-    [RuntimeMessage.ChatgptWebListProjects]: (message) =>
-      listChatgptWebProjectsViaProxy(message.data),
-    [RuntimeMessage.ChatgptWebUploadImages]: (message) =>
-      uploadChatgptWebImagesViaProxy(message.data),
-    [RuntimeMessage.ChatgptWebPageIntegrity]: (_message, sender) =>
-      getChatgptWebPageIntegrityForSender(sender),
-    [RuntimeMessage.Feedback]: async (message) => {
-      const token = await getChatGptAccessToken()
-      await sendMessageFeedback(token, message.data)
-    },
-    [RuntimeMessage.DeleteConversation]: async (message) => {
-      const token = await getChatGptAccessToken()
-      await deleteConversation(token, message.data.conversationId)
-    },
+    [RuntimeMessage.ChatgptWebPageIntegrity]: (message, sender) =>
+      getChatgptWebPageIntegrityForSender(sender, message.data?.binding),
     [RuntimeMessage.NewUrl]: async (message, sender) => {
       await Browser.tabs.create({
         url: message.data.url,
@@ -262,28 +232,6 @@ export function createMessageRouter() {
         await setUserConfig({ chatgptTabId: tabId })
       }
     },
-    [RuntimeMessage.ChatgptWebListConversations]: (message) =>
-      listChatgptWebConversationsWithFallback(message.data || {}),
-    [RuntimeMessage.ChatgptWebGetConversation]: (message) =>
-      getChatgptWebConversationWithFallback(message.data || {}),
-    [RuntimeMessage.ChatgptWebGetTurnStatus]: (message) =>
-      message.data?.recover === true
-        ? recoverChatgptWebTurnStatus(message.data)
-        : getChatgptWebTurnStatus(message.data || {}),
-    [RuntimeMessage.ChatgptWebRefreshConversation]: (message) =>
-      refreshChatgptWebConversationWithFallback(message.data || {}),
-    [RuntimeMessage.ChatgptWebSendConversationMessage]: (message) =>
-      controlWrite(sendChatgptWebConversationMessageThroughProxy, message.data || {}),
-    [RuntimeMessage.ChatgptWebCreateConversation]: (message) =>
-      controlWrite(createChatgptWebConversation, message.data || {}),
-    [RuntimeMessage.ChatgptWebSyncConversations]: (message) =>
-      syncChatgptWebConversationCacheWithFallback({
-        includeArchived: message?.data?.includeArchived === true,
-        mode: message?.data?.mode === 'incremental' ? 'incremental' : 'full',
-        automatic: message?.data?.automatic === true,
-        reason: message?.data?.reason || 'manual',
-        resume: message?.data?.resume === true,
-      }),
     [RuntimeMessage.ChatgptWebStopConversationSync]: () =>
       stopChatgptWebConversationCacheSyncWithFallback(),
     [RuntimeMessage.ChatgptWebUnlockConversationSync]: () =>
@@ -300,37 +248,11 @@ export function createMessageRouter() {
       resetChatgptWebHydrateCircuitWithFallback(),
     [RuntimeMessage.ChatgptWebReconcileHydrate]: () =>
       reconcileChatgptWebHydrateStateWithFallback(),
-    [RuntimeMessage.ChatgptWebListModels]: async () => {
-      const models = await listChatgptWebModelsWithFallback()
-      if (Array.isArray(models) && models.length > 0) {
-        // Keep the settings-side account filter (D-15) in sync with
-        // whatever the catalog just said.
-        await setUserConfig({ chatgptWebAccountModels: models }).catch(() => {})
-      }
-      return models
-    },
-    [RuntimeMessage.GrokWebListModels]: async () => {
-      const config = await getUserConfig()
-      if (config.grokWebSignedIn !== true) return []
-      return Array.isArray(config.grokWebAccountModels) ? config.grokWebAccountModels : []
-    },
-    [RuntimeMessage.GrokWebListConversations]: (message) =>
-      executeGrokWebControlRequest(GrokProxyControlAction.ListConversations, message.data || {}),
-    [RuntimeMessage.GrokWebGetConversation]: (message) =>
-      executeGrokWebControlRequest(GrokProxyControlAction.GetConversation, message.data || {}),
-    [RuntimeMessage.GrokWebRefreshConversation]: (message) =>
-      executeGrokWebControlRequest(GrokProxyControlAction.RefreshConversation, message.data || {}),
-    [RuntimeMessage.GrokWebCreateConversation]: (message) =>
-      executeGrokWebControlRequest(GrokProxyControlAction.CreateConversation, message.data || {}),
-    [RuntimeMessage.GrokWebSendConversationMessage]: (message) =>
-      executeGrokWebControlRequest(
-        GrokProxyControlAction.SendConversationMessage,
-        message.data || {},
-      ),
     [RuntimeMessage.ProtocolProbeRun]: () => runProtocolProbeOnOpenTabs({ trigger: 'manual' }),
   }
 
   return (message, sender) => {
+    if (legacyControlForMessage(message?.type)) return executeLegacyEngineControl(message, sender)
     const handler = routedHandlers[message?.type]
     if (!handler) return undefined
     return handler(message, sender)

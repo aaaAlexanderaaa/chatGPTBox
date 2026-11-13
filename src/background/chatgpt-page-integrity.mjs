@@ -18,7 +18,15 @@ function describePageResult(result) {
     : result
 }
 
-export async function getChatgptWebPageIntegrityForSender(sender) {
+export async function getChatgptWebPageIntegrityForSender(sender, binding) {
+  const safeBinding =
+    typeof binding?.salt === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(binding.salt)
+      ? {
+          salt: binding.salt,
+          expectedFingerprint:
+            typeof binding.expectedFingerprint === 'string' ? binding.expectedFingerprint : null,
+        }
+      : {}
   const denied = {
     ok: false,
     code: 'CHATGPT_WEB_PAGE_REQUIRED',
@@ -52,7 +60,7 @@ export async function getChatgptWebPageIntegrityForSender(sender) {
       target,
       world: 'MAIN',
       func: getChatgptWebPageIntegrityInPage,
-      args: [contracts],
+      args: binding ? [contracts, safeBinding] : [contracts],
     })
     if (results?.[0]?.result?.code === 'CHATGPT_WEB_RUNTIME_UNSUPPORTED') {
       discovered.delete(key)
@@ -68,7 +76,7 @@ export async function getChatgptWebPageIntegrityForSender(sender) {
           target,
           world: 'MAIN',
           func: getChatgptWebPageIntegrityInPage,
-          args: [[contract]],
+          args: binding ? [[contract], safeBinding] : [[contract]],
         })
         const result = connected?.[0]?.result
         if (result?.ok) {

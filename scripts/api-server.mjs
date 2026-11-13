@@ -1,3 +1,10 @@
+import { buildEngineBridgeFrame } from './lib/engine-bridge.mjs'
+import { handleEngineHttp } from './lib/engine-http.mjs'
+import {
+  EngineError,
+  serializeEngineError,
+  compilePromptTranscript,
+} from '../src/engines/contract.mjs'
 import http from 'node:http'
 import crypto from 'node:crypto'
 import os from 'node:os'
@@ -28,7 +35,7 @@ import {
 import {
   allowedClientOrigin,
   isAllowedHost,
-  isClientAuthorized,
+  clientRole,
   isExtensionOrigin,
 } from './lib/gateway-access.mjs'
 import {
@@ -197,46 +204,6 @@ function isBridgeRequestAuthorized(req, url) {
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
-
-const AVAILABLE_MODELS = [
-  { id: 'gpt-6-thinking', name: 'GPT-6 Thinking (Chat)' },
-  { id: 'gpt-6', name: 'GPT-6 (Chat)' },
-  { id: 'gpt-5-6-thinking', name: 'GPT-5.6 Thinking (Chat)' },
-  { id: 'gpt-6-pro', name: 'GPT-6 Pro (Chat)' },
-  { id: 'gpt-5-6', name: 'GPT-5.6 (Chat)' },
-  { id: 'gpt-5-6-instant', name: 'GPT-5.6 Instant (Chat)' },
-  { id: 'gpt-5-6-pro', name: 'GPT-5.6 Pro (Chat)' },
-  { id: 'gpt-6-astra-wm', name: 'GPT-6 Astra (Work)' },
-  { id: 'gpt-5.6-sol-wm', name: 'GPT-5.6 Sol (Work)' },
-  { id: 'gpt-5.6-terra-wm', name: 'GPT-5.6 Terra (Work)' },
-  { id: 'gpt-5.6-luna-wm', name: 'GPT-5.6 Luna (Work)' },
-  { id: 'gpt-5.5-wm', name: 'GPT-5.5 (Work)' },
-  // Deferred (medium, no current impact): keep in view, do not fix yet.
-  // Advertised as API, but the gateway is Web-only and ChatGPT has no
-  // `gpt-6-astra` slug (official Work id is `gpt-6-astra-wm`).
-  { id: 'gpt-6-astra', name: 'GPT-6 Astra (API)' },
-  { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking' },
-  { id: 'gpt-5-5-pro', name: 'GPT-5.5 Pro' },
-  { id: 'gpt-5-4-thinking', name: 'GPT-5.4 Thinking' },
-  { id: 'gpt-5-4', name: 'GPT-5.4' },
-  { id: 'gpt-5-4-instant', name: 'GPT-5.4 Instant' },
-  { id: 'gpt-5-4-pro', name: 'GPT-5.4 Pro' },
-  { id: 'gpt-5-3-thinking', name: 'GPT-5.3 Thinking' },
-  { id: 'gpt-5-3', name: 'GPT-5.3' },
-  { id: 'gpt-5-3-instant', name: 'GPT-5.3 Instant' },
-  { id: 'gpt-5-2-thinking', name: 'GPT-5.2 Thinking' },
-  { id: 'gpt-5-2', name: 'GPT-5.2' },
-  { id: 'gpt-5-2-instant', name: 'GPT-5.2 Instant' },
-  { id: 'gpt-5-2-pro', name: 'GPT-5.2 Pro' },
-  { id: 'gpt-5-1-thinking', name: 'GPT-5.1 Thinking' },
-  { id: 'gpt-5-1', name: 'GPT-5.1' },
-  { id: 'gpt-5-1-instant', name: 'GPT-5.1 Instant' },
-  { id: 'gpt-5-1-pro', name: 'GPT-5.1 Pro' },
-  { id: 'grok-chat-fast', name: 'Grok (Web, Fast)' },
-  { id: 'grok-chat-auto', name: 'Grok (Web, Auto)' },
-  { id: 'grok-chat-expert', name: 'Grok (Web, Expert)' },
-  { id: 'grok-chat-heavy', name: 'Grok (Web, Heavy)' },
-]
 
 const DEFAULT_MODEL = CHATGPT_WEB_DEFAULT_MODEL_SLUG
 const DEFAULT_THINKING_EFFORT = CHATGPT_WEB_DEFAULT_THINKING_EFFORT
@@ -594,6 +561,9 @@ function getRequestTimeoutMs(model) {
 }
 
 function applyBridgeRuntimeConfig(msg = {}) {
+  bridgeRuntimeConfig.engineProtocol = msg.engineProtocol || null
+  bridgeRuntimeConfig.installationId =
+    typeof msg.installationId === 'string' ? msg.installationId : null
   if (isExtensionOrigin(msg.origin) && !pairedBridgeOrigin) pairedBridgeOrigin = msg.origin
   const requestTimeoutSeconds = parsePositiveInt(
     msg.requestTimeoutSeconds,
@@ -638,12 +608,36 @@ function getBridgeType() {
 }
 
 function sendToBridge(message) {
+  try {
+    message = buildEngineBridgeFrame(message, bridgeRuntimeConfig)
+  } catch (error) {
+    handleBridgeMessage({
+      type: message.type === 'request' ? 'error' : 'control_error',
+      id: message.id,
+      error: error.message,
+      engineError: serializeEngineError(error),
+      dispatched: false,
+    })
+    return false
+  }
   if (bridgeWs && bridgeWs.readyState === 1) {
     bridgeWs.send(JSON.stringify(message))
     return true
   }
 
   if (httpBridgeActive) {
+    pruneHttpBridgeQueue()
+    if (httpBridgeQueue.length >= 256) {
+      handleBridgeMessage({
+        type: message.type === 'request' ? 'error' : 'control_error',
+        id: message.id,
+        error: 'Bridge queue capacity reached. No request was dispatched.',
+        engineError: serializeEngineError(
+          new EngineError('ENGINE_BUSY', 'Bridge queue capacity reached.'),
+        ),
+      })
+      return false
+    }
     httpBridgeQueue.push(message)
     flushHttpBridgeQueue()
     return true
@@ -652,7 +646,16 @@ function sendToBridge(message) {
   return false
 }
 
+function pruneHttpBridgeQueue() {
+  for (let index = httpBridgeQueue.length - 1; index >= 0; index--) {
+    const frame = httpBridgeQueue[index]
+    if (!(frame.type === 'request' ? pendingRequests : pendingControlRequests).has(frame.id))
+      httpBridgeQueue.splice(index, 1)
+  }
+}
+
 function flushHttpBridgeQueue() {
+  pruneHttpBridgeQueue()
   while (httpBridgeQueue.length > 0 && httpBridgePollWaiters.length > 0) {
     const msg = httpBridgeQueue.shift()
     const waiter = httpBridgePollWaiters.shift()
@@ -670,7 +673,7 @@ function rejectAllPending(reason) {
 
   for (const [, req] of pendingControlRequests) {
     clearTimeout(req.timeout)
-    req.reject(new Error(reason))
+    req.reject(new EngineError('BRIDGE_UNAVAILABLE', reason, { submission: 'possibly_submitted' }))
   }
   pendingControlRequests.clear()
 }
@@ -704,7 +707,13 @@ function handleBridgeMessage(msg) {
     if (msg.type === 'control_response') {
       pendingControl.resolve(msg.data)
     } else {
-      pendingControl.reject(new Error(msg.error || 'Unknown control error from extension'))
+      pendingControl.reject(
+        Object.assign(
+          new Error(msg.error || 'Unknown control error from extension'),
+          msg.engineError || {},
+          msg.dispatched === false ? { dispatched: false } : {},
+        ),
+      )
     }
     return
   }
@@ -719,7 +728,10 @@ function handleBridgeMessage(msg) {
     pending.resolve(msg.answer)
   } else if (msg.type === 'error') {
     stats.totalErrors++
-    const error = new Error(msg.error || 'Unknown error from extension')
+    const error = Object.assign(
+      new Error(msg.error || 'Unknown error from extension'),
+      msg.engineError || {},
+    )
     if (msg.dispatched === false) error.dispatched = false
     pending.reject(error)
   }
@@ -746,9 +758,21 @@ function sendControlRequestToBridge(
   action,
   payload,
   timeoutMs = bridgeRuntimeConfig.requestTimeoutMs,
+  { role = 'api', operation } = {},
 ) {
+  operation ||=
+    payload?.operationId &&
+    [...operationLedger.records.values()].find(
+      (record) =>
+        payload.operationId === record.operationId ||
+        payload.operationId.startsWith(`${record.operationId}:upload:`),
+    )
   if (!isBridgeConnected()) {
-    return Promise.reject(new Error('Extension bridge not connected'))
+    return Promise.reject(
+      new EngineError('BRIDGE_UNAVAILABLE', 'Extension bridge not connected', {
+        submission: 'not_attempted',
+      }),
+    )
   }
 
   const id = crypto.randomUUID()
@@ -758,14 +782,40 @@ function sendControlRequestToBridge(
       reject(new Error(`Control request timed out after ${Math.round(timeoutMs / 1000)} seconds`))
     }, timeoutMs)
 
-    pendingControlRequests.set(id, { resolve, reject, timeout })
+    pendingControlRequests.set(id, {
+      resolve: (value) => {
+        try {
+          if (
+            value?.runId &&
+            ((value.phase === 'settled' &&
+              (value.outcome === 'completed' || value.submission === 'not_attempted')) ||
+              value.status === 'completed')
+          ) {
+            const original = [...operationLedger.records.values()].find(
+              (item) => item.operationId === value.runId,
+            )
+            if (original?.runResolved === false)
+              operationLedger.update(original, { runResolved: true })
+          }
+          resolve(value)
+        } catch (error) {
+          reject(error)
+        }
+      },
+      reject,
+      timeout,
+    })
 
     try {
+      if (operation && !operation.installationId && bridgeRuntimeConfig.installationId)
+        operationLedger.update(operation, { installationId: bridgeRuntimeConfig.installationId })
       const sent = sendToBridge({
         type: 'control_request',
         id,
         action,
         payload,
+        callerRole: role,
+        ...(operation?.installationId ? { installationId: operation.installationId } : {}),
       })
       if (!sent) {
         clearTimeout(timeout)
@@ -794,6 +844,33 @@ async function handleChatCompletions(req, res) {
     return
   }
 
+  const contractVersion = req.headers['x-chatgptbox-engine-contract'] === '1' ? 1 : undefined
+  if (contractVersion === 1) {
+    try {
+      const unknown = Object.keys(body).filter(
+        (key) =>
+          ![
+            'model',
+            'messages',
+            'stream',
+            'thinking_effort',
+            'reasoning_effort',
+            'project_id',
+            'projectId',
+            'idempotency_key',
+            'idempotencyKey',
+          ].includes(key),
+      )
+      if (unknown.length)
+        throw new EngineError(
+          'INPUT_UNSUPPORTED',
+          `Unsupported completion fields: ${unknown.join(', ')}`,
+        )
+    } catch (error) {
+      sendJson(res, 400, { error: serializeEngineError(error) })
+      return
+    }
+  }
   const model = body.model || DEFAULT_MODEL
   const isGeminiRequest = isGeminiWebModel(model)
   let messages = body.messages
@@ -814,6 +891,14 @@ async function handleChatCompletions(req, res) {
       }),
     )
     return
+  }
+  if (contractVersion === 1) {
+    try {
+      compilePromptTranscript(messages)
+    } catch (error) {
+      sendJson(res, 400, { error: serializeEngineError(error) })
+      return
+    }
   }
   const stream = body.stream === true
   const requestedThinkingEffort = body.thinking_effort || body.reasoning_effort
@@ -1018,6 +1103,8 @@ async function handleChatCompletions(req, res) {
       projectId,
       thinkingEffort,
       operationId: operation.operationId,
+      contractVersion,
+      callerRole: req.engineCallerRole,
     })
   } else {
     try {
@@ -1075,6 +1162,8 @@ async function handleChatCompletions(req, res) {
           projectId,
           thinkingEffort,
           operationId: operation.operationId,
+          contractVersion,
+          callerRole: req.engineCallerRole,
         })
       })
 
@@ -1114,98 +1203,35 @@ async function handleChatCompletions(req, res) {
   }
 }
 
-let cachedModels = null
-let cachedModelsAt = 0
-let cachedGrokModels = null
-let cachedGrokModelsAt = 0
-let grokModelsReady = false
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000
-
-function mergeUniqueModelIds(models, incomingIds) {
-  const next = Array.isArray(models) ? models : []
-  const seen = new Set(next)
-  for (const id of Array.isArray(incomingIds) ? incomingIds : []) {
-    if (typeof id === 'string' && id && !seen.has(id)) {
-      seen.add(id)
-      next.push(id)
-    }
-  }
-  return next
-}
-
 async function handleModels(res) {
-  let models = null
-
-  if (cachedModels && Date.now() - cachedModelsAt < MODEL_CACHE_TTL_MS) {
-    models = cachedModels.slice()
-  }
-
-  if (!models) {
-    let fromLiveChatgpt = false
-
-    if (isBridgeConnected()) {
+  try {
+    const engines = await sendControlRequestToBridge('engine.request', { method: 'engines.list' })
+    const data = []
+    for (const engine of engines.filter((item) => item.enabled)) {
       try {
-        const slugs = await sendControlRequestToBridge('chatgpt_web_list_models', {}, 10_000)
-        if (Array.isArray(slugs) && slugs.length > 0) {
-          models = slugs
-          fromLiveChatgpt = true
-        }
-      } catch (err) {
-        log(`Model list fetch failed, using fallback: ${err.message}`)
+        const catalog = await sendControlRequestToBridge('engine.request', {
+          method: 'engines.models',
+          payload: { engineId: engine.id, query: { refresh: true } },
+        })
+        for (const model of catalog.items || [])
+          data.push({
+            id: model.id,
+            object: 'model',
+            owned_by: engine.route,
+            engine_id: engine.id,
+            source: catalog.source,
+            availability: catalog.availability,
+            checked_at: catalog.checkedAt,
+            expires_at: catalog.expiresAt,
+          })
+      } catch (error) {
+        log(`Model catalog unavailable for ${engine.id}: ${error.code || 'unavailable'}`)
       }
     }
-
-    if (!models) {
-      models = AVAILABLE_MODELS.map((m) => m.id)
-    }
-
-    // Cache live ChatGPT lists only. Grok slugs are cached separately so a
-    // later successful Grok fetch can still merge into a fresh ChatGPT cache.
-    if (fromLiveChatgpt) {
-      cachedModels = models.slice()
-      cachedModelsAt = Date.now()
-    }
+    sendJson(res, 200, { object: 'list', data })
+  } catch (error) {
+    sendJson(res, 503, { error: serializeEngineError(error) })
   }
-
-  const grokCacheFresh =
-    grokModelsReady &&
-    cachedGrokModels != null &&
-    Date.now() - cachedGrokModelsAt < MODEL_CACHE_TTL_MS
-  if (isBridgeConnected() && !grokCacheFresh) {
-    try {
-      const grokSlugs = await sendControlRequestToBridge('grok_web_list_models', {}, 10_000)
-      // Empty array is a live signed-out catalog: replace stale grok-chat-* slugs.
-      if (Array.isArray(grokSlugs)) {
-        cachedGrokModels = grokSlugs.filter((id) => typeof id === 'string' && id)
-        cachedGrokModelsAt = Date.now()
-        grokModelsReady = true
-      }
-    } catch (err) {
-      log(`Grok model list fetch failed, keeping ChatGPT list: ${err.message}`)
-    }
-  }
-  models = mergeUniqueModelIds(models, cachedGrokModels)
-  if (isBridgeConnected()) {
-    try {
-      const gemini = await sendControlRequestToBridge(GeminiProxyControlAction.ListModels, {}, 1500)
-      models = mergeUniqueModelIds(models, gemini)
-    } catch {
-      /* no advertised Gemini capability without a fresh local config reply */
-    }
-  }
-
-  const data = models.map((id) => ({
-    id,
-    object: 'model',
-    created: 1700000000,
-    owned_by: isGeminiWebModel(id)
-      ? 'gemini-web'
-      : String(id).startsWith('grok-chat-')
-      ? 'grok-web'
-      : 'chatgpt-web',
-  }))
-  res.writeHead(200, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify({ object: 'list', data }))
 }
 
 function handleStatus(res) {
@@ -1461,6 +1487,17 @@ async function handleChatgptConversationCreate(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
+    if (
+      respondChatgptNotDispatched(
+        res,
+        operationLedger,
+        operation,
+        error.dispatched === false
+          ? { dispatched: false, error: error.message, code: error.code }
+          : null,
+      )
+    )
+      return
     markOperationAmbiguous(operation, error)
     res.writeHead(409, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
@@ -1650,6 +1687,17 @@ async function handleChatgptConversationMessage(req, res, conversationId) {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
   } catch (error) {
+    if (
+      respondChatgptNotDispatched(
+        res,
+        operationLedger,
+        operation,
+        error.dispatched === false
+          ? { dispatched: false, error: error.message, code: error.code }
+          : null,
+      )
+    )
+      return
     markOperationAmbiguous(operation, error)
     res.writeHead(409, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(makeAmbiguousDispatchError(operation, error.message)))
@@ -1945,6 +1993,7 @@ function handleBridgePoll(req, res, url) {
   if (isExtensionOrigin(req.headers.origin)) pairedBridgeOrigin = req.headers.origin
   httpBridgeLastSeen = Date.now()
 
+  pruneHttpBridgeQueue()
   if (httpBridgeQueue.length > 0) {
     const msg = httpBridgeQueue.shift()
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -2056,7 +2105,7 @@ async function handleHttpRequest(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key',
+      'Content-Type, Authorization, X-Bridge-Token, Idempotency-Key, X-Idempotency-Key, X-ChatGPTBox-Engine-Contract',
     )
     res.setHeader(
       'Access-Control-Expose-Headers',
@@ -2068,14 +2117,12 @@ async function handleHttpRequest(req, res) {
     res.end()
     return
   }
-  if (
-    !isBridgeHttp &&
-    !isClientAuthorized(req, {
-      apiToken: API_TOKEN,
-      bridgeToken: BRIDGE_TOKEN,
-      pairedOrigin: pairedBridgeOrigin,
-    })
-  ) {
+  req.engineCallerRole = clientRole(req, {
+    apiToken: API_TOKEN,
+    bridgeToken: BRIDGE_TOKEN,
+    pairedOrigin: pairedBridgeOrigin,
+  })
+  if (!isBridgeHttp && !req.engineCallerRole) {
     res.writeHead(401, {
       'Content-Type': 'application/json',
       'WWW-Authenticate': 'Bearer',
@@ -2088,6 +2135,17 @@ async function handleHttpRequest(req, res) {
     )
     return
   }
+  if (
+    await handleEngineHttp(req, res, url, {
+      readBody,
+      begin: beginWriteOperation,
+      ledger: operationLedger,
+      replay: respondForControlWriteOperation,
+      call: (command, role, operation) =>
+        sendControlRequestToBridge('engine.request', command, undefined, { role, operation }),
+    })
+  )
+    return
   const conversationGetMatch = url.pathname.match(/^\/chatgpt\/conversations\/([^/]+)$/)
   const operationGetMatch = url.pathname.match(/^\/chatgpt\/operations\/([^/]+)$/)
   const attachmentGetMatch = url.pathname.match(/^\/chatgpt\/attachments\/([^/]+)$/)
@@ -2295,6 +2353,8 @@ wss.on('connection', (ws, req) => {
   }
 
   bridgeWs = ws
+  bridgeRuntimeConfig.engineProtocol = null
+  bridgeRuntimeConfig.installationId = null
   pairedBridgeOrigin = isExtensionOrigin(req.headers.origin) ? req.headers.origin : ''
 
   const pingInterval = setInterval(() => {

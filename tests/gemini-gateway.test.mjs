@@ -1,3 +1,9 @@
+import { createProviderBridgeFixture } from './helpers/engine-provider-fixture.mjs'
+import {
+  EngineError,
+  serializeEngineError,
+  compilePromptTranscript,
+} from '../src/engines/contract.mjs'
 /* eslint-env node */
 import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
@@ -9,15 +15,8 @@ import {
   GEMINI_WEB_SELECTION,
   isGeminiWebModel,
 } from '../src/config/gemini-web.mjs'
-import { GeminiProxyControlAction } from '../src/protocol/messages.mjs'
-import {
-  isGeminiEngineKey,
-  isGrokEngineKey,
-  slugToModelKey,
-} from '../src/pages/ApiServer/model-slug.mjs'
 
 const gateway = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
-const bridge = fs.readFileSync(new URL('../src/pages/ApiServer/App.jsx', import.meta.url), 'utf8')
 const between = (source, start, end) =>
   source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)))
 const response = () => ({ writeHead: vi.fn(), end: vi.fn(), setHeader: vi.fn(), on: vi.fn() })
@@ -30,7 +29,14 @@ function completionHandler() {
       pending.resolve()
     })
   const context = {
-    readBody: async (body) => JSON.stringify(body),
+    readBody: async (req) => JSON.stringify(req.body),
+    EngineError,
+    serializeEngineError,
+    compilePromptTranscript,
+    sendJson: (res, status, body) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(body))
+    },
     DEFAULT_MODEL: 'gpt-6-thinking',
     DEFAULT_THINKING_EFFORT: 'extended',
     GEMINI_WEB_MODEL,
@@ -54,61 +60,18 @@ function completionHandler() {
     operationLedger: { complete: vi.fn() },
   }
   return {
-    handler: vm.runInNewContext(
-      `${between(
-        gateway,
-        'async function handleChatCompletions',
-        'let cachedModels',
-      )}\nhandleChatCompletions`,
-      context,
-    ),
+    handler: (body, res) =>
+      vm.runInNewContext(
+        `${between(
+          gateway,
+          'async function handleChatCompletions',
+          'async function handleModels(res)',
+        )}\nhandleChatCompletions`,
+        context,
+      )({ headers: {}, body }, res),
     context,
     send,
   }
-}
-
-function bridgeHandler() {
-  let receive
-  const port = {
-    onMessage: {
-      addListener(fn) {
-        receive = fn
-      },
-    },
-    onDisconnect: { addListener() {} },
-    postMessage: vi.fn(),
-    disconnect: vi.fn(),
-  }
-  const context = {
-    slugToModelKey,
-    isGeminiEngineKey,
-    isGrokEngineKey,
-    modelNameToApiMode: () => null,
-    needsChatgptWebThinkingEffort: vi.fn(),
-    findStoredChatgptWebApiThreadContinuation: vi.fn(),
-    getUserConfig: async () => ({ apiServerKeepHistory: false }),
-    initSession: (data) => ({ sessionId: 'local', ...data }),
-    Browser: { runtime: { connect: () => port, sendMessage: vi.fn() } },
-    sendWs: vi.fn(),
-    addLog() {},
-    setRequestCount() {},
-    saveChatgptWebSessionSnapshot: vi.fn(),
-    saveChatgptWebApiThread: vi.fn(),
-  }
-  const callback = between(
-    bridge.slice(bridge.indexOf('const handleRequest = useCallback(')),
-    'async (data) => {',
-    ',\n    [addLog, sendWs]',
-  )
-  const handler = vm.runInNewContext(
-    `${between(
-      bridge,
-      'function formatMessages',
-      'function buildBridgeWsUrl',
-    )}\n(${callback.trim()})`,
-    context,
-  )
-  return { handler, port, context, receive: (packet) => receive(packet) }
 }
 
 describe('Gemini gateway boundary', () => {
@@ -191,62 +154,51 @@ describe('Gemini gateway boundary', () => {
     expect(f.send).not.toHaveBeenCalled()
   })
 
-  it('publishes one verified Gemini final snapshot without ChatGPT uploads/history/snapshots', async () => {
-    const f = bridgeHandler()
-    await f.handler({
-      id: 'request-1234',
-      model: GEMINI_WEB_MODEL,
-      messages: [{ role: 'user', content: 'Explain a reversible migration.' }],
-    })
-    const session = f.port.postMessage.mock.calls[0][0].session
-    expect(session.modelName).toBe(GEMINI_WEB_SELECTION)
-    expect(session).not.toHaveProperty('chatgptWebHistoryDisabledOverride')
-    expect(session).not.toHaveProperty('chatgptWebModelSlugOverride')
-    f.receive({ answer: '<p>Partial</p>', session: { conversationId: 'native' } })
-    expect(f.context.sendWs).not.toHaveBeenCalled()
+  it('publishes one verified Gemini final snapshot through the common runtime', async () => {
+    const f = await createProviderBridgeFixture({ model: GEMINI_WEB_MODEL, engineId: 'geminiweb' })
+    expect(f.session.modelName).toBe(GEMINI_WEB_SELECTION)
+    expect(f.session.chatgptWebModelSlugOverride).toBeUndefined()
+    f.receive({ answer: '<p>Partial</p>' })
+    expect(f.wire).toHaveLength(0)
     f.receive({ done: true, outcome: 'completed', finalContent: '<p>Complete</p>' })
-    expect(f.context.sendWs.mock.calls.map(([packet]) => packet)).toEqual([
-      { type: 'chunk', id: 'request-1234', answer: '<p>Complete</p>' },
-      { type: 'done', id: 'request-1234', answer: '<p>Complete</p>' },
+    await f.done
+    expect(f.wire).toEqual([
+      expect.objectContaining({ type: 'done', answer: '<p>Complete</p>', format: 'safe-html' }),
     ])
-    expect(f.context.Browser.runtime.sendMessage).not.toHaveBeenCalled()
-    expect(f.context.saveChatgptWebSessionSnapshot).not.toHaveBeenCalled()
-    expect(f.context.saveChatgptWebApiThread).not.toHaveBeenCalled()
-    expect(f.context.findStoredChatgptWebApiThreadContinuation).not.toHaveBeenCalled()
   })
-
   it.each(['stopped', 'incomplete', 'failed'])(
     'does not turn %s into a successful API completion',
     async (outcome) => {
-      const f = bridgeHandler()
-      await f.handler({
-        id: 'request',
+      const f = await createProviderBridgeFixture({
         model: GEMINI_WEB_MODEL,
-        messages: [{ role: 'user', content: 'Explain a reversible migration.' }],
+        engineId: 'geminiweb',
       })
       f.receive({ answer: '<p>Partial</p>', done: true, outcome })
-      expect(f.context.sendWs).toHaveBeenCalledTimes(1)
-      expect(f.context.sendWs.mock.calls[0][0].type).toBe('error')
+      await f.done
+      expect(f.wire).toEqual([expect.objectContaining({ type: 'error' })])
     },
   )
 
   it('requires a fresh config-only Gemini model reply even when ChatGPT/Grok lists are cached', async () => {
     let enabled = true
-    const send = vi.fn(async (action) =>
-      action === GeminiProxyControlAction.ListModels
-        ? enabled
-          ? [GEMINI_WEB_MODEL]
-          : []
-        : ['gpt-6-thinking'],
+    const send = vi.fn(async (_action, command) =>
+      command.method === 'engines.list'
+        ? [{ id: 'geminiweb', route: 'gemini-web', enabled }]
+        : { items: [{ id: GEMINI_WEB_MODEL }], source: 'page-check', availability: 'unknown' },
     )
     const handler = vm.runInNewContext(
-      `${between(gateway, 'let cachedModels =', 'function handleStatus')}\nhandleModels`,
+      `${between(
+        gateway,
+        'async function handleModels(res)',
+        'function handleStatus',
+      )}\nhandleModels`,
       {
-        isBridgeConnected: () => true,
         sendControlRequestToBridge: send,
-        GeminiProxyControlAction,
-        isGeminiWebModel,
-        AVAILABLE_MODELS: [],
+        serializeEngineError,
+        sendJson: (res, status, body) => {
+          res.writeHead(status)
+          res.end(JSON.stringify(body))
+        },
         log() {},
       },
     )
@@ -261,8 +213,8 @@ describe('Gemini gateway boundary', () => {
     expect(
       JSON.parse(second.end.mock.calls[0][0]).data.some((item) => item.id === GEMINI_WEB_MODEL),
     ).toBe(false)
-    expect(
-      send.mock.calls.filter(([action]) => action === GeminiProxyControlAction.ListModels),
-    ).toHaveLength(2)
+    expect(send.mock.calls.filter(([, command]) => command.method === 'engines.list')).toHaveLength(
+      2,
+    )
   })
 })

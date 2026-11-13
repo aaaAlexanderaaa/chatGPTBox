@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-13
 ---
 
 # Gemini Web
@@ -130,6 +130,14 @@ request. Requests are independent standard completions, with the same durable
 Gemini hold and no automatic replay. Gemini history/custom conversation endpoints,
 Drafts and an `ask_gemini` MCP tool are outside this change. Existing ChatGPT
 defaults and the `ask_chatgpt` MCP interface remain at their current owners.
+
+The [engine contract](engine-contract.md) exposes verified live-document append
+through the common run interface. `ask_engine(engine_id="geminiweb", query=...)`
+uses that same engine after enabling external access in
+Settings → Engines. Existing configurations migrate only their prior independent
+completion grant; they do not gain append automatically. API and MCP share that
+external grant. Account/document binding, one native invocation, the durable hold and
+the absence of navigation/history recovery remain required boundaries.
 
 Synthetic tests establish the stated local guards and event handling, not
 Google's account policy or future detection behavior. Reusing native code does

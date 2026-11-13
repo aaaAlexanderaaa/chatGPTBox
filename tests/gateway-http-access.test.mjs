@@ -1,3 +1,4 @@
+import { announceEngineBridge, decodeCompatibilityFrame } from './helpers/engine-wire-fixture.mjs'
 /* eslint-env node */
 import { afterAll, describe, expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
@@ -107,6 +108,7 @@ describe('API gateway HTTP access', () => {
       bridge.once('open', resolve)
       bridge.once('error', reject)
     })
+    await announceEngineBridge(bridge)
     const paired = await fetch(url, {
       headers: { Authorization: 'Bearer bridge-test-token', Origin: pairedOrigin },
     })
@@ -124,7 +126,7 @@ describe('API gateway HTTP access', () => {
     let standardDispatches = 0
     const statusPayloads = []
     bridge.on('message', (raw) => {
-      const message = JSON.parse(String(raw))
+      const message = decodeCompatibilityFrame(JSON.parse(String(raw)))
       if (message.type === 'request') standardDispatches += 1
       if (message.type === 'control_request' && message.action === 'chatgpt_web_get_turn_status') {
         statusPayloads.push(message.payload)
