@@ -410,6 +410,7 @@ async function build() {
   const { syncDraftsPreview } = await import('./scripts/sync-drafts-preview.mjs')
   await syncDraftsPreview()
   await import('./scripts/sync-drafts-photos.mjs')
+  await import('./scripts/sync-drafts-engines.mjs')
   await deleteOldDir()
   if (isProduction && !isAnalyzing) {
     // await runWebpack(

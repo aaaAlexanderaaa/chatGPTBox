@@ -83,14 +83,14 @@ describe('Gemini gateway boundary', () => {
       await f.handler(
         {
           model,
-          reasoning_effort: 'high',
+          reasoning_effort: 'medium',
           messages: [{ role: 'user', content: 'Explain a reversible migration.' }],
         },
         res,
       )
       expect(f.send).toHaveBeenCalledTimes(1)
       expect(f.send).toHaveBeenCalledWith(
-        expect.objectContaining({ model, thinkingEffort: 'high', images: [] }),
+        expect.objectContaining({ model, thinkingEffort: 'medium', images: [] }),
       )
       expect(JSON.parse(res.end.mock.calls.at(-1)[0]).choices[0].message.content).toBe(
         '<p>Verified final answer</p>',
@@ -100,6 +100,7 @@ describe('Gemini gateway boundary', () => {
 
   it.each([
     { model: 'gemini-unknown' },
+    { reasoning_effort: 'high' },
     { reasoning_effort: 'low' },
     { thinking_effort: 'extended' },
     { project_id: 'project' },

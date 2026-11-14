@@ -15,7 +15,7 @@ import { isGeminiEngineKey, slugToModelKey } from '../src/pages/ApiServer/model-
 import { detectExecutionRoute } from '../src/background/providers/registry.mjs'
 
 describe('Gemini engine integration', () => {
-  it('is default-off and advertises only the checked 4 Argon / High adapter', () => {
+  it('is default-off and advertises only the checked 4 Hydrogen / High adapter', () => {
     expect(defaultConfig.geminiWebEnabled).toBe(false)
     expect(enabledGeminiWebSelections({ geminiWebEnabled: true })).toEqual([])
     expect(enabledGeminiWebSelections({ geminiWebEnabled: false, geminiWebReady: true })).toEqual(

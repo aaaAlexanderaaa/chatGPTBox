@@ -21,6 +21,14 @@ export async function runGeminiNativeOperation(options) {
     String(value || '')
       .replace(/\s+/g, ' ')
       .trim()
+  const responseTimestamp = (value) => {
+    try {
+      const milliseconds = Date.prototype.getTime.call(value)
+      return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null
+    } catch {
+      return null
+    }
+  }
   const sample = (observable) => {
     let value,
       received = false
@@ -35,6 +43,117 @@ export async function runGeminiNativeOperation(options) {
   const dispose = (turn) => {
     for (const subscription of turn?.subscriptions || []) subscription?.unsubscribe()
     if (turn) turn.subscriptions = []
+  }
+  function renderAnswer(tree, fields, budget = { count: 0, characters: 0 }) {
+    const node = () => {
+      if (++budget.count > 50000) throw new Error('Native output exceeded the supported limit.')
+    }
+    const text = (value, parent) => {
+      if (typeof value !== 'string') throw new Error('Unsupported native text.')
+      budget.characters += value.length
+      if (budget.characters > 1000000)
+        throw new Error('Native output exceeded the supported limit.')
+      if (parent.tagName === 'CODE') {
+        node()
+        parent.appendChild(document.createTextNode(value))
+      } else
+        value.split('\n').forEach((line, index) => {
+          node()
+          if (index) parent.appendChild(document.createElement('br'))
+          parent.appendChild(document.createTextNode(line))
+        })
+    }
+    const children = (nodes, parent, depth) => {
+      if (!Array.isArray(nodes)) throw new Error('Unsupported native children.')
+      for (const node of nodes) render(node, parent, depth + 1)
+    }
+    const element = (tag, parent) => {
+      node()
+      const next = document.createElement(tag)
+      parent.appendChild(next)
+      return next
+    }
+    const render = (node, parent, depth) => {
+      if (++budget.count > 50000 || depth > 64 || !node)
+        throw new Error('Unsupported native output.')
+      switch (node.nodeType) {
+        case 18:
+          text(node.text, parent)
+          break
+        case 1:
+        case 9:
+          text(node.code, element('code', element('pre', parent)))
+          break
+        case 12:
+          text(node[fields.math || 'GXa'], element('code', parent))
+          break
+        case 13:
+          element('hr', parent)
+          break
+        case 19:
+          element('br', parent)
+          break
+        case 21:
+          break // native empty/unsupported placeholder, has no content
+        case 2: {
+          const block = element('div', parent)
+          text(node.title, element('strong', block))
+          children(node.children, block, depth)
+          break
+        }
+        case 7:
+        case 8:
+        case 11:
+        case 15:
+        case 16:
+          children(node.children, element(node.nodeType === 11 ? 'p' : 'div', parent), depth)
+          break
+        case 3:
+        case 4:
+        case 5: {
+          if (!Array.isArray(node.children)) throw new Error('Unsupported native layout.')
+          const block = element('div', parent)
+          for (const item of node.children) render(item.child, block, depth + 1)
+          break
+        }
+        case 14:
+        case 20: {
+          if (!Array.isArray(node.items)) throw new Error('Unsupported native list.')
+          const list = element(node.nodeType === 14 ? 'ol' : 'ul', parent)
+          for (const item of node.items) children(item.children, element('li', list), depth)
+          break
+        }
+        case 17: {
+          if (!Array.isArray(node.rows)) throw new Error('Unsupported native table.')
+          if (node.caption) render(node.caption, element('p', parent), depth + 1)
+          const table = element('table', parent)
+          for (const row of node.rows) {
+            if (!Array.isArray(row.cells)) throw new Error('Unsupported native table row.')
+            const tr = element('tr', table)
+            for (const cell of row.cells) children(cell.children, element('td', tr), depth)
+          }
+          break
+        }
+        case 6: {
+          if (!Array.isArray(node.entries)) throw new Error('Unsupported native definitions.')
+          const list = element('dl', parent)
+          for (const item of node.entries) {
+            if (item[fields.definitionTerm || 'jw'])
+              render(item[fields.definitionTerm || 'jw'], element('dt', list), depth + 1)
+            children(item.description, element('dd', list), depth)
+          }
+          break
+        }
+        default:
+          throw new Error('Unsupported native output block. Inspect the result on Gemini.')
+      }
+    }
+    const result = document.createElement('div')
+    children(tree.children, result, 0)
+    if (!normalized(result.textContent)) return ''
+    if (result.innerHTML.length > 1000000)
+      throw new Error('Gemini output exceeded the supported rendering limit.')
+    return result.innerHTML
   }
   try {
     if (
@@ -114,10 +233,17 @@ export async function runGeminiNativeOperation(options) {
     const nativeActions = service[fields.actions || 'Mb']
     const rows = (state) => state?.[fields.rows || 'Ob']
     const generating = () => input[fields.generating || 'Lca']()
+    const dictating = () =>
+      contract.dictationIndicator === 'native-button-label'
+        ? [...document.querySelectorAll('button[aria-label]')].some(
+            (button) =>
+              visible(button) && /^Stop dictation(?: |$)/.test(button.getAttribute('aria-label')),
+          )
+        : input[fields.dictating || 'uD']()
     const busyNow = () =>
       generating() ||
       input[fields.preparing || 'U7']() ||
-      input[fields.dictating || 'uD']() ||
+      dictating() ||
       input[fields.disabled || 'D1']() ||
       input[fields.editing || 'Wu']()
     const functions = {
@@ -126,6 +252,17 @@ export async function runGeminiNativeOperation(options) {
       prepare: runtime[contract.prepareFunction || 'hEe'],
       attestation: runtime[contract.attestationFunction || 'Gce'],
       ...(contract.thinkingSetter && { thinking: runtime[contract.thinkingSetter] }),
+    }
+    const historyApi = contract.history && service[contract.history.serviceField]
+    if (contract.history) {
+      const History = runtime[contract.history.apiClass]
+      if (typeof History !== 'function' || !(historyApi instanceof History))
+        return fail('GEMINI_RUNTIME_UNSUPPORTED', 'The native Gemini history service changed.')
+      Object.assign(functions, {
+        historyClass: History,
+        list: historyApi[contract.history.list],
+        read: historyApi[contract.history.read],
+      })
     }
     for (const [name, expected] of Object.entries(contract.hashes)) {
       const fn = functions[name]
@@ -238,6 +375,165 @@ export async function runGeminiNativeOperation(options) {
         'GEMINI_CHECK_REQUIRED',
         'Gemini displays an error or account notice. Check its website before another request.',
       )
+    const accountStillMatches = () => {
+      if (
+        !account.isConnected ||
+        (account.getAttribute('aria-label') ||
+          account.getAttribute('title') ||
+          account.textContent) !== accountIdentity ||
+        !editor.isConnected ||
+        window.default_BardChatUi !== runtime
+      )
+        throw new Error('The Gemini account or document changed during the read.')
+    }
+    const first = (observable) =>
+      new Promise((resolve, reject) => {
+        let subscription,
+          settled = false
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true
+            subscription?.unsubscribe()
+            reject(new Error('Native history read timed out.'))
+          }
+        }, 15000)
+        subscription = observable.subscribe({
+          next(value) {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve(value)
+            queueMicrotask(() => subscription?.unsubscribe())
+          },
+          error(error) {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            reject(error)
+          },
+          complete() {
+            if (!settled) {
+              settled = true
+              clearTimeout(timer)
+              reject(new Error('Native history returned no result.'))
+            }
+          },
+        })
+      })
+    if (action === 'history.list' || action === 'history.read') {
+      if (!contract.history)
+        return fail(
+          'GEMINI_HISTORY_UNSUPPORTED',
+          'This Gemini runtime has no verified history adapter.',
+        )
+      const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit) || 50)))
+      const cursor = options.cursor || undefined
+      if (cursor && (typeof cursor !== 'string' || cursor.length > 8000))
+        return fail('GEMINI_HISTORY_INVALID', 'Invalid Gemini history cursor.')
+      if (action === 'history.list') {
+        if (options.conversationId && !/^c_[a-zA-Z0-9_-]{8,100}$/.test(options.conversationId))
+          return fail('GEMINI_HISTORY_INVALID', 'Invalid native Gemini conversation identity.')
+        const page = await first(
+          historyApi[contract.history.list](
+            options.conversationId
+              ? {
+                  conversationId: options.conversationId,
+                  [contract.history.exactFilter || 'fV']: true,
+                }
+              : { pinned: options.pinned === true },
+            limit,
+            cursor,
+          ),
+        )
+        accountStillMatches()
+        const items = page[contract.history.itemsField || 'El']
+        if (!Array.isArray(items) || items.length > 100)
+          throw new Error('Unsupported native history page.')
+        if (
+          options.conversationId &&
+          items.some((item) => item.conversationId !== options.conversationId)
+        )
+          throw new Error('Gemini returned another conversation.')
+        return {
+          ok: true,
+          items: items.map((item) => ({
+            id: item.conversationId,
+            title: String(item.title || ''),
+            pinned: item.pinned === true,
+            updatedAt: item.timestamp instanceof Date ? item.timestamp.toISOString() : null,
+          })),
+          nextCursor: page.nextPageToken || null,
+        }
+      }
+      if (
+        typeof options.conversationId !== 'string' ||
+        !/^c_[a-zA-Z0-9_-]{8,100}$/.test(options.conversationId)
+      )
+        return fail('GEMINI_HISTORY_INVALID', 'Invalid native Gemini conversation identity.')
+      const page = await first(
+        historyApi[contract.history.read](options.conversationId, limit, cursor),
+      )
+      const latest = cursor
+        ? await first(historyApi[contract.history.read](options.conversationId, 1))
+        : page
+      accountStillMatches()
+      const rowsField = contract.history.rowsField || 'Pb'
+      const pageRows = page[rowsField],
+        latestRows = latest[rowsField]
+      if (!Array.isArray(pageRows) || pageRows.length > 100 || !Array.isArray(latestRows))
+        throw new Error('Unsupported native history turns.')
+      const head = latestRows[0]
+      if (
+        [...pageRows, ...latestRows].some(
+          (row) => row.request?.conversationId !== options.conversationId,
+        )
+      )
+        throw new Error('Gemini returned another conversation.')
+      const messages = []
+      const renderBudget = { count: 0, characters: 0 }
+      let size = 0
+      for (const row of [...pageRows].reverse()) {
+        const turnId = row.response?.turnId,
+          responseId = row.response?.draft?.id
+        if (!turnId || typeof turnId !== 'string')
+          throw new Error('Native history has no stable turn identity.')
+        const complete =
+          row.response?.isFinal === true && row.response?.draft?.completeness === 'COMPLETE'
+        let answer = '',
+          supported = true
+        try {
+          answer = renderAnswer(row.response?.draft?.structuredContent, fields, renderBudget)
+        } catch {
+          supported = false
+        }
+        const question = row.request?.textQuery || ''
+        size += question.length + answer.length
+        if (size > 1000000) throw new Error('Native history exceeded the supported output limit.')
+        const identity = { nativeTurnId: turnId, nativeResponseId: responseId || null }
+        messages.push({ id: turnId + '/user', role: 'user', content: question, ...identity })
+        messages.push({
+          id: turnId + '/assistant',
+          role: 'assistant',
+          content: answer,
+          completed: complete && supported && !!answer,
+          nativeCompleted: complete,
+          supported,
+          responseTimestamp: responseTimestamp(row.response?.timestamp),
+          ...identity,
+        })
+      }
+      return {
+        ok: true,
+        conversationId: options.conversationId,
+        messages,
+        serverHead: head?.response?.turnId || null,
+        responseId: head?.response?.draft?.id || null,
+        headCompleted:
+          head?.response?.isFinal === true && head?.response?.draft?.completeness === 'COMPLETE',
+        nextCursor: page.nextPageToken || null,
+        accountFingerprint,
+      }
+    }
     const mode = sample(service.bardModeService?.oa)
     const thinking = sample(service.bardModeService?.Ca)
     const state = sample(nativeState)
@@ -246,40 +542,66 @@ export async function runGeminiNativeOperation(options) {
     const modelMatches =
       mode.description === contract.modelDescription && thinking === contract.thinkingLevel
     const busy = busyNow()
-    if (action === 'inspect')
+    if (action === 'inspect') {
+      const draft = !!(
+        normalized(form?.value) ||
+        normalized(editor.innerText || editor.textContent) ||
+        input[fields.attachments || 'e8b']() ||
+        input[fields.references || 'mRb']() ||
+        input.initialPrompt?.shouldSubmit
+      )
       return {
         ok: true,
-        ready: modelMatches && !busy && !normalized(form?.value),
+        ready: modelMatches && !busy && !draft,
         model: mode.description || '',
         thinking,
         busy: !!busy,
-        draft: !!normalized(form?.value),
+        draft,
+        turnCount: rows(state).length,
         version: contract.version,
         accountFingerprint,
+        conversationId: state.id || rows(state).at(-1)?.request?.conversationId || '',
+        serverHead: rows(state).at(-1)?.response?.turnId || null,
+        clientHead: rows(state).at(-1)?.request?.clientTurnId || null,
       }
+    }
+    const ownedDocument =
+      location.hash === `#chatgptbox-gemini-${ownerId}` ||
+      (options.verifiedReopen === true &&
+        typeof options.conversationId === 'string' &&
+        options.conversationId.startsWith('c_') &&
+        options.lastServerTurnId &&
+        location.pathname.replace(/\/$/, '') === `/app/${options.conversationId.slice(2)}` &&
+        state.id === options.conversationId &&
+        rows(state).at(-1)?.response?.turnId === options.lastServerTurnId &&
+        (!options.lastResponseId ||
+          rows(state).at(-1)?.response?.draft?.id === options.lastResponseId))
     if (action === 'configure') {
       if (
-        context ||
-        location.hash !== `#chatgptbox-gemini-${ownerId}` ||
-        rows(state).length ||
+        context?.turn ||
+        !ownedDocument ||
+        (options.conversationId
+          ? state.id !== options.conversationId ||
+            rows(state).at(-1)?.response?.turnId !== options.lastServerTurnId
+          : rows(state).length) ||
         busy ||
         normalized(form?.value) ||
         input.initialPrompt?.shouldSubmit
       )
         return fail(
           'GEMINI_OWNED_TAB_REQUIRED',
-          'Only a fresh, idle extension-owned Gemini tab can apply its requested thinking setting.',
+          'Only an idle, verified extension-owned Gemini tab can apply its requested thinking setting.',
         )
       if (mode.description !== contract.modelDescription)
         return fail(
           'GEMINI_MODEL_MISMATCH',
-          'Select 4 Argon in Gemini. No alternate model will be used.',
+          'Select 4 Hydrogen in Gemini. No alternate model will be used.',
         )
       if (thinking !== contract.thinkingLevel) {
         if (!contract.thinkingSetter)
           return fail(
             'GEMINI_MODEL_MISMATCH',
-            'Select Thinking level High in Gemini before sending.',
+            'Select Thinking level Medium in Gemini before sending.',
           )
         // The same native setter as the menu: it selects only from the site's
         // available thinking options and preserves its own preference handling.
@@ -287,7 +609,7 @@ export async function runGeminiNativeOperation(options) {
         if (sample(service.bardModeService.Ca) !== contract.thinkingLevel)
           return fail(
             'GEMINI_MODEL_MISMATCH',
-            'Gemini did not make Thinking level High available. No submission was attempted.',
+            'Gemini did not make Thinking level Medium available. No submission was attempted.',
           )
       }
       return { ok: true }
@@ -295,14 +617,17 @@ export async function runGeminiNativeOperation(options) {
     if (!modelMatches)
       return fail(
         'GEMINI_MODEL_MISMATCH',
-        'Select 4 Argon and Thinking level High in the Gemini tab before sending. No model fallback is used.',
+        'Select 4 Hydrogen and Thinking level Medium in the Gemini tab before sending. No model fallback is used.',
       )
 
     if (action === 'connect') {
       if (!context) {
         if (
-          location.hash !== `#chatgptbox-gemini-${ownerId}` ||
-          rows(state).length ||
+          !ownedDocument ||
+          (options.conversationId
+            ? state.id !== options.conversationId ||
+              rows(state).at(-1)?.response?.turnId !== options.lastServerTurnId
+            : rows(state).length) ||
           normalized(form?.value) ||
           busy
         )
@@ -363,8 +688,13 @@ export async function runGeminiNativeOperation(options) {
           'The Gemini conversation changed. Start a new extension conversation instead of replaying history.',
         )
       if (
-        options.lastNativeId &&
-        rows(state).at(-1)?.request?.clientTurnId !== options.lastNativeId
+        (options.lastServerTurnId &&
+          (rows(state).at(-1)?.response?.turnId !== options.lastServerTurnId ||
+            (options.lastResponseId &&
+              rows(state).at(-1)?.response?.draft?.id !== options.lastResponseId))) ||
+        (!options.lastServerTurnId &&
+          options.lastNativeId &&
+          rows(state).at(-1)?.request?.clientTurnId !== options.lastNativeId)
       )
         return fail(
           'GEMINI_CONVERSATION_CHANGED',
@@ -381,6 +711,9 @@ export async function runGeminiNativeOperation(options) {
         state,
         modelId: mode.id,
         thinking,
+        expectedConversationId: options.conversationId || '',
+        expectedServerHead: options.lastServerTurnId || '',
+        expectedResponseId: options.lastResponseId || '',
         baselineIds: new Set(rows(state).map((item) => item.request?.clientTurnId)),
         subscriptions: [],
       }
@@ -415,6 +748,20 @@ export async function runGeminiNativeOperation(options) {
               return
             }
             turn.nativeId = id
+            if (
+              turn.expectedConversationId &&
+              request.conversationId !== turn.expectedConversationId
+            )
+              turn.error =
+                'Gemini changed the conversation during native preparation. Inspect the original request; it will not be submitted again.'
+            if (
+              fields.requestParent &&
+              turn.expectedServerHead &&
+              (request[fields.requestParent] !== turn.expectedServerHead ||
+                (turn.expectedResponseId && request.parentResponseId !== turn.expectedResponseId))
+            )
+              turn.error =
+                'Gemini changed the parent turn during native preparation. Inspect its existing turn; it will not be submitted again.'
             if (
               request[fields.requestMode || 'jj'] !== turn.modelId ||
               request.thinkingLevel !== turn.thinking
@@ -462,6 +809,11 @@ export async function runGeminiNativeOperation(options) {
       if (
         busy ||
         generating() ||
+        (turn.expectedConversationId && state.id !== turn.expectedConversationId) ||
+        (turn.expectedServerHead &&
+          rows(state).at(-1)?.response?.turnId !== turn.expectedServerHead) ||
+        (turn.expectedResponseId &&
+          rows(state).at(-1)?.response?.draft?.id !== turn.expectedResponseId) ||
         normalized(form.value) !== normalized(turn.question) ||
         context.editor !== editor
       )
@@ -490,6 +842,8 @@ export async function runGeminiNativeOperation(options) {
     const snapshot = {
       ok: true,
       nativeId: turn.nativeId,
+      serverTurnId: turn.serverTurnId || null,
+      responseId: row?.response?.draft?.id || null,
       accepted: turn.accepted,
       conversationId,
       url: `${location.origin}${location.pathname}`,
@@ -498,11 +852,26 @@ export async function runGeminiNativeOperation(options) {
     }
     if (turn.error)
       return { ...snapshot, ok: false, code: 'GEMINI_TURN_FAILED', message: turn.error }
+    if (turn.successful && !busy && (!row || !turn.accepted)) {
+      // A completed native stream can contain no attributable turn. Allow a
+      // short state-delivery grace period, then preserve the uncertain write
+      // instead of waiting the full generation deadline or using its parent.
+      turn.unattributedSuccessAt ??= Date.now()
+      if (Date.now() - turn.unattributedSuccessAt >= 2000)
+        return {
+          ...snapshot,
+          ok: false,
+          code: 'GEMINI_RESULT_UNCONFIRMED',
+          message:
+            'Gemini ended this request without an attributable response. Inspect its existing conversation; this request will not be submitted again.',
+        }
+    } else delete turn.unattributedSuccessAt
     if (!row || !turn.accepted || row.response?.turnId !== turn.serverTurnId) return snapshot
+    snapshot.responseTimestamp = responseTimestamp(row.response?.timestamp)
     // Read content and completion from the SAME native row. Rendered website
     // DOM can lag or rebuild an older same-text turn, so it is never an answer
-    // source. These block shapes were inspected in this runtime's public gH /
-    // fH converters. Unknown/interactive blocks refuse completion.
+    // source. These block shapes were inspected in the mapped runtimes' public
+    // converters. Unknown/interactive blocks refuse completion.
     const tree = row.response?.draft?.structuredContent
     const final =
       turn.successful &&
@@ -512,111 +881,9 @@ export async function runGeminiNativeOperation(options) {
       if (final) throw new Error('The final native answer has no supported content.')
       return snapshot
     }
-    let count = 0,
-      characters = 0
-    const text = (value, parent) => {
-      if (typeof value !== 'string') throw new Error('Unsupported native text.')
-      characters += value.length
-      if (characters > 1000000) throw new Error('Native output exceeded the supported limit.')
-      if (parent.tagName === 'CODE') parent.appendChild(document.createTextNode(value))
-      else
-        value.split('\n').forEach((line, index) => {
-          if (index) parent.appendChild(document.createElement('br'))
-          parent.appendChild(document.createTextNode(line))
-        })
-    }
-    const children = (nodes, parent, depth) => {
-      if (!Array.isArray(nodes)) throw new Error('Unsupported native children.')
-      for (const node of nodes) render(node, parent, depth + 1)
-    }
-    const element = (tag, parent) => {
-      const next = document.createElement(tag)
-      parent.appendChild(next)
-      return next
-    }
-    const render = (node, parent, depth) => {
-      if (++count > 50000 || depth > 64 || !node) throw new Error('Unsupported native output.')
-      switch (node.nodeType) {
-        case 18:
-          text(node.text, parent)
-          break
-        case 1:
-        case 9:
-          text(node.code, element('code', element('pre', parent)))
-          break
-        case 12:
-          text(node[fields.math || 'GXa'], element('code', parent))
-          break
-        case 13:
-          element('hr', parent)
-          break
-        case 19:
-          element('br', parent)
-          break
-        case 21:
-          break // native empty/unsupported placeholder, has no content
-        case 2: {
-          const block = element('div', parent)
-          text(node.title, element('strong', block))
-          children(node.children, block, depth)
-          break
-        }
-        case 7:
-        case 8:
-        case 11:
-        case 15:
-        case 16:
-          children(node.children, element(node.nodeType === 11 ? 'p' : 'div', parent), depth)
-          break
-        case 3:
-        case 4:
-        case 5: {
-          if (!Array.isArray(node.children)) throw new Error('Unsupported native layout.')
-          const block = element('div', parent)
-          for (const item of node.children) render(item.child, block, depth + 1)
-          break
-        }
-        case 14:
-        case 20: {
-          if (!Array.isArray(node.items)) throw new Error('Unsupported native list.')
-          const list = element(node.nodeType === 14 ? 'ol' : 'ul', parent)
-          for (const item of node.items) children(item.children, element('li', list), depth)
-          break
-        }
-        case 17: {
-          if (!Array.isArray(node.rows)) throw new Error('Unsupported native table.')
-          if (node.caption) render(node.caption, element('p', parent), depth + 1)
-          const table = element('table', parent)
-          for (const row of node.rows) {
-            if (!Array.isArray(row.cells)) throw new Error('Unsupported native table row.')
-            const tr = element('tr', table)
-            for (const cell of row.cells) children(cell.children, element('td', tr), depth)
-          }
-          break
-        }
-        case 6: {
-          if (!Array.isArray(node.entries)) throw new Error('Unsupported native definitions.')
-          const list = element('dl', parent)
-          for (const item of node.entries) {
-            if (item[fields.definitionTerm || 'jw'])
-              render(item[fields.definitionTerm || 'jw'], element('dt', list), depth + 1)
-            children(item.description, element('dd', list), depth)
-          }
-          break
-        }
-        default:
-          throw new Error('Unsupported native output block. Inspect the result on Gemini.')
-      }
-    }
-    const result = document.createElement('div')
-    children(tree.children, result, 0)
-    if (!normalized(result.textContent)) {
-      if (final) throw new Error('The final native answer is empty or unsupported.')
-      return snapshot
-    }
-    if (result.innerHTML.length > 1000000)
-      throw new Error('Gemini output exceeded the supported rendering limit.')
-    snapshot.answer = result.innerHTML
+    snapshot.answer = renderAnswer(tree, fields)
+    if (!snapshot.answer && final)
+      throw new Error('The final native answer is empty or unsupported.')
     snapshot.completed = final
     return snapshot
   } catch {

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-13
+last_reconciled: 2026-11-14
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -53,6 +53,7 @@ The bridge connection, engine adaptation and account/page readiness are distinct
 | `GET /engines/:id/models?refresh=true` | Adapter model catalog with source, freshness and availability |
 | `POST /engines/:id/runs` | Register independent generation or explicit append; requires `Idempotency-Key`; returns `202` and `runId` |
 | `GET /runs/:runId` | Local snapshot only, including whether the final body is still available |
+| `GET /operations/:id` | Read the original gateway operation by idempotency key or operation ID after a lost receipt; no submission. The old `/chatgpt/operations/:id` path remains an alias |
 | `POST /runs/:runId/recover` | Exact readonly recovery if adapted; never resubmits input |
 | `POST /runs/:runId/cancel` | Record local Stop and attempt the matching native cancellation once; remote cancellation is not assumed |
 | `GET /engines/:id/conversations` | Granted native history; list entries include an opaque reference |
@@ -67,9 +68,14 @@ For example, POST `/engines/geminiweb/runs` with a fresh idempotency key:
 For append, use `operation: "conversation.append"` and
 `conversation: {"ref": "<verified reference>", "expectedRevision": 1}` from the
 most recent result/detail. An unavailable or changed binding fails without
-creating another conversation. Gemini's binding requires its original live
-native document. Gemini history and Grok/Gemini exact run recovery remain
-unadapted; capability errors do not redirect to another provider.
+creating another conversation. Gemini history and reopening use its verified
+native history service and server head. Exact Gemini recovery requires a persisted
+server turn identity; the client-only ID is absent from historical requests.
+Grok exact recovery remains unadapted. An unsupported Gemini runtime refuses the
+operation; capability errors never redirect to another provider. Gemini lists
+use `cursor`/`limit`, include pinned and ordinary conversations, and support an
+exact native `conversationId` filter for rebinding a recovered run. Detail pages
+have `nextCursor`; every page still checks the current native head.
 
 A receipt confirms local registration, not provider acceptance. Only
 `phase: settled`, `outcome: completed` and an available `result` permit a success
@@ -367,18 +373,28 @@ Common errors:
 #### Gemini Web completions
 
 Enable `Gemini Web` under `Engines`, then use `Check Gemini page` in its settings
-after signing into Gemini and selecting **4 Argon / High**. Requests use
-`model: "gemini-4-argon-high"` (or `geminiweb/gemini-4-argon-high`). Omit effort,
-or pass `reasoning_effort: "high"` / `thinking_effort: "high"`. Other Gemini
+after signing into Gemini and selecting **4 Hydrogen / Medium**. Requests use
+`model: "gemini-4-hydrogen-medium"` (or `geminiweb/gemini-4-hydrogen-medium`). Omit effort,
+or pass `reasoning_effort: "medium"` / `thinking_effort: "medium"`. Other Gemini
 selectors, effort levels, images and Projects are rejected before dispatch.
 
 The originating `ApiServer.html` page forwards this selector through the
 background Gemini provider to a dedicated native Gemini document. No ChatGPT
 upload, history or conversation API runs for this request. Standard messages
 are formatted into one text prompt for a new independent completion. There is
-no Gemini custom history endpoint. The generic MCP `ask_engine` tool can select
-Gemini using the same external engine grants; the existing Drafts actions still
-use ChatGPT conversation endpoints.
+no history replay through this legacy completions route. Native history and
+explicit append use the common `/engines/geminiweb/conversations*` and run
+interfaces. The generic MCP `ask_engine` tool selects Gemini using the same
+external engine grants. The four Gemini Drafts actions use these common
+interfaces; the five original ChatGPT actions retain their ChatGPT endpoints.
+
+Common Gemini final results expose a valid native response instant as
+`result.metadata.responseTimestamp`; assistant history messages expose
+`responseTimestamp`. These are ISO timestamps, not official thinking durations.
+Live and subsequent native history values may differ for the same turn; see
+[Gemini timestamp limits](gemini-web.md#november-14-model-selection). Use native
+turn identity to correlate results, not this time field.
+Run `createdAt` and `updatedAt` are local lifecycle timestamps.
 
 Both streaming and ordinary completions wait for the verified final native
 result. Gemini HTML snapshots can change while generating, so the append-only

@@ -130,6 +130,273 @@ function setup(overrides = {}) {
 }
 
 describe('Gemini background submission owner', () => {
+  it('reuses a verified empty owned page after a local pre-submission refusal, without navigating or replaying the old request', async () => {
+    let ready = false
+    const f = setup({
+      operation: async (op) =>
+        op === 'inspect'
+          ? ready
+            ? { ok: true, ready: true, busy: false, draft: false, conversationId: '', turnCount: 0 }
+            : { ok: false, message: 'Local runtime not yet adapted', dispatched: false }
+          : undefined,
+    })
+    const failed = port()
+    await f.service.run({ session: f.session, port: failed })
+    expect(failed.messages.at(-1)).toMatchObject({ dispatched: false })
+    expect(f.calls.some((call) => call.op === 'send')).toBe(false)
+    const firstTab = [...f.tabs.values()][0]
+    ready = true
+    const next = {
+      sessionId: 'new-explicit-request',
+      remoteBindingGeneration: 'new-generation',
+      modelName: GEMINI_WEB_SELECTION,
+      question: 'A deliberate independent question',
+      conversationRecords: [],
+    }
+    const result = port()
+    await f.service.run({ session: next, port: result })
+    expect(f.tabs.size).toBe(1)
+    expect(next.geminiWebTabId).toBe(firstTab.id)
+    expect(f.tabs.get(firstTab.id).url).toBe(firstTab.url)
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+    expect(result.messages.at(-1)).toMatchObject({ outcome: 'completed' })
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].tabs[0].binding).toBe(
+      'new-explicit-request:new-generation',
+    )
+  })
+  it.each([
+    { draft: true, turnCount: 0 },
+    { draft: false, turnCount: 1 },
+  ])(
+    'preserves an existing owned page with %j instead of claiming it for another request',
+    async (status) => {
+      const f = setup({
+        operation: async (op, call) =>
+          op === 'inspect' && call.target.tabId === 10
+            ? { ok: true, ready: false, busy: false, conversationId: '', ...status }
+            : undefined,
+      })
+      f.tabs.set(10, {
+        id: 10,
+        status: 'complete',
+        url: 'https://gemini.google.com/app#chatgptbox-gemini-original-owner',
+      })
+      f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.push({
+        tabId: 10,
+        ownerId: 'original-owner',
+        binding: 'original-binding',
+        accountSalt: 'fixture-salt',
+        accountFingerprint: 'a'.repeat(64),
+      })
+      await f.service.run({ session: f.session, port: port() })
+      expect(f.tabs.size).toBe(2)
+      expect(f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.find((t) => t.tabId === 10).binding).toBe(
+        'original-binding',
+      )
+      expect(f.calls.filter((c) => c.op === 'send').every((c) => c.target.tabId !== 10)).toBe(true)
+    },
+  )
+  it('never recovers a new append from its inherited parent head or a previous run proof', async () => {
+    let writes = 0
+    const f = setup({
+      operation: async (op) => {
+        if (op === 'inspect')
+          return { ok: true, ready: true, conversationId: 'c_abcdefgh', serverHead: 'server-A' }
+        if (op === 'send' && ++writes === 2)
+          return {
+            ok: false,
+            message: 'Lost the new native response before an output identity was recorded',
+          }
+        if (op === 'send' || op === 'observe')
+          return {
+            ok: true,
+            accepted: true,
+            nativeId: 'native-A',
+            conversationId: 'c_abcdefgh',
+            serverTurnId: 'server-A',
+            responseId: 'response-A',
+            responseTimestamp: '2026-11-14T10:20:30.123Z',
+            answer: '<p>Answer A</p>',
+            completed: op === 'observe',
+          }
+        if (op === 'history.read')
+          return {
+            ok: true,
+            messages: [
+              {
+                role: 'assistant',
+                nativeTurnId: 'server-A',
+                nativeResponseId: 'response-A',
+                completed: true,
+                content: '<p>Answer A</p>',
+              },
+            ],
+          }
+      },
+    })
+    f.session.messageId = 'run-A'
+    await f.service.run({ session: f.session, port: port() })
+    const original = structuredClone(f.session)
+    expect(original.geminiWebResponseTimestamp).toBe('2026-11-14T10:20:30.123Z')
+    expect(original.geminiWebOutputIdentity).toMatchObject({
+      runId: 'run-A',
+      serverTurnId: 'server-A',
+    })
+    f.session.messageId = 'run-B'
+    f.session.question = 'Question B'
+    await f.service.run({ session: f.session, port: port() })
+    expect(writes).toBe(2)
+    expect(f.session.geminiWebServerTurnId).toBe('server-A')
+    expect(f.session.geminiWebOutputIdentity).toBeUndefined()
+    expect(f.session.geminiWebResponseTimestamp).toBeUndefined()
+    const restored = createGeminiWebService(f.deps)
+    expect(await restored.recover(f.session, { runId: 'run-B' })).toEqual({ outcome: 'unknown' })
+    // This also covers a common-run crash before its new reference was saved.
+    expect(await restored.recover(original, { runId: 'run-B' })).toEqual({ outcome: 'unknown' })
+    expect(f.calls.filter((call) => call.op === 'history.read')).toHaveLength(0)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).not.toBeNull()
+  })
+  it('reports an unsupported history adapter as an unsent operation error', async () => {
+    const f = setup({
+      operation: async () => ({
+        ok: false,
+        code: 'GEMINI_HISTORY_UNSUPPORTED',
+        message: 'No verified history adapter',
+      }),
+    })
+    await expect(f.service.listConversations()).rejects.toMatchObject({
+      code: 'OPERATION_NOT_IMPLEMENTED',
+      status: 422,
+      submission: 'not_attempted',
+    })
+    expect(f.calls.map((call) => call.op)).toEqual(['history.list'])
+  })
+  it('reopens a closed writer at its original native conversation instead of starting another conversation', async () => {
+    let writes = 0
+    const f = setup({
+      operation: async (op) => {
+        if (op === 'inspect')
+          return {
+            ok: true,
+            ready: true,
+            conversationId: writes ? 'c_abcdefgh' : '',
+            serverHead: writes ? 'server-' + writes : null,
+            clientHead: writes ? 'native-' + writes : null,
+          }
+        if (op === 'send') writes++
+        if (op === 'send' || op === 'observe')
+          return {
+            ok: true,
+            accepted: true,
+            nativeId: 'native-' + writes,
+            serverTurnId: 'server-' + writes,
+            responseId: 'response-' + writes,
+            conversationId: 'c_abcdefgh',
+            url: 'https://gemini.google.com/app/abcdefgh',
+            answer: '<p>Verified</p>',
+            completed: op === 'observe',
+          }
+      },
+    })
+    await f.service.run({ session: f.session, port: port() })
+    expect(writes).toBe(1)
+    f.tabs.clear()
+    f.session.question = 'Continue in the original conversation'
+    const p = port()
+    await createGeminiWebService(f.deps).run({ session: f.session, port: p })
+    expect(writes).toBe(2)
+    expect([...f.tabs.values()][0].url).toContain('/app/abcdefgh#chatgptbox-gemini-')
+    expect(p.messages.at(-1)).toMatchObject({ outcome: 'completed' })
+    expect(f.session.conversationId).toBe('c_abcdefgh')
+  })
+  it('reads both pinned and ordinary native history without clearing an existing uncertainty hold', async () => {
+    const f = setup({
+      operation: async (op, call) => {
+        if (op === 'history.list')
+          return {
+            ok: true,
+            items: call.args[0].pinned ? [] : [{ id: 'c_abcdefgh', title: 'Native history' }],
+            nextCursor: null,
+          }
+      },
+    })
+    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
+      requestId: 'uncertain-old',
+      serverTurnId: 'server-old',
+    }
+    const page = await f.service.listConversations()
+    expect(page).toMatchObject({
+      items: [{ id: 'c_abcdefgh' }],
+      source: 'native-history',
+      completeness: 'complete',
+      total: null,
+    })
+    expect(f.calls.map((x) => x.op)).toEqual(['history.list', 'history.list'])
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold.requestId).toBe('uncertain-old')
+  })
+  it('recovers only the exact server turn after worker restart, preserving a newer hold and making zero submissions', async () => {
+    const f = setup({
+      operation: async (op) =>
+        op === 'history.read'
+          ? {
+              ok: true,
+              messages: [
+                {
+                  role: 'assistant',
+                  nativeTurnId: 'server-other',
+                  nativeResponseId: 'response-old',
+                  completed: true,
+                  content: 'Wrong same-text answer',
+                },
+                {
+                  role: 'assistant',
+                  nativeTurnId: 'server-old',
+                  nativeResponseId: 'response-old',
+                  completed: true,
+                  content: '<p>Exact old answer</p>',
+                },
+              ],
+              nextCursor: null,
+            }
+          : undefined,
+    })
+    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
+      requestId: 'newer-request',
+      serverTurnId: 'server-newer',
+    }
+    const restored = createGeminiWebService(f.deps)
+    const reference = {
+      session: {
+        conversationId: 'c_abcdefgh',
+        geminiWebServerTurnId: 'server-old',
+        geminiWebResponseId: 'response-old',
+        geminiWebRequestId: 'old-request',
+        geminiWebOutputIdentity: {
+          requestId: 'old-request',
+          runId: 'run-old',
+          conversationId: 'c_abcdefgh',
+          serverTurnId: 'server-old',
+          responseId: 'response-old',
+        },
+      },
+    }
+    expect(await restored.recover(reference)).toMatchObject({
+      outcome: 'completed',
+      finalOutput: { content: '<p>Exact old answer</p>' },
+    })
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold.requestId).toBe('newer-request')
+    expect(f.calls.every((call) => call.op === 'history.read')).toBe(true)
+    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
+      requestId: 'old-request',
+      serverTurnId: 'server-old',
+      responseId: 'response-old',
+    }
+    expect(await restored.recover(reference)).toMatchObject({ outcome: 'completed' })
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(await restored.recover({ session: { conversationId: 'c_abcdefgh' } })).toEqual({
+      outcome: 'unknown',
+    })
+  })
   it('persists the boundary before native preparation, pins document identity, and completes once', async () => {
     const f = setup(),
       p = port()

@@ -16,9 +16,10 @@ function subject(initial, hasInitial = true) {
   const listeners = new Set()
   return {
     subscribe(fn) {
-      listeners.add(fn)
-      if (hasInitial) fn(value)
-      return { unsubscribe: () => listeners.delete(fn) }
+      const listener = typeof fn === 'function' ? fn : (next) => fn.next?.(next)
+      listeners.add(listener)
+      if (hasInitial) listener(value)
+      return { unsubscribe: () => listeners.delete(listener) }
     },
     next(next) {
       value = next
@@ -48,8 +49,8 @@ function fixture({ current = false } = {}) {
       this.Ue = subject({ id: '', Ob: [] })
       this.Mb = subject(undefined, false)
       this.bardModeService = {
-        oa: subject({ id: 'native-argon', description: '4 Argon' }),
-        Ca: subject('THINKING_LEVEL_EXTENDED'),
+        oa: subject({ id: 'native-hydrogen', description: '4 Hydrogen' }),
+        Ca: subject('THINKING_LEVEL_MEDIUM'),
       }
       this.calls = 0
       this.stops = 0
@@ -62,9 +63,11 @@ function fixture({ current = false } = {}) {
         request: {
           clientTurnId: `native-${this.calls}`,
           textQuery: this.input.Fl.value,
-          jj: 'native-argon',
-          thinkingLevel: 'THINKING_LEVEL_EXTENDED',
+          jj: 'native-hydrogen',
+          thinkingLevel: 'THINKING_LEVEL_MEDIUM',
           conversationId: 'c_native',
+          Yj: this.Ue.value.Ob.at(-1)?.response?.turnId || '',
+          parentResponseId: this.Ue.value.Ob.at(-1)?.response?.draft?.id || '',
         },
         response: { turnId: '', isFinal: false, draft: { completeness: 'PARTIAL' } },
       }
@@ -91,6 +94,7 @@ function fixture({ current = false } = {}) {
           turnId: `server-${this.calls}`,
           isFinal: final,
           draft: {
+            id: `response-${this.calls}`,
             completeness: final ? 'COMPLETE' : 'PARTIAL',
             structuredContent: content || {
               children: [
@@ -204,8 +208,8 @@ function fixture({ current = false } = {}) {
       viewMap: 'views',
       inputClass: 'Input',
       serviceClass: 'Service',
-      modelDescription: '4 Argon',
-      thinkingLevel: 'THINKING_LEVEL_EXTENDED',
+      modelDescription: '4 Hydrogen',
+      thinkingLevel: 'THINKING_LEVEL_MEDIUM',
       hashes: {
         submit: hash(input.kNa),
         send: hash(service.sendRequest),
@@ -215,12 +219,23 @@ function fixture({ current = false } = {}) {
     },
   ]
   if (current) {
-    const profile = GEMINI_NATIVE_CONTRACTS.find((item) => item.version.includes('qGl2D'))
+    const profile = GEMINI_NATIVE_CONTRACTS.find((item) =>
+      item.version.includes(
+        current === 'latest'
+          ? 'K_sMM'
+          : current === 'nov13TX'
+          ? 'TX_RV'
+          : current === 'nov13early'
+          ? '7qWX'
+          : 'qGl2D',
+      ),
+    )
     Object.assign(contracts[0], {
       fields: profile.fields,
-      prepareFunction: 'GEe',
-      attestationFunction: 'bde',
-      thinkingSetter: 'T9d',
+      prepareFunction: profile.prepareFunction,
+      attestationFunction: profile.attestationFunction,
+      thinkingSetter: profile.thinkingSetter,
+      ...(profile.dictationIndicator ? { dictationIndicator: profile.dictationIndicator } : {}),
     })
     for (const [key, legacy] of Object.entries({
       service: 'Ta',
@@ -237,15 +252,18 @@ function fixture({ current = false } = {}) {
       embedded: 'jc',
       feature: 'Ie',
     }))
-      input[profile.fields[key]] = input[legacy]
-    const request = (value) => value && Object.assign({}, value, { jj: undefined, qj: value.jj })
+      if (profile.fields[key]) input[profile.fields[key]] = input[legacy]
+    const request = (value) =>
+      value && Object.assign({}, value, { jj: undefined, [profile.fields.requestMode]: value.jj })
     const row = (value) => value && { ...value, request: request(value.request) }
-    service.Ye = {
+    service[profile.fields.state] = {
       subscribe(fn) {
-        return service.Ue.subscribe((state) => fn({ id: state.id, Pb: state.Ob.map(row) }))
+        return service.Ue.subscribe((state) =>
+          fn({ id: state.id, [profile.fields.rows]: state.Ob.map(row) }),
+        )
       },
     }
-    service.Nb = {
+    service[profile.fields.actions] = {
       subscribe(fn) {
         return service.Mb.subscribe((event) =>
           fn({
@@ -253,22 +271,19 @@ function fixture({ current = false } = {}) {
             request: request(event.request),
             turn: row(event.turn),
             um: undefined,
-            ...(event.um && { Cm: { request: request(event.um.request) } }),
+            ...(event.um && { [profile.fields.metadata]: { request: request(event.um.request) } }),
           }),
         )
       },
     }
-    runtime.GEe = runtime.hEe
-    runtime.bde = runtime.Gce
-    runtime.T9d = (modeService, level) => {
+    runtime[profile.prepareFunction] = runtime.hEe
+    runtime[profile.attestationFunction] = runtime.Gce
+    runtime[profile.thinkingSetter] = (modeService, level) => {
       modeService.setterCalls = (modeService.setterCalls || 0) + 1
       if (modeService.availableThinking?.includes(level)) modeService.Ca.next(level)
     }
-    service.bardModeService.availableThinking = [
-      'THINKING_LEVEL_STANDARD',
-      'THINKING_LEVEL_EXTENDED',
-    ]
-    contracts[0].hashes.thinking = hash(runtime.T9d)
+    service.bardModeService.availableThinking = ['THINKING_LEVEL_STANDARD', 'THINKING_LEVEL_MEDIUM']
+    contracts[0].hashes.thinking = hash(runtime[profile.thinkingSetter])
     delete runtime.hEe
     delete runtime.Gce
   }
@@ -311,8 +326,285 @@ async function prepare(f, question = 'Explain a careful migration of a browser e
   expect(await f.op('prepare', { question })).toEqual({ ok: true })
 }
 
+function historyFixture(f, overrides = {}) {
+  const rows = [
+    {
+      request: { conversationId: 'c_abcdefgh', textQuery: 'Same question' },
+      response: {
+        turnId: 'server-original',
+        isFinal: true,
+        draft: {
+          id: 'response-original',
+          completeness: 'COMPLETE',
+          structuredContent: {
+            children: [{ nodeType: 18, text: '<script>ordinary text</script>' }],
+          },
+        },
+      },
+    },
+  ]
+  const reads = []
+  class History {
+    vha(options, limit, cursor) {
+      reads.push(['list', options, limit, cursor])
+      return subject({
+        [overrides.itemsField || 'El']: [
+          { conversationId: 'c_abcdefgh', title: 'Native title', pinned: true },
+        ],
+        nextPageToken: 'next-page',
+      })
+    }
+    lCa(id, limit, cursor) {
+      reads.push(['read', id, limit, cursor])
+      overrides.onRead?.()
+      return subject({ [overrides.rowsField || 'Pb']: overrides.rows || rows, nextPageToken: '' })
+    }
+  }
+  f.runtime.History = History
+  f.service.history = new History()
+  f.contracts[0].history = {
+    apiClass: 'History',
+    serviceField: 'history',
+    list: 'vha',
+    read: 'lCa',
+    ...(overrides.itemsField && { itemsField: overrides.itemsField }),
+    ...(overrides.exactFilter && { exactFilter: overrides.exactFilter }),
+    ...(overrides.rowsField && { rowsField: overrides.rowsField }),
+  }
+  for (const [key, fn] of Object.entries({
+    historyClass: History,
+    list: History.prototype.vha,
+    read: History.prototype.lCa,
+  }))
+    f.contracts[0].hashes[key] = createHash('sha256').update(fn.toString()).digest('hex')
+  return { rows, reads }
+}
+
+describe('Gemini native history boundary', () => {
+  it('uses the renamed current native list shape and its exact-conversation filter without submitting', async () => {
+    const f = fixture({ current: 'latest' })
+    const h = historyFixture(f, { itemsField: 'Fl', exactFilter: 'yV', rowsField: 'Qb' })
+    expect(await f.op('history.list', { conversationId: 'c_abcdefgh' })).toMatchObject({
+      ok: true,
+      items: [{ id: 'c_abcdefgh' }],
+    })
+    expect(h.reads[0][1]).toEqual({ conversationId: 'c_abcdefgh', yV: true })
+    expect(await f.op('history.read', { conversationId: 'c_abcdefgh' })).toMatchObject({
+      ok: true,
+      headCompleted: true,
+      messages: [{ role: 'user' }, { role: 'assistant', completed: true }],
+    })
+    expect(f.service.calls).toBe(0)
+  })
+  it('shares the rendering budget across history rows, including empty native nodes', async () => {
+    const f = fixture()
+    const row = (id) => ({
+      request: { conversationId: 'c_abcdefgh', textQuery: 'Question' },
+      response: {
+        turnId: id,
+        isFinal: true,
+        draft: {
+          id: id + '/response',
+          completeness: 'COMPLETE',
+          structuredContent: {
+            children: [
+              ...Array.from({ length: 30000 }, () => ({ nodeType: 21 })),
+              { nodeType: 18, text: 'Answer' },
+            ],
+          },
+        },
+      },
+    })
+    historyFixture(f, { rows: [row('newer'), row('older')] })
+    const detail = await f.op('history.read', { conversationId: 'c_abcdefgh' })
+    expect(detail.messages[1]).toMatchObject({ completed: true, supported: true })
+    expect(detail.messages[3]).toMatchObject({ completed: false, supported: false, content: '' })
+    expect(f.service.calls).toBe(0)
+  })
+  it('reads native lists and stable server-turn detail without a submission, client ID or generated HTML execution', async () => {
+    const f = fixture(),
+      h = historyFixture(f)
+    expect(await f.op('history.list', { pinned: true, limit: 3 })).toMatchObject({
+      ok: true,
+      items: [{ id: 'c_abcdefgh', pinned: true }],
+      nextCursor: 'next-page',
+    })
+    const detail = await f.op('history.read', { conversationId: 'c_abcdefgh' })
+    expect(detail).toMatchObject({
+      ok: true,
+      serverHead: 'server-original',
+      responseId: 'response-original',
+      headCompleted: true,
+    })
+    expect(detail.messages[1]).toMatchObject({
+      nativeTurnId: 'server-original',
+      completed: true,
+      content: '&lt;script&gt;ordinary text&lt;/script&gt;',
+    })
+    expect(h.reads).toHaveLength(2)
+    expect(f.service.calls).toBe(0)
+    expect(f.win.__chatgptboxGeminiNativeV1).toBeUndefined()
+  })
+  it('preserves the native response instant in live and historical output without inventing a duration', async () => {
+    const f = fixture()
+    await prepare(f)
+    await f.op('send')
+    f.service.receive('<p>Timed answer</p>', { final: true, success: true })
+    f.service.row.response.timestamp = new Date('2026-11-14T10:20:30.123Z')
+    const live = await f.op('observe')
+    expect(live).toMatchObject({ completed: true, responseTimestamp: '2026-11-14T10:20:30.123Z' })
+    expect(live).not.toHaveProperty('thoughtDurationSec')
+    await f.op('close')
+    const h = historyFixture(f)
+    h.rows[0].response.timestamp = new Date('2026-11-14T10:20:30.123Z')
+    expect(
+      (await f.op('history.read', { conversationId: 'c_abcdefgh' })).messages[1],
+    ).toMatchObject({ responseTimestamp: live.responseTimestamp })
+    h.rows[0].response.timestamp = '2026-11-14T10:20:30.123Z'
+    expect(
+      (await f.op('history.read', { conversationId: 'c_abcdefgh' })).messages[1],
+    ).toMatchObject({ responseTimestamp: null })
+    expect(f.service.calls).toBe(1)
+  })
+
+  it('refuses changed accounts and a response belonging to another conversation with zero submissions', async () => {
+    const f = fixture()
+    historyFixture(f, {
+      onRead: () => f.win.document.querySelector('a').setAttribute('aria-label', 'Another account'),
+    })
+    expect(await f.op('history.read', { conversationId: 'c_abcdefgh' })).toMatchObject({
+      ok: false,
+    })
+    expect(f.service.calls).toBe(0)
+  })
+  it('retains unsupported or partial historical output without confirming a usable final answer', async () => {
+    const f = fixture()
+    historyFixture(f, {
+      rows: [
+        {
+          request: { conversationId: 'c_abcdefgh', textQuery: 'Question' },
+          response: {
+            turnId: 'server-original',
+            isFinal: true,
+            draft: {
+              id: 'response-original',
+              completeness: 'COMPLETE',
+              structuredContent: { children: [{ nodeType: 999 }] },
+            },
+          },
+        },
+      ],
+    })
+    const detail = await f.op('history.read', { conversationId: 'c_abcdefgh' })
+    expect(detail.messages[1]).toMatchObject({ supported: false, completed: false, content: '' })
+    expect(f.service.calls).toBe(0)
+  })
+})
+
 describe('Gemini native runtime boundary', () => {
-  it('adapts the current compiled field names and applies High through the native menu setter without sending', async () => {
+  it('does not classify an editor-only draft as an empty reusable page', async () => {
+    const f = fixture()
+    f.editor.textContent = 'A native draft not yet reflected in its form control'
+    expect(await f.op('inspect')).toMatchObject({
+      ok: true,
+      ready: false,
+      draft: true,
+      turnCount: 0,
+    })
+    expect(f.service.calls).toBe(0)
+  })
+  it('continues a reopened native conversation using its server head when historical client IDs are absent', async () => {
+    const f = fixture({ current: 'latest' })
+    await prepare(f)
+    await f.op('send')
+    f.service.receive('Original final answer', { final: true, success: true })
+    expect(await f.op('observe')).toMatchObject({ completed: true })
+    await f.op('close')
+    delete f.win.__chatgptboxGeminiNativeV1
+    f.win.history.replaceState({}, '', '/app/native')
+    f.service.Ue.next({
+      id: 'c_native',
+      Ob: f.service.Ue.value.Ob.map((row) => ({
+        ...row,
+        request: { ...row.request, clientTurnId: undefined },
+      })),
+    })
+    const reopened = {
+      conversationId: 'c_native',
+      lastServerTurnId: 'server-1',
+      lastResponseId: 'response-1',
+    }
+    expect(await f.op('configure', reopened)).toMatchObject({ ok: false, dispatched: false })
+    expect(
+      await f.op('configure', {
+        ...reopened,
+        verifiedReopen: true,
+        lastServerTurnId: 'wrong-head',
+      }),
+    ).toMatchObject({ ok: false, dispatched: false })
+    expect(await f.op('configure', { ...reopened, verifiedReopen: true })).toEqual({ ok: true })
+    const binding = {
+      conversationId: 'c_native',
+      lastServerTurnId: 'server-1',
+      lastResponseId: 'response-1',
+      verifiedReopen: true,
+    }
+    expect(await f.op('connect', binding)).toEqual({ ok: true })
+    expect(
+      await f.op('prepare', { ...binding, question: 'Explain the remaining uncertainty.' }),
+    ).toEqual({ ok: true })
+    expect(await f.op('send')).toMatchObject({ ok: true })
+    expect(f.service.calls).toBe(2)
+  })
+  it('refuses a parent change between preparation and handler invocation before a further native send', async () => {
+    const f = fixture({ current: 'latest' })
+    await prepare(f)
+    await f.op('send')
+    f.service.receive('Original final answer', { final: true, success: true })
+    await f.op('observe')
+    await f.op('close')
+    const binding = {
+      conversationId: 'c_native',
+      lastServerTurnId: 'server-1',
+      lastResponseId: 'response-1',
+    }
+    expect(await f.op('prepare', { ...binding, question: 'Next request' })).toEqual({ ok: true })
+    f.service.Ue.next({
+      id: 'c_native',
+      Ob: f.service.Ue.value.Ob.map((row) => ({
+        ...row,
+        response: { ...row.response, turnId: 'another-head' },
+      })),
+    })
+    expect(await f.op('send')).toMatchObject({ ok: false, dispatched: false })
+    expect(f.service.calls).toBe(1)
+  })
+  it.each(['nov13early', 'nov13TX', 'latest'])(
+    'uses the observed %s field/event mapping to complete its matching native response',
+    async (current) => {
+      const f = fixture({ current })
+      await prepare(f)
+      expect(await f.op('send')).toMatchObject({ ok: true })
+      f.service.receive('Final native answer', { final: true, success: true })
+      expect(await f.op('observe')).toMatchObject({
+        ok: true,
+        completed: true,
+        serverTurnId: 'server-1',
+        responseId: 'response-1',
+      })
+      expect(f.service.calls).toBe(1)
+    },
+  )
+  it('rejects active native dictation in the current runtime with zero submissions', async () => {
+    const g = fixture({ current: 'latest' })
+    g.win.document.body.insertAdjacentHTML(
+      'beforeend',
+      '<button aria-label="Stop dictation (shortcut)">Stop</button>',
+    )
+    expect(await g.op('inspect')).toMatchObject({ ready: false, busy: true })
+    expect(g.service.calls).toBe(0)
+  })
+  it('adapts the current compiled field names and applies Medium through the native menu setter without sending', async () => {
     const f = fixture({ current: true })
     f.service.bardModeService.Ca.next('THINKING_LEVEL_STANDARD')
     expect(await f.op('inspect')).toMatchObject({ ready: false })
@@ -330,17 +622,17 @@ describe('Gemini native runtime boundary', () => {
     expect(f.service.calls).toBe(1)
   })
 
-  it('does not apply thinking settings to a manual tab, switch models, or force unavailable High', async () => {
+  it('does not apply thinking settings to a manual tab, switch models, or force unavailable Medium', async () => {
     const f = fixture({ current: true })
     f.service.bardModeService.Ca.next('THINKING_LEVEL_STANDARD')
     f.win.location.hash = ''
     expect(await f.op('configure')).toMatchObject({ code: 'GEMINI_OWNED_TAB_REQUIRED' })
     expect(f.service.bardModeService.setterCalls).toBeUndefined()
     f.win.location.hash = '#chatgptbox-gemini-owner'
-    f.service.bardModeService.oa.next({ id: 'other', description: '4 Hydrogen' })
+    f.service.bardModeService.oa.next({ id: 'other', description: '4 Argon' })
     expect(await f.op('configure')).toMatchObject({ code: 'GEMINI_MODEL_MISMATCH' })
     expect(f.service.bardModeService.setterCalls).toBeUndefined()
-    f.service.bardModeService.oa.next({ id: 'native-argon', description: '4 Argon' })
+    f.service.bardModeService.oa.next({ id: 'native-hydrogen', description: '4 Hydrogen' })
     f.service.bardModeService.availableThinking = ['THINKING_LEVEL_STANDARD']
     expect(await f.op('configure')).toMatchObject({ code: 'GEMINI_MODEL_MISMATCH' })
     expect(f.service.bardModeService.Ca.value).toBe('THINKING_LEVEL_STANDARD')
@@ -352,8 +644,8 @@ describe('Gemini native runtime boundary', () => {
     expect(await f.op('inspect')).toMatchObject({
       ok: true,
       ready: true,
-      model: '4 Argon',
-      thinking: 'THINKING_LEVEL_EXTENDED',
+      model: '4 Hydrogen',
+      thinking: 'THINKING_LEVEL_MEDIUM',
     })
     expect(f.input.Fl.value).toBe('')
     expect(f.service.calls).toBe(0)
@@ -401,6 +693,35 @@ describe('Gemini native runtime boundary', () => {
     expect(await f.op('observe')).toMatchObject({ ok: false, code: 'GEMINI_TURN_FAILED' })
   })
 
+  it('ends an idle successful stream with no attributable row as uncertain, without another native send', async () => {
+    const f = fixture()
+    await prepare(f)
+    await f.op('send')
+    f.service.Ue.next({ id: 'c_native', Ob: [] })
+    f.service.generating = false
+    f.service.Mb.next({
+      type: '[Conversations] Generate Response Success',
+      um: { request: f.service.row.request },
+    })
+    let now = 1000
+    const NativeDate = Date
+    vi.stubGlobal(
+      'Date',
+      class extends NativeDate {
+        static now() {
+          return now
+        }
+      },
+    )
+    expect(await f.op('observe')).toMatchObject({ ok: true, completed: false, answer: '' })
+    now += 2000
+    const result = await f.op('observe')
+    expect(result).toMatchObject({ ok: false, code: 'GEMINI_RESULT_UNCONFIRMED', answer: '' })
+    expect(result).not.toHaveProperty('dispatched', false)
+    expect(await f.op('send')).toMatchObject({ ok: false, code: 'GEMINI_ALREADY_INVOKED' })
+    expect(f.service.calls).toBe(1)
+  })
+
   it('keeps identical questions in distinct native turns and excludes the old answer', async () => {
     const f = fixture(),
       question = 'Compare explicit migration and restoration.'
@@ -444,7 +765,7 @@ describe('Gemini native runtime boundary', () => {
       code: 'GEMINI_MODEL_MISMATCH',
       dispatched: false,
     })
-    f.service.bardModeService.Ca.next('THINKING_LEVEL_EXTENDED')
+    f.service.bardModeService.Ca.next('THINKING_LEVEL_MEDIUM')
     f.input.Fl.setValue('Keep this existing draft')
     expect(await f.op('connect')).toMatchObject({
       code: 'GEMINI_OWNED_TAB_REQUIRED',

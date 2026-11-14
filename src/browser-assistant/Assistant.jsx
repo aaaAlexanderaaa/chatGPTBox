@@ -16,7 +16,7 @@ import {
   prepareFunctionRun,
   functionWithRefinements,
 } from './functions.mjs'
-import { captureInput, captureReadingSnapshot } from './context.mjs'
+import { acquireReadingSnapshot, captureInput } from './context.mjs'
 import { AssistantResult } from './Result.jsx'
 import {
   listFunctions,
@@ -73,12 +73,32 @@ export function BrowserAssistant({
   const templateVariables = useRef({})
   const [request, setRequest] = useState(null)
   const [confirmedExtras, setConfirmedExtras] = useState(null)
+  const [reading, setReading] = useState(null)
+  const [readingAttempt, setReadingAttempt] = useState(0)
+  const readingKey = useMemo(() => ({}), [context, fn.scope, readingAttempt])
+  const needsReading = fn.scope === 'page' || fn.output === 'annotations'
+  useEffect(() => {
+    if (!needsReading) return
+    let disposed = false
+    let cached = snapshots.current.get(fn.scope)
+    if (!cached || cached.context !== context) {
+      cached = { context, promise: acquireReadingSnapshot(context, fn.scope) }
+      snapshots.current.set(fn.scope, cached)
+    }
+    cached.promise.then(
+      (snapshot) => !disposed && setReading({ key: readingKey, snapshot }),
+      (error) => !disposed && setReading({ key: readingKey, error: error.message }),
+    )
+    return () => {
+      disposed = true
+    }
+  }, [readingKey, needsReading])
   const preview = useMemo(() => {
     try {
-      if (fn.scope === 'page' || fn.output === 'annotations') {
-        if (!snapshots.current.has(fn.scope))
-          snapshots.current.set(fn.scope, captureReadingSnapshot(context, fn.scope))
-        const snapshot = snapshots.current.get(fn.scope)
+      if (needsReading) {
+        if (reading?.key !== readingKey) return { loading: true }
+        if (reading.error) return { error: reading.error }
+        const snapshot = reading.snapshot
         return {
           snapshot,
           text: snapshot.blocks.map((item) => `[${item.ref}] ${item.text}`).join('\n\n'),
@@ -95,7 +115,7 @@ export function BrowserAssistant({
     } catch (error) {
       return { error: error.message }
     }
-  }, [context, fn.scope, fn.output])
+  }, [context, fn.scope, needsReading, reading, readingKey])
   const edit = (patch) => {
     setFn((prev) => ({ ...localizeFunction(prev, t), ...patch, customized: true }))
     setSaved(false)
@@ -105,6 +125,7 @@ export function BrowserAssistant({
   useEffect(() => {
     let disposed = false
     setRequest(null)
+    if (preview.loading) return
     void (async () => {
       try {
         await i18nReady
@@ -501,8 +522,23 @@ export function BrowserAssistant({
               </summary>
               <pre>
                 {preview.text ||
-                  t(preview.error || 'No material is available for this input scope')}
+                  t(
+                    preview.loading
+                      ? 'Reading page material...'
+                      : preview.error || 'No material is available for this input scope',
+                  )}
               </pre>
+              {preview.snapshot?.source && <p>{t(preview.snapshot.source)}</p>}
+              {preview.error && (
+                <button
+                  onClick={() => {
+                    snapshots.current.delete(fn.scope)
+                    setReadingAttempt((value) => value + 1)
+                  }}
+                >
+                  {t('Retry reading material')}
+                </button>
+              )}
             </details>
             {fn.scope === 'url' && !needsExtraConfirmation && (
               <p className="box-assistant-note">

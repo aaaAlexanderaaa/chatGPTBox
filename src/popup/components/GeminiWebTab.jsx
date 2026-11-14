@@ -34,10 +34,10 @@ export function GeminiWebTab({ config, updateConfig }) {
         title={t('Account and model')}
         description={t('Uses your signed-in Gemini website and its native submission checks.')}
       >
-        <p className="text-sm">4 Argon · {t('Thinking level')}: High</p>
+        <p className="text-sm">4 Hydrogen · {t('Thinking level')}: Medium</p>
         <p className="text-xs text-muted-foreground">
           {t(
-            'Open Gemini, select 4 Argon and High, then check the page. The adapter refuses other models and unknown website versions.',
+            'Open Gemini, select 4 Hydrogen and Medium, then check the page. The adapter refuses other models and unknown website versions.',
           )}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -73,8 +73,8 @@ export function GeminiWebTab({ config, updateConfig }) {
             <p>
               {status.message ||
                 (status.ready
-                  ? t('Gemini is ready: 4 Argon / High.')
-                  : t('Gemini is open. Select 4 Argon / High, then check the page.'))}
+                  ? t('Gemini is ready: 4 Hydrogen / Medium.')
+                  : t('Gemini is open. Select 4 Hydrogen / Medium, then check the page.'))}
             </p>
             {status.model && !status.ready && (
               <p>
@@ -123,7 +123,7 @@ export function GeminiWebTab({ config, updateConfig }) {
       </SettingSection>
       <p className="text-xs text-muted-foreground">
         {t(
-          'Text chat only. Keep its dedicated tab open for follow-ups. Regeneration, attachments and history import are not supported. Native website recovery stays enabled; account safety cannot be guaranteed by a compatibility test.',
+          'Text chat only. Conversations can continue after refresh or reopening when their original history is verified. Regeneration and attachments are unavailable. Account checks remain active; a compatibility test cannot guarantee account safety.',
         )}
       </p>
     </div>

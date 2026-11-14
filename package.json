@@ -25,6 +25,7 @@
     "sync-protocol-reference": "node scripts/sync-protocol-reference.mjs",
     "sync-drafts-preview": "node scripts/sync-drafts-preview.mjs",
     "sync-drafts-photos": "node scripts/sync-drafts-photos.mjs",
+    "sync-drafts-engines": "node scripts/sync-drafts-engines.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "api-server": "node scripts/api-server.mjs",

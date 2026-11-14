@@ -1,4 +1,4 @@
-import { rangeForAnnotation } from './context.mjs'
+import { annotationLocation, rangeForAnnotation } from './context.mjs'
 import { readEditableRange, readEditableText } from '../utils/editable-text.mjs'
 
 export function showAnnotations(snapshot, annotations, id) {
@@ -20,7 +20,15 @@ export function showAnnotations(snapshot, annotations, id) {
 }
 
 export function revealAnnotation(snapshot, annotation) {
-  const range = rangeForAnnotation(snapshot, annotation)
+  const location = annotationLocation(snapshot, annotation)
+  if (location.startSeconds !== undefined) {
+    const video = snapshot.document.querySelector('video')
+    if (!video?.isConnected) throw new Error('The video player is unavailable')
+    video.currentTime = location.startSeconds
+    video.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return
+  }
+  const { range } = location
   const selection = snapshot.document.defaultView.getSelection()
   selection.removeAllRanges()
   selection.addRange(range)

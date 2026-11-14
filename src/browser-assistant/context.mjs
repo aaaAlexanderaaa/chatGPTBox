@@ -1,4 +1,5 @@
 import { readingRoots } from './reading-roots.mjs'
+import { acquireYouTubeSnapshot, youtubeVideoId } from './youtube.mjs'
 import { readEditableRange, readEditableText } from '../utils/editable-text.mjs'
 
 const EDITABLE =
@@ -153,6 +154,25 @@ export function captureReadingSnapshot(context, scope = 'page', { maxChars = 300
   }
   if (!blocks.length) throw new Error('No readable text was found. Select a passage instead.')
   return { url: context.url, document: doc, blocks, truncated, source }
+}
+
+export async function acquireReadingSnapshot(context, scope = 'page', options = {}) {
+  return scope === 'page' && youtubeVideoId(context.url)
+    ? acquireYouTubeSnapshot(context, options)
+    : captureReadingSnapshot(context, scope, options)
+}
+
+export function annotationLocation(snapshot, annotation) {
+  if (snapshot.kind !== 'video-subtitles')
+    return { range: rangeForAnnotation(snapshot, annotation) }
+  if (snapshot.document.location.href !== snapshot.url) throw new Error('The page changed')
+  const block = snapshot.blocks.find((item) => item.ref === annotation.ref)
+  if (!block) throw new Error('Source block was not provided to the AI')
+  const start = block.quoteText.indexOf(annotation.quote)
+  if (start < 0) throw new Error('Quote does not match the original text')
+  if (block.quoteText.indexOf(annotation.quote, start + 1) >= 0)
+    throw new Error('Quote matches more than one passage')
+  return { startSeconds: block.startSeconds }
 }
 
 export function rangeForAnnotation(snapshot, annotation) {

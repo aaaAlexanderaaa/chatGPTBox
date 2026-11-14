@@ -183,6 +183,14 @@ describe('versioned gateway → bridge → common runtime', () => {
       })
       expect(response.status).toBe(202)
       const receipt = await response.json()
+      const lookup = await fetch(`${base}/operations/${encodeURIComponent(`native-${engineId}`)}`, {
+        headers: apiHeaders,
+      })
+      expect(lookup.status).toBe(200)
+      expect(await lookup.json()).toMatchObject({
+        operationId: receipt.runId,
+        result: { runId: receipt.runId },
+      })
       await vi.waitFor(async () => {
         const run = await (
           await fetch(`${base}/runs/${receipt.runId}`, { headers: apiHeaders })

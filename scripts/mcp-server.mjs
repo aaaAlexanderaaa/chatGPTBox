@@ -133,7 +133,12 @@ const failure = (error, ack) => ({
         http_status: error?.status,
         retryable: false,
         run_id: ack?.runId || error?.runId,
-        submission: error?.submission,
+        submission:
+          ack?.runId && !error?.outcome
+            ? error?.submission === 'accepted'
+              ? 'accepted'
+              : 'possibly_submitted'
+            : error?.submission,
         outcome: error?.outcome,
       }),
     },

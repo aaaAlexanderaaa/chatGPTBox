@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-14
 ---
 
 # Execution records
@@ -13,12 +13,13 @@ IDs, and task instructions apply only to their original work.
 
 | Record                                                                 | State and remaining limit                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [November 13 gap closure](2026-11-13-gap-closure.md) | Completed retained delivery: installed Hydrogen / Medium continuation, native history/recovery and gateway-backed Drafts scripts verified; two-video material reuse checked. User deferred ChatGPT rewrite/video AI, native Drafts/device/iCloud, Grok and DSH acceptance; limits recorded there |
 | [Unified engine runtime](2026-11-12-engine-runtime.md) | Completed local implementation: common operations, access, compatible API/bridge/MCP; 2,007 tests, installed/reconnected; live three-provider trials remain unclaimed |
 | [Gemini Web adapter](2026-11-12-gemini-web.md) | Completed and installed in Brave; corrected runtime mapping, 1,951 tests passed, one live 4 Argon / High response completed without resubmission |
 | [Review workflow fixes](2026-11-11-review-fixes.md)                    | Completed for source, documentation, controlled workflows and production bundles; recovered review findings reconciled, MCP terminal state and live acceptance remain unconfirmed           |
 | [Core workflows and confirmed defects](2026-11-08-core-workflows.md)   | Completed local delivery: core flows/confirmed defects repaired, final source evaluated and controlled Chromium follow-through verified; native/live acceptance and release remain separate |
 | [Client widgets and Drafts](2026-11-06-genui-client-widgets.md)        | Completed local delivery: native charts/static widgets, regenerated Preview assets, installed extension and live gateway readback; native Drafts import/sync unverified                     |
-| [ChatGPT native input](2026-10-30-chatgpt-native-input.md)             | Active: regex/guest workflows verified and v4.3.0 installed with defaults off; logged-in rich-editor, account, IME and BFCache acceptance remain                                            |
+| [ChatGPT native input](2026-10-30-chatgpt-native-input.md)             | Active: logged-in rich-editor paste review/insertion/native undo verified; rewrite reached a website 400 and is deferred. Physical IME/BFCache remain unverified; account switching excluded from the current task; switches restored off |
 | [Documentation reconciliation](2026-10-22-documentation-discipline.md) | See its metadata and completion record for this bounded change                                                                                                                              |
 | [Browser assistant first delivery](2026-10-21-browser-assistant.md)    | Completed local delivery record; live provider and real-user acceptance were not established                                                                                                |
 | [Engines and providers](2026-09-17-engines-providers.md)               | Historical implementation record; live provider rules now route through product contracts                                                                                                   |

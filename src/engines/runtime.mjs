@@ -496,6 +496,9 @@ export function createEngineRuntime({
         'This engine cannot recover a lost execution. Inspect its original website result.',
         { runId, submission: record.submission },
       )
+    // The live writer remains the authority until it settles or is orphaned.
+    // A recovery read must not race it, release its binding or take its lease.
+    if (active.has(runId)) return read(runId, caller)
     if (!record.nativeRef)
       throw new EngineError(
         'RESULT_UNCERTAIN',

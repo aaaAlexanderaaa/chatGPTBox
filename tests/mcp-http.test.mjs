@@ -77,6 +77,7 @@ describe('MCP HTTP conversation flow', () => {
     let missingLocalTurn = false
     let recoveryReads = 0
     let bridgeFailures = 0
+    let refuseStatusReads = false
     const createdBodies = []
     const gateway = http.createServer(async (req, res) => {
       if (req.headers.authorization !== 'Bearer gateway-test-token') {
@@ -93,6 +94,19 @@ describe('MCP HTTP conversation flow', () => {
         res.writeHead(202).end(JSON.stringify({ runId: 'run-1' }))
       } else if (req.url === '/runs/run-1' || req.url === '/runs/run-1/recover') {
         statusReads++
+        if (refuseStatusReads) {
+          res.writeHead(403).end(
+            JSON.stringify({
+              error: {
+                code: 'EXTERNAL_ACCESS_DISABLED',
+                message: 'Readonly observation refused',
+                submission: 'not_attempted',
+                retryable: false,
+              },
+            }),
+          )
+          return
+        }
         if (bridgeFailures > 0) {
           bridgeFailures--
           res.writeHead(503).end(JSON.stringify({ error: { message: 'Bridge reconnecting' } }))
@@ -341,5 +355,17 @@ describe('MCP HTTP conversation flow', () => {
     expect(recoveryReads).toBe(1)
     expect(creates).toBe(7)
     expect(conversationReads).toBe(0)
+
+    refuseStatusReads = true
+    const refusedObservation = await callTool(9, 'ask_chatgpt', {
+      query: 'Research with an interrupted observation',
+    })
+    expect(refusedObservation.isError).toBe(true)
+    expect(JSON.parse(refusedObservation.content[0].text)).toMatchObject({
+      run_id: 'run-1',
+      code: 'EXTERNAL_ACCESS_DISABLED',
+      submission: 'possibly_submitted',
+    })
+    expect(creates).toBe(8)
   }, 30_000)
 })

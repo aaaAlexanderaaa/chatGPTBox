@@ -2,7 +2,7 @@
 doc_type: plan
 status: active
 authority: planning
-last_reconciled: 2026-10-31
+last_reconciled: 2026-11-14
 ---
 
 # ChatGPT native input: first delivery
@@ -53,12 +53,16 @@ user discipline files predate implementation and must be preserved.
   identified a missing-key default-off edge. That explicit branch was corrected;
   45 focused tests, lint and rebuilt production packages passed afterward. No sixth
   peer call was made. Original 1482-test/Chromium130 results do not approve this revision.
-- [ ] Verify the current real ChatGPT editor and account/IME transitions:
+- [ ] Complete current logged-in rewrite/application/undo acceptance:
   headed Chrome 156 real guest-editor paste/rewrite/application/undo succeeded
   with HTTP 200 and zero native chat writes. Its textarea has no controlled React
-  value to compare. Current logged-in `/c/...` rich editor, account switching,
-  physical OS IME and an actual BFCache cache hit remain unobserved. The earlier
-  headless Chromium 130 challenge/403 incident is retained in the evidence record.
+  value to compare. November 14 installed Brave verified the logged-in native
+  ProseMirror editor's paste review, masked insertion and native undo. Rewrite
+  reached the provider but failed with `400 Invalid conversation body`; the user
+  deferred further rewrite/video AI acceptance. Physical OS IME and an actual
+  BFCache hit remain unverified. The user clarified that account switching was
+  not their requirement; it is not a blocker for the current assignment. The
+  earlier headless Chromium 130 challenge/403 incident remains dated evidence.
 - [x] Reconcile product, architecture and guide with actual behavior and limitations;
   retain this plan as active rather than claim live acceptance/release completion.
 
@@ -73,8 +77,9 @@ manual-login profile was left unchanged. Final docs/diff results are recorded be
 
 First-delivery acceptance still requires the declared supported logged-in editor.
 Peer review and fixture success cannot close that live gap.
-No real-account message, installed extension replacement, gateway
-restart or Drafts update is part of this verification.
+No real-account message, installed extension replacement, gateway restart or
+Drafts update was part of that original October verification. The November 14
+follow-up below records its separate authorization, installed state and limits.
 
 ## Failure and recovery
 
@@ -86,6 +91,9 @@ Unsupported automatic paths remain visibly unavailable. Native labels, answer
 restoration, quota dashboards, sync and a general writing platform are excluded.
 
 ## Current progress
+
+The following regex work records the October 30–31 scope. It does not replace
+the November 14 installed-page observations at the end of this record.
 
 The user amended the custom-policy scope on 2026-10-30: replace the exact-term
 list with regex matching/replacement entries to cover variants. This amendment
@@ -185,3 +193,48 @@ Brave Reload, the new regex settings with both switches still off, byte-equal
 installed files and the reconnected healthy bridge. The tagged GitHub workflow
 records release publication separately; the private account-project smoke read
 was rejected before execution. The logged-in/transition acceptance task stays open.
+
+## November 13 acceptance attempt
+
+The user requested closing this acceptance gap as part of the
+[current delivery](2026-11-13-gap-closure.md). CUA could not restore its browser
+documentation because automatic approval review reported exhausted workspace
+credits. The action was not executed; this was an approval-service failure, not
+a supplier challenge or a finding that the action was unsafe. No new logged-in
+editor, OS IME, account-transition or BFCache result follows from this attempt.
+Keep this plan active; the existing synthetic/guest evidence remains dated.
+
+## November 14 installed follow-up
+
+Browser access returned during the [gap delivery](2026-11-13-gap-closure.md).
+Brave's current logged-in editor uses the observed native form/composer ancestry
+with `div.ProseMirror[data-composer-markdown][role=textbox][aria-multiline=true]`.
+The exact adapter was extended for that shape; unsupported/ambiguous and proxy
+editors remain excluded. After build/install/Reload, genuine Cmd+V opened local
+review before native insertion, confirmed masked text entered the rich editor,
+and native Cmd+Z restored its empty draft. This establishes the logged-in paste
+path, not complete rewrite or every framework synchronization case.
+
+The genuine Rewrite draft entry opened a 62-character material preview using
+the configured ChatGPT connection. Run reached the website, which rejected the
+request with `400 Invalid conversation body`. Its common run remains
+settled/unknown, possibly submitted, with no native conversation reference;
+there was no retry. The user selected delivering Gemini/Drafts this round and
+deferring ChatGPT rewrite/video AI acceptance. Applying a verified AI rewrite
+and its extension undo remain unobserved on this logged-in editor.
+
+Physical key input produced five trusted input events and zero composition
+events, so it does not prove OS IME behavior. Real navigation away and Back
+returned via `back_forward` but created a new document. The browser reported
+`response-cache-control-no-store`,
+`response-cache-control-no-store-with-js-network-request` and
+`websocket-used-with-ccns` as not-restored reasons. Actual BFCache behavior remains
+unverified; website protections were not weakened to force a hit. Test listeners
+and the session-storage marker were removed. No account switch was attempted;
+the user clarified that it was not their requirement for this task.
+
+Both native switches were restored to their original off state, confirmed in
+running storage, with zero registered early native scripts. The own unsent trial
+draft was cleared and its page reloaded; no original private draft was removed.
+Keep this parent plan active for its remaining declared live acceptance rather
+than infer success from the completed bounded Gemini/Drafts delivery.

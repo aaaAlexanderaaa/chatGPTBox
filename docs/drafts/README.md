@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-13
+last_reconciled: 2026-11-14
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -13,10 +13,11 @@ collect its answer. The [gateway contract](../api-server.md) owns authentication
 request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
 
-These actions continue to use the ChatGPT conversation endpoints. The gateway's
-Gemini completion and common run interfaces do not change Drafts' model, history
-or recovery behavior. Gemini is not a supported `MODEL_OVERRIDE` here; the
-existing List/Get/Send actions have not been adapted for Gemini.
+The original five actions continue to use ChatGPT conversation endpoints and
+keep their model, photo and Project behavior. Gemini uses the separate actions
+below and the common engine/run interface. A Gemini selector is not a supported
+`MODEL_OVERRIDE` in the old ChatGPT Send action. The two note formats reject one
+another before requests, preventing an accidental send to the wrong provider.
 
 ## Install and configure
 
@@ -119,7 +120,70 @@ unsent result releases protection; timeouts and stream parsing failures remain
 uncertain. The gateway's narrowly identified historical runtime rejection repair
 does not turn other old errors into unsent proof.
 
-## Photos and Projects
+## Gemini history, requests and continuation
+
+The November 13 delivery adds these self-contained actions. Import each package,
+then set its `BASE_URL` and `API_TOKEN` to your existing gateway address and API
+credential. Keep configured copies private. These are separate from the original
+five ChatGPT actions; they do not add photos or Projects to Gemini.
+
+| Action | Source / import package | Behavior |
+| --- | --- | --- |
+| ChatGPTBox Gemini List Conversations | [List](gemini-list.js), [package](chatgptbox-gemini-list.draftsAction) | Read pinned and ordinary native history; run again on a list to load more |
+| ChatGPTBox Gemini Get | [Get](gemini-get.js), [package](chatgptbox-gemini-get.draftsAction) | Open one checked conversation, refresh its recent messages, or collect a pending run |
+| ChatGPTBox Gemini Send | [Send](gemini-send.js), [package](chatgptbox-gemini-send.draftsAction) | Send an ordinary note as an independent question, or append its Waiting Reply |
+| ChatGPTBox Gemini Load Older Turns | [Older](gemini-older.js), [package](chatgptbox-gemini-older.draftsAction) | Prepend the next native history page while retaining recent text and Waiting Reply |
+
+Enable Gemini in `Settings → Engines`, check its account in `Gemini Web`, and
+grant the required generation, append, list and read operations under
+`External engine access`. API, MCP and Drafts share that gateway authority.
+The [Gemini contract](../gemini-web.md) owns model, account and recovery limits.
+Keep the extension bridge connected; the ChatGPT login is not Gemini's login.
+
+Use a new note for List, check one row and Get. Run List again on that list for
+the next page; a new empty note starts from the first page. Get retains Waiting
+Reply when refreshing. Older refuses to change a note with an unresolved request,
+and a changed native head asks for a visible Get refresh before continuing.
+
+Send saves the entire original request and key before HTTP. Its receipt confirms
+registration, not provider completion. Get observes that exact run; after a lost
+receipt it looks up the original key with `/operations/:key`, never resends the
+question. A second Send while pending also only observes the original operation.
+Later edits stay in Waiting Reply. Only a verified final result replaces its
+pending block; explicit unsent proof retains the original text and allows a later
+manual decision. Unknown, expired or missing identities do not authorize replay.
+
+Version-3 Gemini headers bind their generated controls to the note. Keep these
+headers and pending metadata intact. Use the original ChatGPT actions for version-2
+ChatGPT notes. A List action refuses to replace a Gemini conversation, preserving
+its transcript, unsent draft and operation identity. Captured account credentials
+never enter the note or import packages.
+
+Get refreshes only the marked history region, preserving your title, notes outside
+that region, and Waiting Reply. Put personal annotations outside the history
+markers. If generated history or pending text was edited, the actions keep the
+complete note and stop before HTTP or replacement; use a fresh List/Get note if
+you need to retain those edits. The edit checksum detects accidental changes;
+it does not authenticate a note or establish device synchronization.
+
+Maintain [the common source](engine-actions.shared.txt), then run
+`npm run sync-drafts-engines`; extension builds regenerate scripts and packages.
+Repository VM/HTTP tests establish control, payload and recovery behavior. Native
+Drafts import and device/iCloud acceptance are tracked separately in the
+[delivery record](../plans/2026-11-13-gap-closure.md).
+
+On November 14 the generated scripts also used the real gateway to list/open a
+Gemini conversation, append with Hydrogen / Medium, recover a deliberately lost
+receipt by its original key, collect the verified final result and load older
+native pages. Future Waiting Reply and outside notes survived. This exercised
+the scripts in a VM, not an installed Drafts app; the user deferred native
+import/device/iCloud acceptance for this round. Existing configured Drafts
+copies still require importing the packages and retaining their own endpoint
+and credential settings.
+
+<a id="photos-and-projects"></a>
+
+## ChatGPT photos and Projects
 
 1. Create the desired Project/instructions in ChatGPT, then run **Select Project**
    on a fresh note. This selects an existing Project for its first conversation;

@@ -65,6 +65,12 @@ Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use t
 A cancelled or timed-out wait can leave the original engine running. Continue
 by reading the known `run_id`, not by sending the question again. A completed run
 whose result body is no longer obtainable returns an explicit unavailable error.
+While its original writer is active, observation polls that writer's run and does
+not compete with it through native recovery. A refused read or recovery after
+registration cannot prove that generation was unsent: errors preserve the known
+run ID and report accepted/possibly-submitted state unless a terminal run itself
+supplies positive unsent proof. A busy readonly recovery can be observed again;
+it never starts another question.
 
 ## Tool
 

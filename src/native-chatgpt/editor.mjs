@@ -25,7 +25,14 @@ export function isNativeChatgptPage(doc) {
 
 export function nativeChatgptEditor(doc) {
   if (!isNativeChatgptPage(doc)) return null
-  const candidates = doc.querySelectorAll('#prompt-textarea, textarea#mobile-composer-prompt')
+  // November 13 logged-in composer: the native markdown editor no longer has
+  // prompt-textarea. Require its form/composer ancestry and native markers;
+  // unrelated ProseMirror editors are not main chat inputs.
+  const candidates = doc.querySelectorAll(
+    '#prompt-textarea, textarea#mobile-composer-prompt, ' +
+      'form [data-composer-body] [data-composer-input] ' +
+      'div.ProseMirror[data-composer-markdown][role="textbox"][aria-multiline="true"][contenteditable="true"]',
+  )
   if (candidates.length !== 1) return null
   const element = candidates[0]
   if (

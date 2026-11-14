@@ -107,6 +107,35 @@ function fixture({
 }
 
 describe('common engine runtime', () => {
+  it('keeps an active writer authoritative when a client asks to recover its run', async () => {
+    const f = fixture({ paused: true })
+    f.adapter.recover = vi.fn(async () => ({
+      outcome: 'completed',
+      finalOutput: { format: 'markdown', content: 'A premature read' },
+    }))
+    const receipt = await f.runtime.invoke(request(), api)
+    await vi.waitFor(async () =>
+      expect(await f.runtime.read(receipt.runId, api)).toMatchObject({
+        phase: 'running',
+        submission: 'accepted',
+      }),
+    )
+    expect(await f.runtime.recover(receipt.runId, api)).toMatchObject({
+      phase: 'running',
+      outcome: null,
+      submission: 'accepted',
+    })
+    expect(f.adapter.recover).not.toHaveBeenCalled()
+    await expect(f.runtime.invoke(request('Another question'), api)).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    expect(f.writes()).toBe(1)
+    f.finish()
+    expect(await f.runtime.wait(receipt.runId, api)).toMatchObject({
+      outcome: 'completed',
+      result: { content: 'Verified final' },
+    })
+  })
   it('reserves the actual native ID before POST even when two refs race and accepted is delayed', async () => {
     const f = fixture({ delayedAcceptance: true, conversationScope: true })
     const [left, right] = await Promise.all(

@@ -65,12 +65,15 @@ export async function waitForEngineRun(
   let lastRecoveryAt = now(),
     recoverySupported = true,
     progress = 0,
-    lastError
+    lastError,
+    lastRun
   while (now() < deadline && !waitSignal.aborted) {
     try {
       let run = await gateway.read(runId, waitSignal)
+      lastRun = run
       if (
         recoverySupported &&
+        run.phase === 'settled' &&
         now() - lastRecoveryAt >= recoveryMs &&
         !run.result &&
         (run.resultAvailability === 'recoverable' || run.outcome === 'unknown')
@@ -118,14 +121,24 @@ export async function waitForEngineRun(
       }
       lastError = null
     } catch (error) {
+      // A readonly read/recovery refusal describes that observation, not the
+      // generation already registered by start. Only a terminal run outcome
+      // can prove that the original generation was never submitted.
+      if (!error.outcome)
+        error.submission = lastRun?.submission === 'accepted' ? 'accepted' : 'possibly_submitted'
+      error.runId ||= runId
       if (signal?.aborted)
         throw Object.assign(
           new Error('MCP observation cancelled; the original engine run may continue.'),
-          { runId, retryable: false },
+          { runId, retryable: false, submission: error.submission },
         )
       if (
-        (error.code !== 'BRIDGE_UNAVAILABLE' && error.retryable === false) ||
-        (error.status && error.status < 500 && ![408, 429].includes(error.status))
+        (!['BRIDGE_UNAVAILABLE', 'ENGINE_BUSY'].includes(error.code) &&
+          error.retryable === false) ||
+        (error.status &&
+          error.status < 500 &&
+          ![408, 429].includes(error.status) &&
+          error.code !== 'ENGINE_BUSY')
       )
         throw error
       lastError = error
@@ -138,7 +151,12 @@ export async function waitForEngineRun(
         signal: waitSignal,
       })
     } catch (error) {
-      if (signal?.aborted) throw Object.assign(error, { runId, retryable: false })
+      if (signal?.aborted)
+        throw Object.assign(error, {
+          runId,
+          retryable: false,
+          submission: lastRun?.submission === 'accepted' ? 'accepted' : 'possibly_submitted',
+        })
     }
   }
   throw Object.assign(
@@ -147,6 +165,11 @@ export async function waitForEngineRun(
         lastError ? `: ${lastError.message}` : ''
       }; read the same run to continue.`,
     ),
-    { code: 'RUN_WAIT_TIMEOUT', runId, retryable: false },
+    {
+      code: 'RUN_WAIT_TIMEOUT',
+      runId,
+      retryable: false,
+      submission: lastRun?.submission === 'accepted' ? 'accepted' : 'possibly_submitted',
+    },
   )
 }

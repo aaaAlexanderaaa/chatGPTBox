@@ -139,6 +139,34 @@ describe('native scope and explicit rules', () => {
     editor.remove()
     expect(nativeChatgptEditor(dom.window.document)).toBeNull()
   })
+  it('recognizes the observed logged-in markdown composer without an ID and refuses unrelated or ambiguous editors', () => {
+    const markup =
+      '<form><div data-composer-body><div data-composer-input><div class="ProseMirror" data-composer-markdown role="textbox" aria-multiline="true" contenteditable="true"><p>Draft</p></div></div></div></form>'
+    const dom = new JSDOM(
+      '<main>' +
+        markup +
+        '<div class="ProseMirror" contenteditable="true">Unrelated note</div></main>',
+      { url: 'https://chatgpt.com/' },
+    )
+    cleanups.push(() => dom.window.close())
+    const doc = dom.window.document,
+      editor = doc.querySelector('[data-composer-markdown]')
+    expect(nativeChatgptEditor(doc)).toBe(editor)
+    const range = doc.createRange()
+    range.selectNodeContents(editor)
+    doc.defaultView.getSelection().addRange(range)
+    expect(capturePasteTarget(editor).text).toBe('Draft')
+    editor.closest('[data-composer-input]').removeAttribute('data-composer-input')
+    expect(nativeChatgptEditor(doc)).toBeNull()
+    doc.body.innerHTML = markup + markup
+    expect(nativeChatgptEditor(doc)).toBeNull()
+    doc.body.innerHTML = markup
+    doc.querySelector('[data-composer-body]').setAttribute('aria-hidden', 'true')
+    expect(nativeChatgptEditor(doc)).toBeNull()
+    doc.querySelector('[data-composer-body]').removeAttribute('aria-hidden')
+    dom.window.history.replaceState({}, '', '/?chatgptbox_proxy=1')
+    expect(nativeChatgptEditor(doc)).toBeNull()
+  })
   it('accepts only explicit opt-in and preserves invalid policy for fail-closed validation', () => {
     expect(
       nativeChatgptConfig({ chatgptNativePasteEnabled: 'true' }).chatgptNativePasteEnabled,

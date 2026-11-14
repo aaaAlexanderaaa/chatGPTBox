@@ -111,7 +111,20 @@ export function installNativeDraftEntry({ doc = document, enabled, t, onRewrite 
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['id', 'contenteditable', 'hidden', 'disabled', 'readonly'],
+    attributeFilter: [
+      'id',
+      'contenteditable',
+      'hidden',
+      'aria-hidden',
+      'disabled',
+      'readonly',
+      'class',
+      'role',
+      'aria-multiline',
+      'data-composer-body',
+      'data-composer-input',
+      'data-composer-markdown',
+    ],
   })
   win.addEventListener('popstate', schedule)
   const dispose = () => {

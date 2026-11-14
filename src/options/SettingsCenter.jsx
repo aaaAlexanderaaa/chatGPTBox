@@ -103,7 +103,7 @@ const ENGINE_SECTIONS = [
     id: 'geminiweb',
     label: 'Gemini Web',
     icon: Sparkles,
-    description: 'Gemini account, 4 Argon / High, and interrupted requests',
+    description: 'Gemini account, 4 Hydrogen / Medium, and interrupted requests',
     enabled: (config) => config.geminiWebEnabled === true,
     enableHint: 'Enable Gemini Web on the Engines tab first.',
   },

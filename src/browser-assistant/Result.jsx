@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import ConversationItem from '../components/ConversationItem'
 import { copyTextWhenReady } from '../utils/clipboard.mjs'
 import { parseReadingResult } from './functions.mjs'
-import { rangeForAnnotation } from './context.mjs'
+import { annotationLocation } from './context.mjs'
 import { applyInputReplacement, revealAnnotation, showAnnotations } from './effects.mjs'
 import { normalizeModelAnswer, unwrapAnswerFence } from '../services/model-answer.mjs'
 
@@ -32,7 +32,7 @@ export function AssistantResult({ run, text, resultId, outcome = 'completed' }) 
         ...result,
         annotations: result.annotations.map((item) => {
           try {
-            rangeForAnnotation(run.snapshot, item)
+            annotationLocation(run.snapshot, item)
             return { ...item, valid: true }
           } catch (error) {
             return { ...item, valid: false, error: error.message }
@@ -138,28 +138,37 @@ export function AssistantResult({ run, text, resultId, outcome = 'completed' }) 
       ) : reading ? (
         <>
           <ConversationItem content={reading.guide} type="answer" />
+          {run.snapshot.kind === 'video-subtitles' && (
+            <p className="box-assistant-note">
+              {t(
+                'Use View source to seek to a subtitle. Page highlighting is unavailable for video subtitles.',
+              )}
+            </p>
+          )}
           <div className="box-assistant-actions">
-            <button
-              disabled={!reading.annotations.some((item) => item.valid)}
-              onClick={() =>
-                act(() => {
-                  cleanup.current?.()
-                  if (marked) {
-                    cleanup.current = null
-                    setMarked(false)
-                  } else {
-                    cleanup.current = showAnnotations(
-                      run.snapshot,
-                      reading.annotations.filter((item) => item.valid),
-                      resultId || run.id,
-                    )
-                    setMarked(true)
-                  }
-                })
-              }
-            >
-              {t(marked ? 'Clear marks' : 'Show on page')}
-            </button>
+            {run.snapshot.kind !== 'video-subtitles' && (
+              <button
+                disabled={!reading.annotations.some((item) => item.valid)}
+                onClick={() =>
+                  act(() => {
+                    cleanup.current?.()
+                    if (marked) {
+                      cleanup.current = null
+                      setMarked(false)
+                    } else {
+                      cleanup.current = showAnnotations(
+                        run.snapshot,
+                        reading.annotations.filter((item) => item.valid),
+                        resultId || run.id,
+                      )
+                      setMarked(true)
+                    }
+                  })
+                }
+              >
+                {t(marked ? 'Clear marks' : 'Show on page')}
+              </button>
+            )}
           </div>
           <ol className="box-assistant-annotations">
             {reading.annotations.map((item, index) => (

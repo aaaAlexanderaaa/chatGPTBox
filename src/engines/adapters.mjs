@@ -64,6 +64,11 @@ const SESSION_REFERENCE_FIELDS = [
   'geminiWebOwnerId',
   'geminiWebDocumentId',
   'geminiWebLastNativeId',
+  'geminiWebServerTurnId',
+  'geminiWebResponseId',
+  'geminiWebResponseTimestamp',
+  'geminiWebRequestId',
+  'geminiWebOutputIdentity',
   'geminiWebUrl',
   'chatgptWebProjectId',
   'engineAccountSalt',
@@ -81,7 +86,11 @@ export function nativeSessionReference(session) {
   return {
     session: fields,
     head:
-      fields.geminiWebLastNativeId || fields.previousResponseID || fields.parentMessageId || null,
+      fields.geminiWebServerTurnId ||
+      fields.geminiWebLastNativeId ||
+      fields.previousResponseID ||
+      fields.parentMessageId ||
+      null,
   }
 }
 
@@ -166,6 +175,13 @@ export async function runNativeProvider(provider, definition, session, context, 
                   metadata: {
                     conversationId: latestSession.conversationId || null,
                     messageId: latestSession.messageId || context.runId,
+                    ...(definition.id === 'geminiweb'
+                      ? {
+                          serverTurnId: latestSession.geminiWebServerTurnId || null,
+                          responseId: latestSession.geminiWebResponseId || null,
+                          responseTimestamp: latestSession.geminiWebResponseTimestamp || null,
+                        }
+                      : {}),
                     thoughtDurationSec:
                       latestSession.chatgptWebResponseDiagnostics?.reasoningDurationSeconds ?? null,
                   },
@@ -242,6 +258,7 @@ export function createNativeEngineAdapters(deps = {}) {
   }
   const chatgptRead = deps.chatgptRead || getChatgptWebConversationWithFallback
   const grokControl = deps.grokControl || executeGrokWebControlRequest
+  const gemini = deps.geminiService || geminiWebService
   const now = deps.now || Date.now
   const catalog = (items, source, checkedAt = null) => ({
     items: items.map((id) => ({ id })),
@@ -330,11 +347,20 @@ export function createNativeEngineAdapters(deps = {}) {
             'The original conversation could not be freshly verified.',
           )
         const session = {
-          sessionId: `legacy-${globalThis.crypto.randomUUID()}`,
+          sessionId:
+            definition.id === 'geminiweb'
+              ? `history-gemini-${detail.conversationId}`
+              : `legacy-${globalThis.crypto.randomUUID()}`,
           modelName: `${definition.id}/${modelId || detail.defaultModel || ''}`,
           conversationId: detail.conversationId,
           ...(definition.id === 'chatgptweb'
             ? { parentMessageId: detail.currentNode, chatgptWebProjectId: detail.projectId || null }
+            : definition.id === 'geminiweb'
+            ? {
+                modelName: `geminiweb/${modelId || GEMINI_WEB_MODEL}`,
+                geminiWebServerTurnId: detail.serverHead,
+                geminiWebResponseId: detail.responseId,
+              }
             : { previousResponseID: detail.previousResponseID }),
         }
         return nativeSessionReference(session)
@@ -403,10 +429,13 @@ export function createNativeEngineAdapters(deps = {}) {
               'This adapter has no provider-specific request options.',
             )
           if (definition.id === 'geminiweb') {
-            if (request.modelId !== GEMINI_WEB_MODEL || (effort !== undefined && effort !== 'high'))
+            if (
+              request.modelId !== GEMINI_WEB_MODEL ||
+              (effort !== undefined && effort !== 'medium')
+            )
               throw new EngineError(
                 'PARAMETER_UNSUPPORTED',
-                'Gemini Web supports 4 Argon / High only.',
+                'Gemini Web supports 4 Hydrogen / Medium only.',
               )
             if (request.input.prompt.length > 50000)
               throw new EngineError(
@@ -475,6 +504,20 @@ export function createNativeEngineAdapters(deps = {}) {
               'The native Grok conversation head changed or could not be verified.',
             )
           original.previousResponseID = detail.previousResponseID
+        } else if (original.geminiWebServerTurnId) {
+          const detail = await gemini.readConversation({
+            conversationId: original.conversationId,
+            limit: 1,
+          })
+          if (
+            !detail.headCompleted ||
+            detail.serverHead !== original.geminiWebServerTurnId ||
+            (original.geminiWebResponseId && detail.responseId !== original.geminiWebResponseId)
+          )
+            throw new EngineError(
+              'BINDING_CHANGED',
+              'The native Gemini head changed. Read its current history before continuing.',
+            )
         } else if (!original.geminiWebDocumentId || !original.geminiWebTabId)
           throw new EngineError(
             'CONTEXT_UNAVAILABLE',
@@ -694,7 +737,12 @@ export function createNativeEngineAdapters(deps = {}) {
         grokControl(GrokProxyControlAction.GetConversation, query)
       adapter.listConversations = (query) =>
         grokControl(GrokProxyControlAction.ListConversations, query)
-    } else adapter.review = (query) => geminiWebService.review(query)
+    } else {
+      adapter.review = (query) => gemini.review(query)
+      adapter.listConversations = (query) => gemini.listConversations(query)
+      adapter.readConversation = (query) => gemini.readConversation(query)
+      adapter.recover = (reference, context) => gemini.recover(reference, context)
+    }
     return adapter
   })
 }

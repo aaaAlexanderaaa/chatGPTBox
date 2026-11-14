@@ -60,6 +60,18 @@ the extension does not reconstruct Google HTTP requests. The
 [Gemini contract](docs/gemini-web.md) owns limits and manual recovery. Its runtime
 is in the core, without a separate optional-module manifest or background probe.
 
+The same native owner reads Gemini lists and turns through the verified website
+history service in one bounded readonly tab. It never navigates or refreshes a
+writer for a read. Native server-turn/response IDs, rather than historical client
+IDs or question text, anchor recovery and reopened continuation. A new writer
+document must revalidate account, conversation and head before the native input
+handler runs. The original three-writer bound remains separate from the read tab.
+An explicit independent request may rebind an owned blank writer after a fresh
+account/idle/no-draft/zero-turn inspection. The background acknowledges that local
+binding before configuration and preparation, advances its writer generation,
+and repeats the native checks. It never navigates another writer or claims a
+document containing a draft, attachment or conversation.
+
 For DeepSeek Harness, the full-page UI talks to the module's background gateway.
 RPCs call the configured loopback harness `/api` endpoints. The two downstream
 event streams run from a harness-origin content script and return through the
@@ -139,6 +151,10 @@ The page assistant freezes the prepared request before Run; template-derived ext
 page material is disclosed by that same object. Reading snapshots retain DOM
 anchors locally; saved functions contain methods, never the captured page.
 The GitHub discussion reader is shared by the legacy summary and page functions.
+The YouTube reader likewise supplies one asynchronous subtitle snapshot to both
+paths. Page functions wait visibly for acquisition and freeze that snapshot;
+subtitle failures cannot fall back to page chrome. Timestamp locations and DOM
+ranges are distinct source actions, and saved functions contain neither snapshot.
 
 The DSH client preserves the native request `rpcId` into the user-message fold
 and turn association; same-text prompts are not identities.

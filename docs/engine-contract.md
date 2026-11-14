@@ -4,10 +4,14 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-13
+last_reconciled: 2026-11-14
 ---
 
 # 统一引擎语义、接口与功能开放
+
+活跃运行仍由原写者负责；`run.recover` 在本地写者尚未结束时只返回当前运行快照，
+不启动原生恢复读取、不提前完成或释放绑定。写者结束或丢失后，才可按适配器的
+精确轮次证据恢复。读取/恢复操作的“未执行”不能当成原生成请求的“未发送”。
 
 ## 设计结论与状态
 
@@ -132,7 +136,7 @@ Box 本地 transcript、远端 continuation、平台历史、执行记录是四�
 全部角色、工具或结构化输出语义等价。
 
 模型默认值只从现有配置 owner 解析一次。追加请求省略模型时遵循原会话；显式
-换模型只有在适配器能在同一绑定内完成时才接受。Grok 的 mode、Gemini 的 High、
+换模型只有在适配器能在同一绑定内完成时才接受。Grok 的 mode、Gemini 的 Medium、
 ChatGPT 的 thinking effort 各有允许值和原生映射，不定义跨家等效的强度刻度。
 不支持的参数报错，不忽略、不换模型。Projects 等特有参数放在引擎命名空间，
 由适配器验证；公共入口只调用注册的验证器。
@@ -351,7 +355,7 @@ worker 重启后的未决执行先标不确定，再按支持的只读恢复核�
     "conversation.append": {
       "implemented": true,
       "semanticProfile": "bound-conversation-append/1",
-      "bindingLifetime": "live-document"
+      "bindingLifetime": "verified-native-head"
     },
     "conversation.list": { "implemented": false },
     "conversation.read": { "implemented": false },
@@ -505,16 +509,17 @@ ChatGPT。`conversation.append` 的引用、版本、追加输入都须显式；
   "contractVersion": 1,
   "engineId": "geminiweb",
   "operation": "generation.start",
-  "modelId": "gemini-4-argon-high",
+  "modelId": "gemini-4-hydrogen-medium",
   "input": { "prompt": "解释这段论证中的假设。" },
-  "parameters": { "thinkingEffort": "high" }
+  "parameters": { "thinkingEffort": "medium" }
 }
 ```
 
 完成后返回的有效 `conversationRef` 可用于 `conversation.append`，附当前
-`expectedRevision`。原 Gemini 文档丢失返回 `CONTEXT_UNAVAILABLE`；不会把
-历史转成新 prompt 并冒充原会话继续。允许这项操作的迁移以现有活文档追加
-通过验收为前提，不能由一个配置数组直接宣称实现。
+`expectedRevision`。Gemini 文档丢失后按已核验的原生会话、服务器 head 和响应
+身份重新建立专用文档；身份不足或 head 改变返回 `CONTEXT_UNAVAILABLE` /
+`BINDING_CHANGED`，不会把历史转成新 prompt 冒充原会话继续。原来的外部授权
+不自动增加历史或追加操作；源代码、原生接口和实际安装验收分别记录。
 
 ### 标准 completions 与 MCP
 
@@ -568,7 +573,7 @@ nextAction`，以及经过脱敏的 provider cause。下表为公共 HTTP 映射
 | --- | --- | --- |
 | ChatGPT | `generate / append / readConversation / listConversations / recover` 包装现有服务 | 账号目录、模型默认、原生校验、图片/Projects、完整可视化、精确 turn 与 resume；逐项核验取消保证，不从 abort 推断远端已停 |
 | Grok | 包装现有 writer 和 control，声明 `generate / append / readConversation / listConversations` | 全局单路写、GET 硬确认、原 conversation/response 父节点；取消初版仅本地断流，恢复尚未实现。统一准入、持久占用、人工处置与终态归约已接入，不把 EOF、无条件 `pending: false` 或一页 `total` 当证据 |
-| Gemini | 包装后台 native service，声明 `generate / append`，追加范围为 `live-document` | 保留 4 Argon / High、Chromium、账号指纹、文档身份、单路、最多三 tab、单次原生 handler 与持久 hold；历史与导航后恢复继续未实现 |
+| Gemini | 包装后台 native service，声明 `generate / append / listConversations / readConversation / recover` | 11 月 13 日新增原生历史映射及按服务器 turn 身份恢复；追加在新文档重新核对原生会话、head 和响应身份。11 月 14 日用户改选 4 Hydrogen / Medium；保留 Chromium、账号指纹、单路、单次原生 handler 与持久 hold；未记录服务器身份的旧运行仍不确定 |
 
 这些映射已通过受控原生样本和公共入口测试；不据此声称真实账号的能力完全对等。Grok 现有 `modelResponse` /
 `[DONE]` 判断必须以自身协议证据验证；不能照抄 ChatGPT 的结束标志。历史快照

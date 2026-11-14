@@ -10,6 +10,7 @@ import {
 import { runGeminiNativeOperation } from '../services/clients/gemini-web/native-runtime.mjs'
 import { pushRecord } from '../services/apis/shared.mjs'
 import { bindingSnapshotKey } from '../services/session-binding.mjs'
+import { EngineError } from '../engines/contract.mjs'
 
 export const GEMINI_WEB_RUNTIME_KEY = 'geminiWebRuntimeV1'
 
@@ -65,7 +66,7 @@ export function createGeminiWebService(deps = {}) {
       (value.accountSalt &&
         (typeof value.accountSalt !== 'string' || value.accountSalt.length > 128)) ||
       (value.accountFingerprint && !/^[a-f0-9]{64}$/.test(value.accountFingerprint)) ||
-      value.tabs.some(
+      [...value.tabs, ...(value.readTab ? [value.readTab] : [])].some(
         (entry) =>
           !Number.isInteger(entry?.tabId) ||
           typeof entry.ownerId !== 'string' ||
@@ -138,8 +139,17 @@ export function createGeminiWebService(deps = {}) {
         (typeof result.conversationId !== 'string' || result.conversationId.length > 512)) ||
       (result.answer != null &&
         (typeof result.answer !== 'string' || result.answer.length > 1000000)) ||
+      ['serverTurnId', 'responseId'].some(
+        (key) =>
+          result[key] != null && (typeof result[key] !== 'string' || result[key].length > 512),
+      ) ||
       (result.accepted === true && !result.nativeId) ||
       (result.answer && (!result.nativeId || result.accepted !== true)) ||
+      (result.responseTimestamp != null &&
+        (typeof result.responseTimestamp !== 'string' ||
+          result.responseTimestamp.length > 30 ||
+          !Number.isFinite(Date.parse(result.responseTimestamp)) ||
+          new Date(result.responseTimestamp).toISOString() !== result.responseTimestamp)) ||
       (result.url != null && !isGeminiPage(result.url))
     )
       throw new Error('The Gemini native result has an unsupported identity or output shape.')
@@ -163,23 +173,55 @@ export function createGeminiWebService(deps = {}) {
           item.ownerId === session.geminiWebOwnerId &&
           item.binding === binding,
       )
-      if (!entry)
+      if (!entry && !session.conversationId)
         throw notSent(
           'The original Gemini tab is unavailable. Check the website and start a new extension conversation; history will not be replayed.',
         )
-      return entry
+      if (entry) return entry
     }
-    if (session.conversationId)
+    if (session.conversationId && !/^c_[a-zA-Z0-9_-]{8,100}$/.test(session.conversationId))
       throw notSent(
-        'This Gemini conversation has no live native document. Start a new conversation instead of replaying it.',
+        'This Gemini conversation has no verified native identity. Open it from history before continuing.',
       )
+    if (!session.conversationId) {
+      // An explicit new request may reuse an owned, still-empty native document.
+      // This never navigates a writer or replays an old prompt. A fresh account,
+      // draft, activity and zero-turn check is required before changing its local
+      // binding; configure/connect/prepare still verify it again before Send.
+      for (const candidate of state.tabs) {
+        if (candidate.binding === binding) continue
+        const tab = await browser.tabs.get(candidate.tabId).catch(() => null)
+        if (tab?.url !== `https://gemini.google.com/app#chatgptbox-gemini-${candidate.ownerId}`)
+          continue
+        const probe = { ...candidate, documentId: undefined }
+        const status = await invoke(probe, 'inspect').catch(() => null)
+        if (
+          !status?.ok ||
+          status.busy ||
+          status.draft ||
+          status.conversationId ||
+          status.turnCount !== 0
+        )
+          continue
+        candidate.binding = binding
+        // Re-run native configuration and advance the writer generation even
+        // when the blank document itself did not change.
+        delete candidate.documentId
+        await save(state)
+        session.geminiWebTabId = candidate.tabId
+        session.geminiWebOwnerId = candidate.ownerId
+        return candidate
+      }
+    }
     if (state.tabs.length >= GEMINI_WEB_MAX_TABS)
       throw notSent(
         `Close a finished ChatGPTBox Gemini tab before creating another (limit ${GEMINI_WEB_MAX_TABS}). Website history is retained.`,
       )
     const ownerId = uuid()
     const tab = await browser.tabs.create({
-      url: `https://gemini.google.com/app#chatgptbox-gemini-${ownerId}`,
+      url: `https://gemini.google.com/app${
+        session.conversationId ? '/' + session.conversationId.slice(2) : ''
+      }#chatgptbox-gemini-${ownerId}`,
       active: false,
     })
     if (!Number.isInteger(tab?.id)) throw notSent('A dedicated Gemini tab could not be created.')
@@ -270,7 +312,7 @@ export function createGeminiWebService(deps = {}) {
         session.images?.length
       )
         throw notSent(
-          'Gemini Web supports 4 Argon / High text chat. Regeneration and attachments are not supported.',
+          'Gemini Web supports 4 Hydrogen / Medium text chat. Regeneration and attachments are not supported.',
         )
       if (
         typeof session.question !== 'string' ||
@@ -291,28 +333,58 @@ export function createGeminiWebService(deps = {}) {
       entry = await ensureTab(state, session)
       post(port, { session }) // binding only: not provider acceptance
       if (cancelled()) return
-      if (!entry.documentId) {
-        const inspected = await invoke(entry, 'inspect') // bind document before any preference write
+      const continuation = {
+        conversationId: session.conversationId || '',
+        lastServerTurnId: session.geminiWebServerTurnId || '',
+        lastResponseId: session.geminiWebResponseId || '',
+      }
+      const currentDocument = { ...entry, documentId: undefined }
+      const inspected = await invoke(currentDocument, 'inspect')
+      if (!inspected.ok) throw notSent(inspected.message)
+      const documentChanged = entry.documentId !== currentDocument.documentId
+      if (
+        session.conversationId &&
+        (inspected.conversationId !== session.conversationId ||
+          (session.geminiWebServerTurnId
+            ? inspected.serverHead !== session.geminiWebServerTurnId
+            : inspected.clientHead !== session.geminiWebLastNativeId))
+      )
+        throw notSent(
+          'The native Gemini conversation head changed. Read its current history before continuing.',
+        )
+      // Gemini removes the creation fragment when it assigns its canonical
+      // conversation URL. A tracked writer can reopen only after this fresh
+      // account/conversation/head check; MAIN repeats the same native proof.
+      continuation.verifiedReopen = !!(session.conversationId && session.geminiWebServerTurnId)
+      if (documentChanged) {
+        entry.documentId = currentDocument.documentId
+        entry.writerEpoch = (entry.writerEpoch || 0) + 1
         if (!inspected.ok) throw notSent(inspected.message)
         await save(state)
         if (cancelled()) return
-        const configured = await invoke(entry, 'configure')
+        const configured = await invoke(entry, 'configure', continuation)
         if (!configured.ok) throw notSent(configured.message)
         await save(state)
         if (cancelled()) return
       }
-      const connected = await invoke(entry, 'connect')
+      const connected = await invoke(entry, 'connect', continuation)
       if (!connected.ok) throw notSent(connected.message)
       session.geminiWebDocumentId = entry.documentId
       await save(state)
       if (cancelled()) return
       await enabled()
       requestId = uuid()
+      session.geminiWebRequestId = requestId
+      // The previous server head is a continuation input, never this run's
+      // recovery evidence. Only a newly observed response can create that proof.
+      delete session.geminiWebOutputIdentity
+      delete session.geminiWebResponseTimestamp
       state.hold = {
         requestId,
         tabId: entry.tabId,
         documentId: entry.documentId,
         ownerId: entry.ownerId,
+        writerEpoch: entry.writerEpoch || 0,
         phase: 'possibly-sent',
         at: now(),
       }
@@ -324,6 +396,8 @@ export function createGeminiWebService(deps = {}) {
         question: session.question,
         conversationId: session.conversationId || '',
         lastNativeId: session.geminiWebLastNativeId || '',
+        lastServerTurnId: session.geminiWebServerTurnId || '',
+        lastResponseId: session.geminiWebResponseId || '',
       })
       if (!prepared.ok) {
         if (prepared.dispatched === false) {
@@ -362,6 +436,31 @@ export function createGeminiWebService(deps = {}) {
             state.hold.conversationId = result.conversationId || ''
             await save(state)
           }
+        }
+        if (result.serverTurnId && result.accepted && result.nativeId) {
+          if (result.serverTurnId === continuation.lastServerTurnId)
+            throw new Error('Gemini did not establish a new server turn for this request.')
+          session.geminiWebServerTurnId = result.serverTurnId
+          session.geminiWebResponseId = result.responseId || null
+          session.geminiWebResponseTimestamp = result.responseTimestamp || null
+          const outputIdentity = {
+            requestId,
+            runId: session.messageId || null,
+            conversationId: result.conversationId || session.conversationId,
+            serverTurnId: result.serverTurnId,
+            responseId: result.responseId || null,
+          }
+          if (
+            state.hold &&
+            (state.hold.serverTurnId !== result.serverTurnId ||
+              state.hold.responseId !== result.responseId)
+          ) {
+            state.hold.serverTurnId = result.serverTurnId
+            state.hold.responseId = result.responseId || null
+            state.hold.outputIdentity = outputIdentity
+            await save(state)
+          }
+          session.geminiWebOutputIdentity = outputIdentity
         }
         if (cancelled()) return
         if (result.conversationId) session.conversationId = result.conversationId
@@ -428,7 +527,7 @@ export function createGeminiWebService(deps = {}) {
         ok: false,
         ready: false,
         hold: !!state.hold,
-        message: 'Open Gemini in this browser, sign in, and select 4 Argon / High.',
+        message: 'Open Gemini in this browser, sign in, and select 4 Hydrogen / Medium.',
       }
     }
     if (!state.accountSalt) {
@@ -495,7 +594,7 @@ export function createGeminiWebService(deps = {}) {
       if (!checked.ok || !checked.ready)
         throw new Error(
           checked.message ||
-            'Check Gemini, its model/High setting, draft and active generation before allowing new requests.',
+            'Check Gemini, its model/Medium setting, draft and active generation before allowing new requests.',
         )
       const state = await load()
       if (state.hold) {
@@ -553,7 +652,167 @@ export function createGeminiWebService(deps = {}) {
       ? [GEMINI_WEB_MODEL]
       : []
   }
-  return { run, inspect, open, review, listModels }
+  async function readImpl(action, query = {}) {
+    await enabled()
+    const state = await load()
+    if (!state.accountFingerprint)
+      throw notSent('Check the Gemini account in Settings before reading history.')
+    let entry
+    // A bounded read tab never navigates or refreshes a writer's document.
+    for (const candidate of [state.readTab].filter(Boolean)) {
+      const tab = await browser.tabs.get(candidate.tabId).catch(() => null)
+      if (tab && isGeminiPage(tab.url)) {
+        entry = { ...candidate, documentId: undefined }
+        break
+      }
+    }
+    if (!entry) {
+      const ownerId = uuid()
+      const tab = await browser.tabs.create({
+        url: `https://gemini.google.com/app#chatgptbox-gemini-read-${ownerId}`,
+        active: false,
+      })
+      entry = {
+        tabId: tab.id,
+        ownerId,
+        binding: 'readonly-history',
+        accountSalt: state.accountSalt,
+        accountFingerprint: state.accountFingerprint,
+      }
+      state.readTab = entry
+      await save(state)
+      const deadline = now() + 60000
+      while ((await browser.tabs.get(tab.id)).status !== 'complete') {
+        if (now() >= deadline) throw notSent('Gemini history page did not finish loading.')
+        await delay(300)
+      }
+    }
+    const result = await invoke(entry, action, query)
+    if (!result.ok)
+      throw new EngineError(
+        result.code === 'GEMINI_HISTORY_INVALID'
+          ? 'INVALID_REQUEST'
+          : /UNSUPPORTED/.test(result.code || '')
+          ? 'OPERATION_NOT_IMPLEMENTED'
+          : 'ENGINE_NOT_READY',
+        result.message,
+      )
+    const { accountFingerprint: _privateAccount, ok: _ok, ...data } = result
+    void _privateAccount
+    void _ok
+    return {
+      ...data,
+      source: 'native-history',
+      checkedAt: now(),
+      completeness: data.nextCursor ? 'partial' : 'complete',
+    }
+  }
+  async function exclusiveRead(action) {
+    if (active)
+      throw new EngineError(
+        'ENGINE_BUSY',
+        'Wait for the active Gemini operation before reading history.',
+      )
+    active = true
+    try {
+      return await action()
+    } finally {
+      active = false
+    }
+  }
+  async function listConversations(query = {}) {
+    return exclusiveRead(async () => {
+      if (query.conversationId)
+        return readImpl('history.list', { conversationId: query.conversationId, limit: 1 })
+      let cursor = { pinned: true, token: '' }
+      if (query.cursor) {
+        if (typeof query.cursor !== 'string' || query.cursor.length > 20000)
+          throw notSent('Invalid Gemini history cursor.')
+        try {
+          cursor = JSON.parse(query.cursor)
+        } catch {
+          throw notSent('Invalid Gemini history cursor.')
+        }
+        if (typeof cursor.pinned !== 'boolean' || typeof cursor.token !== 'string')
+          throw notSent('Invalid Gemini history cursor.')
+      }
+      let page = await readImpl('history.list', {
+        pinned: cursor.pinned,
+        cursor: cursor.token,
+        limit: query.limit,
+      })
+      if (cursor.pinned && !page.items.length && !page.nextCursor) {
+        cursor = { pinned: false, token: '' }
+        page = await readImpl('history.list', { pinned: false, limit: query.limit })
+      }
+      const nextCursor = page.nextCursor
+        ? JSON.stringify({ pinned: cursor.pinned, token: page.nextCursor })
+        : cursor.pinned
+        ? JSON.stringify({ pinned: false, token: '' })
+        : null
+      return { ...page, nextCursor, completeness: nextCursor ? 'partial' : 'complete', total: null }
+    })
+  }
+  const readConversation = (query) => exclusiveRead(() => readImpl('history.read', query))
+  async function recover(reference, context = {}) {
+    return exclusiveRead(async () => {
+      const ids = reference.session || reference
+      const produced = ids.geminiWebOutputIdentity
+      if (
+        !produced?.requestId ||
+        produced.requestId !== ids.geminiWebRequestId ||
+        produced.conversationId !== ids.conversationId ||
+        !produced.serverTurnId ||
+        produced.serverTurnId !== ids.geminiWebServerTurnId ||
+        produced.responseId !== (ids.geminiWebResponseId || null) ||
+        (context.runId && produced.runId !== context.runId)
+      )
+        return { outcome: 'unknown' }
+      let cursor, message
+      for (let page = 0; page < 12; page++) {
+        const detail = await readImpl('history.read', {
+          conversationId: ids.conversationId,
+          limit: 100,
+          cursor,
+        })
+        message = detail.messages.find(
+          (item) =>
+            item.role === 'assistant' &&
+            item.nativeTurnId === ids.geminiWebServerTurnId &&
+            (!ids.geminiWebResponseId || item.nativeResponseId === ids.geminiWebResponseId),
+        )
+        if (message || !detail.nextCursor) break
+        cursor = detail.nextCursor
+      }
+      if (!message?.completed || !message.content) return { outcome: 'unknown' }
+      const state = await load()
+      if (
+        state.hold?.requestId === ids.geminiWebRequestId &&
+        state.hold.serverTurnId === ids.geminiWebServerTurnId &&
+        (!state.hold.responseId || state.hold.responseId === message.nativeResponseId)
+      ) {
+        state.hold = null
+        await save(state)
+      }
+      return {
+        outcome: 'completed',
+        finalOutput: {
+          version: 1,
+          format: 'safe-html',
+          content: message.content,
+          metadata: {
+            evidence: 'exact-native-history-turn',
+            conversationId: ids.conversationId,
+            serverTurnId: ids.geminiWebServerTurnId,
+            responseId: produced.responseId,
+            responseTimestamp: message.responseTimestamp || null,
+            messageId: produced.runId,
+          },
+        },
+      }
+    })
+  }
+  return { run, inspect, open, review, listModels, listConversations, readConversation, recover }
 }
 
 export const geminiWebService = createGeminiWebService()
