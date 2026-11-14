@@ -222,6 +222,18 @@ ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用�
 
 ## 更新日志
 
+### v4.3.5
+
+- 扩展、本地 API 和 MCP 共用网页引擎接口，分别控制各引擎外部权限，持久保留运行身份；恢复不会重发结果不明的写请求。MCP 等待器只观察执行中的原运行，不与写入端争抢恢复。
+- 新增 Gemini Web，使用 **4 Hydrogen / Medium**，支持原生会话列表、详情、旧轮次分页、刷新或重新打开后的会话头核对与续聊，以及按本次产出身份精确恢复。原生响应时间戳仅表示时间点，不是官方思考耗时。
+- 新增四个独立的 [Gemini Drafts 动作](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.5/docs/drafts/README.md#gemini-history-requests-and-continuation)：List Conversations、Get、Send、Load Older Turns。发送前保存完整请求，丢失收据后按原 key 找回；保留未发送文本和生成历史之外的备注。
+- YouTube 原有摘要与可复用网页功能共用带时间戳的字幕材料，兼容当前原生文字记录布局。每个视频重新取材、预览并冻结，保存功能只保存做法。
+- 适配当前登录态 ChatGPT 富文本编辑器的本地粘贴审阅与改写入口；两项官网增强仍默认关闭。
+- **已知限制：**真实 ChatGPT 改写请求返回 `400 Invalid conversation body`，请求体兼容修复、完整改写/视频 AI、原生 Drafts 导入/设备同步及 Firefox 运行验收仍待完成。此前两次 Gemini Argon 续聊仍为未知，未重发；Hydrogen 成功不能证明旧异常的原因。Grok 与 DSH 真实验收本轮暂缓。
+- **更新方式：**重新加载扩展并刷新提供商页面和 API Server Bridge。网关/MCP 用户更新本地源码并重启两个 Node.js 进程，保留原有地址、端口和 token。Gemini 历史/续聊需单独授予外部权限，更新不会自动扩权。四个 Gemini 动作与原有五个 ChatGPT 动作分开导入，配置后的副本应保持私密。保留旧笔记及未决请求身份。
+
+已通过 2,061 项本地测试、lint、文档检查及四种生产包构建。真实 Gemini 问答/历史/恢复/续聊与经过网关的 Drafts 脚本已验证，脚本检查不代表原生 Drafts 或设备验收。两个真实 YouTube 页面验证了新字幕取材及做法复用，不计为视频 AI 处理完成。
+
 ### v4.3.4
 
 - 网页功能运行前冻结完整请求。模板需要的额外网页材料先明确列出并预览，自动入口同样遵守；请求超出预算时拒绝发送，不再静默截短。

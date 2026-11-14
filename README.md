@@ -229,6 +229,18 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### v4.3.5
+
+- Add a common web-engine interface across the extension, local API and MCP, with explicit per-engine external permissions, durable run identities and recovery that never resends uncertain writes. The MCP waiter observes active work without racing its writer.
+- Add Gemini Web using **4 Hydrogen / Medium**, native conversation lists/detail/older pages, verified-head continuation after refresh or reopening, and exact produced-turn recovery. Native response timestamps are exposed as time points; they are not official thinking durations.
+- Add four separate [Gemini Drafts actions](https://github.com/aaaAlexanderaaa/chatGPTBox/blob/v4.3.5/docs/drafts/README.md#gemini-history-requests-and-continuation): List Conversations, Get, Send and Load Older Turns. Persist the complete request before sending, recover lost receipts by the original key, and preserve unsent text and notes outside generated history.
+- Share timestamped YouTube transcript material between video summaries and reusable page functions, including the current native transcript layout. Preview and freeze each video's own material; saved functions retain instructions rather than subtitles.
+- Recognize the current logged-in ChatGPT rich composer for local paste review and the rewrite entry. Both site enhancements remain default-off.
+- **Known limits:** the live ChatGPT rewrite request returned `400 Invalid conversation body`; ChatGPT request-body compatibility, complete rewrite/video-AI acceptance, native Drafts import/device sync and Firefox runtime acceptance remain pending. Two earlier Gemini Argon continuations remain unknown and were not replayed; successful Hydrogen trials do not establish their cause. Grok and DSH live acceptance remain deferred.
+- **Update:** reload the extension and refresh its provider and API Server Bridge pages. Gateway/MCP users must update their local source and restart both Node.js processes, retaining existing addresses, ports and tokens. Gemini history/append require explicit external grants; an update does not add them. Import the four Gemini actions separately from the existing five ChatGPT actions, keeping configured copies private. Preserve old notes and unresolved request identities.
+
+Validated with 2,061 local tests, lint, documentation checks and four production packages. Real Gemini generation/history/recovery/continuation and gateway-backed Drafts scripts passed; these script checks do not establish native Drafts or device behavior. Two real YouTube pages verified fresh transcript material and saved-method reuse without claiming completed video AI processing.
+
 ### v4.3.4
 
 - Freeze the complete page-function request before running. Templates disclose and preview extra page context, including automatic entries; oversized requests are refused instead of silently shortened.
