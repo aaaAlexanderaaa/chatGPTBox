@@ -1,20 +1,21 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { describe, expect, it, vi } from 'vitest'
 import { formatChatgptWebConversationSnapshot } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
 
 const sendSource = fs.readFileSync(
-  new URL('../docs/drafts/action-3-send-waiting-reply.js', import.meta.url),
+  new URL('../docs/drafts/scripts/action-3-send-waiting-reply.js', import.meta.url),
   'utf8',
 )
 const getSource = fs.readFileSync(
-  new URL('../docs/drafts/action-2-open-checked-conversation.js', import.meta.url),
+  new URL('../docs/drafts/scripts/action-2-open-checked-conversation.js', import.meta.url),
   'utf8',
 )
 const listSource = fs.readFileSync(
-  new URL('../docs/drafts/action-1-list-conversations.js', import.meta.url),
+  new URL('../docs/drafts/scripts/action-1-list-conversations.js', import.meta.url),
   'utf8',
 )
 
@@ -55,6 +56,7 @@ function run(content, response, { override, source = sendSource } = {}) {
       {
         draft,
         app,
+        Credential: draftsCredential,
         HTTP: {
           create: () => ({
             request(request) {

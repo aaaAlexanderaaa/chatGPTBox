@@ -1,5 +1,5 @@
-// Generated into the four Gemini actions. Version 3 keeps legacy ChatGPT actions
-// from interpreting these engine-run documents as ChatGPT conversation controls.
+// Inserted into the isolated Gemini adapter in each common action. Version 3
+// retains existing engine-run identities and the original note validation.
 const ENGINE = 'geminiweb'
 const HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
 const originalContent = draft.content || ''
@@ -50,7 +50,7 @@ function checksum(text) {
   return text.length + ':' + (first >>> 0).toString(16) + ':' + (second >>> 0).toString(16)
 }
 function pendingText(pending) {
-  return '## USER\n\n' + userText(pending.query) + '\n\n## ASSISTANT (pending)\n\nUse Gemini Get to collect this exact request.'
+  return '## USER\n\n' + userText(pending.query) + '\n\n## ASSISTANT (pending)\n\nUse ' + (pending.hintVersion === 1 ? 'Get' : 'Gemini Get') + ' to collect this exact request.'
 }
 function span(meta, body, name) {
   const start = marker(meta, name + ':start'), end = marker(meta, name + ':end')
@@ -102,7 +102,7 @@ function detailFor(meta, cursor) {
   return request('/engines/' + ENGINE + '/conversations/' + encodeURIComponent(ref) + '?limit=' + HISTORY_PAGE_SIZE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))
 }
 function list(meta, body) {
-  if (meta.kind === 'conversation') throw new Error('Run Gemini List in a new note; this conversation and any waiting request were kept.')
+  if (meta.kind === 'conversation') throw new Error('Run List in a new note; this conversation and any waiting request were kept.')
   const continuing = meta.kind === 'list' && !!meta.nextCursor
   const page = request('/engines/' + ENGINE + '/conversations?limit=50' + (continuing ? '&cursor=' + encodeURIComponent(meta.nextCursor) : ''))
   if (!Array.isArray(page.items)) throw new Error('The gateway returned an invalid conversation list.')
@@ -114,7 +114,7 @@ function list(meta, body) {
   if (items.length > 1000) throw new Error('This list reached 1,000 conversations. Keep it and open another note for further browsing.')
   const next = { version: 3, engineId: ENGINE, id: meta.kind === 'list' ? meta.id : identifier(), kind: 'list', items, nextCursor: page.nextCursor || null }
   const rows = items.map((item) => '- [ ] ' + item.title + ' <!-- chatgptbox-' + next.id + '-conversation:' + item.ref + ' -->')
-  save(next, '# Gemini conversations\n\n' + (next.nextCursor ? 'Run List again to load more. ' : '') + 'Check one conversation, then run Gemini Get.\n\n' + rows.join('\n') + '\n')
+  save(next, '# Gemini conversations\n\n' + (next.nextCursor ? 'Run List again to load more. ' : '') + 'Check one conversation, then run Get.\n\n' + rows.join('\n') + '\n')
   void body
 }
 function historyBlock(meta, content) { return marker(meta,'history:start') + '\n' + content + '\n' + marker(meta,'history:end') }
@@ -141,8 +141,8 @@ function get(meta, body, older = false) {
     meta = { version: 3, engineId: ENGINE, id: identifier(), kind: 'conversation', title: selected[0].title, conversationRef: selected[0].ref }
     body = '# ' + meta.title + '\n\n' + historyBlock(meta, '') + waitingBlock(meta)
   }
-  if (meta.kind !== 'conversation') throw new Error('Use Gemini List/Get for history, or Gemini Send on an ordinary note.')
-  if (older && meta.pending) throw new Error('Collect the pending request with Gemini Get before loading older messages.')
+  if (meta.kind !== 'conversation') throw new Error('Use List/Get for history, or Send on an ordinary note starting with :g.')
+  if (older && meta.pending) throw new Error('Collect the pending request with Get before loading older messages.')
   if (meta.pending) {
     const pending = meta.pending
     if (!pending.runId) {
@@ -180,7 +180,7 @@ function get(meta, body, older = false) {
   if (older && !meta.historyCursor) { app.displaySuccessMessage('All available Gemini turns in this conversation have been loaded.'); return }
   const detail = detailFor(meta, older ? meta.historyCursor : undefined)
   if (older && meta.serverHead && detail.serverHead !== meta.serverHead)
-    throw new Error('The native conversation changed. Use Gemini Get to refresh it before loading older turns.')
+    throw new Error('The native conversation changed. Use Get to refresh it before loading older turns.')
   meta.conversationRef = detail.conversationRef
   meta.revision = detail.conversationRevision
   meta.nativeConversationId = detail.conversationId
@@ -193,10 +193,10 @@ function get(meta, body, older = false) {
     const current = span(meta, body, 'history')
     save(meta, body.slice(0,current.from) + '\n' + transcript(detail) + '\n' + body.slice(current.to))
   }
-  if (meta.historyCursor) app.displaySuccessMessage('More historical turns are available with Gemini Load Older Turns.')
+  if (meta.historyCursor) app.displaySuccessMessage('More historical turns are available with More → 加载更早消息.')
 }
 function send(meta, body) {
-  if (meta.kind === 'list') throw new Error('Open the checked conversation with Gemini Get before sending. Lists are never submitted.')
+  if (meta.kind === 'list') throw new Error('Open the checked conversation with Get before sending. Lists are never submitted.')
   validate(meta, body)
   if (meta.pending) return get(meta, body)
   const query = meta.kind === 'new' ? body.trim() : span(meta, body, 'waiting').text.trim()
@@ -212,7 +212,7 @@ function send(meta, body) {
   const payload = { contractVersion: 1, operation: continuing ? 'conversation.append' : 'generation.start', input: { prompt: query } }
   if (continuing) payload.conversation = { ref: meta.conversationRef, expectedRevision: meta.revision }
   const key = 'drafts-' + Date.now().toString(36) + '-' + identifier()
-  const pending = { key, query, request: clone(payload), createdAt: Date.now(), runId: null }
+  const pending = { key, query, request: clone(payload), createdAt: Date.now(), runId: null, hintVersion: 1 }
   if (meta.kind === 'new') { meta.kind = 'conversation'; meta.title = 'Gemini conversation'; body = '# Gemini conversation\n\n' + historyBlock(meta, '') + waitingBlock(meta) }
   else { const current = span(meta, body, 'waiting'); body = body.slice(0,current.from) + '\n\n' + body.slice(current.to) }
   const insertionAt = span(meta, body, 'history').to

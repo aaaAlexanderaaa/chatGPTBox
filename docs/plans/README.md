@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-15
 ---
 
 # Execution records
@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record                                                                 | State and remaining limit                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Drafts engine prefixes](2026-11-15-drafts-engine-prefix.md) | Completed local delivery: five common actions, prefix selection, shared credentials and retained v2/v3 recovery; 2,151 tests and production builds passed. Native Drafts/device/iCloud acceptance remains separate |
 | [Gemini automatic compatibility](2026-11-14-gemini-auto-adapt.md) | Completed local source/package delivery: strict complete-compilation rename matching, 2,102 tests, four production packages and serialized MAIN checks. Future live builds and installed extension update remain unclaimed |
 | [November 13 gap closure](2026-11-13-gap-closure.md) | Completed retained Gemini/Drafts delivery and two-video material reuse. The later ChatGPT request-body repair and rewrite observations are recorded under native input; video AI, native Drafts/device/iCloud, Grok and DSH acceptance remain deferred |
 | [Unified engine runtime](2026-11-12-engine-runtime.md) | Completed local implementation: common operations, access, compatible API/bridge/MCP; 2,007 tests, installed/reconnected; live three-provider trials remain unclaimed |

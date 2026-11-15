@@ -4,13 +4,14 @@ import { ENGINE_BRIDGE_PROTOCOL } from '../src/engines/contract.mjs'
 import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { getChatgptWebThinkingEffortOverride } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
 import { respondChatgptNotDispatched } from '../scripts/lib/chatgpt-write-operations.mjs'
 
 const gatewaySource = fs.readFileSync(new URL('../scripts/api-server.mjs', import.meta.url), 'utf8')
 const draftsWriteClientSource = fs.readFileSync(
-  new URL('../docs/drafts/action-3-send-waiting-reply.js', import.meta.url),
+  new URL('../docs/drafts/scripts/action-3-send-waiting-reply.js', import.meta.url),
   'utf8',
 )
 
@@ -32,6 +33,7 @@ function runDraftsWriteClient(content, { override = null, defaultModel = null } 
   vm.runInNewContext(source, {
     draft,
     app: { displayErrorMessage: vi.fn(), displaySuccessMessage: vi.fn() },
+    Credential: draftsCredential,
     HTTP: {
       create: () => ({
         request: (request) => {

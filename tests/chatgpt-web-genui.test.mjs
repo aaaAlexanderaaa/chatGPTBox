@@ -1,6 +1,7 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { describe, expect, it } from 'vitest'
 import postcss from 'postcss'
 import { unified } from 'unified'
@@ -475,10 +476,11 @@ describe('GPT-6 native visualization', () => {
           update() {},
         }
         vm.runInNewContext(
-          fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8'),
+          fs.readFileSync(new URL('../docs/drafts/scripts/' + file, import.meta.url), 'utf8'),
           {
             draft,
             app: { displayErrorMessage() {}, displaySuccessMessage() {} },
+            Credential: draftsCredential,
             HTTP: {
               create: () => ({
                 request: () => ({ success: true, statusCode: 200, responseData: payload }),
@@ -492,7 +494,10 @@ describe('GPT-6 native visualization', () => {
     )
 
     it(`clears the Drafts pending anchor once the merged answer is complete (${file})`, () => {
-      const source = fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8')
+      const source = fs.readFileSync(
+        new URL('../docs/drafts/scripts/' + file, import.meta.url),
+        'utf8',
+      )
       const draft = {
         content:
           '# Conversation\n\nConversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
@@ -502,6 +507,7 @@ describe('GPT-6 native visualization', () => {
       vm.runInNewContext(source, {
         draft,
         app: { displayErrorMessage() {}, displaySuccessMessage() {} },
+        Credential: draftsCredential,
         HTTP: {
           create: () => ({
             request: () => ({ success: true, statusCode: 200, responseData: payload }),
@@ -515,7 +521,10 @@ describe('GPT-6 native visualization', () => {
     })
 
     it(`keeps the Drafts pending anchor on a nonterminal fragment (${file})`, () => {
-      const source = fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8')
+      const source = fs.readFileSync(
+        new URL('../docs/drafts/scripts/' + file, import.meta.url),
+        'utf8',
+      )
       const draft = {
         content:
           '# Conversation\n\nConversation ID: conversation\n### USER\n\nNews visualization\n\n### ASSISTANT (pending)\n\n## Waiting Reply\n\n<!-- chatgptbox-waiting-reply:start {"conversationId":"conversation","pendingMessageId":"user"} -->\n<!-- chatgptbox-waiting-reply:end -->',
@@ -539,6 +548,7 @@ describe('GPT-6 native visualization', () => {
       vm.runInNewContext(source, {
         draft,
         app: { displayErrorMessage() {}, displaySuccessMessage() {} },
+        Credential: draftsCredential,
         HTTP: {
           create: () => ({
             request: () => ({ success: true, statusCode: 200, responseData: payload }),

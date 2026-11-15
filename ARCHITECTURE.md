@@ -2,7 +2,7 @@
 doc_type: architecture
 status: current
 authority: normative
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-15
 ---
 
 # ChatGPTBox architecture
@@ -28,6 +28,7 @@ local harness remain separate systems.
 | Settings and popup | [Settings center](src/options/SettingsCenter.jsx), [popup](src/popup/) | Full configuration and quick controls |
 | Local API gateway | [Server](scripts/api-server.mjs), [bridge page](src/pages/ApiServer/App.jsx) | Authenticated local HTTP clients connected to the extension over WebSocket or HTTP polling |
 | Local MCP server | [Server](scripts/mcp-server.mjs) | Authenticated MCP `ask_chatgpt`, using the local API gateway |
+| Drafts client | [Sources](scripts/drafts/), [generator](scripts/sync-drafts-engines.mjs), [guide/packages](docs/drafts/README.md) | Common actions, prefix selection for unbound notes, fixed provider bindings and isolated legacy note adapters |
 
 ## Request flows
 

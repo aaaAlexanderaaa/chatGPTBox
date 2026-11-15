@@ -409,8 +409,8 @@ async function build() {
   syncProtocolReference()
   const { syncDraftsPreview } = await import('./scripts/sync-drafts-preview.mjs')
   await syncDraftsPreview()
-  await import('./scripts/sync-drafts-photos.mjs')
-  await import('./scripts/sync-drafts-engines.mjs')
+  const { syncDraftsActions } = await import('./scripts/sync-drafts-engines.mjs')
+  await syncDraftsActions()
   await deleteOldDir()
   if (isProduction && !isAnalyzing) {
     // await runWebpack(

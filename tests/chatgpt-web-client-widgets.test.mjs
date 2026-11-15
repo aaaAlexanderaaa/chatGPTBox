@@ -1,6 +1,7 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { describe, expect, it } from 'vitest'
 import { init } from 'echarts/core'
 import { unified } from 'unified'
@@ -173,7 +174,7 @@ describe('native client widgets', () => {
         update() {},
       }
       vm.runInNewContext(
-        fs.readFileSync(new URL('../docs/drafts/' + action, import.meta.url), 'utf8'),
+        fs.readFileSync(new URL('../docs/drafts/scripts/' + action, import.meta.url), 'utf8'),
         {
           draft,
           app: {
@@ -182,6 +183,7 @@ describe('native client widgets', () => {
             },
             displaySuccessMessage() {},
           },
+          Credential: draftsCredential,
           HTTP: {
             create: () => ({
               request: () => ({ success: true, statusCode: 200, responseData: payload }),

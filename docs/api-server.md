@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-15
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -186,6 +186,42 @@ chrome.tabs.create({ url: chrome.runtime.getURL('ApiServer.html') })
 4. The adapter reaches its native website transport; only a verified final result becomes a successful completion response. Standard SSE keeps the connection alive while the bridge observes that run.
 
 ## Client HTTP Endpoints
+
+### Drafts engine selection
+
+On 2026-11-15 the user selected note prefixes instead of an engine picker for
+the common Drafts actions. At the beginning of an unbound note, `:c ` selects
+ChatGPT and `:g ` selects Gemini; no prefix selects ChatGPT. A prefix may also
+occupy its own first line. Only this leading selector is removed from a new
+question. Unknown selectors fail visibly before HTTP rather than defaulting to
+another engine. Selectors elsewhere, including Waiting Reply, remain user text.
+
+The source registry owns these aliases and supported adapter operations. Lists,
+new questions and preparation such as Project/photo selection use this rule.
+Persist the selected engine with the generated note when preparation, a list or
+a request is saved. Subsequent Get, Send and More use that binding. Existing
+version-2 and recognizable legacy ChatGPT notes bind to ChatGPT; version-3
+Gemini notes retain their existing engine identity and controls. A conflicting
+leading selector, unknown/damaged header or unsupported operation stops before
+HTTP and keeps the original note. A bound conversation cannot change engines.
+Use a new note for another engine. List accepts an empty/selector-only note or
+an existing generated list; it cannot overwrite a conversation or unsent text.
+Version 2 itself remains the implicit ChatGPT binding, without a new required
+field. New saves also retain the nonsecret `gatewayUrl`; a different configured
+URL is rejected before recovery or sending. Legacy copies require keeping their
+original gateway address and token during installation.
+
+Common entry names do not equalize capabilities: photos and Projects remain
+ChatGPT-only, with Project selection limited to a note before its first send;
+older native pages remain Gemini-only. Get observes the original operation and
+never sends a question. Send preserves the adapter's complete original request,
+idempotency identity and pending-turn protection. Upgrade does not rewrite an
+unresolved request into another engine or protocol.
+
+Drafts actions send HTTP to this gateway, which forwards through
+`ApiServer.html` to the existing background/provider owner. This client-side
+selection changes neither gateway authorization nor native provider protocols.
+The [Drafts guide](drafts/README.md) owns installation and verification limits.
 
 ### Image inputs and ChatGPT Projects
 
@@ -385,8 +421,9 @@ are formatted into one text prompt for a new independent completion. There is
 no history replay through this legacy completions route. Native history and
 explicit append use the common `/engines/geminiweb/conversations*` and run
 interfaces. The generic MCP `ask_engine` tool selects Gemini using the same
-external engine grants. The four Gemini Drafts actions use these common
-interfaces; the five original ChatGPT actions retain their ChatGPT endpoints.
+external engine grants. Common Drafts actions route Gemini notes through these
+interfaces and ChatGPT notes through their retained ChatGPT compatibility
+endpoints. Their prefix and fixed-binding behavior is described above.
 
 Common Gemini final results expose a valid native response instant as
 `result.metadata.responseTimestamp`; assistant history messages expose

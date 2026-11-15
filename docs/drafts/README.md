@@ -2,48 +2,97 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-15
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
 # Drafts actions for ChatGPTBox
 
-Use Drafts to list existing ChatGPT conversations, open one, send a question and
-collect its answer. The [gateway contract](../api-server.md) owns authentication,
+Use the same Drafts actions for ChatGPT and Gemini: list conversations, open one,
+send a question and collect its answer. The [gateway contract](../api-server.md) owns authentication,
 request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
 
-The original five actions continue to use ChatGPT conversation endpoints and
-keep their model, photo and Project behavior. Gemini uses the separate actions
-below and the common engine/run interface. A Gemini selector is not a supported
-`MODEL_OVERRIDE` in the old ChatGPT Send action. The two note formats reject one
-another before requests, preventing an accidental send to the wrong provider.
+There are five public actions. Maintained provider code and resources live in
+[`scripts/drafts`](../../scripts/drafts/); generated JavaScript lives in
+[`scripts`](scripts/). These development files are not additional actions to
+install. Each import package includes its own code and resources.
 
 ## Install and configure
 
-Update **all five actions together** so their document header and control format
-agree. Preserve your gateway address, token and explicit model options when
-replacing installed copies.
+Import these five packages into one **ChatGPTBox** action group. List, Get and
+Send are the common text-conversation entries; Preview and More add reading,
+photos, Projects and older native history. No separate Gemini actions, helper
+actions or resource-file installation is required.
 
 | Action | Script / package | Purpose |
 | --- | --- | --- |
-| ChatGPTBox List Conversations | [Action 1](action-1-list-conversations.js) | Replace the note with a cached conversation task list |
-| ChatGPTBox Open Checked Conversation (Get) | [Action 2](action-2-open-checked-conversation.js) | Open one checked conversation or refresh the current note |
-| ChatGPTBox Send Waiting Reply (Send) | [Action 3](action-3-send-waiting-reply.js) | Create a conversation or send the waiting reply |
-| ChatGPTBox Attach Photos | [Action 4](action-4-attach-photos.js), [import package](chatgptbox-attach-photos.draftsAction) | Capture/stage photos for the next send |
-| ChatGPTBox Select Project | [Action 5](action-5-select-project.js), [import package](chatgptbox-select-project.draftsAction) | Choose an existing Project for a new conversation |
+| ChatGPTBox List Conversations | [package](chatgptbox-list.draftsAction), [script](scripts/action-1-list-conversations.js) | List the selected engine's conversations in an empty note |
+| ChatGPTBox Get | [package](chatgptbox-get.draftsAction), [script](scripts/action-2-open-checked-conversation.js) | Open one checked conversation, refresh or collect its answer |
+| ChatGPTBox Send | [package](chatgptbox-send.draftsAction), [script](scripts/action-3-send-waiting-reply.js) | Create a conversation or send its Waiting Reply |
+| ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout and charts |
+| ChatGPTBox More | [package](chatgptbox-more.draftsAction), [script](scripts/more.js) | Supported photos, Project selection, older messages and configuration help |
 
 1. In the extension, open **Advanced → API Server Bridge → Open API Server Bridge**
    and enable **Enable API Server Bridge**.
-2. Start the local gateway with `npm run api-server`. The scripts default to
-   `http://127.0.0.1:18080`; set `BASE_URL` in **each of actions 1–5** to an address
-   reachable from the device running Drafts. Network/authentication options are
-   in the gateway guide.
-3. Copy the token from `~/.chatgptbox/gateway-api-token` into each action's
-   `API_TOKEN`. Keep these edited scripts private.
-4. Keep the bridge page open and stay logged in at `https://chatgpt.com`.
+2. Start the local gateway with `npm run api-server`.
+3. The first network action asks for **Gateway URL** and **Gateway API token**.
+   Use the token from `~/.chatgptbox/gateway-api-token`. All actions share the
+   **ChatGPTBox Gateway** credential; upgrading scripts retains it. A blank URL
+   uses `http://127.0.0.1:18080`. Use an address reachable from every device;
+   `127.0.0.1` on an iPhone refers to the iPhone, not the Mac gateway. Drafts
+   credentials sync through iCloud when enabled. **More → 网关设置说明** explains
+   reconfiguration; no token is stored in a note or import package.
+4. Keep the bridge page open and stay logged in to the selected provider.
 5. Enable history synchronization in **ChatGPT Web** settings and choose a
-   conservative RPM. List reads that cache; it does not synchronize by itself.
+   conservative RPM for ChatGPT history. ChatGPT List reads that cache; it does
+   not synchronize by itself. Gemini setup is described below.
+
+For an upgrade:
+
+1. Retain/export the old actions, their address/token and explicit model or
+   thinking options before replacement.
+2. Create or select the **ChatGPTBox** action group, then import the five packages.
+   If Drafts offers to replace a same-named action or add another copy, replace
+   only the copy whose customizations you have retained. If keeping both, use
+   the new common entries in this group. Preview keeps its existing package ID.
+3. Configure the original gateway/token in the shared credential. Common Get can
+   read an existing note without creating a question.
+4. Disable/remove the old ChatGPT and Gemini entries before sending any new
+   prefixed question; an old Send can interpret `:g` as ordinary ChatGPT text.
+   Keep existing notes and pending identities.
+
+An extension build does not install or replace actions in the user's Drafts app.
+
+## Choose an engine with a note prefix
+
+On a new, unbound note, use `:c ` for ChatGPT or `:g ` for Gemini at the very
+beginning. No selector means ChatGPT. The selector can share the question's
+first line or occupy its own first line:
+
+```text
+:g 请帮我分析这个问题。
+```
+
+For **List**, use an empty note or just `:g ` / `:c `; existing unsent text is
+preserved with an error. For a new **Send**, the selector is removed from the
+question before submission. **More → 选择 Project** uses the same selection rule;
+Gemini does not support Projects or photos, and never redirects those operations
+to ChatGPT. Unknown prefixes stop before HTTP and keep the note.
+
+Saving a list, photo/Project preparation or first request binds the note's engine.
+All subsequent Get/Send/More operations use that binding. Existing ChatGPT v2 and
+recognizable legacy notes remain ChatGPT; Gemini v3 notes remain Gemini. Adding a
+conflicting selector before a bound note fails before HTTP and preserves it. Use
+a new note for another engine. A selector inside a reply, transcript or any other
+body line is ordinary text and cannot change engines.
+
+New saves also retain the gateway URL. Changing it blocks subsequent requests
+from that note until the original configuration is restored. Keep the original
+gateway and credential when upgrading old notes, which lack this URL field.
+
+The user selected this prefix/binding behavior on 2026-11-15. Its normative owner
+is [Drafts engine selection](../api-server.md#drafts-engine-selection).
 
 `MODEL_OVERRIDE = null` in Send delegates new conversations to the extension's
 current ChatGPT Web default and follow-ups to the conversation's current model
@@ -61,8 +110,8 @@ annotation and does not select a model's thinking effort.
    Full Sync in the extension when the cached list needs refreshing.
 2. Type inside **Waiting Reply**, between its document-bound start/end comments.
    Run **Send** to submit that question.
-3. Send returns after acknowledgement while ChatGPT continues generating. The
-   transcript keeps the user question and an `ASSISTANT (pending)` placeholder.
+3. Send keeps the question and an `ASSISTANT (pending)` placeholder while the
+   provider continues. A request receipt is not a finished answer.
 4. Run **Get** on that same note to collect the answer. Listing again is
    unnecessary, and Get preserves any next question already typed.
 
@@ -72,7 +121,7 @@ with an empty Waiting Reply, Send refreshes instead; Get is the direct refresh
 operation. Send refuses a List note before making an HTTP request—open the
 intended conversation with Get first.
 
-The version-2 header binds the generated controls to this document. Transcript,
+The ChatGPT version-2 header binds the generated controls to this document. Transcript,
 titles, thinking and questions remain data. Edit the Waiting Reply text, not the
 header, IDs or operation metadata. Duplicate/damaged controls or conflicting
 pending identities stop before requests and preserve the complete note.
@@ -84,7 +133,7 @@ controls cannot establish a safe owner. Keep a rejected note and its IDs for
 inspection; Get or a freshly generated List/Get note can read the original
 conversation. Copying an uncertain question into a new send is not recovery.
 
-## Pending sends and recovery
+## ChatGPT pending sends and recovery
 
 Send saves an operation ID and the **complete original request** before the HTTP
 write. Retrying an unresolved operation reuses that ID, question, model/thinking
@@ -122,17 +171,10 @@ does not turn other old errors into unsent proof.
 
 ## Gemini history, requests and continuation
 
-The November 13 delivery adds these self-contained actions. Import each package,
-then set its `BASE_URL` and `API_TOKEN` to your existing gateway address and API
-credential. Keep configured copies private. These are separate from the original
-five ChatGPT actions; they do not add photos or Projects to Gemini.
-
-| Action | Source / import package | Behavior |
-| --- | --- | --- |
-| ChatGPTBox Gemini List Conversations | [List](gemini-list.js), [package](chatgptbox-gemini-list.draftsAction) | Read pinned and ordinary native history; run again on a list to load more |
-| ChatGPTBox Gemini Get | [Get](gemini-get.js), [package](chatgptbox-gemini-get.draftsAction) | Open one checked conversation, refresh its recent messages, or collect a pending run |
-| ChatGPTBox Gemini Send | [Send](gemini-send.js), [package](chatgptbox-gemini-send.draftsAction) | Send an ordinary note as an independent question, or append its Waiting Reply |
-| ChatGPTBox Gemini Load Older Turns | [Older](gemini-older.js), [package](chatgptbox-gemini-older.draftsAction) | Prepend the next native history page while retaining recent text and Waiting Reply |
+Use the common List/Get/Send actions with `:g ` on a new note. List reads pinned
+and ordinary native history; repeating List on its list loads another page.
+**More → 加载更早消息** prepends the next native turn page while retaining recent
+text and Waiting Reply. The original November 13 v3 note format remains readable.
 
 Enable Gemini in `Settings → Engines`, check its account in `Gemini Web`, and
 grant the required generation, append, list and read operations under
@@ -154,8 +196,8 @@ pending block; explicit unsent proof retains the original text and allows a late
 manual decision. Unknown, expired or missing identities do not authorize replay.
 
 Version-3 Gemini headers bind their generated controls to the note. Keep these
-headers and pending metadata intact. Use the original ChatGPT actions for version-2
-ChatGPT notes. A List action refuses to replace a Gemini conversation, preserving
+headers and pending metadata intact. Common Get/Send dispatch version-2 ChatGPT
+notes to their original adapter. List refuses to replace a conversation, preserving
 its transcript, unsent draft and operation identity. Captured account credentials
 never enter the note or import packages.
 
@@ -166,7 +208,7 @@ complete note and stop before HTTP or replacement; use a fresh List/Get note if
 you need to retain those edits. The edit checksum detects accidental changes;
 it does not authenticate a note or establish device synchronization.
 
-Maintain [the common source](engine-actions.shared.txt), then run
+Maintain [the Gemini adapter](../../scripts/drafts/gemini.js.txt), then run
 `npm run sync-drafts-engines`; extension builds regenerate scripts and packages.
 Repository VM/HTTP tests establish control, payload and recovery behavior. Native
 Drafts import and device/iCloud acceptance are tracked separately in the
@@ -178,17 +220,18 @@ receipt by its original key, collect the verified final result and load older
 native pages. Future Waiting Reply and outside notes survived. This exercised
 the scripts in a VM, not an installed Drafts app; the user deferred native
 import/device/iCloud acceptance for this round. Existing configured Drafts
-copies still require importing the packages and retaining their own endpoint
-and credential settings.
+copies require importing the common packages and transferring their original
+endpoint and credential to the shared credential. This dated VM observation is
+not fresh native Drafts acceptance of the November 15 common actions.
 
 <a id="photos-and-projects"></a>
 
 ## ChatGPT photos and Projects
 
-1. Create the desired Project/instructions in ChatGPT, then run **Select Project**
+1. Create the desired Project/instructions in ChatGPT, then run **More → 选择 Project**
    on a fresh note. This selects an existing Project for its first conversation;
    it does not move an already opened conversation.
-2. Run **Attach Photos** and choose up to four photos. The picker converts them
+2. Run **More → 添加照片** and choose up to four photos. The picker converts them
    to JPEG with a maximum 1600-pixel long side. When no question exists it inserts
    an editable dated meal-record prompt for portions, nutrition ranges and
    uncertainties; you can replace that prompt.
@@ -220,7 +263,7 @@ expiration are in the gateway guide.
 ## HTML Preview
 
 Import [ChatGPTBox Preview](chatgptbox-preview.draftsAction) in Drafts. Its single
-HTML Preview step packages [the complete HTML](chatgptbox-preview.html), styles
+HTML Preview step packages [the complete HTML](templates/chatgptbox-preview.html), styles
 and chart runtime without a gateway token. If package import is unavailable,
 create **ChatGPTBox Preview**, add an **HTML Preview** step and use its **Import**
 button to load the complete HTML. Leave **Hide interface** off. The package uses
@@ -251,16 +294,24 @@ again when its stored transcript needs regeneration.
 
 | Symptom / update | Action |
 | --- | --- |
-| Document controls differ or a copied action still hardcodes an old model | Update all five actions together; preserve URL/token and explicit overrides |
+| Document controls differ or a copied action still hardcodes an old model | Replace the common actions together; keep the shared credential and explicit overrides |
 | Runtime/account/verification/network-transport recognition fails | Update/reload the extension and refresh its dedicated ChatGPT proxy and bridge pages. A Drafts-script replacement cannot repair website-runtime recognition; this error alone is not an account-suspension notice |
 | An old note contains missing code blocks, chart JSON or incomplete layout | Update/reload the extension, then Get again. For packaged chart interactions also replace Preview; old Markdown cannot acquire lost layout from CSS alone |
-| A fresh send is incorrectly called older than seven days | Update Get, Send and Attach Photos. Current scripts parse saved ISO times with `new Date(value).getTime()` for Drafts compatibility; preserve the marker and original request. Truly expired or invalid ages still block replay |
+| A fresh send is incorrectly called older than seven days | Update Get, Send and More. Current scripts parse saved ISO times with `new Date(value).getTime()` for Drafts compatibility; preserve the marker and original request. Truly expired or invalid ages still block replay |
 | A write timed out or lost acknowledgement | Keep its ID and use Get/operation inspection; never generate a new key merely to retry |
 
-Maintain `control-document.shared.txt`, `photo-operation.shared.txt` and
-`photo-picker.html`; `npm run sync-drafts-photos` regenerates self-contained
-scripts/packages. Maintain `chatgptbox-preview.source.html`, shared CSS and the
-chart runtime; `npm run sync-drafts-preview` regenerates HTML/package and protects
+Maintain the router, provider fragments, `control-document.shared.txt`,
+`photo-operation.shared.txt` and `photo-picker.html` under
+[`scripts/drafts`](../../scripts/drafts/). `npm run sync-drafts-engines`
+regenerates the four common network scripts/packages; `sync-drafts-photos` is a
+retained alias. Use `node scripts/sync-drafts-engines.mjs --check` to detect stale
+artifacts. Provider fragments are wrapped in separate function scopes, with a
+buffered note and explicit durable saves before writes. The alias/operation
+registry is in [engine-routing.js.txt](../../scripts/drafts/engine-routing.js.txt);
+adding a provider also requires its actual adapter, without capability fallback.
+
+Maintain `scripts/drafts/chatgptbox-preview.source.html`, shared CSS and the
+chart runtime; `npm run sync-drafts-preview` regenerates the template/package and protects
 script/template delimiters with an exact CSP hash. Extension builds run both
 steps. Import regenerated copies into Drafts separately.
 
@@ -268,5 +319,7 @@ Repository tests cover controlled local capture, exact-request recovery and a
 synthetic HTTP bridge. Browser previews cover rendered output, not native Drafts
 import, camera behavior or device/iCloud sync. These limits remain separate from
 source/build completion; no native-device acceptance is claimed by this guide.
+The [November 15 delivery record](../plans/2026-11-15-drafts-engine-prefix.md)
+records prefix routing, common packages, legacy compatibility and actual checks.
 The scripts use Drafts' [HTTP](https://scripting.getdrafts.com/classes/HTTP.html)
 and [Draft](https://scripting.getdrafts.com/classes/Draft.html) runtime objects.

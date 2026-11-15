@@ -1,6 +1,7 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { unified } from 'unified'
@@ -230,7 +231,7 @@ describe('portable GenUI charts', () => {
         update() {},
       }
       vm.runInNewContext(
-        fs.readFileSync(new URL('../docs/drafts/' + file, import.meta.url), 'utf8'),
+        fs.readFileSync(new URL('../docs/drafts/scripts/' + file, import.meta.url), 'utf8'),
         {
           draft,
           app: {
@@ -239,6 +240,7 @@ describe('portable GenUI charts', () => {
             },
             displaySuccessMessage() {},
           },
+          Credential: draftsCredential,
           HTTP: {
             create: () => ({
               request: () => ({ success: true, statusCode: 200, responseData: payload }),
@@ -295,7 +297,7 @@ describe('portable GenUI charts', () => {
   })
   it('ships a single offline script with an exact CSP hash and no unexpected template tags', () => {
     const template = fs.readFileSync(
-      new URL('../docs/drafts/chatgptbox-preview.html', import.meta.url),
+      new URL('../docs/drafts/templates/chatgptbox-preview.html', import.meta.url),
       'utf8',
     )
     const scripts = [...template.matchAll(/<script>([\s\S]*?)<\/script>/g)]

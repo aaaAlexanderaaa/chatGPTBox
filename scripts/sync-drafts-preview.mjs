@@ -10,8 +10,8 @@ import TerserPlugin from 'terser-webpack-plugin'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const stylesheet = new URL('../src/components/MarkdownRender/genui.css', import.meta.url)
-const sourceTemplate = new URL('../docs/drafts/chatgptbox-preview.source.html', import.meta.url)
-const template = new URL('../docs/drafts/chatgptbox-preview.html', import.meta.url)
+const sourceTemplate = new URL('./drafts/chatgptbox-preview.source.html', import.meta.url)
+const template = new URL('../docs/drafts/templates/chatgptbox-preview.html', import.meta.url)
 const actionFile = new URL('../docs/drafts/chatgptbox-preview.draftsAction', import.meta.url)
 
 // Stable public package identities, created for this action (not account IDs).
@@ -146,6 +146,7 @@ export async function syncDraftsPreview({ check = false } = {}) {
   )
     return false
   if (check) throw new Error('Drafts preview is stale; run npm run sync-drafts-preview')
+  fs.mkdirSync(fileURLToPath(new URL('.', template)), { recursive: true })
   fs.writeFileSync(template, source)
   fs.writeFileSync(actionFile, action)
   return true

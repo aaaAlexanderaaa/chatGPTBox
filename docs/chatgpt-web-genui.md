@@ -41,7 +41,7 @@ HTML，网关转发同一文本，Drafts Action 2/3 把它写入 transcript。
 
 修改 CSS 后运行 `npm run sync-drafts-preview`；`node scripts/sync-drafts-preview.mjs --check`
 检查模板是否过期。模板保持单文件，不依赖远程脚本或样式。维护
-`docs/drafts/chatgptbox-preview.source.html`，不要手动修改生成的 HTML 或 `.draftsAction`。
+`scripts/drafts/chatgptbox-preview.source.html`，不要手动修改生成的 HTML 或 `.draftsAction`。
 构建内嵌按需打包的 ECharts、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
 JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前提下处理，避免导入
 模板后脚本被模板引擎改写。

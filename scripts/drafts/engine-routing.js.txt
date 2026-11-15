@@ -1,0 +1,142 @@
+// Engine aliases and operations have one owner. A new adapter must be registered
+// explicitly; an unknown prefix never falls back to another provider.
+const ENGINE_ALIASES = { c: 'chatgptweb', g: 'geminiweb' }
+const ENGINE_OPERATIONS = {
+  chatgptweb: ['list', 'get', 'send', 'photos', 'project'],
+  geminiweb: ['list', 'get', 'send', 'older'],
+}
+const DOCUMENT_HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
+
+function selectEngine(original) {
+  const prefix = original.match(/^\uFEFF?:([a-z][a-z0-9_-]*)(?:[ \t]+|\r?\n|$)/i)
+  if (!prefix && /^\uFEFF?:[a-z]/i.test(original))
+    throw new Error('Put a space or a line break after :c or :g. The note was kept; no request was sent.')
+  const alias = prefix?.[1].toLowerCase()
+  const selected = alias && Object.prototype.hasOwnProperty.call(ENGINE_ALIASES, alias) ? ENGINE_ALIASES[alias] : null
+  if (prefix && !selected)
+    throw new Error('Unknown engine prefix. Use :c for ChatGPT or :g for Gemini. The note was kept.')
+  const content = prefix ? original.slice(prefix[0].length) : original
+  const header = content.match(DOCUMENT_HEADER)
+  let meta = null, engineId = null, legacyKind = null
+  if (header) {
+    try { meta = JSON.parse(header[1]) } catch { throw new Error('Damaged ChatGPTBox header. The complete note was kept.') }
+    if (!meta || !/^[a-z0-9]{16,80}$/.test(meta.id) ||
+        (meta.version === 2 && (!Array.isArray(meta.controls) || !['note', 'list', 'conversation'].includes(meta.kind))) ||
+        (meta.version === 3 && !['new', 'list', 'conversation'].includes(meta.kind)))
+      throw new Error('Unsupported ChatGPTBox header. The complete note was kept.')
+    if (meta.version === 2 && (meta.engineId === undefined || meta.engineId === 'chatgptweb')) engineId = 'chatgptweb'
+    else if (meta.version === 3 && meta.engineId === 'geminiweb') engineId = 'geminiweb'
+    else throw new Error('Unsupported engine binding. The complete note was kept.')
+  } else {
+    if (content.includes('<!-- chatgptbox-document:'))
+      throw new Error('The ChatGPTBox header is damaged or misplaced. The complete note was kept.')
+    // The original ChatGPT parser validates/migrates these old structures.
+    if (/<!-- chatgptbox-|^Conversation ID:\s*[A-Za-z0-9-]+\s*$/m.test(content)) {
+      engineId = 'chatgptweb'
+      const lines = content.trim().split('\n')
+      if (lines.every((line) => /^- \[[ x]\].*<!-- chatgptbox-conversation:[A-Za-z0-9-]+ -->\s*$/.test(line))) legacyKind = 'list'
+      else if (/<!-- chatgptbox-waiting-reply:start |^Conversation ID:\s*[A-Za-z0-9-]+\s*$/m.test(content)) legacyKind = 'conversation'
+    }
+  }
+  const bound = !!engineId
+  if (bound && selected && selected !== engineId)
+    throw new Error('This note is bound to ' + (engineId === 'chatgptweb' ? 'ChatGPT' : 'Gemini') + '. Its engine cannot change. Use a new note; the complete note was kept.')
+  return { content, meta, kind: meta?.kind || legacyKind, bound, engineId: engineId || selected || ENGINE_ALIASES.c }
+}
+
+function checkOperation(route, operation) {
+  if (!ENGINE_OPERATIONS[route.engineId]?.includes(operation))
+    throw new Error((route.engineId === 'geminiweb' ? 'Gemini' : 'ChatGPT') + ' does not support this operation. The note was kept.')
+  if (operation === 'list' && ((route.bound && route.kind !== 'list') || (!route.bound && route.content.trim())))
+    throw new Error('Run List on an empty new note, optionally starting with :c or :g. This note and its text were kept.')
+  if (route.kind === 'list' && operation !== 'list' && operation !== 'get')
+    throw new Error('Use Get to open the checked conversation first. The list was kept.')
+  if (operation === 'project' && route.bound && route.kind !== 'note')
+    throw new Error('Choose a Project on a new note before its first send. This conversation keeps its engine and Project.')
+}
+
+function gatewaySettings() {
+  const credential = Credential.create('ChatGPTBox Gateway', 'Shared by all ChatGPTBox actions. Use a gateway URL reachable from every synced device. A blank URL uses http://127.0.0.1:18080.')
+  credential.addURLField('baseUrl', 'Gateway URL')
+  credential.addPasswordField('apiToken', 'Gateway API token')
+  if (!credential.authorize()) return null
+  const baseUrl = (credential.getValue('baseUrl') || 'http://127.0.0.1:18080').trim().replace(/\/+$/, '')
+  const apiToken = (credential.getValue('apiToken') || '').trim()
+  if (!/^https?:\/\/[^/?#\s@]+(?:\/[^?#\s]*)?$/i.test(baseUrl) || !apiToken || /[\r\n]/.test(apiToken))
+    throw new Error('Configure a valid gateway URL and API token in Drafts Settings → Credentials → ChatGPTBox Gateway. No request was sent.')
+  return { baseUrl, apiToken }
+}
+
+function bufferedDraft(originalDraft, route, settings) {
+  if (route.meta?.gatewayUrl && route.meta.gatewayUrl !== settings.baseUrl)
+    throw new Error('This note belongs to a different gateway URL. Restore its original gateway configuration; the note and request identity were kept.')
+  let content = route.content
+  return {
+    get content() { return content },
+    set content(value) { content = value },
+    update() {
+      const match = content.match(DOCUMENT_HEADER)
+      if (!match) throw new Error('The action did not produce a bound ChatGPTBox note. The original note was kept.')
+      const meta = JSON.parse(match[1])
+      // v2 itself is the ChatGPT binding, preserving old parser compatibility.
+      if ((route.engineId === 'chatgptweb' && meta.version !== 2) ||
+          (route.engineId === 'geminiweb' && (meta.version !== 3 || meta.engineId !== route.engineId)))
+        throw new Error('The action returned a different engine binding. The original note was kept.')
+      meta.gatewayUrl = settings.baseUrl
+      const next = '<!-- chatgptbox-document:' + JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') + ' -->\n' + content.slice(match[0].length)
+      const previous = originalDraft.content
+      originalDraft.content = next
+      try {
+        const result = originalDraft.update()
+        if (result === false) throw new Error('Draft save failed. No further request was made.')
+        content = next
+        return result
+      } catch (error) {
+        originalDraft.content = previous
+        throw error
+      }
+    },
+  }
+}
+
+function moreOperation(route) {
+  const prompt = Prompt.create()
+  prompt.title = 'ChatGPTBox · ' + (route.engineId === 'geminiweb' ? 'Gemini' : 'ChatGPT')
+  const choices = []
+  if (!route.bound || ['note', 'new', 'conversation'].includes(route.kind)) {
+    if (route.engineId === 'chatgptweb') {
+      choices.push(['添加照片', 'photos'])
+      if (!route.bound || route.kind === 'note') choices.push(['选择 Project', 'project'])
+    } else if (route.kind === 'conversation' && !route.meta.pending) choices.push(['加载更早消息', 'older'])
+  }
+  for (const [label] of choices) prompt.addButton(label)
+  prompt.addButton('网关设置说明')
+  prompt.message = (route.engineId === 'geminiweb' ? 'Gemini 不支持照片或 Project。' : '') + '新笔记首部用 :c 或 :g；省略时使用 ChatGPT。已有会话固定使用原引擎。'
+  if (!prompt.show()) return null
+  const selected = choices.find(([label]) => label === prompt.buttonPressed)
+  if (selected) return selected[1]
+  if (prompt.buttonPressed !== '网关设置说明') throw new Error('Unknown ChatGPTBox operation. No request was made.')
+  const help = Prompt.create()
+  help.title = 'ChatGPTBox 网关设置'
+  help.message = '所有动作共用 Drafts Settings → Credentials → ChatGPTBox Gateway。首次运行会询问地址和 API token。需要重新配置时，在该凭据项使用 Forget，然后再次运行。地址须能从每台设备访问；iPhone 的 127.0.0.1 指向 iPhone。'
+  help.addButton('完成')
+  help.show()
+  return null
+}
+
+function runAction() {
+  const route = selectEngine(draft.content || '')
+  const operation = ACTION === 'more' ? moreOperation(route) : ACTION
+  if (!operation) return
+  checkOperation(route, operation)
+  const settings = gatewaySettings()
+  if (!settings) return
+  const input = bufferedDraft(draft, route, settings)
+  ENGINE_ADAPTERS[route.engineId](input, settings, operation)
+}
+
+try { runAction() }
+catch (error) {
+  app.displayErrorMessage(error.message || String(error))
+  throw error
+}

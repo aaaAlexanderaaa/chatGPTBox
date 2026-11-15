@@ -411,7 +411,7 @@ describe('static GenUI component adapters', () => {
   it('ships the shared stylesheet and packaged runtime inside the standalone Drafts template', async () => {
     expect(await syncDraftsPreview({ check: true })).toBe(false)
     const template = fs.readFileSync(
-      new URL('../docs/drafts/chatgptbox-preview.html', import.meta.url),
+      new URL('../docs/drafts/templates/chatgptbox-preview.html', import.meta.url),
       'utf8',
     )
     expect(template).toContain('%%[[draft]]%%')

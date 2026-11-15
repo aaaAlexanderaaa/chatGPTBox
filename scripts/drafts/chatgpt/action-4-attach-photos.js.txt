@@ -1,0 +1,107 @@
+/* global HTTP, app, draft, FileManager, HTMLPreview, context */
+// BEGIN CONTROL DOCUMENT
+// END CONTROL DOCUMENT
+const BASE_URL = 'http://127.0.0.1:18080'
+const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
+const MODEL_OVERRIDE = null
+const WAITING_REPLY_START_RE = controlRegex(/<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/)
+const WAITING_REPLY_END = controlText('<!-- chatgptbox-waiting-reply:end -->')
+const PENDING_ANSWER_TEXT = '_Waiting for ChatGPT. Run the Get action to collect the answer._'
+// BEGIN PHOTO PICKER
+// END PHOTO PICKER
+function fail(message) {
+  app.displayErrorMessage(message)
+  throw new Error(message)
+}
+function requestJson(url, method, body) {
+  const response = HTTP.create().request({
+    url,
+    method,
+    encoding: 'json',
+    data: body,
+    headers: { Authorization: 'Bearer ' + API_TOKEN, 'Content-Type': 'application/json' },
+  })
+  if (!response.success || response.statusCode >= 400)
+    fail(
+      response.responseData?.error?.message ||
+        response.error ||
+        'Photo upload failed; the photo files were kept. Run More → 添加照片 or Send to retry.',
+    )
+  return response.responseData || {}
+}
+function findWaitingReply(content) {
+  const match = content.match(WAITING_REPLY_START_RE)
+  if (!match) return null
+  const start = content.indexOf(match[0]) + match[0].length,
+    end = content.indexOf(WAITING_REPLY_END, start)
+  if (end < 0) fail('Waiting reply block is incomplete')
+  return { metadata: JSON.parse(match[1]), query: content.slice(start, end).trim() }
+}
+// BEGIN PHOTO HELPERS
+// END PHOTO HELPERS
+
+try {
+  if (readPhotoOperation(draft.content || ''))
+    fail('A photo send is already in progress. Run Get before changing its attachments.')
+  const existingReply = findWaitingReply(draft.content || '')
+  if (
+    existingReply?.metadata.operationId ||
+    existingReply?.metadata.pendingMessageId ||
+    controlRegex(/<!-- chatgptbox-new-operation:/).test(draft.content || '')
+  )
+    fail('The previous send is still pending. Run Get before attaching photos to the next message.')
+  let metadata = readPhotoMetadata(draft.content || '')
+  if (!(metadata.pendingPhotos || []).length) {
+    if ((metadata.images || []).length >= 4)
+      fail('This message already has 4 photos. Send them before attaching more.')
+    if (HTMLPreview.create().show(PHOTO_PICKER_HTML)) {
+      const photos = context.previewValues.chatgptboxPhotos
+      if (!Array.isArray(photos) || !photos.length)
+        fail('Choose photos and use the Add Photos button.')
+      if (photos.length + (metadata.images || []).length > 4)
+        fail('At most 4 photos can be attached to a message.')
+      const fm = FileManager.createLocal()
+      fm.createDirectory('ChatGPTBox Photos', '/')
+      if (!(metadata.images || []).length) metadata.capturedAt = new Date().toISOString()
+      for (const [index, photo] of photos.entries()) {
+        const file =
+          '/ChatGPTBox Photos/' +
+          Date.now().toString(36) +
+          '-' +
+          Math.random().toString(36).slice(2) +
+          '-' +
+          index +
+          '.json'
+        if (!fm.writeJSON(file, photo))
+          fail('Could not save the photo: ' + (fm.lastError || 'local storage unavailable'))
+        metadata.pendingPhotos = [
+          ...(metadata.pendingPhotos || []),
+          { path: file, name: photo.name },
+        ]
+        writePhotoMetadata(metadata)
+      }
+    } else return
+  }
+  const waiting = findWaitingReply(draft.content || '')
+  const prompt =
+    '记录时间：' +
+    (metadata.capturedAt || new Date().toISOString()) +
+    '\n请根据照片记录这一餐：识别食物，估计份量、热量和主要营养的范围，说明看不出的油、糖、酱料等不确定因素，并给出简短的饮食建议。'
+  if (waiting && !waiting.query) {
+    const match = draft.content.match(WAITING_REPLY_START_RE)
+    const end = draft.content.indexOf(
+      WAITING_REPLY_END,
+      draft.content.indexOf(match[0]) + match[0].length,
+    )
+    draft.content = draft.content.slice(0, end) + prompt + '\n' + draft.content.slice(end)
+    saveControlDocument()
+  } else if (!waiting && !photoPrompt(draft.content || '', null)) {
+    draft.content = prompt + '\n\n' + draft.content
+    saveControlDocument()
+  }
+  metadata = stagePhotoFiles(metadata)
+  app.displaySuccessMessage('Photos attached. Run Send to ask ChatGPT.')
+} catch (error) {
+  app.displayErrorMessage(error.message || String(error))
+  throw error
+}

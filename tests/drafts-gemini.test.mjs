@@ -1,12 +1,27 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { expect, it, vi } from 'vitest'
 
 const sources = Object.fromEntries(
   ['list', 'get', 'send', 'older'].map((name) => [
     name,
-    fs.readFileSync(new URL('../docs/drafts/gemini-' + name + '.js', import.meta.url), 'utf8'),
+    fs
+      .readFileSync(
+        new URL(
+          '../docs/drafts/scripts/' +
+            {
+              list: 'action-1-list-conversations.js',
+              get: 'action-2-open-checked-conversation.js',
+              send: 'action-3-send-waiting-reply.js',
+              older: 'more.js',
+            }[name],
+          import.meta.url,
+        ),
+        'utf8',
+      )
+      .replace("const ACTION = 'more'", "const ACTION = 'older'"),
   ]),
 )
 const metadata = (content) =>
@@ -23,6 +38,8 @@ const detail = {
   ],
 }
 function run(action, content, respond, { failSave = false } = {}) {
+  if (!content.startsWith('<!-- chatgptbox-document:') && !content.startsWith(':'))
+    content = ':g ' + content
   const requests = [],
     draft = {
       content,
@@ -36,6 +53,7 @@ function run(action, content, respond, { failSave = false } = {}) {
     vm.runInNewContext(sources[action], {
       draft,
       app,
+      Credential: draftsCredential,
       HTTP: {
         create: () => ({
           request(req) {
@@ -165,7 +183,7 @@ it('does not submit lists, old ChatGPT notes, damaged controls or an unpersisted
   ).draft.content
   for (const content of [
     listed,
-    '<!-- chatgptbox-document:{"version":2,"id":"abcdefghijklmnop","kind":"conversation","controls":[]} -->\nOld ChatGPT note',
+    ':g <!-- chatgptbox-document:{"version":2,"id":"abcdefghijklmnop","kind":"conversation","controls":[]} -->\nOld ChatGPT note',
   ]) {
     const result = run('send', content, () => {
       throw new Error('No request allowed')
@@ -257,7 +275,7 @@ it('refuses to overwrite edits inside generated history or pending blocks', () =
     success({ engineId: 'geminiweb', runId: 'run-one' }),
   ).draft.content
   const annotated = pending.replace(
-    'Use Gemini Get to collect this exact request.',
+    'Use Get to collect this exact request.',
     'My notes inside pending',
   )
   const get = run('get', annotated, () => {
@@ -291,11 +309,20 @@ it('packages exactly the generated scripts without credentials or asynchronous r
   for (const [name, source] of Object.entries(sources)) {
     const pkg = JSON.parse(
       fs.readFileSync(
-        new URL('../docs/drafts/chatgptbox-gemini-' + name + '.draftsAction', import.meta.url),
+        new URL(
+          '../docs/drafts/chatgptbox-' + (name === 'older' ? 'more' : name) + '.draftsAction',
+          import.meta.url,
+        ),
         'utf8',
       ),
     )
-    expect(pkg.steps[0].data).toEqual({ script: source, allowAsync: 'false' })
-    expect(source).toContain('PASTE_GATEWAY_API_TOKEN_HERE')
+    expect(pkg.steps[0].data).toEqual({
+      script:
+        name === 'older'
+          ? source.replace("const ACTION = 'older'", "const ACTION = 'more'")
+          : source,
+      allowAsync: 'false',
+    })
+    expect(source).toContain('Credential.create(')
   }
 })

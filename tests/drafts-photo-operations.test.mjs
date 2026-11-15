@@ -1,19 +1,24 @@
 /* eslint-env node */
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { draftsCredential } from './helpers/drafts-credential.mjs'
 import { describe, expect, it, vi } from 'vitest'
 const sources = Object.fromEntries(
   [2, 3, 4].map((n) => [
     n,
-    fs.readFileSync(
-      new URL(
-        `../docs/drafts/action-${n}-${
-          { 2: 'open-checked-conversation', 3: 'send-waiting-reply', 4: 'attach-photos' }[n]
-        }.js`,
-        import.meta.url,
-      ),
-      'utf8',
-    ),
+    fs
+      .readFileSync(
+        new URL(
+          n === 4
+            ? '../docs/drafts/scripts/more.js'
+            : `../docs/drafts/scripts/action-${n}-${
+                { 2: 'open-checked-conversation', 3: 'send-waiting-reply', 4: 'attach-photos' }[n]
+              }.js`,
+          import.meta.url,
+        ),
+        'utf8',
+      )
+      .replace("const ACTION = 'more'", "const ACTION = 'photos'"),
   ]),
 )
 
@@ -62,6 +67,7 @@ function run(action, content, responses, extras = {}) {
     const runtime = vm.createContext({
       draft,
       app,
+      Credential: draftsCredential,
       HTTP: {
         create: () => ({
           request: (request) => {
@@ -101,7 +107,7 @@ const job = (content) =>
   JSON.parse(visible(content).match(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)[1])
 describe('Drafts photo sends', () => {
   it('packages native Script steps using the same action format as the shipped Preview action', () => {
-    for (const name of ['attach-photos', 'select-project']) {
+    for (const name of ['more']) {
       const artifact = JSON.parse(
         fs.readFileSync(
           new URL(`../docs/drafts/chatgptbox-${name}.draftsAction`, import.meta.url),
@@ -113,7 +119,7 @@ describe('Drafts photo sends', () => {
         platforms: 3,
         data: { allowAsync: 'false' },
       })
-      expect(artifact.steps[0].data.script).toContain('PASTE_GATEWAY_API_TOKEN_HERE')
+      expect(artifact.steps[0].data.script).toContain('Credential.create(')
       expect(artifact.steps[0].uuid).toMatch(/^[A-F0-9-]{36}$/)
     }
   })
