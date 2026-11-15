@@ -191,6 +191,33 @@ it('previews the current input before another rewrite and can apply it without r
   expect(draft.value).toBe('Second rewrite')
   expect(root.querySelector('[role="alert"]')).toBeNull()
 })
+it('adopts text from a native ChatGPT HTML result while preserving paragraphs, entities and undo', async () => {
+  const draft = document.getElementById('draft'),
+    original = draft.value
+  state.reply =
+    '<div class="chatgptbox-genui"><div class="chatgptbox-genui-text">种子 &amp; 小苗交流<br>欢迎新手。</div><div class="chatgptbox-genui-text">请提前一天报名，保留 &lt;label&gt; 示例。</div></div>'
+  const replacement = '种子 & 小苗交流\n欢迎新手。\n请提前一天报名，保留 <label> 示例。'
+  await mount(captureContext({ target: draft }))
+  await click('Run')
+  expect(root.querySelector('.box-assistant-comparison > div:last-child pre').textContent).toBe(
+    replacement,
+  )
+  await click('Apply rewrite')
+  expect(draft.value).toBe(replacement)
+  await click('Undo')
+  expect(draft.value).toBe(original)
+})
+it.each([
+  '<div>Literal HTML source</div>',
+  '```html\n<div class="chatgptbox-genui">Literal wrapper source</div>\n```',
+])('preserves literal HTML rewrite content: %s', async (reply) => {
+  const draft = document.getElementById('draft')
+  state.reply = reply
+  await mount(captureContext({ target: draft }))
+  await click('Run')
+  await click('Apply rewrite')
+  expect(draft.value).toBe(reply.replace(/^```html\n|\n```$/g, ''))
+})
 it('changes overview to annotations with the same source and refinements, then saves the changed practice', async () => {
   state.refinements = ['只看个体分配依据']
   await mount(captureContext())

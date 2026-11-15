@@ -7,6 +7,19 @@ import { parseReadingResult } from './functions.mjs'
 import { annotationLocation } from './context.mjs'
 import { applyInputReplacement, revealAnnotation, showAnnotations } from './effects.mjs'
 import { normalizeModelAnswer, unwrapAnswerFence } from '../services/model-answer.mjs'
+import { readEditableText } from '../utils/editable-text.mjs'
+
+function rewriteText(text) {
+  // Only unwrap our native renderer's transport envelope. Ordinary HTML and
+  // fenced HTML source can be the intended replacement and must remain literal.
+  if (text.startsWith('<div class="chatgptbox-genui">')) {
+    const template = document.createElement('template')
+    template.innerHTML = text
+    if (template.content.childNodes.length === 1)
+      return readEditableText(template.content.firstElementChild)
+  }
+  return unwrapAnswerFence(text)
+}
 
 export function AssistantResult({ run, text, resultId, outcome = 'completed' }) {
   const { t } = useTranslation()
@@ -16,7 +29,7 @@ export function AssistantResult({ run, text, resultId, outcome = 'completed' }) 
   const cleanup = useRef(null)
   const undo = useRef(null)
   const answer = useMemo(() => normalizeModelAnswer(text), [text])
-  const replacement = unwrapAnswerFence(answer.text)
+  const replacement = useMemo(() => rewriteText(answer.text), [answer.text])
   useEffect(
     () => () => {
       cleanup.current?.()

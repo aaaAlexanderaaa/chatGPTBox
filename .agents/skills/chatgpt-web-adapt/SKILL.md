@@ -42,6 +42,9 @@ description: 维护本项目的 ChatGPT Web 兼容性，在官网运行时、请
 - **模型默认集中管理。** 读取账号可用目录，区分 Chat / Work、Thinking / Pro / Auto。
   用户配置、官网 wire 参数与响应中的实际模型分别核实。网关和 Drafts 默认委托扩展；
   保留用户显式覆盖，续聊遵循会话模型，避免新增另一处硬编码默认值。
+- **区分运行身份与原生消息身份。** 公共 `runId` 可以是不透明字符串，官网 user message
+  仍须符合其 UUID 格式。核对统一适配器的映射、turn 索引与精确恢复，不改旧 ledger
+  身份或释放未知请求。相关案例见试错记录中的 2026-11-14 请求体拒绝。
 - **流结束与答案完成分别判断。** 解码首流与 resume，保留断线时的 delta 状态和 offset。
   `[DONE]` 或 `message_stream_complete` 不是所有分片都可展示的证明；
   `finished_successfully` 配合 `end_turn: false` 仍可能只是片段。
@@ -49,6 +52,7 @@ description: 维护本项目的 ChatGPT Web 兼容性，在官网运行时、请
 - **输出适配覆盖所有消费者。** 同时检查实时流、历史 GET、扩展渲染和 Drafts transcript。
   GenUI 只静态解释支持的组件，转为可移植 HTML；不执行生成代码、hooks 或处理器。
   保留已解析且在 safe URL 集合中的引用，不支持的构造使用官网 Markdown 回退。
+  改写采用还须检查纯文本预览和回填，不能把本机静态渲染包装当成用户草稿文字。
 - **Drafts 等待状态必须匹配具体轮次。** Get 保留未发文本、发送标识和原请求参数；
   有 `pendingMessageId` 时优先精确匹配，不能用同文旧问题的答案解除等待。
   `pending: false` 单独不足以表示刚发的轮次已完成。

@@ -6,6 +6,87 @@ import { createEngineRuntime } from '../src/engines/runtime.mjs'
 import { createEngineStore } from '../src/engines/store.mjs'
 import { createGeminiWebService } from '../src/background/gemini-web-service.mjs'
 import { GEMINI_WEB_MODEL, GEMINI_WEB_SELECTION } from '../src/config/gemini-web.mjs'
+import { buildChatgptWebConversationRequestBody } from '../src/services/clients/chatgpt-web/request-wire.mjs'
+
+describe('ChatGPT native message identity', () => {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  it.each([undefined, 'gateway-operation-id', 'c8ff9344-407e-4a29-8d08-5d87974cacde'])(
+    'keeps run %s distinct from its valid native message identity',
+    async (runId) => {
+      const data = {},
+        messages = [],
+        recovered = []
+      const config = { chatgptWebEnabled: true, disableWebModeHistory: true }
+      const [adapter] = createNativeEngineAdapters({
+        chatgptRecover: async (query) => {
+          recovered.push(query)
+          return { status: 'completed', text: 'Verified final' }
+        },
+        providers: {
+          chatgptweb: {
+            async run({ session, port }) {
+              const body = buildChatgptWebConversationRequestBody({
+                profile: 'codex-webview',
+                question: session.question,
+                messageId: session.messageId,
+                model: session.chatgptWebModelSlugOverride,
+              })
+              messages.push(body.messages[0])
+              // The native endpoint rejects opaque Box run IDs in this field.
+              if (!uuidPattern.test(body.messages[0].id))
+                throw new Error('Invalid conversation body')
+              session.conversationId = 'controlled-conversation'
+              session.parentMessageId = 'controlled-completed-head'
+              port.postMessage({ accepted: true, session })
+              port.postMessage({
+                answer: 'Verified final',
+                finalContent: 'Verified final',
+                outcome: 'completed',
+                done: true,
+                session,
+              })
+            },
+          },
+        },
+      })
+      const runtime = createEngineRuntime({
+        adapters: [adapter],
+        store: createEngineStore({
+          storage: {
+            get: async (key) => ({ [key]: data[key] }),
+            set: async (patch) => Object.assign(data, structuredClone(patch)),
+          },
+        }),
+        getConfig: async () => config,
+        setConfig: async (patch) => Object.assign(config, patch),
+      })
+      const caller = { kind: 'extension', principal: 'controlled' }
+      const request = {
+        contractVersion: 1,
+        engineId: 'chatgptweb',
+        operation: Op.Generate,
+        modelId: 'gpt-6-thinking',
+        input: { prompt: 'Improve the notice while preserving its meaning.' },
+      }
+      const receipt = await runtime.invoke(request, caller, runId ? { runId } : {})
+      const result = await runtime.wait(receipt.runId, caller)
+      expect(result).toMatchObject({ runId: receipt.runId, outcome: 'completed' })
+      expect(messages).toHaveLength(1)
+      expect(messages[0].id).toMatch(uuidPattern)
+      expect(result.result.metadata.messageId).toBe(messages[0].id)
+      if (runId && uuidPattern.test(runId)) expect(messages[0].id).toBe(runId)
+      else expect(messages[0].id).not.toBe(receipt.runId)
+      await runtime.invoke(request, caller, { runId: receipt.runId })
+      expect(messages).toHaveLength(1)
+      const record = await runtime.privateRecord(receipt.runId, caller)
+      await adapter.recover(record.nativeRef)
+      expect(recovered).toEqual([
+        { conversationId: 'controlled-conversation', messageId: messages[0].id },
+      ])
+    },
+  )
+})
 
 describe('native engine UI selection', () => {
   it('passes the immutable common run ID to Gemini recovery rather than adopting a parent result', async () => {
@@ -92,7 +173,7 @@ describe('native engine UI selection', () => {
       },
     })
     const context = () => ({
-      runId: crypto.randomUUID(),
+      runId: `run-${crypto.randomUUID()}`,
       config: { disableWebModeHistory: true },
       report: async () => {},
       onCancel: () => () => {},
@@ -121,5 +202,8 @@ describe('native engine UI selection', () => {
     ])
     expect(sessions[1].modelName).toBe('chatgptweb/gpt-6-pro')
     expect(sessions[1].conversationId).toBe(sessions[0].conversationId)
+    expect(sessions[1].parentMessageId).toBe('head-2')
+    expect(sessions[1].messageId).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(sessions[1].messageId).not.toBe(sessions[0].messageId)
   })
 })

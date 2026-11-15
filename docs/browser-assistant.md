@@ -12,8 +12,9 @@ projection_of: ["docs/product/browser-assistant.md", "docs/product/contracts.md"
 
 页面功能沿用既有链路；[10 月 30 日首批增强](product/browser-assistant.md#experience-design-2026-10-30)
 已加入本地粘贴检查、ChatGPT 草稿入口和独立设置。两项默认关闭。
-[交付记录](plans/2026-10-30-chatgpt-native-input.md)区分已通过的合成浏览器检查、
-尚待完成的真实官网兼容性与安装状态；源码和构建不代表已替换你安装的扩展。
+[交付记录](plans/2026-10-30-chatgpt-native-input.md)区分受控检查、已安装 Brave 上的
+粘贴与改写回填观察，以及尚未通过的扩展 Undo、IME/BFCache 验收。
+源码和构建不代表已替换你安装的扩展。
 
 在网页上右键选择 `ChatGPTBox → 功能…`，或选择文字后点击划词栏中的
 魔棒图标。内置和自定义的做法统一称为“功能”，在 `完整设置 → 功能` 中一起管理。
@@ -109,6 +110,11 @@ Gemini Web 按本轮选择支持 4 Hydrogen / Medium，需先在设置中启用�
 检查草稿，不再追加另一种写入。
 富文本材料保留段落和换行。应用后通过“修改要求”准备下一次改写时，会重新预览
 当前输入；运行中的预览仍保持原快照，不会覆盖等待期间的新编辑。
+ChatGPT 原生渲染包装中的改写按正文预览、复制与回填，保留段落、换行和文本中的
+特殊符号；普通 HTML 源码及代码围栏里的 HTML 仍作为字面文本保留。
+当前 ChatGPT 登录态验收中，扩展 Undo 按钮拒绝了撤销，官网原生 Cmd+Z 恢复了
+同一草稿；不能据此宣称扩展 Undo 已通过。具体环境和限制见
+[本次验收](plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。
 
 ## ChatGPT 官网输入增强
 

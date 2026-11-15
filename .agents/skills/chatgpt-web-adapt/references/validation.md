@@ -8,6 +8,7 @@
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 账号模型、默认、强度   | `src/config/limits.mjs`、`src/config/models.mjs`、`src/config/migrations.mjs`、`src/services/clients/chatgpt-web/catalog.mjs`、`thinking.mjs`              |
 | UI 默认与请求转发      | `src/modules/chatgptweb/ui/SettingsCard.jsx`、`src/background/providers/chatgpt-web.mjs`、`src/background/chatgpt-proxy-service.mjs`                       |
+| common run 与原生消息身份 | `src/engines/adapters.mjs`、`src/engines/runtime.mjs`；`tests/engine-adapters.test.mjs` 检查 UUID、append、原 run 不重发及精确恢复 |
 | 请求与原生运行时       | `src/services/clients/chatgpt-web/client.mjs`、`request-wire.mjs`、`page-integrity.mjs`、`page-transport.mjs`、`src/background/chatgpt-page-integrity.mjs` |
 | 职责识别、版本映射     | `runtime-inspection.mjs`、`runtime-capabilities.mjs`（上述客户端目录）、`resources/chatgpt-web/integrity/runtime-contracts.json`                           |
 | 首流、续传、终态       | `resume-delta.mjs`、`stream-handoff.mjs`、`conversation-state.mjs`、`turn-status.mjs`、`response-diagnostics.mjs`（上述客户端目录）                        |
@@ -23,6 +24,7 @@
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 新运行时映射或能力路径 | 同一账号身份、校验、取消、正式发送一次、未知或歧义不提交；`chatgpt-web-page-integrity`、`runtime-capabilities`、`native-transport`               |
 | wire / 模型 / 强度     | 创建和续聊均传递；省略参数遵循默认，显式选择不被 init 默认覆盖，Chat/Work 分开；`chatgpt-web-catalog`、`state`、`engine-selection`、`api-server` |
+| 原生改写结果采用 | `src/browser-assistant/Result.jsx`、`tests/core-workflows.test.jsx`；静态 HTML 包装不进入草稿，段落/实体保留，普通或围栏 HTML 源码不被误删；真实编辑器的应用和扩展 Undo 分开观察 |
 | SSE / resume           | JSON 编码声明、短键、省略字段、分块 EOF / reader 错误、offset/token 旋转、同轮不重发；`chatgpt-web-stream-handoff`、`state`、`native-transport`  |
 | GenUI / 合并消息       | hidden 片段不覆盖；非终态不解除等待；完整布局、引用、fallback 和尾部；`chatgpt-web-genui`                                                        |
 | Drafts / 发送账本      | 相同文本不同轮次、快照尚无用户消息、原参数保留、成功恢复、不确定不重发；`drafts-operation-recovery`、`chatgpt-write-operations`、`api-server`    |

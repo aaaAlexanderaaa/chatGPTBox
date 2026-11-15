@@ -229,6 +229,11 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ## Changelog
 
+### Unreleased
+
+- Fix ChatGPT Web request-body rejection when an opaque common run ID was used as a native message UUID. Keep public run protection unchanged and use the native ID for history/recovery.
+- Show and apply native ChatGPT rewrite results as plain text, preserving paragraph boundaries and literal HTML source. Installed Brave returned HTTP 200 and applied the rewrite; native Cmd+Z restored it. Extension Undo still refused on that rich editor. See the [verification record](docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification).
+
 ### v4.3.5
 
 - Add a common web-engine interface across the extension, local API and MCP, with explicit per-engine external permissions, durable run identities and recovery that never resends uncertain writes. The MCP waiter observes active work without racing its writer.

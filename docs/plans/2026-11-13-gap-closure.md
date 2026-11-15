@@ -225,3 +225,9 @@ evidence and explicitly deferred ChatGPT/Drafts/device/Firefox/Grok/DSH limits.
 This new release instruction supersedes the earlier no-release scope for this
 publication only. It does not imply a new provider trial or another installed
 Brave update. Publication status is reported from the actual workflow and release.
+
+The later user-requested [ChatGPT request-body repair](2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)
+reproduced the rejection with HTTP 422 and verified repaired HTTP 200 rewrites
+and plain-text application. It retains the original unknown run and the extension
+Undo limitation; it does not retroactively change this delivery's earlier trial
+or complete video AI, Drafts/device, Grok or DSH acceptance.

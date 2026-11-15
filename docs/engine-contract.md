@@ -288,6 +288,11 @@ request ID 是关联字段，不能用同文 prompt 代替。显式重试产生�
 使用原 `runId`。幂等键覆盖目标引擎、操作、绑定、模型和规范化输入，不跨操作
 误命中。现有 ledger 的键和 request hash 不能通过迁移重算而失去保护。
 
+适配器保留原生身份的格式要求。ChatGPT 的 user message ID 必须是 UUID；
+已有 UUID 运行身份保持原值，其余不透明运行身份稳定映射为原生 UUID。
+本地 turn 索引和精确恢复使用该原生消息 ID，公共观察与幂等保护仍使用原 `runId`。
+这种映射不修改旧运行或使不确定请求获得重发许可。
+
 外部请求由 gateway 在首次 ledger 登记时分配 `runId`，随受信 invocation
 envelope 传到 background；内部请求由 background 分配。外部 body 不能任意
 指定已有 `runId`。background 以同一 ID 和 payload hash 持久 claim；重复 envelope

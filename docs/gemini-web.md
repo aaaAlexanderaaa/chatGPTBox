@@ -9,6 +9,11 @@ last_reconciled: 2026-11-14
 
 # Gemini Web
 
+For native-runtime maintenance, use the repository's
+[Gemini adaptation skill](../.agents/skills/gemini-web-adapt/SKILL.md).
+This contract owns behavior; the skill routes investigation, regression and
+installation checks without extending account-test authorization.
+
 ## November 14 model selection
 
 After two 4 Argon / High continuations ended without an attributable native

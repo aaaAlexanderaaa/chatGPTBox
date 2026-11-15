@@ -33,6 +33,8 @@ assignment into unrelated product or release work.
   [Drafts](docs/drafts/README.md) own their interfaces and operator procedures.
 - For ChatGPT Web compatibility changes, use the repository
   [adaptation skill](.agents/skills/chatgpt-web-adapt/SKILL.md).
+- For Gemini Web compatibility changes, use the repository
+  [adaptation skill](.agents/skills/gemini-web-adapt/SKILL.md).
 
 ## Maintain documents at their owners
 

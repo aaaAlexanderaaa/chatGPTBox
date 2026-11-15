@@ -13,7 +13,10 @@
     "resources/README.md",
     ".agents/skills/chatgpt-web-adapt/SKILL.md",
     ".agents/skills/chatgpt-web-adapt/references/lessons.md",
-    ".agents/skills/chatgpt-web-adapt/references/validation.md"
+    ".agents/skills/chatgpt-web-adapt/references/validation.md",
+    ".agents/skills/gemini-web-adapt/SKILL.md",
+    ".agents/skills/gemini-web-adapt/references/lessons.md",
+    ".agents/skills/gemini-web-adapt/references/validation.md"
   ],
   "requiredFiles": [
     "docs/README.md",

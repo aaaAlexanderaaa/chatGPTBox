@@ -53,16 +53,20 @@ user discipline files predate implementation and must be preserved.
   identified a missing-key default-off edge. That explicit branch was corrected;
   45 focused tests, lint and rebuilt production packages passed afterward. No sixth
   peer call was made. Original 1482-test/Chromium130 results do not approve this revision.
-- [ ] Complete current logged-in rewrite/application/undo acceptance:
+- [x] Verify current logged-in rewrite requests and application:
   headed Chrome 156 real guest-editor paste/rewrite/application/undo succeeded
   with HTTP 200 and zero native chat writes. Its textarea has no controlled React
   value to compare. November 14 installed Brave verified the logged-in native
   ProseMirror editor's paste review, masked insertion and native undo. Rewrite
-  reached the provider but failed with `400 Invalid conversation body`; the user
-  deferred further rewrite/video AI acceptance. Physical OS IME and an actual
-  BFCache hit remain unverified. The user clarified that account switching was
-  not their requirement; it is not a blocker for the current assignment. The
-  earlier headless Chromium 130 challenge/403 incident remains dated evidence.
+  initially reached the provider but failed with `400 Invalid conversation body`.
+  The later November 14 repair below reproduced the same error with HTTP 422,
+  corrected the native message identity, and observed two HTTP 200 completions.
+  The final plain-text preview/application and native Cmd+Z restored the sample.
+- [ ] Complete extension Undo and remaining transition acceptance: the extension
+  Undo button refused in the current rich editor; physical OS IME and an actual
+  BFCache hit remain unverified. Account switching is excluded from the user's
+  current assignment. The earlier headless Chromium 130 challenge/403 incident
+  remains dated evidence.
 - [x] Reconcile product, architecture and guide with actual behavior and limitations;
   retain this plan as active rather than claim live acceptance/release completion.
 
@@ -75,8 +79,9 @@ fresh isolated Chrome 156.0.8078.76 profile, with six relevant files hash-equal.
 Settings, controlled paste and the final real guest-editor trial passed. The earlier
 manual-login profile was left unchanged. Final docs/diff results are recorded below.
 
-First-delivery acceptance still requires the declared supported logged-in editor.
-Peer review and fixture success cannot close that live gap.
+The later follow-up below supplies logged-in paste and rewrite/application
+observations. Extension Undo, physical IME and BFCache limits remain separate;
+peer review and fixture success cannot close them.
 No real-account message, installed extension replacement, gateway restart or
 Drafts update was part of that original October verification. The November 14
 follow-up below records its separate authorization, installed state and limits.
@@ -238,3 +243,98 @@ running storage, with zero registered early native scripts. The own unsent trial
 draft was cleared and its page reloaded; no original private draft was removed.
 Keep this parent plan active for its remaining declared live acceptance rather
 than infer success from the completed bounded Gemini/Drafts delivery.
+
+## November 14 request-body repair and installed rewrite verification
+
+The user subsequently requested turning the Gemini adaptation experience into
+a skill, reproducing the ChatGPT website rewrite rejection using the ChatGPT
+adaptation skill, and repairing it if reproducible. This reopens the bounded
+request-body investigation and its necessary consumer correction; it does not
+authorize publication, unrelated provider trials or a new editor framework.
+Baseline source was clean `a69a12f` (v4.3.5). Brave still displayed v4.3.4, but its
+background and content-script bytes matched the baseline v4.3.5 build.
+
+### Reproduction and mechanism
+
+One natural notice-rewrite request through the website's own Send completed
+with HTTP 200. One different draft through `Rewrite draft` and explicit `Run`
+returned HTTP 422 with `Invalid conversation body`. The older record's HTTP 400
+is retained as its dated observation; this trial did not return 400.
+
+The request originated at the native composer, opened the browser assistant,
+and entered the common background engine owner. Its ChatGPT adapter forwarded
+the session through the dedicated proxy to `/backend-api/f/conversation`.
+The adapter had copied an opaque `run-...` identifier into `messages[0].id`,
+where the native endpoint requires a UUID. The original native control used a
+UUID; model/effort matched the existing selection. No upstream protocol change
+or account restriction was established by this error.
+
+`src/engines/adapters.mjs` now preserves existing UUID identities and maps other
+run IDs deterministically to a native UUID. Public run/ledger identities remain
+unchanged. Turn indexing and exact recovery use the native message ID. The
+focused regression first failed for default and gateway opaque IDs and append,
+then passed after the correction; replay of the same run still calls the
+controlled provider once. Gemini's own common-run identity is unchanged.
+
+### Live results and consumer correction
+
+- The first repaired request completed with HTTP 200. Its journal retained an
+  opaque common run ID and recorded an accepted/completed native UUIDv5 message.
+  The original unresolved request remained unknown. A separate post-reload
+  preparation had positively failed before submission; it was recorded as
+  `failed / not_attempted`, then explicitly retried after a successful readonly
+  native handshake. It was not an ambiguous-write replay.
+- That successful response exposed an actual consumer defect: the rewrite
+  preview included the native `chatgptbox-genui` HTML envelope as literal text.
+  The result consumer now reads that recognized envelope as inert text,
+  preserving paragraph/BR boundaries and decoded entities. Ordinary HTML source
+  and fenced HTML stay literal. Controlled application/undo regressions passed.
+- A final new two-paragraph notice completed with HTTP 200 on the installed
+  final build. Preview showed plain text. `Apply rewrite` changed the genuine
+  logged-in ProseMirror composer to that text and retained its paragraphs.
+  The source conversation was not sent by the enhancement.
+- **Extension Undo did not pass:** its button reported `The input changed.
+  Undo is no longer available.` and left the rewrite intact. The precise guard
+  or editor-history cause was not diagnosed in this bounded request-body repair;
+  no freshness protection was relaxed. With focus in the same draft, genuine
+  Cmd+Z restored the original sample. This establishes native undo, not reliable
+  extension Undo on that editor. The parent plan remains active for that gap
+  and the existing physical IME/BFCache limits.
+
+Actual account use was four formal ChatGPT question submissions: one native
+control, one rejection reproduction, and two successful repaired rewrites.
+There was also one positively unsent preparation failure. No unknown request
+was resubmitted, no hold/ledger was cleared, and no Gemini/Grok/DSH question or
+ChatGPT review request was made. During diagnosis a temporary fetch wrapper was
+removed before readonly readiness and final verification; final HTTP status was
+observed with PerformanceObserver without replacing fetch. This sequence does
+not establish that the wrapper caused the preparation refusal.
+
+### Checks, installation and cleanup
+
+- Final Node 22 suite: **154 files / 2,067 tests passed**; lint passed. Tests cover
+  native ID/recovery association, duplicate-run non-dispatch, append, HTML-text
+  adoption, entities/paragraphs, literal HTML and controlled undo.
+- All four normal/reduced Chromium/Firefox archives built and passed ZIP checks.
+  The serialized Gemini, ChatGPT integrity and runtime-inspection MAIN functions
+  from each archive compiled independently, had only standard browser/JavaScript
+  free globals and refused an unsupported-origin fixture. This is packaging
+  evidence, not Firefox live execution.
+- Updated the existing Brave unpacked directory and observed Reloaded. The final
+  six relevant installed files were byte-equal to the Chromium build, with
+  manifest v4.3.5. No version bump or release was published by this repair.
+- Restored both native switches to false, confirmed zero early native script
+  registrations, removed temporary observers, cleared only the own unsent sample
+  and closed its trial tab. A final proxy reload removed temporary handshake
+  channels. The user's other drafts and unresolved runs were retained.
+- Reopened the original API Server Bridge after extension reload: Connected,
+  healthy, websocket, pending 0 on its original port 18081. No API/MCP script or
+  Node process was changed/restarted, and no credential or external grant changed.
+  MCP generation and installed Drafts copies were not separately exercised.
+
+The new [Gemini maintenance skill](../../.agents/skills/gemini-web-adapt/SKILL.md)
+links the existing November 12–14 evidence rather than converting old outcomes
+into new acceptance. Its validator and documentation checks passed, and the host
+catalog recognized it in this session; fresh-context behavioral reuse is not
+claimed. This completes the requested skill/request-body repair while preserving
+the explicitly remaining editor and other-product acceptance limits.

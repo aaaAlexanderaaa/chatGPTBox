@@ -1,4 +1,5 @@
 // Browser-only adapters. Existing native transports remain the sole writers.
+import { validate as isUuid, v5 as uuidv5 } from 'uuid'
 import chatgptProvider from '../background/providers/chatgpt-web.mjs'
 import grokProvider from '../background/providers/grok-web.mjs'
 import geminiProvider from '../background/providers/gemini-web.mjs'
@@ -229,6 +230,13 @@ export async function runNativeProvider(provider, definition, session, context, 
 function sessionFor(request, context) {
   const old = context.legacySession || {}
   const binding = request.operation === Op.Append ? context.nativeRef?.session || {} : {}
+  // Box run IDs are opaque (usually run-<uuid>); ChatGPT's user message ID
+  // must be a UUID. Keep a stable native identity without changing the run or
+  // its durable replay protection, and preserve existing UUID client IDs.
+  const messageId =
+    request.engineId === 'chatgptweb' && !isUuid(context.runId)
+      ? uuidv5(`chatgptbox:chatgptweb:message:${context.runId}`, uuidv5.URL)
+      : context.runId
   const session = {
     ...initSession({
       question: request.input.prompt,
@@ -239,12 +247,12 @@ function sessionFor(request, context) {
     question: request.input.prompt,
     modelName: `${request.engineId}/${request.modelId}`,
     apiMode: null,
-    messageId: context.runId,
+    messageId,
   }
   if (request.operation === Op.Generate) {
     for (const key of SESSION_REFERENCE_FIELDS)
       if (!['sessionId', 'modelName', 'remoteBindingGeneration'].includes(key)) delete session[key]
-    session.messageId = context.runId
+    session.messageId = messageId
   }
   return session
 }
@@ -568,7 +576,7 @@ export function createNativeEngineAdapters(deps = {}) {
                       await upsertChatgptWebCreatedConversationIndexEntry(latest.conversationId)
                       await updateChatgptWebConversationTurnIndex({
                         conversationId: latest.conversationId,
-                        messageId: context.runId,
+                        messageId: session.messageId,
                         status: 'running',
                       })
                     })
@@ -579,7 +587,7 @@ export function createNativeEngineAdapters(deps = {}) {
                     .then(() =>
                       updateChatgptWebConversationTurnIndex({
                         conversationId: latest.conversationId,
-                        messageId: context.runId,
+                        messageId: session.messageId,
                         status: 'completed',
                       }),
                     )

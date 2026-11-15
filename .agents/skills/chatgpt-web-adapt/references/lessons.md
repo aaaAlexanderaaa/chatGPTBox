@@ -195,3 +195,27 @@ HTTPS、官网域名、JS 路径、唯一职责、身份、取消与单次请求
 结束了该分支，不能把它的原因也归到本次运行时发现缺口。
 
 来源：[11 月 6 日调查与部署证据](../../../../docs/evidence/2026-11-06-gateway-process-exits.md#follow-up-runtime-discovery-and-deployment)。
+
+## 2026-11-14：原生发送正常，Box 的消息 ID 格式仍可能无效
+
+官网原生通知改写返回 HTTP 200，同一登录环境的 Box `Rewrite draft` 返回 HTTP 422
+及 `Invalid conversation body`。旧交付记作 HTTP 400，本次保留实际状态码，不把两次
+观察合并成同一请求。错误来自官网正文校验；仅凭这一字符串不能确定官网协议改变。
+
+统一适配器直接将 `run-...` 公共运行编号放进 `messages[0].id`，破坏了原生 UUID 格式。
+在适配器边界稳定映射为 UUID，已有 UUID 保持原值；turn 索引和恢复使用原生 ID，
+公共 run/ledger 仍用原编号。受控回归复现后修正，真实修复请求返回 HTTP 200，
+日志 owner 中同时保留原 opaque run 与已接受的 UUIDv5。未知旧运行没有重发或改写。
+这也说明正常 MCP/网关请求不能替代每种入口的验证：它们给运行编号的形状可能不同。
+
+首个成功回答又暴露消费端问题：静态 GenUI 包装被当作改写文字。只解开本机已知
+渲染包装，使用惰性模板取得正文，保留段落、BR 和实体；普通 HTML 及围栏中的 HTML
+仍是字面文本。最终真实预览与回填通过，官网 Cmd+Z 恢复原文；扩展 Undo 按钮因
+输入变化保护拒绝，未放宽该保护，也没有宣称它通过当前富文本编辑器验收。
+
+重载后曾有一次发送前兼容拒绝，记录为 not_attempted。去掉临时 fetch 包装并做
+只读原生握手后恢复，最终用 PerformanceObserver 记录 HTTP 状态而不替换 fetch。
+本轮没有证明拒绝由包装器引起。未来先区分本地准备、实际写入和结果采用；若诊断
+需要临时拦截请求，检查观察器是否影响原生识别，并在结束时清理。
+
+来源：[原生改写修复与安装验收](../../../../docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。

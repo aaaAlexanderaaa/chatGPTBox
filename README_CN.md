@@ -222,6 +222,11 @@ ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用�
 
 ## 更新日志
 
+### 尚未发布
+
+- 修复将公共运行编号直接作为原生消息 UUID 导致的 ChatGPT Web 请求体拒绝；保留公共运行保护，历史索引与恢复使用原生消息身份。
+- ChatGPT 原生改写结果按纯正文预览与回填，保留段落及字面 HTML 源码。已安装 Brave 返回 HTTP 200 并成功应用，官网 Cmd+Z 恢复原文；扩展 Undo 在该富文本编辑器上仍拒绝撤销。详见[验收记录](docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。
+
 ### v4.3.5
 
 - 扩展、本地 API 和 MCP 共用网页引擎接口，分别控制各引擎外部权限，持久保留运行身份；恢复不会重发结果不明的写请求。MCP 等待器只观察执行中的原运行，不与写入端争抢恢复。
