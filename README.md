@@ -231,6 +231,7 @@ configuration exports and diagnostic captures private when they contain credenti
 
 ### Unreleased
 
+- Automatically recognize Gemini build-ID and verified internal-name-only changes by comparing complete public runtime/application code. Logic changes, ambiguous mappings and incomplete proofs still refuse before submission. See the [compatibility boundary](docs/gemini-web.md#automatic-compatibility-for-identifier-changes).
 - Fix ChatGPT Web request-body rejection when an opaque common run ID was used as a native message UUID. Keep public run protection unchanged and use the native ID for history/recovery.
 - Show and apply native ChatGPT rewrite results as plain text, preserving paragraph boundaries and literal HTML source. Installed Brave returned HTTP 200 and applied the rewrite; native Cmd+Z restored it. Extension Undo still refused on that rich editor. See the [verification record](docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification).
 

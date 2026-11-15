@@ -29,7 +29,10 @@ description: 维护本项目的 Gemini Web 原生网页适配，在官网运行�
 1. 沿当前公开脚本核对真实输入组件、非 mock 会话服务、提交处理器、准备与 attestation、
    模型/思考状态、原生 action 和响应行。版本字符串、类名或方法存在只能定位，
    需与当前方法指纹及实际字段职责一起核实。
-2. 在 `src/config/gemini-web.mjs` 的已检查 profile 中维护语义映射，未知编译保持拒绝。
+2. 在 `src/config/gemini-web.mjs` 的已检查 profile 中维护语义映射。未知编译仅在契约规定的
+   完整代码重命名等价检查通过后自动派生映射；逻辑改变、映射不唯一或无法确认仍拒绝。
+   不用八个入口的去名称 hash 替代完整依赖代码校验。参考生成器先核对全部原始指纹，
+   再为明确检查过的公开编译生成 `src/config/gemini-code-references.json`；不在线自学习信任。
    不用泛化 DOM 点击、相似函数或直接 root-service 调用替代完整输入链路。
 3. 使用同一顶层 MAIN 文档中已存在的输入实例和原生提交处理器。保留网站输入门控、
    请求组装、内容校验和 transport；不重建 Google HTTP 请求，不搬运 cookie、token 或 attestation。

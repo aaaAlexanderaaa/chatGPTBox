@@ -117,6 +117,7 @@ function setup(overrides = {}) {
       await overrides.onDelay?.(ms)
     },
     timeoutMs: overrides.timeoutMs,
+    ...(overrides.resolveAutomatic ? { resolveAutomatic: overrides.resolveAutomatic } : {}),
   }
   const session = {
     sessionId: 'local',
@@ -130,6 +131,108 @@ function setup(overrides = {}) {
 }
 
 describe('Gemini background submission owner', () => {
+  it('resolves an unattempted runtime preflight in the pinned document before one journaled Send', async () => {
+    let inspected = 0
+    const resolverCalls = []
+    const f = setup({
+      resolveAutomatic: async (inventory) => {
+        resolverCalls.push(inventory)
+        return { version: 'automatic', automaticProof: { nonce: 'proof' } }
+      },
+      operation: async (op, call) => {
+        if (op === 'inspect-public-compilation') {
+          inspected++
+          return { ok: true, nonce: 'proof' }
+        }
+        if (
+          op === 'configure' &&
+          !call.args[0].contracts.some((contract) => contract.automaticProof)
+        )
+          return {
+            ok: false,
+            code: 'GEMINI_RUNTIME_UNSUPPORTED',
+            discoveryNeeded: true,
+            dispatched: false,
+          }
+      },
+    })
+    const result = port()
+    await f.service.run({ session: f.session, port: result })
+    expect(inspected).toBe(1)
+    expect(resolverCalls).toHaveLength(1)
+    expect(f.calls.find((call) => call.op === 'inspect-public-compilation')).toMatchObject({
+      target: { documentIds: ['document-1'] },
+      held: false,
+    })
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+    expect(result.messages.at(-1)).toMatchObject({ outcome: 'completed' })
+  })
+
+  it('does not dispatch when code equivalence cannot be confirmed', async () => {
+    const f = setup({
+      resolveAutomatic: async () => null,
+      operation: async (op) =>
+        op === 'configure'
+          ? {
+              ok: false,
+              code: 'GEMINI_RUNTIME_UNSUPPORTED',
+              discoveryNeeded: true,
+              dispatched: false,
+            }
+          : op === 'inspect-public-compilation'
+          ? { ok: true }
+          : undefined,
+    })
+    const result = port()
+    await f.service.run({ session: f.session, port: result })
+    expect(f.calls.some((call) => ['prepare', 'send'].includes(call.op))).toBe(false)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(result.messages.at(-1)).toMatchObject({ dispatched: false, outcome: 'failed' })
+  })
+
+  it('refuses a document change during discovery without invoking or rediscovering a Send', async () => {
+    let resolutions = 0
+    const f = setup({
+      resolveAutomatic: async () => {
+        resolutions++
+        return {}
+      },
+      documentId: (op) => (op === 'inspect-public-compilation' ? 'other-document' : 'document-1'),
+      operation: async (op) =>
+        op === 'configure'
+          ? {
+              ok: false,
+              code: 'GEMINI_RUNTIME_UNSUPPORTED',
+              discoveryNeeded: true,
+              dispatched: false,
+            }
+          : undefined,
+    })
+    const result = port()
+    await f.service.run({ session: f.session, port: result })
+    expect(resolutions).toBe(0)
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(0)
+  })
+
+  it('never discovers a replacement runtime after native invocation has become uncertain', async () => {
+    let resolutions = 0
+    const f = setup({
+      resolveAutomatic: async () => {
+        resolutions++
+        return {}
+      },
+      operation: async (op) =>
+        op === 'send'
+          ? { ok: false, code: 'GEMINI_RUNTIME_UNSUPPORTED', discoveryNeeded: true }
+          : undefined,
+    })
+    const result = port()
+    await f.service.run({ session: f.session, port: result })
+    expect(resolutions).toBe(0)
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).not.toBeNull()
+  })
+
   it('reuses a verified empty owned page after a local pre-submission refusal, without navigating or replaying the old request', async () => {
     let ready = false
     const f = setup({

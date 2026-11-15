@@ -117,13 +117,62 @@ construction, content-bound attestation and HTTP/streaming transport. There is
 no hand-built Google HTTP request, copied cookie/token, synthetic Send event,
 CAPTCHA bypass, fake input event or fabricated attestation.
 
-This is a limited desktop Chromium integration for known, inspected runtimes.
-Unknown runtimes, missing document identity, mock service instances, account
+This is a limited desktop Chromium integration for inspected runtimes and the
+strictly equivalent compilations described below. Unconfirmed runtimes, missing
+document identity, mock service instances, account
 changes, challenges, quota/errors, drafts, attachments and active generation
 refuse further submission. Credentials remain in the website's MAIN context;
 the extension receives the salted account fingerprint, readiness, turn metadata
 and output. MAIN is not a
 security sandbox against the website itself.
+
+## Automatic compatibility for identifier changes
+
+The November 14 user request authorizes automatic compatibility when only build
+IDs or internal obfuscated names change. A known profile keeps its existing
+path. An unknown build first receives a read-only inspection; it does not gain
+permission merely because eight entry functions look similar.
+
+The bundled reference currently covers the complete public runtime and application
+units of the inspected `TX_RV411Rb4.2018.O` compilation. Its generator checks all
+eight native source fingerprints against the existing profile. The reference
+contains code digests, token masks and symbol names, without website sessions,
+account data or captured conversations. Other historical profiles remain available
+through their original explicit mappings.
+
+Automatic recognition requires exactly the reference's complete loaded module
+composition, with one build identity and a unique match. It compares the entire
+token stream of every unit, including downstream helpers, guards and converters.
+Only reference-selected internal namespace symbols, wrapper-local helper names
+and inspected obfuscated field names may be renamed. Each of these binding domains
+requires its own consistent, injective mapping; a class export and an unrelated
+same-spelled data string are not conflated. Namespace reflection, computed access
+or shadowing cannot establish a reference. Fixed identifiers and JavaScript
+prototype-control keys cannot collide with renamed names in their domain.
+Strings, literal spellings, constants, operators, calls, external API names and
+dynamic keys remain exact. Whitespace/comments may vary only with unchanged
+parser semicolon-insertion decisions. This is a conservative syntactic check,
+not a general JavaScript semantic-equivalence claim. Unrecognized names,
+incomplete or extra modules, ambiguous matches and any other code change refuse
+automatic recognition, even if the visible interface still looks the same.
+
+Public scripts are read only from already observed `gemini.gstatic.com` URLs,
+without credentials, redirects, query parameters or hashes. Reads are bounded
+to four units, 8 MiB total and a 12-second network deadline. Code is parsed, never
+imported or evaluated. A derived mapping is retained only in volatile memory for
+its pinned document. It is not promoted into a persistent trusted profile.
+
+Before native work, the adapter rechecks the original document, runtime object,
+inspection nonce, module inventory, real component/service instances and exact
+new function fingerprints. Original account, model, draft/busy, single-invocation,
+completion and recovery checks remain in force. A changed or unverifiable document
+refuses work; discovery never runs during an existing native turn or automatically
+resends a question. Reload/restart requires a new proof and cannot clear a hold.
+
+The [automatic-adaptation delivery record](plans/2026-11-14-gemini-auto-adapt.md)
+owns the current verification evidence and its limits. Reference maintenance uses
+`scripts/build-gemini-code-reference.mjs` with explicitly inspected public files;
+matching eight root hashes alone is not authorization to add a new reference.
 
 ## Submission, completion and recovery
 

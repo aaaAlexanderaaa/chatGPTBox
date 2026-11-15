@@ -224,6 +224,7 @@ ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用�
 
 ### 尚未发布
 
+- Gemini 支持构建 ID 与已验证内部混淆名的自动兼容，比较完整公开 runtime/app 代码；逻辑变化、映射不唯一或证据不完整仍在发送前拒绝。详见[兼容边界](docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
 - 修复将公共运行编号直接作为原生消息 UUID 导致的 ChatGPT Web 请求体拒绝；保留公共运行保护，历史索引与恢复使用原生消息身份。
 - ChatGPT 原生改写结果按纯正文预览与回填，保留段落及字面 HTML 源码。已安装 Brave 返回 HTTP 200 并成功应用，官网 Cmd+Z 恢复原文；扩展 Undo 在该富文本编辑器上仍拒绝撤销。详见[验收记录](docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。
 

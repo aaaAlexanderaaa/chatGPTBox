@@ -2,7 +2,7 @@
 doc_type: architecture
 status: current
 authority: normative
-last_reconciled: 2026-11-13
+last_reconciled: 2026-11-14
 ---
 
 # ChatGPTBox architecture
@@ -54,6 +54,11 @@ tabs and a durable uncertain-submission hold. The
 [native operation](src/services/clients/gemini-web/native-runtime.mjs) runs in a
 pinned top-level MAIN document, verifies an inspected runtime and the existing
 input/service instances, then invokes the website's input submission handler.
+An unknown build can use a document-scoped derived mapping only after its complete
+loaded runtime/application composition matches a bundled reference under the
+allowed injective identifier renaming. Public-code inspection never evaluates a
+candidate or persists a newly trusted runtime. MAIN rechecks that proof and its
+exact native functions before continuing through the same guards.
 Native model selection, request preparation, attestation and transport remain
 with Gemini. Native turn IDs and terminal actions govern result acceptance;
 the extension does not reconstruct Google HTTP requests. The

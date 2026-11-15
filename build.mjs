@@ -154,7 +154,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
           exclude: [
             /node_modules/,
             /\/chatgpt-web\/(page-integrity|runtime-inspection)\.mjs$/,
-            /\/gemini-web\/native-runtime\.mjs$/,
+            /\/gemini-web\/(native-runtime|runtime-inspection)\.mjs$/,
           ],
           resolve: {
             fullySpecified: false,

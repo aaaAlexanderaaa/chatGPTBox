@@ -8,6 +8,8 @@ import {
   GEMINI_WEB_TIMEOUT_MS,
 } from '../config/gemini-web.mjs'
 import { runGeminiNativeOperation } from '../services/clients/gemini-web/native-runtime.mjs'
+import { inspectGeminiPublicCompilation } from '../services/clients/gemini-web/runtime-inspection.mjs'
+import { resolveAutomaticGeminiContract } from '../services/clients/gemini-web/automatic-contract.mjs'
 import { pushRecord } from '../services/apis/shared.mjs'
 import { bindingSnapshotKey } from '../services/session-binding.mjs'
 import { EngineError } from '../engines/contract.mjs'
@@ -42,6 +44,10 @@ export function createGeminiWebService(deps = {}) {
   const now = deps.now || Date.now
   const delay = deps.delay || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   const uuid = deps.uuid || (() => crypto.randomUUID())
+  const resolveAutomatic = deps.resolveAutomatic || resolveAutomaticGeminiContract
+  // Volatile and document-scoped: restarting never grants a replay or persists
+  // an automatically learned website version as a new trusted reference.
+  const automaticContracts = new Map()
   let active = false
 
   async function load() {
@@ -93,7 +99,7 @@ export function createGeminiWebService(deps = {}) {
       )
     return config
   }
-  async function invoke(entry, action, data = {}) {
+  async function invoke(entry, action, data = {}, discover = true) {
     const tab = await browser.tabs.get(entry.tabId)
     if (!isGeminiPage(tab?.url))
       throw new Error(
@@ -102,6 +108,7 @@ export function createGeminiWebService(deps = {}) {
     const target = entry.documentId
       ? { tabId: entry.tabId, documentIds: [entry.documentId] }
       : { tabId: entry.tabId, frameIds: [0] }
+    const automatic = automaticContracts.get(entry.documentId)
     const results = await browser.scripting.executeScript({
       target,
       world: 'MAIN',
@@ -110,7 +117,7 @@ export function createGeminiWebService(deps = {}) {
         {
           action,
           ownerId: entry.ownerId,
-          contracts: GEMINI_NATIVE_CONTRACTS,
+          contracts: automatic ? [...GEMINI_NATIVE_CONTRACTS, automatic] : GEMINI_NATIVE_CONTRACTS,
           accountSalt: entry.accountSalt,
           expectedAccountFingerprint: entry.accountFingerprint,
           ...data,
@@ -121,6 +128,7 @@ export function createGeminiWebService(deps = {}) {
       !Array.isArray(results) ||
       results.length !== 1 ||
       results[0].frameId !== 0 ||
+      typeof results[0].documentId !== 'string' ||
       !results[0].documentId
     )
       throw new Error(
@@ -132,6 +140,45 @@ export function createGeminiWebService(deps = {}) {
     const result = results[0].result
     if (!result || typeof result.ok !== 'boolean')
       throw new Error('The Gemini native operation returned no verifiable result.')
+    if (result.discoveryNeeded === true && !automatic && automaticContracts.has(entry.documentId))
+      return invoke(entry, action, data, false)
+    if (
+      result.ok === false &&
+      result.code === 'GEMINI_RUNTIME_UNSUPPORTED' &&
+      result.discoveryNeeded === true &&
+      result.dispatched === false &&
+      discover &&
+      !automatic &&
+      ['inspect', 'configure', 'connect', 'list', 'read'].includes(action)
+    ) {
+      const inspection = await browser.scripting.executeScript({
+        target: { tabId: entry.tabId, documentIds: [entry.documentId] },
+        world: 'MAIN',
+        func: inspectGeminiPublicCompilation,
+        args: [{ action: 'inspect-public-compilation' }],
+      })
+      if (
+        !Array.isArray(inspection) ||
+        inspection.length !== 1 ||
+        inspection[0].frameId !== 0 ||
+        inspection[0].documentId !== entry.documentId
+      )
+        return result
+      const contract = await resolveAutomatic(inspection[0].result)
+      if (!contract)
+        return {
+          ...result,
+          message:
+            'The Gemini compilation could not be confirmed as an identifier-only change. Update the adapter before sending.',
+        }
+      if (automaticContracts.size >= 8)
+        automaticContracts.delete(automaticContracts.keys().next().value)
+      automaticContracts.set(entry.documentId, contract)
+      // The refused preflight performed no native operation. Re-enter once
+      // with the proven mapping, in the same exact document, retaining every
+      // original account/model/instance/fingerprint and submission guard.
+      return invoke(entry, action, data, false)
+    }
     if (
       (result.nativeId != null &&
         (typeof result.nativeId !== 'string' || result.nativeId.length > 512)) ||

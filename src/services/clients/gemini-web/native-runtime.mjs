@@ -191,11 +191,43 @@ export async function runGeminiNativeOperation(options) {
       }),
     )
     if (!runtime || candidates.length !== 1)
-      return fail(
-        'GEMINI_RUNTIME_UNSUPPORTED',
-        'The Gemini adapter needs an update for this website runtime. This local compatibility check did not send a Gemini request.',
-      )
+      return {
+        ...fail(
+          'GEMINI_RUNTIME_UNSUPPORTED',
+          'The Gemini adapter needs an update for this website runtime. This local compatibility check did not send a Gemini request.',
+        ),
+        discoveryNeeded: !!runtime && candidates.length === 0 && !context?.turn,
+      }
     const contract = candidates[0]
+    if (contract.automaticProof) {
+      const proof = window.__chatgptboxGeminiCodeProofV1
+      const currentUrls = [
+        ...new Set(
+          urls.filter((raw) => {
+            try {
+              const url = new URL(raw)
+              return (
+                url.origin === 'https://gemini.gstatic.com' && url.pathname.startsWith('/_/js/')
+              )
+            } catch {
+              return false
+            }
+          }),
+        ),
+      ].sort()
+      if (
+        !proof ||
+        proof.runtime !== runtime ||
+        proof.nonce !== contract.automaticProof.nonce ||
+        proof.version !== contract.version ||
+        JSON.stringify(proof.sourceUrls) !== JSON.stringify(currentUrls) ||
+        JSON.stringify(contract.automaticProof.sourceUrls) !== JSON.stringify(currentUrls)
+      )
+        return fail(
+          'GEMINI_RUNTIME_UNSUPPORTED',
+          'The Gemini code or document changed after automatic compatibility inspection. No automatic retry will be made.',
+        )
+    }
     const fields = contract.fields || {}
     const views = runtime[contract.viewMap]
     const Input = runtime[contract.inputClass],

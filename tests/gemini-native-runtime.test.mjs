@@ -4,6 +4,7 @@ import { createHash, webcrypto } from 'node:crypto'
 import { JSDOM } from 'jsdom'
 import { runGeminiNativeOperation } from '../src/services/clients/gemini-web/native-runtime.mjs'
 import { GEMINI_NATIVE_CONTRACTS } from '../src/config/gemini-web.mjs'
+import { inspectGeminiPublicCompilation } from '../src/services/clients/gemini-web/runtime-inspection.mjs'
 
 let dom
 afterEach(() => {
@@ -502,6 +503,64 @@ describe('Gemini native history boundary', () => {
 })
 
 describe('Gemini native runtime boundary', () => {
+  it('checks an automatic proof against the runtime, nonce and complete current resource inventory', async () => {
+    const f = fixture()
+    const sourceUrls = [...f.win.document.scripts].map((script) => script.src).sort()
+    f.contracts[0].automaticProof = { nonce: 'proof', sourceUrls }
+    f.win.__chatgptboxGeminiCodeProofV1 = {
+      runtime: f.runtime,
+      nonce: 'proof',
+      version: 'fixture-v1',
+      sourceUrls,
+    }
+    expect(await f.op('inspect')).toMatchObject({ ok: true, ready: true })
+    f.win.__chatgptboxGeminiCodeProofV1.nonce = 'changed'
+    expect(await f.op('connect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_RUNTIME_UNSUPPORTED',
+      dispatched: false,
+    })
+    expect(f.service.calls).toBe(0)
+    f.win.__chatgptboxGeminiCodeProofV1.nonce = 'proof'
+    f.win.__chatgptboxGeminiCodeProofV1.runtime = {}
+    expect(await f.op('connect')).toMatchObject({ ok: false, dispatched: false })
+    f.win.__chatgptboxGeminiCodeProofV1.runtime = f.runtime
+    await prepare(f)
+    expect(await f.op('send')).toMatchObject({ ok: true })
+    const script = f.win.document.createElement('script')
+    script.src = 'https://gemini.gstatic.com/_/js/k=fixture-v1/m=extra'
+    f.win.document.head.appendChild(script)
+    const result = await f.op('observe')
+    expect(result).toMatchObject({ ok: false, code: 'GEMINI_RUNTIME_UNSUPPORTED' })
+    expect(result).not.toHaveProperty('dispatched')
+    expect(f.service.calls).toBe(1)
+  })
+
+  it('discovers public compilation metadata without returning accounts, content or native state', () => {
+    const f = fixture()
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en.synthetic.2018.O'
+    f.win.document.scripts[0].src = `https://gemini.gstatic.com/_/js/k=${version}/m=base`
+    const result = inspectGeminiPublicCompilation()
+    expect(result).toMatchObject({ ok: true, version, sourceUrls: [f.win.document.scripts[0].src] })
+    expect(JSON.stringify(result)).not.toContain('fixture@example')
+    expect(Object.keys(result).sort()).toEqual(['nonce', 'ok', 'sourceUrls', 'version'])
+    expect(f.service.calls).toBe(0)
+    const script = f.win.document.createElement('script')
+    script.src =
+      'https://gemini.gstatic.com/_/js/k=boq-gemini-web-uiserver.BardChatUi.en.other.2018.O/m=app'
+    f.win.document.head.appendChild(script)
+    expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
+  })
+
+  it('refuses public compilation URLs with queries and a changed origin', () => {
+    const f = fixture()
+    f.win.document.scripts[0].src =
+      'https://gemini.gstatic.com/_/js/k=boq-gemini-web-uiserver.BardChatUi.en.synthetic.2018.O/m=base?token=private'
+    expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
+    vi.stubGlobal('location', { origin: 'https://example.com', pathname: '/app' })
+    expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
+  })
+
   it('does not classify an editor-only draft as an empty reusable page', async () => {
     const f = fixture()
     f.editor.textContent = 'A native draft not yet reflected in its form control'
