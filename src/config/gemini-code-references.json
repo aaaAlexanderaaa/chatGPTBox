@@ -5,7 +5,14 @@
       "786a59ab5b7f3335ef0fc5b810b30e937318bb6d1d63ddc3a0790fede66fd6fb",
       "b624f5178397ed038338d06cc814aa1d2bca13ca98a63179a940498b3383992c"
     ],
-    "format": 3,
+    "format": 4,
+    "receiverContract": {
+      "verified": true,
+      "nativeCalls": ["HGe", "oAe", "Jae"],
+      "inspectedCalls": 2627,
+      "unavailableExports": ["VAa", "Ywg", "dYc"],
+      "requiresNoWizbind": true
+    },
     "units": [
       {
         "names": 27692,

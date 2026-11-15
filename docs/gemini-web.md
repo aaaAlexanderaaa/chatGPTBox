@@ -149,6 +149,11 @@ requires its own consistent, injective mapping; a class export and an unrelated
 same-spelled data string are not conflated. Namespace reflection, computed access
 or shadowing cannot establish a reference. Fixed identifiers and JavaScript
 prototype-control keys cannot collide with renamed names in their domain.
+Reference generation also audits implicit namespace receivers: calling
+`_.method()` passes `_` as `this`, so a method that reads or escapes that receiver
+cannot treat its fields as unrelated instance keys. Unresolved call targets
+refuse. Receiver forwarding requires a resolved, receiver-independent callback;
+the inspected Closure identity memoizer has an exact source-specific certificate.
 Strings, literal spellings, constants, operators, calls, external API names and
 dynamic keys remain exact. Whitespace/comments may vary only with unchanged
 parser semicolon-insertion decisions. This is a conservative syntactic check,
@@ -168,6 +173,15 @@ new function fingerprints. Original account, model, draft/busy, single-invocatio
 completion and recovery checks remain in force. A changed or unverifiable document
 refuses work; discovery never runs during an existing native turn or automatically
 resends a question. Reload/restart requires a new proof and cannot clear a hold.
+
+The initial TX composition has three unresolved deferred exports for document
+library routing, video playback and optional wiz initialization. They are recorded
+as unavailable, rather than certified code. Its automatic proof requires those
+exports (`dYc`, `Ywg`, `VAa`, mapped into the candidate namespace) to remain absent
+and `window.wizbind` to be inactive. Loaded deferred code or an expanded resource
+inventory refuses automatic work, including observation after invocation; it
+does not grant permission to resend. Explicit historical profiles keep their
+existing behavior.
 
 The [automatic-adaptation delivery record](plans/2026-11-14-gemini-auto-adapt.md)
 owns the current verification evidence and its limits. Reference maintenance uses

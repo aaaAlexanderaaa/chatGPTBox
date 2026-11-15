@@ -227,6 +227,14 @@ export async function runGeminiNativeOperation(options) {
           'GEMINI_RUNTIME_UNSUPPORTED',
           'The Gemini code or document changed after automatic compatibility inspection. No automatic retry will be made.',
         )
+      if (
+        (contract.automaticProof.requiresNoWizbind && window.wizbind) ||
+        (contract.automaticProof.unavailableExports || []).some((name) => name in runtime)
+      )
+        return fail(
+          'GEMINI_RUNTIME_UNSUPPORTED',
+          'Gemini has deferred code outside the inspected automatic compatibility proof. Update the adapter before continuing.',
+        )
     }
     const fields = contract.fields || {}
     const views = runtime[contract.viewMap]

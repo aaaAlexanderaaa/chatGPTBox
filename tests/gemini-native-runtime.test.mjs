@@ -503,6 +503,37 @@ describe('Gemini native history boundary', () => {
 })
 
 describe('Gemini native runtime boundary', () => {
+  it('refuses deferred namespace code or wiz integration outside an automatic proof, including after invocation', async () => {
+    const f = fixture()
+    const sourceUrls = [...f.win.document.scripts].map((script) => script.src).sort()
+    f.contracts[0].automaticProof = {
+      nonce: 'proof',
+      sourceUrls,
+      unavailableExports: ['DeferredExport'],
+      requiresNoWizbind: true,
+    }
+    f.win.__chatgptboxGeminiCodeProofV1 = {
+      runtime: f.runtime,
+      nonce: 'proof',
+      version: 'fixture-v1',
+      sourceUrls,
+    }
+    f.win.wizbind = {}
+    expect(await f.op('connect')).toMatchObject({ ok: false, dispatched: false })
+    delete f.win.wizbind
+    f.runtime.DeferredExport = () => {}
+    expect(await f.op('connect')).toMatchObject({ ok: false, dispatched: false })
+    expect(f.service.calls).toBe(0)
+    delete f.runtime.DeferredExport
+    await prepare(f)
+    await f.op('send')
+    f.runtime.DeferredExport = () => {}
+    const result = await f.op('observe')
+    expect(result).toMatchObject({ ok: false, code: 'GEMINI_RUNTIME_UNSUPPORTED' })
+    expect(result).not.toHaveProperty('dispatched')
+    expect(f.service.calls).toBe(1)
+  })
+
   it('checks an automatic proof against the runtime, nonce and complete current resource inventory', async () => {
     const f = fixture()
     const sourceUrls = [...f.win.document.scripts].map((script) => script.src).sort()

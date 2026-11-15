@@ -7,7 +7,7 @@
 | 当前产品与账号/恢复约定 | `docs/gemini-web.md`、`docs/engine-contract.md` |
 | 编译、指纹、语义字段、模型选择符 | `src/config/gemini-web.mjs` |
 | MAIN 输入、准备、action、history 与输出 | `src/services/clients/gemini-web/native-runtime.mjs` |
-| 自动重命名等价、公开资源与文档绑定 | `code-equivalence.mjs`、`automatic-contract.mjs`、`runtime-inspection.mjs`（同目录）；`tests/gemini-code-equivalence.test.mjs` |
+| 自动重命名等价、公开资源与文档绑定 | `code-equivalence.mjs`、`namespace-receivers.mjs`、`automatic-contract.mjs`、`runtime-inspection.mjs`（同目录）；`tests/gemini-code-equivalence.test.mjs` |
 | 专用 tab、持久 hold、单路与只读恢复 | `src/background/gemini-web-service.mjs`；`tests/gemini-web-service.test.mjs` |
 | provider / 统一引擎投影 | `src/background/providers/gemini-web.mjs`、`src/engines/adapters.mjs`、`runtime.mjs` |
 | 模型就绪与界面 | `src/config/engine-selection.mjs`、`src/popup/components/GeminiWebTab.jsx`、`src/options/SettingsCenter.jsx` |
@@ -23,6 +23,9 @@
   动态键、模块组合改变必须拒绝。缺模块、多解、名称冲突、超限/失败资源读取、document/runtime/
   nonce 变化、准备后的未知编译均不能触发发送或第二次 handler。生产包中的新增 MAIN 检查函数也需独立验证。
   同 token 的 `return` 换行、转义后的 strict directive 不能被当作无害格式变化。
+  参考生成要覆盖 namespace 方法的隐式 `this`、函数别名、回调转发和未知调用；不能把任意
+  `.bind()` 当作原生 Function.bind。未检查的延迟 export 与 wiz 在发送前和发送后出现均需拒绝，
+  已发送情形不能返回“未发送”或重新获得提交许可。
 - **提交/完成**：原生 handler 一次；准备期间意外 Send 不再额外提交；
   不能将旧同文 DOM 或父回答与新 terminal action 拼成成功。Stop/最终发布竞态只结束一次。
 - **历史/续聊**：覆盖 pinned 与普通列表、分页、刷新/重开、过期 head、缺 produced proof；

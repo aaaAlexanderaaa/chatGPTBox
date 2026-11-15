@@ -91,6 +91,54 @@ describe('complete Gemini compilation renaming equivalence', () => {
       expect(matchCodeReference([source[0].replace('_.Thing', `_.${key}`)], ref)).toBeNull()
   })
 
+  it('refuses implicit namespace this aliases, including adapter-only entrypoints and function aliases', () => {
+    const prefix = '(function(_){_.AM=class{};'
+    const suffix = '}).call(this,this.default_BardChatUi)'
+    for (const body of [
+      '_.read=function(){return this.AM};_.read()',
+      'var readAlias=function(){return this.AM};_.read=readAlias;_.read()',
+      '_.read=_.ca(91,function(){return this.AM});_.read()',
+      '_.factory=function(){return function(){return this.AM}};_.read=_.factory();_.read()',
+    ])
+      expect(() => createCodeReference([prefix + body + suffix])).toThrow(/namespace this/)
+    expect(() =>
+      createCodeReference([prefix + '_.read=function(){return this.AM};' + suffix], [], ['read']),
+    ).toThrow(/namespace this/)
+  })
+
+  it('refuses unresolved namespace function targets instead of certifying an incomplete receiver audit', () => {
+    expect(() =>
+      createCodeReference(['(function(_){_.missing()}).call(this,this.default_BardChatUi)']),
+    ).toThrow(/Unconfirmed namespace call/)
+  })
+
+  it('allows a proved receiver-ignoring callback forwarder but refuses receiver readers or mutable delegates', () => {
+    const factory =
+      '_.memo=function(a){var b=false,c;return function(){if(!b){c=a.apply(this,arguments);b=true}return c}};'
+    const wrap = (body) => `(function(_){_.AM=class{};${body}}).call(this,this.default_BardChatUi)`
+    expect(() =>
+      createCodeReference([wrap(factory + '_.read=_.memo(function(){return 1});_.read()')]),
+    ).not.toThrow()
+    expect(() =>
+      createCodeReference([wrap(factory + '_.read=_.memo(function(){return this.AM});_.read()')]),
+    ).toThrow(/namespace this/)
+    expect(() =>
+      createCodeReference([
+        wrap(
+          factory.replace('var b=false,c;', 'a=function(){return this.AM};var b=false,c;') +
+            '_.read=_.memo(function(){return 1});_.read()',
+        ),
+      ]),
+    ).toThrow(/namespace this/)
+  })
+
+  it('does not treat an arbitrary bind-named method as the intrinsic Function bind', () => {
+    const source = [
+      '(function(_){_.AM=class{};_.object={bind(){return function(){return this.AM}}};_.read=_.object.bind(null);_.read()}).call(this,this.default_BardChatUi)',
+    ]
+    expect(() => createCodeReference(source)).toThrow(/Unconfirmed namespace/)
+  })
+
   it('accepts a new build ID and a consistent renaming, with units in either inventory order', () => {
     expect(matchCodeReference(units, reference)).not.toBeNull()
     const match = matchCodeReference(renamed().reverse(), reference)
@@ -201,6 +249,26 @@ describe('complete Gemini compilation renaming equivalence', () => {
 })
 
 describe('automatic Gemini contract resolution', () => {
+  it('preserves deferred-code restrictions in the derived namespace', async () => {
+    const options = resolverOptions()
+    options.references = [
+      {
+        ...reference,
+        receiverContract: {
+          ...reference.receiverContract,
+          unavailableExports: ['InputA', 'DeferredExport'],
+          requiresNoWizbind: true,
+        },
+      },
+    ]
+    const resolved = await resolveAutomaticGeminiContract(inventory(), options)
+    expect(resolved.automaticProof).toMatchObject({
+      unavailableExports: [resolved.inputClass, 'DeferredExport'],
+      requiresNoWizbind: true,
+    })
+    expect(resolved.inputClass).not.toBe('InputA')
+  })
+
   it('derives the renamed profile and exact new native fingerprints without executing website code', async () => {
     const options = resolverOptions()
     const resolved = await resolveAutomaticGeminiContract(inventory(), options)

@@ -112,6 +112,8 @@ export async function resolveAutomaticGeminiContract(inventory, options = {}) {
         version: inventory.version,
         sourceUrls: [...inventory.sourceUrls].sort(),
         referenceVersion: profile.version,
+        unavailableExports: (seed.receiverContract.unavailableExports || []).map(namespace),
+        requiresNoWizbind: seed.receiverContract.requiresNoWizbind === true,
       }
       matches.push(contract)
     }

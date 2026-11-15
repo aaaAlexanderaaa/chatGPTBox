@@ -29,7 +29,11 @@ export async function buildGeminiCodeReference(version, files) {
   return {
     referenceVersion: version,
     sourceSha256: sources.map((source) => createHash('sha256').update(source).digest('hex')),
-    ...createCodeReference(sources, keys),
+    ...createCodeReference(sources, keys, [
+      profile.prepareFunction,
+      profile.attestationFunction,
+      profile.thinkingSetter,
+    ]),
   }
 }
 

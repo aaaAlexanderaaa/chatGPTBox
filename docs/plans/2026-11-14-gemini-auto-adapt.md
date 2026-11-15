@@ -45,9 +45,21 @@ fixed identifiers, raw literals and parser semicolon-insertion decisions remain
 protected. This covers return/newline and escaped-strict-directive changes that
 a name-erased token comparison could otherwise miss.
 
+Final self-audit after the first pushed implementation found an implicit-receiver
+gap: `_.method()` can read the namespace through `this`. The correction audits
+all 2,627 namespace call targets, including the adapter's native entrypoints,
+aliases and callback factories. Receiver reads/escapes and unknown targets refuse.
+The Closure identity memoizer is certified only with exact helper bodies and its
+WeakMap allocation; forwarding still needs a receiver-independent callback.
+This is offline reference creation, not candidate execution or online trust.
+Three unresolved deferred TX exports are explicitly unavailable, with native
+guards requiring their absence and no active wiz integration. These restrictions
+also apply after invocation, without converting an unknown result into a new
+send permit. An arbitrary object's `.bind()` is not treated as Function.bind.
+
 ## Verification and delivery limits
 
-- Final `npm test`: **155 files / 2,102 tests passed**, with loopback listening
+- Final `npm test`: **155 files / 2,108 tests passed**, with loopback listening
   permitted. The initial sandboxed full run was stopped after an explicit
   `EPERM listen 127.0.0.1` probe established its local-server restriction.
   Lint passed. Documentation checked 69 files with zero errors and the same four
@@ -64,12 +76,16 @@ a name-erased token comparison could otherwise miss.
   incomplete/extra code, competing matches, name collisions, prototype keys,
   changed guards/constants/external APIs/dynamic keys, source failures,
   changed documents/nonces/runtime objects, and no rediscovery after invocation.
+  The correction adds receiver-alias/factory, mutable callback, unresolved-target,
+  arbitrary-bind and deferred-code guards, including refusal after one submission
+  without falsely returning an unattempted status.
 - Both production passes produced normal/reduced Chromium/Firefox archives.
-  Each archive contains the bundled reference and two self-contained Gemini
+  Each archive contains the current format-4 reference, receiver restrictions
+  and two self-contained Gemini
   MAIN functions with no external bundler helpers. All eight extracted functions
   passed standalone unsupported-origin checks. Each archive also passed the
-  same **32 native-boundary regressions**, after asserting exact reconstruction
-  of its extracted function text; these are repeated artifact checks, not 128
+  same **33 native-boundary regressions**, after asserting exact reconstruction
+  of its extracted function text; these are repeated artifact checks, not 132
   independent cases. Importing compressed functions directly through Vitest
   rewrote their text; the corrected fixture reconstructs only the project's own
   extracted functions, never the candidate website source.

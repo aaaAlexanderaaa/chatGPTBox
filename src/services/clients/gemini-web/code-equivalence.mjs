@@ -1,5 +1,6 @@
 import { parse, tokenizer } from 'acorn'
 import sha3 from 'js-sha3'
+import { verifyNamespaceReceivers } from './namespace-receivers.mjs'
 
 // This is exact token equivalence under injective renaming in declared domains, not a
 // similarity score. The bundled reference chooses every renameable occurrence.
@@ -139,10 +140,11 @@ function finish(state) {
 // References are created offline. Namespace keys, instance keys and lexical
 // helpers have distinct binding domains: _.AM must not be confused with the
 // unrelated timezone string "AM" or an instance's .AM field.
-export function createCodeReference(sources, instanceKeys = []) {
+export function createCodeReference(sources, instanceKeys = [], nativeCalls = []) {
   if (!Array.isArray(sources) || !sources.length || sources.length > 4)
     throw new Error('A complete Gemini compilation is required.')
   const parsed = sources.map((source) => ({ source, ...parsedCode(source) }))
+  const receiverContract = verifyNamespaceReceivers(parsed, nativeCalls, { visitCode, codeSymbol })
   const exports = new Set(),
     fields = new Set(instanceKeys)
   const protectedNames = Array.from({ length: 4 }, () => new Set())
@@ -301,12 +303,17 @@ export function createCodeReference(sources, instanceKeys = []) {
     canonical(source, mask, state)
     return { ...shape, mask: encodeMask(mask) }
   })
-  return { format: 3, units, protected: protectedRecord, ...finish(state) }
+  return { format: 4, receiverContract, units, protected: protectedRecord, ...finish(state) }
 }
 
 export function matchCodeReference(sources, reference) {
   try {
-    if (reference?.format !== 3 || sources.length !== reference.units.length || sources.length > 4)
+    if (
+      reference?.format !== 4 ||
+      reference.receiverContract?.verified !== true ||
+      sources.length !== reference.units.length ||
+      sources.length > 4
+    )
       return null
     const shapes = sources.map((source) => publicCodeShape(source))
     const used = new Set(),
