@@ -182,9 +182,30 @@ describe('chatgpt-web message status predicates', () => {
 })
 
 describe('isPendingChatgptWebConversation', () => {
-  it('is pending when asyncStatus field is present', () => {
+  it('is pending for active async statuses', () => {
     expect(isPendingChatgptWebConversation({ asyncStatus: 'in_progress' })).toBe(true)
     expect(isPendingChatgptWebConversation({ async_status: 'queued' })).toBe(true)
+  })
+
+  it.each([2, 4])('does not treat finished/unread native status %s as generating', (status) => {
+    for (const key of ['asyncStatus', 'async_status']) {
+      expect(isPendingChatgptWebConversation({ [key]: status })).toBe(false)
+      expect(
+        isPendingChatgptWebConversation(
+          { title: 'New Chat', [key]: status },
+          { allowUntitledListItem: true },
+        ),
+      ).toBe(false)
+    }
+  })
+
+  it.each([1, 3, 5, 6, 7, 99, '4'])(
+    'keeps active or unrecognized async status %s protected',
+    (status) => expect(isPendingChatgptWebConversation({ async_status: status })).toBe(true),
+  )
+
+  it('keeps a conflicting active status protected', () => {
+    expect(isPendingChatgptWebConversation({ asyncStatus: 4, async_status: 3 })).toBe(true)
   })
 
   it('is not pending when asyncStatus is null/undefined', () => {

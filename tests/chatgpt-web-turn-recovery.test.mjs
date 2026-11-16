@@ -3,13 +3,18 @@ import { createChatgptWebTurnRecovery } from '../src/services/clients/chatgpt-we
 import { formatChatgptWebConversationSnapshot } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 
 const ids = { conversationId: 'thread', messageId: 'question' }
-function conversation({ userId = 'question', endTurn = true, pending = false } = {}) {
+function conversation({
+  userId = 'question',
+  endTurn = true,
+  pending = false,
+  asyncStatus = pending ? 'in_progress' : null,
+} = {}) {
   return {
     ...formatChatgptWebConversationSnapshot(
       {
         conversation_id: 'thread',
         current_node: 'answer',
-        async_status: pending ? 'in_progress' : null,
+        async_status: asyncStatus,
         messages: [
           { id: userId, author: { role: 'user' }, content: { parts: ['Same question'] } },
           {
@@ -47,6 +52,26 @@ function setup(options = {}) {
 }
 
 describe('ChatGPT turn recovery after a lost completion event', () => {
+  it('recovers the exact final answer while the website still marks it unread', async () => {
+    const { recover, recordStatus } = setup({
+      readConversation: async () => conversation({ asyncStatus: 4 }),
+    })
+    expect(await recover(ids)).toMatchObject({ status: 'completed', verifiedComplete: true })
+    expect(recordStatus).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['a nonterminal unread fragment', { asyncStatus: 4, endTurn: false }],
+    ['a streaming conversation', { asyncStatus: 3 }],
+    ['an unrecognized conversation status', { asyncStatus: 99 }],
+  ])('does not recover %s', async (_label, options) => {
+    const { recover, recordStatus } = setup({
+      readConversation: async () => conversation(options),
+    })
+    expect(await recover(ids)).toMatchObject({ status: 'running' })
+    expect(recordStatus).not.toHaveBeenCalled()
+  })
+
   it('does not recover a later answer for an older user-message anchor', async () => {
     const snapshot = {
       ...formatChatgptWebConversationSnapshot(

@@ -702,6 +702,18 @@ Without `user_message_id` the snapshot follows `current_node` as before.
 
 Native paginated reads pass the requested message ID as `include_message_id` when selecting the branch. If both message IDs are provided, `assistant_message_id` takes precedence so a specific regenerated answer can be retrieved. A cached branch missing either requested ID is not reused.
 
+ChatGPT's numeric conversation async status is preserved as `asyncStatus`.
+`4` means `UNREAD`, not an active generation; legacy `2` means finished.
+Neither value makes `pending` true. Streaming/realtime values and unknown
+non-null statuses remain pending. A non-pending conversation still needs the
+exact user-message match and a nonempty final assistant reply before recovery
+or Drafts Get can release its awaited turn. An unread badge alone proves no
+answer or successful send. The November 16
+[website module](https://chatgpt.com/cdn/assets/200429.b3f88f116c.js)
+declares `UNREAD: 4` separately from streaming/realtime
+and handles it in completion recovery; the older checked-in native reference
+also names legacy `2` as `DEPRECATED_FINISHED`.
+
 An older-history download failure does not discard successfully downloaded messages or overwrite their status with an older list entry. The response retains those messages, reports `history.complete: false`, and exposes the failure in `cache.refreshError`; this is usable answer evidence, but not a complete history backup.
 
 The response includes fields such as:

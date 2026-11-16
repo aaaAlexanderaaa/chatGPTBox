@@ -247,6 +247,12 @@ veto completion, but `pending: false` alone cannot prove it. An absent message I
 remains unresolved for inspection. While awaiting an answer, Send preserves the
 next question/photos and asks for Get instead of replacing the pending anchor.
 
+ChatGPT's `async_status: 4` is a completed unread conversation, not a running
+turn. The November 16 correction at the shared snapshot owner lets Get collect
+its exact final answer and clear the pending anchor while keeping a next
+question already typed. Update/Reload the extension to apply that correction;
+the installed Drafts actions continue to use the same Get/Send contract.
+
 If an operation already has a successful acknowledgement, Send recovers it and
 leaves later edited text in Waiting Reply. Get the original answer before sending
 the edited question. If the outcome is unknown, keep the original ID: changing a

@@ -610,8 +610,13 @@ export function isPendingChatgptWebConversation(
   { allowUntitledListItem = false } = {},
 ) {
   if (!conversation || typeof conversation !== 'object') return false
-  if (conversation.asyncStatus !== undefined && conversation.asyncStatus !== null) return true
-  if (conversation.async_status !== undefined && conversation.async_status !== null) return true
+  const statuses = [conversation.asyncStatus, conversation.async_status].filter(
+    (value) => value !== undefined && value !== null,
+  )
+  // Native 4 is UNREAD, and legacy 2 is DEPRECATED_FINISHED. Neither means
+  // generation is active; matching, nonempty final-message evidence is still
+  // required separately. Unknown statuses retain the pending protection.
+  if (statuses.length) return statuses.some((value) => value !== 2 && value !== 4)
   if (allowUntitledListItem && normalizeConversationTitle(conversation.title) === 'new chat') {
     return true
   }

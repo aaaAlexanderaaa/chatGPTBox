@@ -508,6 +508,47 @@ it('keeps the next question without a second write while an acknowledged turn is
   expect(visible(result.draft.content)).toContain('Next question')
   expect(metadata(result.draft.content).pendingMessageId).toBe('ours')
 })
+
+it('Get collects an unread final answer and preserves the next question before Send', () => {
+  const content = note('Next question', {
+    pendingMessageId: 'ours',
+    pendingQuery: 'Original question',
+  })
+  const snapshot = formatChatgptWebConversationSnapshot(
+    {
+      conversation_id: 'conversation-1',
+      current_node: 'answer',
+      async_status: 4,
+      messages: [
+        { id: 'ours', author: { role: 'user' }, content: { parts: ['Original question'] } },
+        {
+          id: 'answer',
+          author: { role: 'assistant' },
+          content: { content_type: 'text', parts: ['Original final answer'] },
+          status: 'finished_successfully',
+          end_turn: true,
+        },
+      ],
+    },
+    { userMessageId: 'ours' },
+  )
+  const fetched = run(
+    content,
+    { success: true, statusCode: 200, responseData: snapshot },
+    { source: getSource },
+  )
+  expect(fetched.error).toBeUndefined()
+  expect(fetched.requests).toHaveLength(1)
+  expect(fetched.requests[0].method).toBe('GET')
+  expect(fetched.requests[0].url).toContain('user_message_id=ours')
+  expect(metadata(fetched.draft.content).pendingMessageId).toBeUndefined()
+  expect(visible(fetched.draft.content)).toContain('Original final answer')
+  expect(visible(fetched.draft.content)).toContain('\nNext question\n')
+  const sent = run(fetched.draft.content, { success: true, statusCode: 200, responseData: receipt })
+  expect(sent.error).toBeUndefined()
+  expect(sent.requests).toHaveLength(1)
+  expect(sent.requests[0].data.query).toBe('Next question')
+})
 it.each([
   'photos:{"images":[],"pendingPhotos":[],"projectId":"unexpected-project"}',
   'new-operation:drafts-' + Date.now().toString(36) + '-example {"query":"example"}',
