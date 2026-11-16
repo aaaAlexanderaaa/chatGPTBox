@@ -1,9 +1,9 @@
 /* global HTTP, app, draft, FileManager, HTMLPreview, context */
 // BEGIN CONTROL DOCUMENT
 // END CONTROL DOCUMENT
-const BASE_URL = 'http://127.0.0.1:18080'
-const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
-const MODEL_OVERRIDE = null
+const BASE_URL = settings.baseUrl
+const API_TOKEN = settings.apiToken
+const MODEL_OVERRIDE = settings.modelOverride
 const WAITING_REPLY_START_RE = controlRegex(/<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/)
 const WAITING_REPLY_END = controlText('<!-- chatgptbox-waiting-reply:end -->')
 const PENDING_ANSWER_TEXT = '_Waiting for ChatGPT. Run the Get action to collect the answer._'

@@ -56,15 +56,16 @@ function checkOperation(route, operation) {
 }
 
 function gatewaySettings() {
-  const credential = Credential.create('ChatGPTBox Gateway', 'Shared by all ChatGPTBox actions. Use a gateway URL reachable from every synced device. A blank URL uses http://127.0.0.1:18080.')
+  const preferences = readPreferences()
+  const credential = Credential.create('ChatGPTBox Gateway', 'Shared by all ChatGPTBox actions. More → 设置 takes precedence for the gateway URL. Otherwise this URL is used; leave it blank for http://127.0.0.1:18080. Use an address reachable from every synced device.')
   credential.addURLField('baseUrl', 'Gateway URL')
   credential.addPasswordField('apiToken', 'Gateway API token')
   if (!credential.authorize()) return null
-  const baseUrl = (credential.getValue('baseUrl') || 'http://127.0.0.1:18080').trim().replace(/\/+$/, '')
+  const baseUrl = (preferences.baseUrl || credential.getValue('baseUrl') || 'http://127.0.0.1:18080').trim().replace(/\/+$/, '')
   const apiToken = (credential.getValue('apiToken') || '').trim()
   if (!/^https?:\/\/[^/?#\s@]+(?:\/[^?#\s]*)?$/i.test(baseUrl) || !apiToken || /[\r\n]/.test(apiToken))
-    throw new Error('Configure a valid gateway URL and API token in Drafts Settings → Credentials → ChatGPTBox Gateway. No request was sent.')
-  return { baseUrl, apiToken }
+    throw new Error('Configure the gateway URL in More → 设置 and the API token in Drafts Settings → Credentials → ChatGPTBox Gateway. No request was sent.')
+  return { ...preferences, baseUrl, apiToken }
 }
 
 function bufferedDraft(originalDraft, route, settings) {
@@ -110,24 +111,20 @@ function moreOperation(route) {
     } else if (route.kind === 'conversation' && !route.meta.pending) choices.push(['加载更早消息', 'older'])
   }
   for (const [label] of choices) prompt.addButton(label)
-  prompt.addButton('网关设置说明')
+  prompt.addButton('设置')
   prompt.message = (route.engineId === 'geminiweb' ? 'Gemini 不支持照片或 Project。' : '') + '新笔记首部用 :c 或 :g；省略时使用 ChatGPT。已有会话固定使用原引擎。'
   if (!prompt.show()) return null
   const selected = choices.find(([label]) => label === prompt.buttonPressed)
   if (selected) return selected[1]
-  if (prompt.buttonPressed !== '网关设置说明') throw new Error('Unknown ChatGPTBox operation. No request was made.')
-  const help = Prompt.create()
-  help.title = 'ChatGPTBox 网关设置'
-  help.message = '所有动作共用 Drafts Settings → Credentials → ChatGPTBox Gateway。首次运行会询问地址和 API token。需要重新配置时，在该凭据项使用 Forget，然后再次运行。地址须能从每台设备访问；iPhone 的 127.0.0.1 指向 iPhone。'
-  help.addButton('完成')
-  help.show()
-  return null
+  if (prompt.buttonPressed === '设置') return 'settings'
+  throw new Error('Unknown ChatGPTBox operation. No request was made.')
 }
 
 function runAction() {
   const route = selectEngine(draft.content || '')
   const operation = ACTION === 'more' ? moreOperation(route) : ACTION
   if (!operation) return
+  if (operation === 'settings') return editPreferences()
   checkOperation(route, operation)
   const settings = gatewaySettings()
   if (!settings) return

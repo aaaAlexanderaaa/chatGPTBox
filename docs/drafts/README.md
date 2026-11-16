@@ -31,18 +31,22 @@ actions or resource-file installation is required.
 | ChatGPTBox Get | [package](chatgptbox-get.draftsAction), [script](scripts/action-2-open-checked-conversation.js) | Open one checked conversation, refresh or collect its answer |
 | ChatGPTBox Send | [package](chatgptbox-send.draftsAction), [script](scripts/action-3-send-waiting-reply.js) | Create a conversation or send its Waiting Reply |
 | ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout and charts |
-| ChatGPTBox More | [package](chatgptbox-more.draftsAction), [script](scripts/more.js) | Supported photos, Project selection, older messages and configuration help |
+| ChatGPTBox More | [package](chatgptbox-more.draftsAction), [script](scripts/more.js) | Shared settings, supported photos, Project selection and older messages |
 
 1. In the extension, open **Advanced → API Server Bridge → Open API Server Bridge**
    and enable **Enable API Server Bridge**.
 2. Start the local gateway with `npm run api-server`.
-3. The first network action asks for **Gateway URL** and **Gateway API token**.
+3. First run **More → 设置**, choose your preferences and tap **保存**. The first
+   network action then asks for **Gateway URL** and **Gateway API token**.
    Use the token from `~/.chatgptbox/gateway-api-token`. All actions share the
-   **ChatGPTBox Gateway** credential; upgrading scripts retains it. A blank URL
-   uses `http://127.0.0.1:18080`. Use an address reachable from every device;
+   **ChatGPTBox Gateway** credential; upgrading scripts retains it. The shared
+   settings address takes precedence; if set there, leave the credential's URL
+   blank. With neither address set, the default is `http://127.0.0.1:18080`.
+   Use an address reachable from every device;
    `127.0.0.1` on an iPhone refers to the iPhone, not the Mac gateway. Drafts
-   credentials sync through iCloud when enabled. **More → 网关设置说明** explains
-   reconfiguration; no token is stored in a note or import package.
+   credentials sync through iCloud when enabled. **More → 设置** manages the shared
+   address and preferences, and its **API token 设置说明** explains token
+   reconfiguration. No token is stored in a settings file, note or import package.
 4. Keep the bridge page open and stay logged in to the selected provider.
 5. Enable history synchronization in **ChatGPT Web** settings and choose a
    conservative RPM for ChatGPT history. ChatGPT List reads that cache; it does
@@ -52,12 +56,18 @@ For an upgrade:
 
 1. Retain/export the old actions, their address/token and explicit model or
    thinking options before replacement.
-2. Create or select the **ChatGPTBox** action group, then import the five packages.
-   If Drafts offers to replace a same-named action or add another copy, replace
-   only the copy whose customizations you have retained. If keeping both, use
-   the new common entries in this group. Preview keeps its existing package ID.
-3. Configure the original gateway/token in the shared credential. Common Get can
-   read an existing note without creating a question.
+2. Create or select the **ChatGPTBox** action group, then import the packages.
+   For List/Get/Send/More, choose **Replace** for the intended existing actions
+   after retaining their customizations. Disable/rename any backup copies so you
+   cannot accidentally run an older action. Preview is unchanged by the shared
+   settings update and need not be imported again for this change.
+3. Keep the original shared gateway credential. Run **More → 设置** to enter any
+   previous model/display customizations once. Leave its address empty to retain
+   the credential's address, or enter that same address explicitly. Import List,
+   Get, Send and More together so every copy reads the same settings. Tap **保存**
+   once to initialize the settings file, even when using the defaults. Later
+   replacements retain the settings file and credential. Common Get can read an
+   existing note without creating a question.
 4. Disable/remove the old ChatGPT and Gemini entries before sending any new
    prefixed question; an old Send can interpret `:g` as ordinary ChatGPT text.
    Keep existing notes and pending identities.
@@ -94,15 +104,48 @@ gateway and credential when upgrading old notes, which lack this URL field.
 The user selected this prefix/binding behavior on 2026-11-15. Its normative owner
 is [Drafts engine selection](../api-server.md#drafts-engine-selection).
 
-`MODEL_OVERRIDE = null` in Send delegates new conversations to the extension's
-current ChatGPT Web default and follow-ups to the conversation's current model
-when available. Set a model slug only for an explicit override. The default's
-source is `src/config/limits.mjs`; copied actions need no separate default model.
-
 Get and Send annotate each turn with ChatGPT's own thought/work duration when
-available, without estimating missing durations. `INCLUDE_THINKING = true` in
-both scripts also includes the reasoning blocks; it is independent of the timing
-annotation and does not select a model's thinking effort.
+available, without estimating missing durations.
+
+## Shared settings in More
+
+Run **More → 设置** from a new, list, conversation or pending note. Edit the
+options once and tap **保存**; all List/Get/Send/More actions read the saved values
+the next time they run. Opening, cancelling and saving this window makes no HTTP
+request and leaves the current note and pending request unchanged.
+
+| Setting | Meaning |
+| --- | --- |
+| **网关地址** | A reachable HTTP(S) gateway. Leave empty to use the existing shared Credential address, or its `http://127.0.0.1:18080` default. Do not put a token in the URL. Existing bound notes keep their original gateway; restore that address to continue them |
+| **ChatGPT 模型** | An explicit model slug for new conversations and follow-ups. Leave empty to use the extension's current default for new conversations and the current conversation's model for replies when available. There is no copied default model to maintain |
+| **ChatGPT：显示思考内容** | Include reasoning blocks in Get/Send output. Defaults off; this changes neither timing annotations nor model thinking effort |
+| **API token 设置说明** | Keep using the shared **ChatGPTBox Gateway** Credential. To replace a token, Forget that credential in Drafts settings and run a network action to enter it again. The shared settings window does not erase credentials |
+
+The model and reasoning-display options apply to ChatGPT; Gemini keeps its native
+model/settings behavior. Already pending requests retain their original complete
+payload and key even after settings change. Preview remains offline and separate.
+
+The first explicit save creates `iCloud Drive/Drafts/ChatGPTBox/settings.json`
+through Drafts' [FileManager](https://scripting.getdrafts.com/classes/FileManager).
+There is no config file to install or action script to edit. The file contains
+only the address and preferences; the API token stays in
+[Credential](https://scripting.getdrafts.com/classes/Credential). Action upgrades
+do not overwrite either store. File sync and action/credential sync are separate:
+wait for this file to download on another device before using the actions there.
+Concurrent offline edits are not merged.
+
+Missing settings stop the network action before any request: first-time users
+must save once through **More → 设置** (the form offers the original defaults).
+If you already configured another device, wait for that file to sync/download
+instead of creating new defaults. This prevents an unsynced device silently
+ignoring your preferences. Existing unreadable or invalid settings also stop
+before any request. For
+an unreadable file, restore iCloud access/download it and retry. For malformed or
+unsupported settings, **More → 设置** offers **重新设置**; the existing file is
+replaced only after **保存**. Cancel keeps it. A changed file while the window is
+open requires reopening settings. Saving stages and checks the file before
+replacement; a failed or unconfirmed save is reported as an error. The
+[interface contract](../api-server.md#drafts-shared-settings) owns these boundaries.
 
 ## List, open, send and collect
 
@@ -294,13 +337,15 @@ again when its stored transcript needs regeneration.
 
 | Symptom / update | Action |
 | --- | --- |
-| Document controls differ or a copied action still hardcodes an old model | Replace the common actions together; keep the shared credential and explicit overrides |
+| Document controls differ or a copied action still hardcodes an old model | Replace the common actions together; keep the shared credential and enter prior customizations once through More → 设置 |
+| A shared setting is ignored | Replace List/Get/Send/More together and wait for `Drafts/ChatGPTBox/settings.json` to sync/download. Old installed copies do not read it |
+| A settings-file error blocks requests | Restore iCloud access/download the file; use More → 设置 for explicit repair of malformed settings. Keep the original gateway for bound notes |
 | Runtime/account/verification/network-transport recognition fails | Update/reload the extension and refresh its dedicated ChatGPT proxy and bridge pages. A Drafts-script replacement cannot repair website-runtime recognition; this error alone is not an account-suspension notice |
 | An old note contains missing code blocks, chart JSON or incomplete layout | Update/reload the extension, then Get again. For packaged chart interactions also replace Preview; old Markdown cannot acquire lost layout from CSS alone |
 | A fresh send is incorrectly called older than seven days | Update Get, Send and More. Current scripts parse saved ISO times with `new Date(value).getTime()` for Drafts compatibility; preserve the marker and original request. Truly expired or invalid ages still block replay |
 | A write timed out or lost acknowledgement | Keep its ID and use Get/operation inspection; never generate a new key merely to retry |
 
-Maintain the router, provider fragments, `control-document.shared.txt`,
+Maintain the router, `settings.shared.txt`, provider fragments, `control-document.shared.txt`,
 `photo-operation.shared.txt` and `photo-picker.html` under
 [`scripts/drafts`](../../scripts/drafts/). `npm run sync-drafts-engines`
 regenerates the four common network scripts/packages; `sync-drafts-photos` is a
@@ -321,5 +366,7 @@ import, camera behavior or device/iCloud sync. These limits remain separate from
 source/build completion; no native-device acceptance is claimed by this guide.
 The [November 15 delivery record](../plans/2026-11-15-drafts-engine-prefix.md)
 records prefix routing, common packages, legacy compatibility and actual checks.
+The [shared-settings delivery record](../plans/2026-11-15-drafts-shared-settings.md)
+records the settings editor, common file reads and observed verification limits.
 The scripts use Drafts' [HTTP](https://scripting.getdrafts.com/classes/HTTP.html)
 and [Draft](https://scripting.getdrafts.com/classes/Draft.html) runtime objects.

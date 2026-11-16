@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { getChatgptWebThinkingEffortOverride } from '../src/services/clients/chatgpt-web/thinking.mjs'
 import { CHATGPT_WEB_DEFAULT_MODEL_SLUG } from '../src/config/limits.mjs'
 import { respondChatgptNotDispatched } from '../scripts/lib/chatgpt-write-operations.mjs'
@@ -24,16 +25,11 @@ function sourceBetween(source, start, end) {
 function runDraftsWriteClient(content, { override = null, defaultModel = null } = {}) {
   const requests = []
   const draft = { content, update: vi.fn() }
-  const source = override
-    ? draftsWriteClientSource.replace(
-        'const MODEL_OVERRIDE = null',
-        `const MODEL_OVERRIDE = '${override}'`,
-      )
-    : draftsWriteClientSource
-  vm.runInNewContext(source, {
+  vm.runInNewContext(draftsWriteClientSource, {
     draft,
     app: { displayErrorMessage: vi.fn(), displaySuccessMessage: vi.fn() },
     Credential: draftsCredential,
+    FileManager: createDraftsFileManager({ modelOverride: override }),
     HTTP: {
       create: () => ({
         request: (request) => {

@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { describe, expect, it } from 'vitest'
 import postcss from 'postcss'
 import { unified } from 'unified'
@@ -481,6 +482,7 @@ describe('GPT-6 native visualization', () => {
             draft,
             app: { displayErrorMessage() {}, displaySuccessMessage() {} },
             Credential: draftsCredential,
+            FileManager: createDraftsFileManager(),
             HTTP: {
               create: () => ({
                 request: () => ({ success: true, statusCode: 200, responseData: payload }),
@@ -508,6 +510,7 @@ describe('GPT-6 native visualization', () => {
         draft,
         app: { displayErrorMessage() {}, displaySuccessMessage() {} },
         Credential: draftsCredential,
+        FileManager: createDraftsFileManager(),
         HTTP: {
           create: () => ({
             request: () => ({ success: true, statusCode: 200, responseData: payload }),
@@ -549,6 +552,7 @@ describe('GPT-6 native visualization', () => {
         draft,
         app: { displayErrorMessage() {}, displaySuccessMessage() {} },
         Credential: draftsCredential,
+        FileManager: createDraftsFileManager(),
         HTTP: {
           create: () => ({
             request: () => ({ success: true, statusCode: 200, responseData: payload }),

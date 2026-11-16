@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { describe, expect, it, vi } from 'vitest'
 const sources = Object.fromEntries(
   [2, 3, 4].map((n) => [
@@ -79,6 +80,7 @@ function run(action, content, responses, extras = {}) {
         }),
       },
       FileManager: {
+        ...createDraftsFileManager(extras.preferences),
         createLocal: () => ({
           createDirectory() {},
           readJSON: (path) => files.get(path),
@@ -106,6 +108,25 @@ const ok = (payload, statusCode = 200) => ({ success: true, statusCode, response
 const job = (content) =>
   JSON.parse(visible(content).match(/<!-- chatgptbox-photo-operation:(\{.*\}) -->/)[1])
 describe('Drafts photo sends', () => {
+  it('freezes the shared model option for Project/photo sends across later settings changes', () => {
+    const content = managed(
+      'Question\n\n' +
+        photoMarker({ images: [photo], pendingPhotos: [], projectId: 'g-p-synthetic' }),
+    )
+    const first = run(3, content, [ok({ phase: 'preparing' }, 202)], {
+      preferences: { modelOverride: 'model-one' },
+    })
+    expect(first.error).toBeUndefined()
+    expect(first.requests[0].data.model).toBe('model-one')
+    const next = run(3, first.draft.content, [ok({ phase: 'uploading' }, 202)], {
+      preferences: { modelOverride: 'model-two' },
+    })
+    expect(next.error).toBeUndefined()
+    expect(next.requests[0].data).toEqual(first.requests[0].data)
+    expect(next.requests[0].headers['Idempotency-Key']).toBe(
+      first.requests[0].headers['Idempotency-Key'],
+    )
+  })
   it('packages native Script steps using the same action format as the shipped Preview action', () => {
     for (const name of ['more']) {
       const artifact = JSON.parse(

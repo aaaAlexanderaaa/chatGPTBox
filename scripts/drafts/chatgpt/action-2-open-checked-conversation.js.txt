@@ -1,12 +1,10 @@
 /* global HTTP, app, draft, FileManager */
 // BEGIN CONTROL DOCUMENT
 // END CONTROL DOCUMENT
-const MODEL_OVERRIDE = null
-// Change this if your API gateway runs on a different host or port.
-const BASE_URL = 'http://127.0.0.1:18080'
-const API_TOKEN = 'PASTE_GATEWAY_API_TOKEN_HERE'
-// Set to true when you want ChatGPT thinking/reasoning blocks included in the note.
-const INCLUDE_THINKING = false
+const MODEL_OVERRIDE = settings.modelOverride
+const BASE_URL = settings.baseUrl
+const API_TOKEN = settings.apiToken
+const INCLUDE_THINKING = settings.includeThinking
 const WAITING_REPLY_START_RE = controlRegex(/<!-- chatgptbox-waiting-reply:start (\{.*\}) -->/)
 const WAITING_REPLY_END = controlText('<!-- chatgptbox-waiting-reply:end -->')
 const PENDING_ANSWER_HEADING = '### ASSISTANT (pending)'

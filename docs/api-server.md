@@ -223,6 +223,46 @@ Drafts actions send HTTP to this gateway, which forwards through
 selection changes neither gateway authorization nor native provider protocols.
 The [Drafts guide](drafts/README.md) owns installation and verification limits.
 
+### Drafts shared settings
+
+On 2026-11-15 the user approved **More → 设置** to remove repeated edits to
+copied action scripts. The common List/Get/Send/More actions read one versioned
+settings file in `iCloud Drive/Drafts/ChatGPTBox/settings.json`. The settings
+window edits the gateway URL, ChatGPT model override and inclusion of ChatGPT
+thinking blocks. An empty URL retains the address in the existing shared
+`ChatGPTBox Gateway` credential (or its loopback default); an empty model keeps
+the extension/new-conversation and existing-conversation defaults. The thinking
+switch controls displayed reasoning, not model thinking effort. Gemini keeps its
+native model/settings behavior. Preview remains independent and offline.
+
+The API token stays in that existing Credential, outside the file, note and
+packages. The settings window provides its reset instructions. Replacing action
+packages retains both settings and credentials; older per-script customizations
+must be entered once in the settings window. Import the common network actions
+together so an older copy cannot ignore the shared preferences.
+
+Opening, cancelling or saving settings makes no HTTP request and never changes
+the current note, its engine/gateway binding or frozen pending request. Changing
+the URL does not move an existing bound note to another gateway. Changing model
+or display preferences does not change a saved operation's original payload or
+key; Get/recovery continue to use the adapter's existing recovery semantics.
+
+A missing settings file stops network actions and points to **More → 设置** for
+the first explicit save, or to downloading the existing iCloud settings on a new
+device. It cannot silently substitute defaults while sync is incomplete. The
+settings window offers the original defaults; only Save creates the file.
+Unreadable, malformed or unsupported settings also stop network actions visibly;
+they cannot silently choose another address/model. The settings window can
+explicitly replace malformed settings, and cancellation retains the file.
+Saving validates all fields, stages and reads back one bounded temporary file,
+checks that the original file has not changed, then replaces the settings file.
+Failed or unconfirmed storage does not report success. These are local file
+checks: iCloud synchronization and replacement atomicity are not guaranteed by
+the Drafts scripting API. Wait for file sync on another device; concurrent
+offline edits are not merged. Acceptance checks exercise the generated packages,
+shared reads, cancel/failure behavior, credential isolation and unchanged pending
+identities; native Drafts/device/iCloud acceptance remains a separate observation.
+
 ### Image inputs and ChatGPT Projects
 
 The bridge accepts up to four JPEG, PNG or WebP images per request, each no larger

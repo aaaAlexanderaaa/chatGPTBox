@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { describe, expect, it, vi } from 'vitest'
 import { formatChatgptWebConversationSnapshot } from '../src/services/clients/chatgpt-web/conversation-state.mjs'
 import { clientWidgetMessage, staticComponentsMessage } from './fixtures/genui-components.mjs'
@@ -49,24 +50,20 @@ function run(content, response, { override, source = sendSource } = {}) {
   const app = { displayErrorMessage: vi.fn(), displaySuccessMessage: vi.fn() }
   let error
   try {
-    vm.runInNewContext(
-      override
-        ? source.replace('const MODEL_OVERRIDE = null', `const MODEL_OVERRIDE = '${override}'`)
-        : source,
-      {
-        draft,
-        app,
-        Credential: draftsCredential,
-        HTTP: {
-          create: () => ({
-            request(request) {
-              requests.push(JSON.parse(JSON.stringify(request)))
-              return response
-            },
-          }),
-        },
+    vm.runInNewContext(source, {
+      draft,
+      app,
+      Credential: draftsCredential,
+      FileManager: createDraftsFileManager({ modelOverride: override || null }),
+      HTTP: {
+        create: () => ({
+          request(request) {
+            requests.push(JSON.parse(JSON.stringify(request)))
+            return response
+          },
+        }),
       },
-    )
+    })
   } catch (caught) {
     error = caught
   }

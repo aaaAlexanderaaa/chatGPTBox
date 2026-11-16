@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { expect, it, vi } from 'vitest'
 
 const sources = Object.fromEntries(
@@ -54,6 +55,7 @@ function run(action, content, respond, { failSave = false } = {}) {
       draft,
       app,
       Credential: draftsCredential,
+      FileManager: createDraftsFileManager(),
       HTTP: {
         create: () => ({
           request(req) {

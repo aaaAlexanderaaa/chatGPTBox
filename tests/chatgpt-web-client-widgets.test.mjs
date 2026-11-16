@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { describe, expect, it } from 'vitest'
 import { init } from 'echarts/core'
 import { unified } from 'unified'
@@ -184,6 +185,7 @@ describe('native client widgets', () => {
             displaySuccessMessage() {},
           },
           Credential: draftsCredential,
+          FileManager: createDraftsFileManager(),
           HTTP: {
             create: () => ({
               request: () => ({ success: true, statusCode: 200, responseData: payload }),

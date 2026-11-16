@@ -28,7 +28,7 @@ local harness remain separate systems.
 | Settings and popup | [Settings center](src/options/SettingsCenter.jsx), [popup](src/popup/) | Full configuration and quick controls |
 | Local API gateway | [Server](scripts/api-server.mjs), [bridge page](src/pages/ApiServer/App.jsx) | Authenticated local HTTP clients connected to the extension over WebSocket or HTTP polling |
 | Local MCP server | [Server](scripts/mcp-server.mjs) | Authenticated MCP `ask_chatgpt`, using the local API gateway |
-| Drafts client | [Sources](scripts/drafts/), [generator](scripts/sync-drafts-engines.mjs), [guide/packages](docs/drafts/README.md) | Common actions, prefix selection for unbound notes, fixed provider bindings and isolated legacy note adapters |
+| Drafts client | [Sources](scripts/drafts/), [shared settings](scripts/drafts/settings.shared.txt), [generator](scripts/sync-drafts-engines.mjs), [guide/packages](docs/drafts/README.md) | Common actions and shared preferences, prefix selection for unbound notes, fixed provider bindings and isolated legacy note adapters |
 
 ## Request flows
 

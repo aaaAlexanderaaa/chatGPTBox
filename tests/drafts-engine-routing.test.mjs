@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { syncDraftsActions } from '../scripts/sync-drafts-engines.mjs'
 
 const files = {
@@ -92,6 +93,7 @@ function run(action, content, options = {}) {
         },
       },
       FileManager: {
+        ...createDraftsFileManager(),
         createLocal: () => ({ createDirectory() {}, writeJSON: () => true, readJSON: () => null }),
       },
       HTMLPreview: { create: () => ({ show: () => false }) },
@@ -281,7 +283,7 @@ describe('Drafts engine prefix routing at the generated action boundary', () => 
       expect(result.draft.content).toBe(content)
     }
     const more = run('more', content)
-    expect(more.menus[0].buttons).toEqual(['网关设置说明'])
+    expect(more.menus[0].buttons).toEqual(['设置'])
     expect(more.requests).toEqual([])
     expect(more.draft.content).toBe(content)
   })
@@ -330,7 +332,7 @@ describe('Drafts engine prefix routing at the generated action boundary', () => 
 
   it('exposes only supported More operations without an engine picker', () => {
     const gemini = run('more', ':g Question')
-    expect(gemini.menus[0].buttons).toEqual(['网关设置说明'])
+    expect(gemini.menus[0].buttons).toEqual(['设置'])
     expect(gemini.requests).toEqual([])
     expect(gemini.draft.content).toBe(':g Question')
     const older = run('more', waiting(opened(), 'Future question'), {

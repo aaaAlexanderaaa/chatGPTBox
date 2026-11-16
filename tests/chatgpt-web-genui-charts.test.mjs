@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 import { draftsCredential } from './helpers/drafts-credential.mjs'
+import { createDraftsFileManager } from './helpers/drafts-file-manager.mjs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { unified } from 'unified'
@@ -241,6 +242,7 @@ describe('portable GenUI charts', () => {
             displaySuccessMessage() {},
           },
           Credential: draftsCredential,
+          FileManager: createDraftsFileManager(),
           HTTP: {
             create: () => ({
               request: () => ({ success: true, statusCode: 200, responseData: payload }),
