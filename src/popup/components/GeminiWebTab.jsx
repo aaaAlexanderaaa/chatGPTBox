@@ -84,7 +84,7 @@ export function GeminiWebTab({ config, updateConfig }) {
             {status.hold && (
               <p>
                 {t(
-                  'Gemini requests are paused. Inspect the existing result on the website before allowing new requests.',
+                  'A Gemini request remains unconfirmed. It keeps its own slot; other conversations can use free slots.',
                 )}
               </p>
             )}
@@ -94,7 +94,7 @@ export function GeminiWebTab({ config, updateConfig }) {
       <SettingSection title={t('Interrupted requests')}>
         <p className="text-xs text-muted-foreground">
           {t(
-            'A timeout, disconnect, Stop or website error keeps submission paused across restarts. Allowing new requests never resends the old prompt.',
+            'Up to three independent Gemini requests can run at once. Unconfirmed requests keep their slots across restarts. Allowing new work never resends an old prompt.',
           )}
         </p>
         {status?.needsUnverifiedAcknowledgement && (

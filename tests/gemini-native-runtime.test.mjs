@@ -881,14 +881,22 @@ describe('Gemini native runtime boundary', () => {
     f.win.document
       .querySelector('a')
       .setAttribute('aria-label', 'Google Account: changed@example.invalid')
-    expect(await f.op('send')).toMatchObject({ code: 'GEMINI_ACCOUNT_CHANGED', dispatched: false })
+    expect(await f.op('send')).toMatchObject({
+      code: 'GEMINI_ACCOUNT_CHANGED',
+      dispatched: false,
+      accountBlocked: true,
+    })
     f.win.document
       .querySelector('a')
       .setAttribute('aria-label', 'Google Account: fixture@example.invalid')
     const challenge = f.win.document.createElement('div')
     challenge.setAttribute('role', 'dialog')
     f.win.document.body.append(challenge)
-    expect(await f.op('send')).toMatchObject({ code: 'GEMINI_CHECK_REQUIRED', dispatched: false })
+    expect(await f.op('send')).toMatchObject({
+      code: 'GEMINI_CHECK_REQUIRED',
+      dispatched: false,
+      accountBlocked: true,
+    })
     expect(f.service.calls).toBe(0)
   })
 

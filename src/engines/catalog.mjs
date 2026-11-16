@@ -1,5 +1,6 @@
 import { EngineOperation as Op } from './contract.mjs'
 import { CHATGPT_WEB_THINKING_EFFORTS } from '../services/clients/chatgpt-web/thinking.mjs'
+import { GEMINI_WEB_MAX_CONCURRENT } from '../config/gemini-web.mjs'
 
 const operation = (semanticProfile, extra = {}) => ({
   implemented: true,
@@ -118,7 +119,7 @@ export const WEB_ENGINE_DEFINITIONS = Object.freeze([
       [Op.ListConversations]: history,
       [Op.RecoverRun]: operation('exact-server-turn-read/1'),
     },
-    execution: { concurrencyScope: 'engine', maxConcurrent: 1 },
+    execution: { concurrencyScope: 'engine', maxConcurrent: GEMINI_WEB_MAX_CONCURRENT },
     resultFormats: ['safe-html'],
     cancellationGuarantee: 'request-only',
     modelPolicy: 'fixed-verified-selection',

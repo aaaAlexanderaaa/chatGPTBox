@@ -15,7 +15,7 @@ import {
   normalizeEngineExposure,
   effectiveEngineOperations,
 } from './policy.mjs'
-import { ENGINE_MAX_FINISHED_RESULTS } from './store.mjs'
+import { ENGINE_MAX_ACTIVE_RUNS, ENGINE_MAX_FINISHED_RESULTS } from './store.mjs'
 
 const copy = (value) => structuredClone(value)
 const content = (value) =>
@@ -46,12 +46,21 @@ export function createEngineRuntime({
   const sequences = new Map()
   const recoveries = new Map()
   const degradedRuns = new Map()
+  const admissions = new Map()
+  const reviews = new Set()
   let configQueue = Promise.resolve()
 
   for (const adapter of adapters) {
     const definition = adapter.describe()
     if (!definition?.id || registry.has(definition.id) || typeof adapter.generate !== 'function')
       throw new Error('Engine adapters require unique IDs and generate methods')
+    if (
+      definition.execution?.maxConcurrent !== undefined &&
+      (!Number.isInteger(definition.execution.maxConcurrent) ||
+        definition.execution.maxConcurrent < 1 ||
+        definition.execution.maxConcurrent > ENGINE_MAX_ACTIVE_RUNS)
+    )
+      throw new Error('Engine concurrency must be a positive bounded integer')
     for (const [operation, method] of Object.entries({
       [Op.Append]: 'append',
       ...readMethods,
@@ -321,6 +330,20 @@ export function createEngineRuntime({
   }
 
   async function invoke(request, caller, options = {}) {
+    const engineId = request?.engineId
+    if (reviews.has(engineId))
+      throw new EngineError('ENGINE_BUSY', 'Wait for the engine review before starting new work.')
+    admissions.set(engineId, (admissions.get(engineId) || 0) + 1)
+    try {
+      return await admit(request, caller, options)
+    } finally {
+      const remaining = admissions.get(engineId) - 1
+      if (remaining) admissions.set(engineId, remaining)
+      else admissions.delete(engineId)
+    }
+  }
+
+  async function admit(request, caller, options) {
     validateEngineRequest(request)
     const { adapter, definition } = entry(request.engineId)
     const current = await config()
@@ -341,8 +364,21 @@ export function createEngineRuntime({
     if (!normalized.modelId) throw new EngineError('MODEL_UNAVAILABLE', 'No model is selected.')
     await adapter.validate?.(normalized, current)
     const runId = options.runId || `run-${uuid()}`
+    const pooled =
+      definition.execution?.concurrencyScope === 'engine' && definition.execution.maxConcurrent > 1
+    const capacity = pooled
+      ? {
+          key: `engine:${definition.id}`,
+          limit: definition.execution.maxConcurrent,
+          reservations: adapter.capacityReservations
+            ? await adapter.capacityReservations(
+                Object.values((await store.snapshot()).protections),
+              )
+            : [],
+        }
+      : undefined
     const leaseKeys =
-      definition.execution?.concurrencyScope === 'engine'
+      definition.execution?.concurrencyScope === 'engine' && !pooled
         ? [`engine:${definition.id}`]
         : request.conversation
         ? [
@@ -360,6 +396,7 @@ export function createEngineRuntime({
       operation: request.operation,
       principal: caller.principal,
       leaseKeys,
+      capacity,
       installationId: options.installationId,
       conversation: request.conversation,
     })
@@ -729,7 +766,11 @@ export function createEngineRuntime({
         'Uncertain execution review requires extension settings.',
       )
     const { adapter } = entry(engineId)
-    if ([...active.values()].some((control) => control.definition.id === engineId))
+    if (
+      reviews.has(engineId) ||
+      admissions.has(engineId) ||
+      [...active.values()].some((control) => control.definition.id === engineId)
+    )
       throw new EngineError(
         'ENGINE_BUSY',
         'Wait for active observation to end before allowing new work.',
@@ -739,23 +780,39 @@ export function createEngineRuntime({
         'OPERATION_NOT_IMPLEMENTED',
         'Check the native engine before allowing new work.',
       )
-    const checked = await adapter.review(query, { config: await config() })
-    if (!checked?.ok) return checked
-    await store.transaction((draft) => {
-      for (const record of Object.values(draft.protections)) {
-        if (record.engineId !== engineId || record.resolved || record.phase !== 'settled') continue
-        record.resolved = true
-        record.disposition = { at: now(), kind: 'user-reviewed-outcome-unconfirmed' }
-        record.updatedAt = now()
-        record.revision += 1
-        if (draft.runs[record.runId]) draft.runs[record.runId] = copy(record)
-        // A manually reviewed uncertain conversation cannot resume from a
-        // guessed parent. New work receives a fresh binding.
-        if (record.conversationRef) delete draft.bindings[record.conversationRef]
-        store.releaseLeases(draft, record.runId)
-      }
-    })
-    return checked
+    reviews.add(engineId)
+    try {
+      const before = await store.snapshot()
+      const reviewed = new Set(
+        Object.values(before.protections)
+          .filter((run) => run.engineId === engineId && !run.resolved && run.phase === 'settled')
+          .map((run) => run.runId),
+      )
+      const checked = await adapter.review(query, {
+        config: await config(),
+        protectedRuns: [...reviewed].map((runId) => before.protections[runId]),
+      })
+      if (!checked?.ok) return checked
+      await store.transaction((draft) => {
+        for (const runId of reviewed) {
+          const record = draft.protections[runId]
+          if (record.engineId !== engineId || record.resolved || record.phase !== 'settled')
+            continue
+          record.resolved = true
+          record.disposition = { at: now(), kind: 'user-reviewed-outcome-unconfirmed' }
+          record.updatedAt = now()
+          record.revision += 1
+          if (draft.runs[record.runId]) draft.runs[record.runId] = copy(record)
+          // A manually reviewed uncertain conversation cannot resume from a
+          // guessed parent. New work receives a fresh binding.
+          if (record.conversationRef) delete draft.bindings[record.conversationRef]
+          store.releaseLeases(draft, record.runId)
+        }
+      })
+      return checked
+    } finally {
+      reviews.delete(engineId)
+    }
   }
 
   async function setExposure(engineId, patch, caller) {

@@ -38,7 +38,12 @@ export async function createProviderBridgeFixture({
       })
     },
   }
-  const adapters = createNativeEngineAdapters({ providers: { [engineId]: provider } })
+  const adapters = createNativeEngineAdapters({
+    providers: { [engineId]: provider },
+    // This fixture owns the provider packets, so it has no separate native
+    // journal. Capacity still passes through the production common owner.
+    geminiService: { reservations: async () => [] },
+  })
   const service = createEngineRuntime({
     adapters,
     store: createEngineStore({

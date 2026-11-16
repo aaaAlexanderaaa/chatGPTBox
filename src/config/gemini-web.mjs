@@ -4,7 +4,8 @@ export const GEMINI_WEB_SELECTION = `geminiweb/${GEMINI_WEB_MODEL}`
 export const GEMINI_WEB_MODEL_DESCRIPTION = '4 Hydrogen'
 // Observed from the native model service after choosing Medium in the real UI.
 export const GEMINI_WEB_THINKING_LEVEL = 'THINKING_LEVEL_MEDIUM'
-export const GEMINI_WEB_MAX_TABS = 3
+export const GEMINI_WEB_MAX_CONCURRENT = 3
+export const GEMINI_WEB_MAX_TABS = GEMINI_WEB_MAX_CONCURRENT
 export const GEMINI_WEB_TIMEOUT_MS = 45 * 60 * 1000
 
 export function isGeminiWebModel(model) {

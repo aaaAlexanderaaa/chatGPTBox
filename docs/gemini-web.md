@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-16
 ---
 
 # Gemini Web
@@ -190,12 +190,43 @@ matching eight root hashes alone is not authorization to add a new reference.
 
 ## Submission, completion and recovery
 
-Only one extension Gemini operation runs at a time, across all its tabs and
-clients. A busy caller is refused rather than queued. A durable submission
-record must be acknowledged before native preparation/submission; unreadable
-storage refuses the operation. A worker restart cannot erase that record or
-authorize a replay. Only the background owns this state; UI and MAIN cannot
-clear it directly.
+The user's November 16 correction authorizes three independent concurrent Gemini
+writes across extension, API, MCP and Drafts. Active and unresolved requests each
+consume one of those slots. A fourth request is refused rather than queued;
+another conversation may use a remaining slot while one result is unknown.
+Appends to the same native conversation remain exclusive, including alternative
+opaque references. The [concurrency delivery record](plans/2026-11-16-gemini-concurrency.md)
+tracks implementation and acceptance of this replacement for global single-write
+admission.
+
+Each request has its own durable native submission record, acknowledged before
+native preparation/submission. One serialized background owner merges state
+updates without serializing generation waits. Unreadable or unconfirmed storage
+refuses further admission. A worker restart retains each uncertain record and
+cannot authorize replay. Native v1's old hold migrates as one occupied slot. V2
+keeps `hold: true` as a rollback fence because older owners explicitly reject a
+non-object hold. Actual protections live in `holds`, keyed by native request ID;
+older owners refuse v2 rather than overlook its multiple protections.
+Only the background owns this state; UI and MAIN cannot clear it directly.
+Known account changes, website challenges and error/account notices pause new
+account writes across all slots. Other already-submitted requests keep their
+own observation and recovery identities; no failure triggers another Send.
+
+An observed account notice raises an immediate local submission fence. Pause
+publication and not-yet-dispatched Send share a short gate that rechecks after
+browser tab lookup and before MAIN dispatch. The gate ends when the browser call
+is issued; awaiting that document's reply cannot block the other writers. An
+already-dispatched MAIN call retains its original possibly-submitted protection,
+including the website's asynchronous preparation/transport. A racing Stop does
+not discard an observed account pause. Clearing it requires the existing native
+review checks under the same gate.
+
+The common owner counts the union of native reservations and protected common
+runs, including records whose lease is missing. Only stable run/request and
+original owner/document identity may merge two records into one slot. Unmatched
+legacy records stay separately protected. An unresolved native request without
+a known conversation ID also refuses continuation whose independence cannot be
+established; fresh zero-turn independent writers may still use the other slots.
 
 The extension invokes one native submission handler for a logical request.
 Gemini retains its own transport fallback and same-turn recovery. This is not
@@ -245,6 +276,17 @@ acknowledgement cannot override an active generation or account challenge.
 A check that positively fails before native preparation/submission
 does not claim an uncertain write occurred and need not create a hold.
 
+The Gemini settings review goes through the common engine runtime. Only after
+the native review succeeds does that owner release the engine's durable write
+lease, retire uncertain continuation bindings and record permission for new work.
+Clearing the native hold alone is insufficient for API, MCP and Drafts. The old
+run retains its submission status and unknown outcome; review never replays it.
+Manual review excludes live writes and racing new admissions. It reconciles only
+the captured old requests after their native checks succeed. A failed native
+check or required acknowledgement still awaiting confirmation leaves the
+corresponding write protection in place. Exact readonly recovery can run beside
+unrelated writers and releases only its own matched hold and lease.
+
 Text submissions and continuation use a verified native head. A refreshed or
 reopened document is checked against the original account, conversation, server
 turn and response before its native input handler can run. Earlier bindings that
@@ -253,6 +295,18 @@ native history to establish a fresh reference. Regeneration and attachments
 remain unsupported. Up to three writer tabs and one separate readonly history
 tab are retained. Reads never refresh or navigate a writer; closing a tab does
 not delete its website history.
+
+When new work needs a writer and all three retained tabs are present, only a
+hidden, verified completed writer may be retired. Recheck the pinned account,
+original document, unchanged conversation/server/response head, idle state and absence of
+a draft before closing it. Active or held writers, foreground tabs, changed
+documents/heads and drafts remain untouched. If no safe candidate exists, ask
+the caller to close a finished tab. Reopening a retired conversation uses native
+history and verifies its head again. Manual review retires uncertain bindings
+while leaving their pages open for inspection.
+Missing response identity refuses automatic retirement. Exact recovery may mark
+only its own now-completed, unreserved writer as a candidate; the same fresh
+document/head checks still apply before it is closed.
 
 Gemini's successful navigation can remove the fragment used to mark a newly
 created writer. After refresh, a tracked writer may use its canonical conversation

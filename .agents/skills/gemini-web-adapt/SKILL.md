@@ -46,7 +46,8 @@ description: 维护本项目的 Gemini Web 原生网页适配，在官网运行�
 - Background 是持久提交记录和 hold 的唯一 owner。持久化确认在原生准备前；
   worker 重启、页面丢失、断流或超时不能使旧问题重新获得发送许可。
 - 在准备开始时就监听原生 Send；发现意外的用户/网站提交，阻止额外 handler 调用。
-  保留整个引擎的单路执行和独立只读通道，不把 busy 变成隐式队列。
+  按当前契约保留三个独立执行名额、同一原生会话排他和独立只读通道；每笔未决请求
+  只占自己的名额。旧记录仅凭稳定身份合并计数，不把 busy 变成隐式队列。
 - 用本次 native request、server turn/response 和成功 terminal action 关联结果，
   从同一原生行读取正文与终态。同文 DOM、旧父回答、用户气泡、idle 或传输结束不能证明成功。
   `started` 与 `finalContent` 各自需要契约规定的证据。

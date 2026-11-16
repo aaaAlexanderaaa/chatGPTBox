@@ -51,7 +51,13 @@ gateway, not an extension-internal agent runtime.
 
 Gemini Web uses the same provider registry and conversation Port. Its
 [background owner](src/background/gemini-web-service.mjs) coordinates dedicated
-tabs and a durable uncertain-submission hold. The
+tabs and per-request durable uncertain-submission holds. Three independent
+active or unresolved writes share the account; the common store atomically
+reserves capacity and excludes same-native-conversation writers. Native
+reservations and common protections are unioned by stable execution identity;
+unmatched older records stay protected. The native state owner serializes
+read/modify/write transactions, leaving generation and readonly history independent.
+Its v2 journal retains a fail-closed fence for older native owners. The
 [native operation](src/services/clients/gemini-web/native-runtime.mjs) runs in a
 pinned top-level MAIN document, verifies an inspected runtime and the existing
 input/service instances, then invokes the website's input submission handler.
@@ -71,7 +77,10 @@ history service in one bounded readonly tab. It never navigates or refreshes a
 writer for a read. Native server-turn/response IDs, rather than historical client
 IDs or question text, anchor recovery and reopened continuation. A new writer
 document must revalidate account, conversation and head before the native input
-handler runs. The original three-writer bound remains separate from the read tab.
+handler runs. The three-writer bound remains separate from the read tab. New work
+may retire an unchanged, hidden completed writer after fresh account, document,
+native-head, no-draft and idle checks. Held, active, foreground or changed pages
+remain untouched; native history supplies a future verified reopening.
 An explicit independent request may rebind an owned blank writer after a fresh
 account/idle/no-draft/zero-turn inspection. The background acknowledges that local
 binding before configuration and preparation, advances its writer generation,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createGeminiWebService,
   GEMINI_WEB_RUNTIME_KEY,
@@ -26,6 +26,14 @@ function port() {
     },
   }
 }
+const pendingHolds = (state) =>
+  state?.version === 2 ? Object.values(state.holds) : state?.hold ? [state.hold] : []
+const firstHold = (f) => pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY])[0] || null
+function setHold(f, hold) {
+  const state = f.stored[GEMINI_WEB_RUNTIME_KEY]
+  if (state.version === 2) state.holds = { [hold.requestId]: hold }
+  else state.hold = hold
+}
 function setup(overrides = {}) {
   const stored = {},
     calls = [],
@@ -37,6 +45,7 @@ function setup(overrides = {}) {
     accountFingerprint: 'a'.repeat(64),
   }
   let sequence = 0,
+    tabSequence = 0,
     clock = 0
   const config = { geminiWebEnabled: true, geminiWebReady: true }
   const browser = {
@@ -54,11 +63,15 @@ function setup(overrides = {}) {
     },
     tabs: {
       async create({ url, active }) {
-        const tab = { id: tabs.size + 1, url, active, status: 'complete' }
+        while (tabs.has(++tabSequence)) {
+          /* retain unique browser tab identities */
+        }
+        const tab = { id: tabSequence, url, active, status: 'complete' }
         tabs.set(tab.id, tab)
         return tab
       },
       async get(id) {
+        await overrides.onTabGet?.(id)
         if (!tabs.has(id)) throw new Error('closed')
         return tabs.get(id)
       },
@@ -69,6 +82,9 @@ function setup(overrides = {}) {
         Object.assign(tabs.get(id), patch)
         return tabs.get(id)
       },
+      async remove(id) {
+        tabs.delete(id)
+      },
     },
     scripting: {
       async executeScript(call) {
@@ -76,7 +92,7 @@ function setup(overrides = {}) {
         calls.push({
           op,
           target: structuredClone(call.target),
-          held: !!stored[GEMINI_WEB_RUNTIME_KEY]?.hold,
+          held: pendingHolds(stored[GEMINI_WEB_RUNTIME_KEY]).length > 0,
         })
         let result
         if (overrides.operation) result = await overrides.operation(op, call)
@@ -131,6 +147,552 @@ function setup(overrides = {}) {
 }
 
 describe('Gemini background submission owner', () => {
+  it('does not hold the submission gate while a dispatched writer awaits its browser reply', async () => {
+    let entered, release
+    const started = new Promise((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const f = setup({
+      async operation(op, call) {
+        if (op === 'send' && call.target.tabId === 1) {
+          entered()
+          await gate
+        }
+      },
+    })
+    const a = f.service.run({
+      session: { ...structuredClone(f.session), sessionId: 'slow-writer' },
+      port: port(),
+    })
+    await started
+    const b = port()
+    const runningB = f.service.run({
+      session: { ...structuredClone(f.session), sessionId: 'independent-peer' },
+      port: b,
+    })
+    try {
+      await vi.waitFor(() => expect(b.messages.at(-1)).toMatchObject({ outcome: 'completed' }))
+      expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(2)
+    } finally {
+      release()
+      await Promise.all([a, runningB])
+    }
+  })
+
+  it('keeps Stop local to one request while two peer requests complete', async () => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const f = setup({
+      async operation(op, call) {
+        if (!['send', 'observe'].includes(op)) return
+        if (op === 'observe') await gate
+        const id = call.target.tabId
+        return {
+          ok: true,
+          accepted: true,
+          nativeId: `native-${id}`,
+          serverTurnId: `server-${id}`,
+          responseId: `response-${id}`,
+          conversationId: `c_native000${id}`,
+          answer: `<p>Answer ${id}</p>`,
+          completed: op === 'observe',
+        }
+      },
+    })
+    const ports = [port(), port(), port()]
+    const running = ports.map((p, index) =>
+      f.service.run({
+        session: {
+          ...structuredClone(f.session),
+          sessionId: `peer-${index}`,
+          messageId: `peer-run-${index}`,
+        },
+        port: p,
+      }),
+    )
+    try {
+      await vi.waitFor(() => expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(3))
+      ports[0].onMessage.emit({ stop: true })
+    } finally {
+      release()
+      await Promise.all(running)
+    }
+    expect(ports.map((p) => p.messages.at(-1).outcome)).toEqual([
+      'stopped',
+      'completed',
+      'completed',
+    ])
+    expect(f.calls.filter((call) => call.op === 'stop').map((call) => call.target.tabId)).toEqual([
+      1,
+    ])
+    expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY]).map((hold) => hold.runId)).toEqual([
+      'peer-run-0',
+    ])
+  })
+
+  it.each([
+    'foreground',
+    'draft',
+    'changed-head',
+    'changed-response',
+    'changed-document',
+    'missing-response',
+  ])('does not reclaim a completed writer with %s', async (blockedBy) => {
+    let completed = false
+    const f = setup({
+      documentId: () =>
+        completed && blockedBy === 'changed-document' ? 'changed-document' : 'document-1',
+      operation(op, call) {
+        const id = call.target.tabId
+        if (op === 'inspect') {
+          const entry = f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.find((item) => item.tabId === id)
+          return {
+            ok: true,
+            ready: true,
+            busy: false,
+            draft: completed && blockedBy === 'draft',
+            conversationId: entry?.conversationId || '',
+            serverHead:
+              completed && blockedBy === 'changed-head'
+                ? 'another-head'
+                : entry?.serverTurnId || null,
+            responseHead:
+              completed && blockedBy === 'changed-response'
+                ? 'another-response'
+                : entry?.responseId || null,
+            turnCount: entry?.completed ? 1 : 0,
+          }
+        }
+        if (['send', 'observe'].includes(op))
+          return {
+            ok: true,
+            accepted: true,
+            nativeId: `native-${id}`,
+            serverTurnId: `server-${id}`,
+            responseId: blockedBy === 'missing-response' ? null : `response-${id}`,
+            conversationId: `c_native000${id}`,
+            answer: '<p>Complete</p>',
+            completed: true,
+          }
+      },
+    })
+    for (const id of [1, 2, 3])
+      await f.service.run({
+        session: { ...structuredClone(f.session), sessionId: `writer-${id}` },
+        port: port(),
+      })
+    completed = true
+    if (blockedBy === 'foreground') for (const tab of f.tabs.values()) tab.active = true
+    const next = port()
+    await f.service.run({
+      session: { ...structuredClone(f.session), sessionId: 'new-independent' },
+      port: next,
+    })
+    expect(next.messages.at(-1)).toMatchObject({
+      dispatched: false,
+      error: expect.stringContaining('Close a finished'),
+    })
+    expect(f.tabs.size).toBe(3)
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(3)
+  })
+
+  it('checks the original protected common run even if its native hold is missing', async () => {
+    const f = setup({
+      timeoutMs: 0,
+      operation(op) {
+        if (op === 'review')
+          return {
+            ok: false,
+            code: 'GEMINI_CHECK_REQUIRED',
+            message: 'Original native request remains active',
+          }
+      },
+    })
+    f.session.messageId = 'original-run'
+    await f.service.run({ session: f.session, port: port() })
+    f.stored[GEMINI_WEB_RUNTIME_KEY].holds = {}
+    await expect(
+      f.service.review({
+        protectedRuns: [{ runId: 'original-run', nativeRef: { session: f.session } }],
+      }),
+    ).rejects.toThrow('Original native request remains active')
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+  })
+
+  it('keeps one unknown slot while two writers and history work, then admits new work after only one finishes', async () => {
+    const releases = new Map()
+    const gates = new Map(
+      [2, 3].map((id) => [id, new Promise((resolve) => releases.set(id, resolve))]),
+    )
+    const f = setup({
+      async operation(op, call) {
+        const id = call.target.tabId
+        if (op === 'inspect') {
+          const entry = f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.find((item) => item.tabId === id)
+          return {
+            ok: true,
+            ready: true,
+            busy: false,
+            draft: false,
+            conversationId: entry?.conversationId || '',
+            serverHead: entry?.serverTurnId || null,
+            responseHead: entry?.responseId || null,
+            turnCount: entry?.conversationId ? 1 : 0,
+          }
+        }
+        if (op === 'history.list') return { ok: true, items: [], nextCursor: null }
+        if (!['send', 'observe'].includes(op)) return
+        if (op === 'observe' && id === 1) throw new Error('Lost original observation')
+        if (op === 'observe' && gates.has(id)) await gates.get(id)
+        return {
+          ok: true,
+          accepted: true,
+          nativeId: `native-${id}`,
+          serverTurnId: `server-${id}`,
+          responseId: `response-${id}`,
+          conversationId: `c_native000${id}`,
+          answer: `<p>Answer ${id}</p>`,
+          completed: op === 'observe',
+        }
+      },
+    })
+    const sessions = [1, 2, 3, 4].map((id) => ({
+      ...structuredClone(f.session),
+      sessionId: `independent-${id}`,
+      messageId: `run-${id}`,
+    }))
+    const ports = sessions.map(() => port())
+    await f.service.run({ session: sessions[0], port: ports[0] })
+    const original = structuredClone(firstHold(f))
+    const running = sessions
+      .slice(1, 3)
+      .map((session, index) => f.service.run({ session, port: ports[index + 1] }))
+    try {
+      await vi.waitFor(() => expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(3))
+      await f.service.run({ session: sessions[3], port: ports[3] })
+      expect(ports[3].messages.at(-1)).toMatchObject({ dispatched: false })
+      await f.service.listConversations()
+      const readTabId = f.stored[GEMINI_WEB_RUNTIME_KEY].readTab.tabId
+      expect(
+        f.calls
+          .filter((call) => call.op === 'history.list')
+          .every((call) => call.target.tabId === readTabId),
+      ).toBe(true)
+      expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY])).toHaveLength(3)
+      releases.get(2)()
+      await running[0]
+      await f.service.run({
+        session: { ...sessions[3], messageId: 'new-run-after-unsent' },
+        port: port(),
+      })
+      expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(4)
+      expect(f.stored[GEMINI_WEB_RUNTIME_KEY].holds[original.requestId]).toEqual(original)
+      expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY])).toHaveLength(2)
+      expect(f.tabs.has(1)).toBe(true)
+      expect(f.tabs.has(2)).toBe(false)
+      expect(f.tabs.has(3)).toBe(true)
+      expect(f.tabs.has(readTabId)).toBe(true)
+    } finally {
+      for (const release of releases.values()) release()
+      await Promise.all(running)
+    }
+    expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY])).toEqual([original])
+  })
+
+  it('migrates an old native hold as one slot and preserves the rollback fence and original identity', async () => {
+    const f = setup()
+    const entry = {
+      tabId: 1,
+      ownerId: 'legacy-owner',
+      binding: 'legacy-binding',
+      documentId: 'legacy-document',
+      accountSalt: 'fixture-salt',
+      accountFingerprint: 'a'.repeat(64),
+    }
+    f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.push(entry)
+    const old = {
+      requestId: 'legacy-request',
+      tabId: 1,
+      ownerId: entry.ownerId,
+      documentId: entry.documentId,
+      conversationId: 'c_legacy000',
+      phase: 'possibly-sent',
+      at: 1,
+    }
+    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = old
+    f.tabs.set(1, {
+      id: 1,
+      url: 'https://gemini.google.com/app#chatgptbox-gemini-legacy-owner',
+      active: false,
+      status: 'complete',
+    })
+    await f.service.run({ session: f.session, port: port() })
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+    expect(f.calls.find((call) => call.op === 'send').target.tabId).not.toBe(1)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY]).toMatchObject({
+      version: 2,
+      hold: true,
+      holds: { 'legacy-request': { ...old, binding: entry.binding } },
+    })
+    expect(await createGeminiWebService(f.deps).reservations()).toEqual([
+      { ...old, binding: entry.binding },
+    ])
+  })
+
+  it('keeps an account-wide pause across restart when one document reports a challenge', async () => {
+    const f = setup({
+      operation(op) {
+        if (op === 'send')
+          return {
+            ok: false,
+            code: 'GEMINI_CHECK_REQUIRED',
+            message: 'Native account challenge',
+            accountBlocked: true,
+            dispatched: false,
+          }
+      },
+    })
+    await f.service.run({ session: f.session, port: port() })
+    const blocked = port()
+    await createGeminiWebService(f.deps).run({
+      session: { ...f.session, sessionId: 'another-account-task', geminiWebTabId: undefined },
+      port: blocked,
+    })
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].accountPause).toMatchObject({
+      code: 'GEMINI_CHECK_REQUIRED',
+    })
+    expect(blocked.messages.at(-1)).toMatchObject({
+      dispatched: false,
+      error: 'Native account challenge',
+    })
+    expect(f.config.geminiWebReady).toBe(false)
+  })
+
+  it('persists a newly observed account pause even when Stop wins before result handling', async () => {
+    const p = port()
+    const f = setup({
+      operation(op) {
+        if (op === 'send') {
+          p.onMessage.emit({ stop: true })
+          return {
+            ok: false,
+            accountBlocked: true,
+            code: 'GEMINI_CHECK_REQUIRED',
+            message: 'Notice raced with Stop',
+          }
+        }
+      },
+    })
+    await f.service.run({ session: f.session, port: p })
+    expect(p.messages.at(-1)).toMatchObject({ outcome: 'stopped' })
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].accountPause.message).toBe('Notice raced with Stop')
+    expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
+  })
+
+  it('prevents Send when a peer observes an account pause while tabs.get is still awaiting', async () => {
+    let preparedB = false,
+      waitingB = false,
+      enteredB,
+      releaseB
+    const entered = new Promise((resolve) => {
+      enteredB = resolve
+    })
+    const gate = new Promise((resolve) => {
+      releaseB = resolve
+    })
+    const f = setup({
+      async onTabGet(id) {
+        if (id === 2 && preparedB && !waitingB) {
+          waitingB = true
+          enteredB()
+          await gate
+        }
+      },
+      async operation(op, call) {
+        if (op === 'prepare' && call.target.tabId === 2) preparedB = true
+        if (op === 'observe' && call.target.tabId === 1) {
+          await entered
+          return {
+            ok: false,
+            code: 'GEMINI_CHECK_REQUIRED',
+            accountBlocked: true,
+            message: 'Peer account notice',
+          }
+        }
+      },
+    })
+    const a = port(),
+      b = port()
+    const running = [
+      f.service.run({ session: { ...structuredClone(f.session), sessionId: 'A' }, port: a }),
+      f.service.run({ session: { ...structuredClone(f.session), sessionId: 'B' }, port: b }),
+    ]
+    try {
+      await entered
+      // Let the already-returning peer notice publish its synchronous fence
+      // while B remains inside the browser API, before MAIN dispatch.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    } finally {
+      releaseB()
+      await Promise.all(running)
+    }
+    expect(f.calls.filter((call) => call.op === 'send').map((call) => call.target.tabId)).toEqual([
+      1,
+    ])
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].accountPause.message).toBe('Peer account notice')
+    expect(b.messages.at(-1)).toMatchObject({ error: 'Peer account notice' })
+    expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY])).toHaveLength(2)
+  })
+
+  it('recovers an exact old response beside two writers and makes its completed writer available for new work', async () => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const f = setup({
+      async operation(op, call) {
+        const id = call.target.tabId
+        if (op === 'inspect') {
+          const sent = f.calls.some((row) => row.op === 'send' && row.target.tabId === id)
+          return {
+            ok: true,
+            ready: true,
+            busy: false,
+            draft: false,
+            conversationId: sent ? `c_native000${id}` : '',
+            serverHead: sent ? `server-${id}` : null,
+            responseHead: sent ? `response-${id}` : null,
+            turnCount: sent ? 1 : 0,
+          }
+        }
+        if (op === 'history.read')
+          return {
+            ok: true,
+            messages: [
+              {
+                role: 'assistant',
+                nativeTurnId: 'server-1',
+                nativeResponseId: 'response-1',
+                content: '<p>Exact recovered answer</p>',
+                completed: true,
+              },
+            ],
+            nextCursor: null,
+          }
+        if (!['send', 'observe'].includes(op)) return
+        if (op === 'observe' && id === 1) throw new Error('Original stream lost')
+        if (op === 'observe' && id <= 3) await gate
+        return {
+          ok: true,
+          accepted: true,
+          nativeId: `native-${id}`,
+          serverTurnId: `server-${id}`,
+          responseId: `response-${id}`,
+          conversationId: `c_native000${id}`,
+          answer: `<p>Answer ${id}</p>`,
+          completed: op === 'observe',
+        }
+      },
+    })
+    const old = { ...structuredClone(f.session), messageId: 'old-run' }
+    const next = {
+      ...structuredClone(f.session),
+      sessionId: 'another-writer',
+      messageId: 'new-run',
+    }
+    await f.service.run({ session: old, port: port() })
+    const running = f.service.run({ session: next, port: port() })
+    const third = f.service.run({
+      session: { ...structuredClone(f.session), sessionId: 'third-writer', messageId: 'third-run' },
+      port: port(),
+    })
+    try {
+      await vi.waitFor(() => expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(3))
+      expect(await f.service.recover({ session: old }, { runId: 'old-run' })).toMatchObject({
+        outcome: 'completed',
+        finalOutput: { content: '<p>Exact recovered answer</p>' },
+      })
+      expect(pendingHolds(f.stored[GEMINI_WEB_RUNTIME_KEY]).map((hold) => hold.runId)).toEqual([
+        'new-run',
+        'third-run',
+      ])
+      expect(
+        f.stored[GEMINI_WEB_RUNTIME_KEY].tabs.find((entry) => entry.tabId === 1).completed,
+      ).toBe(true)
+      await f.service.run({
+        session: {
+          ...structuredClone(f.session),
+          sessionId: 'fourth-writer',
+          messageId: 'fourth-run',
+        },
+        port: port(),
+      })
+      expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(4)
+      expect(f.tabs.has(1)).toBe(false)
+    } finally {
+      release()
+      await Promise.all([running, third])
+    }
+  })
+
+  it('runs three independent native writers simultaneously and refuses a fourth before preparation', async () => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const f = setup({
+      async operation(op, call) {
+        if (!['send', 'observe'].includes(op)) return
+        if (op === 'observe') await gate
+        const id = call.target.tabId
+        return {
+          ok: true,
+          accepted: true,
+          nativeId: `native-${id}`,
+          serverTurnId: `server-${id}`,
+          responseId: `response-${id}`,
+          conversationId: `c_native000${id}`,
+          answer: `<p>Answer ${id}</p>`,
+          completed: op === 'observe',
+        }
+      },
+    })
+    const sessions = [1, 2, 3, 4].map((id) => ({
+      ...structuredClone(f.session),
+      sessionId: `independent-${id}`,
+      messageId: `run-${id}`,
+    }))
+    const ports = sessions.map(() => port())
+    const running = sessions
+      .slice(0, 3)
+      .map((session, index) => f.service.run({ session, port: ports[index] }))
+    try {
+      await vi.waitFor(() => expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(3))
+      expect(
+        new Set(f.calls.filter((call) => call.op === 'send').map((call) => call.target.tabId)).size,
+      ).toBe(3)
+      await f.service.run({ session: sessions[3], port: ports[3] })
+      expect(ports[3].messages.at(-1)).toMatchObject({ dispatched: false, outcome: 'failed' })
+      expect(f.calls.filter((call) => call.op === 'prepare')).toHaveLength(3)
+      expect(Object.keys(f.stored[GEMINI_WEB_RUNTIME_KEY].holds)).toHaveLength(3)
+    } finally {
+      release()
+      await Promise.all(running)
+    }
+    expect(ports.slice(0, 3).map((p) => p.messages.at(-1).outcome)).toEqual([
+      'completed',
+      'completed',
+      'completed',
+    ])
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].holds).toEqual({})
+  })
+
   it('resolves an unattempted runtime preflight in the pinned document before one journaled Send', async () => {
     let inspected = 0
     const resolverCalls = []
@@ -186,7 +748,7 @@ describe('Gemini background submission owner', () => {
     const result = port()
     await f.service.run({ session: f.session, port: result })
     expect(f.calls.some((call) => ['prepare', 'send'].includes(call.op))).toBe(false)
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(firstHold(f)).toBeNull()
     expect(result.messages.at(-1)).toMatchObject({ dispatched: false, outcome: 'failed' })
   })
 
@@ -230,7 +792,7 @@ describe('Gemini background submission owner', () => {
     await f.service.run({ session: f.session, port: result })
     expect(resolutions).toBe(0)
     expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).not.toBeNull()
+    expect(firstHold(f)).not.toBeNull()
   })
 
   it('reuses a verified empty owned page after a local pre-submission refusal, without navigating or replaying the old request', async () => {
@@ -357,7 +919,7 @@ describe('Gemini background submission owner', () => {
     // This also covers a common-run crash before its new reference was saved.
     expect(await restored.recover(original, { runId: 'run-B' })).toEqual({ outcome: 'unknown' })
     expect(f.calls.filter((call) => call.op === 'history.read')).toHaveLength(0)
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).not.toBeNull()
+    expect(firstHold(f)).not.toBeNull()
   })
   it('reports an unsupported history adapter as an unsent operation error', async () => {
     const f = setup({
@@ -423,10 +985,7 @@ describe('Gemini background submission owner', () => {
           }
       },
     })
-    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
-      requestId: 'uncertain-old',
-      serverTurnId: 'server-old',
-    }
+    setHold(f, { requestId: 'uncertain-old', serverTurnId: 'server-old' })
     const page = await f.service.listConversations()
     expect(page).toMatchObject({
       items: [{ id: 'c_abcdefgh' }],
@@ -435,7 +994,7 @@ describe('Gemini background submission owner', () => {
       total: null,
     })
     expect(f.calls.map((x) => x.op)).toEqual(['history.list', 'history.list'])
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold.requestId).toBe('uncertain-old')
+    expect(firstHold(f).requestId).toBe('uncertain-old')
   })
   it('recovers only the exact server turn after worker restart, preserving a newer hold and making zero submissions', async () => {
     const f = setup({
@@ -463,10 +1022,7 @@ describe('Gemini background submission owner', () => {
             }
           : undefined,
     })
-    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
-      requestId: 'newer-request',
-      serverTurnId: 'server-newer',
-    }
+    setHold(f, { requestId: 'newer-request', serverTurnId: 'server-newer' })
     const restored = createGeminiWebService(f.deps)
     const reference = {
       session: {
@@ -487,15 +1043,11 @@ describe('Gemini background submission owner', () => {
       outcome: 'completed',
       finalOutput: { content: '<p>Exact old answer</p>' },
     })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold.requestId).toBe('newer-request')
+    expect(firstHold(f).requestId).toBe('newer-request')
     expect(f.calls.every((call) => call.op === 'history.read')).toBe(true)
-    f.stored[GEMINI_WEB_RUNTIME_KEY].hold = {
-      requestId: 'old-request',
-      serverTurnId: 'server-old',
-      responseId: 'response-old',
-    }
+    setHold(f, { requestId: 'old-request', serverTurnId: 'server-old', responseId: 'response-old' })
     expect(await restored.recover(reference)).toMatchObject({ outcome: 'completed' })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(firstHold(f)).toBeNull()
     expect(await restored.recover({ session: { conversationId: 'c_abcdefgh' } })).toEqual({
       outcome: 'unknown',
     })
@@ -518,12 +1070,14 @@ describe('Gemini background submission owner', () => {
       outcome: 'completed',
       finalContent: '<p>Verified answer</p>',
     })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(firstHold(f)).toBeNull()
     expect(f.session.conversationRecords).toHaveLength(1)
   })
 
   it('never calls native preparation when durable storage fails', async () => {
-    const f = setup({ failStorage: (patch) => !!patch[GEMINI_WEB_RUNTIME_KEY]?.hold }),
+    const f = setup({
+        failStorage: (patch) => pendingHolds(patch[GEMINI_WEB_RUNTIME_KEY]).length > 0,
+      }),
       p = port()
     await f.service.run({ session: f.session, port: p })
     expect(f.calls.some((call) => ['prepare', 'send'].includes(call.op))).toBe(false)
@@ -548,7 +1102,7 @@ describe('Gemini background submission owner', () => {
     await f.service.run({ session: f.session, port: p })
     expect(p.messages.at(-1)).toMatchObject({ outcome: 'incomplete' })
     expect(p.messages.at(-1)).not.toHaveProperty('dispatched')
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
     const second = port()
     await createGeminiWebService(f.deps).run({
       session: { ...f.session, question: 'Another question' },
@@ -578,7 +1132,7 @@ describe('Gemini background submission owner', () => {
     expect(p.messages.some((message) => message.finalContent)).toBe(false)
     expect(p.messages.at(-1).outcome).toBe('incomplete')
     expect(f.session.conversationRecords).toEqual([])
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
   })
 
   it('stops before submission when Stop arrives during native preparation', async () => {
@@ -592,7 +1146,7 @@ describe('Gemini background submission owner', () => {
     expect(f.calls.some((call) => call.op === 'send')).toBe(false)
     expect(p.messages.some((message) => message.started)).toBe(false)
     expect(p.messages.at(-1)).toMatchObject({ outcome: 'stopped', done: true })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
   })
 
   it('attempts one matching native Stop, but a disconnect only detaches observation', async () => {
@@ -607,11 +1161,11 @@ describe('Gemini background submission owner', () => {
       await f.service.run({ session: f.session, port: p })
       expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
       expect(f.calls.filter((call) => call.op === 'stop')).toHaveLength(kind === 'stop' ? 1 : 0)
-      expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+      expect(firstHold(f)).toBeTruthy()
     }
   })
 
-  it('rejects a concurrent caller instead of queuing another account operation', async () => {
+  it('rejects a concurrent caller trying to reuse the active writer instead of queuing it', async () => {
     let entered, resume
     const started = new Promise((resolve) => {
       entered = resolve
@@ -655,10 +1209,10 @@ describe('Gemini background submission owner', () => {
     await f.service.run({ session: f.session, port: p })
     const sends = f.calls.filter((call) => call.op === 'send').length
     await f.service.inspect()
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
     expect(await f.service.review()).toMatchObject({ hold: false })
     expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(sends)
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+    expect(firstHold(f)).toBeNull()
   })
 
   it('requires a first account check and pins its salted identity without exposing it to settings', async () => {
@@ -700,7 +1254,7 @@ describe('Gemini background submission owner', () => {
     await started
     const inspections = f.calls.filter((call) => call.op === 'inspect').length
     expect(await f.service.inspect()).toMatchObject({ ok: false, active: true })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
     expect(f.calls.filter((call) => call.op === 'inspect')).toHaveLength(inspections)
     resume()
     await running
@@ -716,7 +1270,7 @@ describe('Gemini background submission owner', () => {
     const f = setup({
       onSave(patch) {
         if (
-          patch[GEMINI_WEB_RUNTIME_KEY]?.hold === null &&
+          pendingHolds(patch[GEMINI_WEB_RUNTIME_KEY]).length === 0 &&
           f.calls.some((call) => call.op === 'observe')
         )
           p.onMessage.emit({ stop: true, requestToken: 'token' })
@@ -742,7 +1296,7 @@ describe('Gemini background submission owner', () => {
           return { ok: true, accepted: true, nativeId: 'native', answer: 'Final', completed: true }
       },
       onSave(patch) {
-        if (patch[GEMINI_WEB_RUNTIME_KEY]?.hold?.nativeId)
+        if (pendingHolds(patch[GEMINI_WEB_RUNTIME_KEY]).some((hold) => hold.nativeId))
           p.onMessage.emit({ stop: true, requestToken: 'token' })
       },
     })
@@ -750,7 +1304,7 @@ describe('Gemini background submission owner', () => {
     expect(p.messages.filter((packet) => packet.done)).toHaveLength(1)
     expect(p.messages.at(-1).outcome).toBe('stopped')
     expect(f.session.conversationRecords).toEqual([])
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
   })
 
   it('keeps a hold when native preparation detects an unexpected website submission', async () => {
@@ -762,7 +1316,7 @@ describe('Gemini background submission owner', () => {
       p = port()
     await f.service.run({ session: f.session, port: p })
     expect(p.messages.at(-1)).not.toHaveProperty('dispatched')
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
   })
 
   it('uses a read-only check after reload and requires acknowledgement of the unconfirmed old outcome', async () => {
@@ -780,11 +1334,11 @@ describe('Gemini background submission owner', () => {
       hold: true,
       needsUnverifiedAcknowledgement: true,
     })
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
     expect(await f.service.review({ acknowledgeUnverified: true })).toMatchObject({ hold: false })
     expect(f.stored[GEMINI_WEB_RUNTIME_KEY]).toMatchObject({
       tabs: [],
-      hold: null,
+      holds: {},
       lastReviewed: { outcome: 'unconfirmed-user-reviewed' },
     })
     expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
@@ -807,9 +1361,9 @@ describe('Gemini background submission owner', () => {
         hold: true,
         needsUnverifiedAcknowledgement: true,
       })
-      expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+      expect(firstHold(f)).toBeTruthy()
       await f.service.review({ acknowledgeUnverified: true })
-      expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeNull()
+      expect(firstHold(f)).toBeNull()
       expect(f.calls.filter((call) => call.op === 'send')).toHaveLength(1)
     },
   )
@@ -830,6 +1384,6 @@ describe('Gemini background submission owner', () => {
     await expect(f.service.review({ acknowledgeUnverified: true })).rejects.toThrow(
       'Finish the native generation',
     )
-    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].hold).toBeTruthy()
+    expect(firstHold(f)).toBeTruthy()
   })
 })

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-16
 ---
 
 # 统一引擎语义、接口与功能开放
@@ -329,12 +329,16 @@ descriptor 的 `retention` 声明当前界限：活动项和最近 30 个已结�
 worker 重启后的未决执行先标不确定，再按支持的只读恢复核验；不能凭内存锁
 消失而释放旧写入。Gemini hold 不随 run 缓存过期、关闭开关或升级清理。
 
-并发占用也由持久执行身份承接。ChatGPT 按原会话范围保护追加；Grok/Gemini
-按原引擎范围保护单路写。不确定的引擎级占用不能以 run 缓存淘汰或租约到期
-证明远端空闲：有可靠只读证据才自动解除，否则保留阻止新写的状态，交给
+并发占用也由持久执行身份承接。ChatGPT 按原会话范围保护追加；Grok 保留
+引擎级单路写。用户于 2026-11-16 要求 Gemini 支持三个独立并发写入，活动或
+未确认的每次执行各占一个持久名额；同一原生会话仍排他。旧 Gemini 引擎级
+租约保留原身份并计作一个名额；第四笔新写在派发前拒绝，不自动排队。
+不确定的占用不能以 run 缓存淘汰或租约到期证明远端空闲：有可靠只读证据
+才自动解除，否则保留该名额的写保护，交给
 明确的设置检查与人工处置。人工处置记录“旧结果未确认、允许新工作”，不把
 旧执行改为失败或重新发送；不能覆盖已知 active generation、challenge 或配额
-阻断。Grok 的重启占用与人工处置现由公共 owner 承接，原生内存锁继续作为底层保护。
+阻断。审查期间拒绝竞态新准入，只释放本次捕获并通过原生核对的旧执行集合。
+Grok 的重启占用与人工处置现由公共 owner 承接，原生内存锁继续作为底层保护。
 识别原生 conversation ID 后，占用按该 ID 持久化；通过历史导入另一个不透明引用
 不能避开旧任务的占用。只读恢复完成后，旧绑定退休，继续追加前须重新读取 head。
 
@@ -366,7 +370,7 @@ worker 重启后的未决执行先标不确定，再按支持的只读恢复核�
     "conversation.read": { "implemented": false },
     "run.recover": { "implemented": false }
   },
-  "execution": { "concurrencyScope": "engine", "maxConcurrent": 1 },
+  "execution": { "concurrencyScope": "engine", "maxConcurrent": 3 },
   "cancellationGuarantee": "request-only",
   "modelPolicy": "fixed-verified-selection"
 }
@@ -578,7 +582,7 @@ nextAction`，以及经过脱敏的 provider cause。下表为公共 HTTP 映射
 | --- | --- | --- |
 | ChatGPT | `generate / append / readConversation / listConversations / recover` 包装现有服务 | 账号目录、模型默认、原生校验、图片/Projects、完整可视化、精确 turn 与 resume；逐项核验取消保证，不从 abort 推断远端已停 |
 | Grok | 包装现有 writer 和 control，声明 `generate / append / readConversation / listConversations` | 全局单路写、GET 硬确认、原 conversation/response 父节点；取消初版仅本地断流，恢复尚未实现。统一准入、持久占用、人工处置与终态归约已接入，不把 EOF、无条件 `pending: false` 或一页 `total` 当证据 |
-| Gemini | 包装后台 native service，声明 `generate / append / listConversations / readConversation / recover` | 11 月 13 日新增原生历史映射及按服务器 turn 身份恢复；追加在新文档重新核对原生会话、head 和响应身份。11 月 14 日用户改选 4 Hydrogen / Medium；保留 Chromium、账号指纹、单路、单次原生 handler 与持久 hold；未记录服务器身份的旧运行仍不确定 |
+| Gemini | 包装后台 native service，声明 `generate / append / listConversations / readConversation / recover` | 11 月 13 日新增原生历史映射及按服务器 turn 身份恢复；追加在新文档重新核对原生会话、head 和响应身份。11 月 14 日用户改选 4 Hydrogen / Medium；保留 Chromium、账号指纹、三个独立并发名额、同会话排他、每请求单次原生 handler 与独立持久 hold；未记录服务器身份的旧运行仍不确定 |
 
 这些映射已通过受控原生样本和公共入口测试；不据此声称真实账号的能力完全对等。Grok 现有 `modelResponse` /
 `[DONE]` 判断必须以自身协议证据验证；不能照抄 ChatGPT 的结束标志。历史快照

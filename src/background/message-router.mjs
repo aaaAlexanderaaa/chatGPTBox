@@ -37,7 +37,11 @@ import { sidePanelPaths, whitelistSidePanelPath } from './sidepanel-path.mjs'
 import { geminiWebService } from './gemini-web-service.mjs'
 import { runProtocolProbeOnOpenTabs } from './protocol-probe-service.mjs'
 import { getChatgptWebPageIntegrityForSender } from './chatgpt-page-integrity.mjs'
-import { engineRequestReply, executeLegacyEngineControl } from '../engines/browser-runtime.mjs'
+import {
+  dispatchEngineRequest,
+  engineRequestReply,
+  executeLegacyEngineControl,
+} from '../engines/browser-runtime.mjs'
 import { legacyControlForMessage } from '../engines/legacy-protocol.mjs'
 import {
   openNativePasteReview,
@@ -63,7 +67,16 @@ export function createMessageRouter() {
       !(sender?.url || '').startsWith(Browser.runtime.getURL(''))
     )
       throw new Error('Gemini account checks and recovery require an extension settings page')
-    return geminiWebService[method](data).catch((error) => ({
+    // Review must reconcile both the native hold and the common execution
+    // lease. Calling the native service alone leaves API/MCP/Drafts blocked.
+    const result =
+      method === 'review'
+        ? dispatchEngineRequest(
+            { method: 'engine.review', payload: { engineId: 'geminiweb', query: data } },
+            sender,
+          )
+        : geminiWebService[method](data)
+    return result.catch((error) => ({
       ok: false,
       ready: false,
       message: error.message,

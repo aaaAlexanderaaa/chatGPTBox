@@ -746,7 +746,24 @@ export function createNativeEngineAdapters(deps = {}) {
       adapter.listConversations = (query) =>
         grokControl(GrokProxyControlAction.ListConversations, query)
     } else {
-      adapter.review = (query) => gemini.review(query)
+      adapter.review = (query, context) =>
+        gemini.review({ ...query, protectedRuns: context.protectedRuns })
+      adapter.capacityReservations = async (protections) => {
+        const held = await gemini.reservations()
+        return held.map((hold) => {
+          const matched = protections.find((record) => {
+            if (record.engineId !== 'geminiweb') return false
+            if (hold.runId === record.runId) return true
+            const session = record.nativeRef?.session
+            return (
+              session?.geminiWebRequestId === hold.requestId &&
+              (!hold.ownerId || session.geminiWebOwnerId === hold.ownerId) &&
+              (!hold.documentId || session.geminiWebDocumentId === hold.documentId)
+            )
+          })
+          return matched ? `run:${matched.runId}` : `native:${hold.requestId}`
+        })
+      }
       adapter.listConversations = (query) => gemini.listConversations(query)
       adapter.readConversation = (query) => gemini.readConversation(query)
       adapter.recover = (reference, context) => gemini.recover(reference, context)

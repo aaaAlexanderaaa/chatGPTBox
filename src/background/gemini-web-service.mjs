@@ -2,6 +2,7 @@ import Browser from 'webextension-polyfill'
 import { getUserConfig, setUserConfig } from '../config/storage.mjs'
 import {
   GEMINI_NATIVE_CONTRACTS,
+  GEMINI_WEB_MAX_CONCURRENT,
   GEMINI_WEB_MAX_TABS,
   GEMINI_WEB_MODEL,
   GEMINI_WEB_SELECTION,
@@ -34,8 +35,8 @@ function notSent(message) {
   return error
 }
 
-// The background is the only state owner. This synchronous claim covers all
-// callers in this worker; acknowledged storage covers the next worker lifetime.
+// The background is the only state writer. Short read/modify/write transactions
+// serialize its journal; generation runs independently in pinned documents.
 // No UI/content context writes the journal and no startup job resubmits it.
 export function createGeminiWebService(deps = {}) {
   const browser = deps.browser || Browser
@@ -48,24 +49,66 @@ export function createGeminiWebService(deps = {}) {
   // Volatile and document-scoped: restarting never grants a replay or persists
   // an automatically learned website version as a new trusted reference.
   const automaticContracts = new Map()
-  let active = false
+  const activeRuns = new Map()
+  let maintenance = false
+  let reading = false
+  let stateQueue = Promise.resolve()
+  let submissionQueue = Promise.resolve()
+  let observedAccountPause = null
+  let storageUnavailable = false
 
   async function load() {
-    const stored = await browser.storage.local.get(GEMINI_WEB_RUNTIME_KEY)
+    if (storageUnavailable)
+      throw new Error('Gemini safety storage is unavailable. No new write is allowed.')
+    let stored
+    try {
+      stored = await browser.storage.local.get(GEMINI_WEB_RUNTIME_KEY)
+    } catch (error) {
+      storageUnavailable = true
+      throw error
+    }
     if (!stored || typeof stored !== 'object')
       throw notSent(
         'Gemini safety state could not be read. Check extension storage before sending.',
       )
-    const value = stored[GEMINI_WEB_RUNTIME_KEY]
+    let value = stored[GEMINI_WEB_RUNTIME_KEY]
     if (value === undefined)
-      return { tabs: [], hold: null, accountSalt: '', accountFingerprint: '' }
+      return {
+        version: 2,
+        tabs: [],
+        holds: {},
+        hold: true,
+        accountSalt: '',
+        accountFingerprint: '',
+      }
+    if (value && (value.version === undefined || value.version === 1)) {
+      const previous = value.hold
+      if (previous && (typeof previous !== 'object' || typeof previous.requestId !== 'string'))
+        throw new Error('The legacy Gemini hold cannot be identified. Inspect its safety state.')
+      const tab = value.tabs?.find((entry) => entry.tabId === previous?.tabId)
+      value = {
+        ...value,
+        version: 2,
+        holds: previous
+          ? { [previous.requestId]: { ...previous, binding: previous.binding || tab?.binding } }
+          : {},
+        // Old native owners validate hold as an object. This deliberate v2
+        // fence makes them refuse instead of overlooking multiple protections.
+        hold: true,
+      }
+    }
     if (
       !value ||
+      value.version !== 2 ||
+      value.hold !== true ||
       !Array.isArray(value.tabs) ||
       value.tabs.length > GEMINI_WEB_MAX_TABS ||
-      (value.hold && typeof value.hold !== 'object')
+      !value.holds ||
+      typeof value.holds !== 'object' ||
+      Array.isArray(value.holds) ||
+      Object.entries(value.holds).some(([id, hold]) => !id || hold?.requestId !== id)
     )
-      throw notSent(
+      throw new Error(
         'Gemini safety state is invalid. Inspect the website before repairing local state.',
       )
     if (
@@ -81,13 +124,103 @@ export function createGeminiWebService(deps = {}) {
           entry.accountFingerprint !== value.accountFingerprint,
       )
     )
-      throw notSent(
+      throw new Error(
         'Gemini account or tab binding state is invalid. Check the website before repairing local state.',
       )
     return structuredClone(value)
   }
   async function save(state) {
-    await browser.storage.local.set({ [GEMINI_WEB_RUNTIME_KEY]: state })
+    try {
+      await browser.storage.local.set({ [GEMINI_WEB_RUNTIME_KEY]: state })
+    } catch (error) {
+      storageUnavailable = true
+      throw error
+    }
+  }
+  function stateAction(change, write = false) {
+    const pending = stateQueue
+      .catch(() => {})
+      .then(async () => {
+        const state = await load()
+        const result = await change(state)
+        if (write) await save(state)
+        return structuredClone(result)
+      })
+    stateQueue = pending.then(
+      () => {},
+      () => {},
+    )
+    return pending
+  }
+  const mutate = (change) => stateAction(change, true)
+  function submissionAction(action) {
+    const pending = submissionQueue.catch(() => {}).then(action)
+    submissionQueue = pending.then(
+      () => {},
+      () => {},
+    )
+    return pending
+  }
+  const holds = (state) => Object.values(state.holds)
+  function nativeError(result, unsent = false) {
+    return Object.assign(new Error(result.message || 'Gemini could not confirm this operation.'), {
+      code: result.code,
+      ...(result.accountBlocked === true ? { accountBlocked: true } : {}),
+      ...(unsent || result.dispatched === false ? { dispatched: false } : {}),
+    })
+  }
+  async function pauseAccount(error) {
+    if (error.accountBlocked !== true) return
+    observedAccountPause = { code: error.code, message: error.message, at: now() }
+    await submissionAction(() =>
+      mutate((state) => {
+        state.accountPause = observedAccountPause
+      }),
+    )
+    await setConfig({ geminiWebReady: false })
+  }
+  function checkedEntry(state, entry) {
+    const current = state.tabs.find(
+      (item) =>
+        item.tabId === entry.tabId &&
+        item.ownerId === entry.ownerId &&
+        item.binding === entry.binding,
+    )
+    if (!current)
+      throw new Error('The Gemini writer allocation changed. No request will be replayed.')
+    return current
+  }
+  const persistEntry = (entry) =>
+    mutate((state) => {
+      Object.assign(checkedEntry(state, entry), {
+        documentId: entry.documentId,
+        writerEpoch: entry.writerEpoch,
+      })
+    })
+  async function updateHold(entry, requestId, change) {
+    return mutate((state) => {
+      const current = state.holds[requestId]
+      if (
+        !current ||
+        current.ownerId !== entry.ownerId ||
+        current.documentId !== entry.documentId ||
+        current.writerEpoch !== (entry.writerEpoch || 0)
+      )
+        throw new Error('The Gemini submission protection changed. Inspect its original execution.')
+      return change(state, current)
+    })
+  }
+  const clearHold = (entry, requestId) =>
+    updateHold(entry, requestId, (state) => {
+      delete state.holds[requestId]
+    })
+  async function checkAccountPause() {
+    const paused = observedAccountPause || (await stateAction((state) => state.accountPause))
+    if (paused || observedAccountPause)
+      throw new Error(
+        (observedAccountPause || paused).message ||
+          'Check the paused Gemini account before submitting another request.',
+      )
   }
   async function enabled() {
     const config = await getConfig()
@@ -100,30 +233,43 @@ export function createGeminiWebService(deps = {}) {
     return config
   }
   async function invoke(entry, action, data = {}, discover = true) {
-    const tab = await browser.tabs.get(entry.tabId)
-    if (!isGeminiPage(tab?.url))
-      throw new Error(
-        'The dedicated Gemini tab was closed or navigated away. Inspect its existing result; it will not be sent again.',
-      )
-    const target = entry.documentId
-      ? { tabId: entry.tabId, documentIds: [entry.documentId] }
-      : { tabId: entry.tabId, frameIds: [0] }
-    const automatic = automaticContracts.get(entry.documentId)
-    const results = await browser.scripting.executeScript({
-      target,
-      world: 'MAIN',
-      func: runGeminiNativeOperation,
-      args: [
-        {
-          action,
-          ownerId: entry.ownerId,
-          contracts: automatic ? [...GEMINI_NATIVE_CONTRACTS, automatic] : GEMINI_NATIVE_CONTRACTS,
-          accountSalt: entry.accountSalt,
-          expectedAccountFingerprint: entry.accountFingerprint,
-          ...data,
-        },
-      ],
-    })
+    let automatic
+    const dispatch = async () => {
+      const tab = await browser.tabs.get(entry.tabId)
+      if (!isGeminiPage(tab?.url))
+        throw new Error(
+          'The dedicated Gemini tab was closed or navigated away. Inspect its existing result; it will not be sent again.',
+        )
+      const target = entry.documentId
+        ? { tabId: entry.tabId, documentIds: [entry.documentId] }
+        : { tabId: entry.tabId, frameIds: [0] }
+      automatic = automaticContracts.get(entry.documentId)
+      // The gate ends at the browser's dispatch boundary, not at its eventual
+      // reply. A stalled document must not block either remaining writer.
+      if (action === 'send') await checkAccountPause()
+      if (action === 'send' && observedAccountPause) throw new Error(observedAccountPause.message)
+      return {
+        pending: browser.scripting.executeScript({
+          target,
+          world: 'MAIN',
+          func: runGeminiNativeOperation,
+          args: [
+            {
+              action,
+              ownerId: entry.ownerId,
+              contracts: automatic
+                ? [...GEMINI_NATIVE_CONTRACTS, automatic]
+                : GEMINI_NATIVE_CONTRACTS,
+              accountSalt: entry.accountSalt,
+              expectedAccountFingerprint: entry.accountFingerprint,
+              ...data,
+            },
+          ],
+        }),
+      }
+    }
+    const dispatched = action === 'send' ? await submissionAction(dispatch) : await dispatch()
+    const results = await dispatched.pending
     if (
       !Array.isArray(results) ||
       results.length !== 1 ||
@@ -140,6 +286,8 @@ export function createGeminiWebService(deps = {}) {
     const result = results[0].result
     if (!result || typeof result.ok !== 'boolean')
       throw new Error('The Gemini native operation returned no verifiable result.')
+    if (result.accountBlocked === true)
+      observedAccountPause = { code: result.code, message: result.message, at: now() }
     if (result.discoveryNeeded === true && !automatic && automaticContracts.has(entry.documentId))
       return invoke(entry, action, data, false)
     if (
@@ -191,6 +339,7 @@ export function createGeminiWebService(deps = {}) {
           result[key] != null && (typeof result[key] !== 'string' || result[key].length > 512),
       ) ||
       (result.accepted === true && !result.nativeId) ||
+      (result.accountBlocked !== undefined && typeof result.accountBlocked !== 'boolean') ||
       (result.answer && (!result.nativeId || result.accepted !== true)) ||
       (result.responseTimestamp != null &&
         (typeof result.responseTimestamp !== 'string' ||
@@ -199,7 +348,10 @@ export function createGeminiWebService(deps = {}) {
           new Date(result.responseTimestamp).toISOString() !== result.responseTimestamp)) ||
       (result.url != null && !isGeminiPage(result.url))
     )
-      throw new Error('The Gemini native result has an unsupported identity or output shape.')
+      throw Object.assign(
+        new Error('The Gemini native result has an unsupported identity or output shape.'),
+        result.accountBlocked === true ? { accountBlocked: true, code: result.code } : {},
+      )
     return result
   }
   async function prune(state) {
@@ -209,6 +361,43 @@ export function createGeminiWebService(deps = {}) {
       if (tab && isGeminiPage(tab.url)) retained.push(entry)
     }
     state.tabs = retained
+  }
+  const reservedWriter = (state, tabId) =>
+    holds(state).some((hold) => hold.tabId === tabId) ||
+    [...activeRuns.values()].some((run) => run.tabId === tabId)
+  async function reclaimFinishedWriter(state) {
+    const candidates = state.tabs
+      .filter(
+        (entry) =>
+          entry.completed && entry.conversationId && entry.serverTurnId && entry.responseId,
+      )
+      .sort((left, right) => left.completedAt - right.completedAt)
+    for (const entry of candidates) {
+      if (reservedWriter(state, entry.tabId)) continue
+      const tab = await browser.tabs.get(entry.tabId).catch(() => null)
+      if (!tab || tab.active || !isGeminiPage(tab.url)) continue
+      const probe = { ...entry, documentId: undefined }
+      const checked = await invoke(probe, 'inspect').catch(() => null)
+      if (checked?.accountBlocked) throw nativeError(checked, true)
+      if (
+        !checked?.ok ||
+        !checked.ready ||
+        checked.busy ||
+        checked.draft ||
+        probe.documentId !== entry.documentId ||
+        checked.conversationId !== entry.conversationId ||
+        checked.serverHead !== entry.serverTurnId ||
+        checked.responseHead !== entry.responseId
+      )
+        continue
+      const current = await browser.tabs.get(entry.tabId).catch(() => null)
+      if (!current || current.active || current.url !== tab.url) continue
+      // Only a hidden, unchanged, verified completed writer is retired. The
+      // conversation remains in native history; future append revalidates it.
+      await browser.tabs.remove(entry.tabId)
+      state.tabs = state.tabs.filter((item) => item.tabId !== entry.tabId)
+      return
+    }
   }
   async function ensureTab(state, session) {
     await prune(state)
@@ -237,11 +426,13 @@ export function createGeminiWebService(deps = {}) {
       // binding; configure/connect/prepare still verify it again before Send.
       for (const candidate of state.tabs) {
         if (candidate.binding === binding) continue
+        if (reservedWriter(state, candidate.tabId)) continue
         const tab = await browser.tabs.get(candidate.tabId).catch(() => null)
         if (tab?.url !== `https://gemini.google.com/app#chatgptbox-gemini-${candidate.ownerId}`)
           continue
         const probe = { ...candidate, documentId: undefined }
         const status = await invoke(probe, 'inspect').catch(() => null)
+        if (status?.accountBlocked) throw nativeError(status, true)
         if (
           !status?.ok ||
           status.busy ||
@@ -254,12 +445,12 @@ export function createGeminiWebService(deps = {}) {
         // Re-run native configuration and advance the writer generation even
         // when the blank document itself did not change.
         delete candidate.documentId
-        await save(state)
         session.geminiWebTabId = candidate.tabId
         session.geminiWebOwnerId = candidate.ownerId
         return candidate
       }
     }
+    if (state.tabs.length >= GEMINI_WEB_MAX_TABS) await reclaimFinishedWriter(state)
     if (state.tabs.length >= GEMINI_WEB_MAX_TABS)
       throw notSent(
         `Close a finished ChatGPTBox Gemini tab before creating another (limit ${GEMINI_WEB_MAX_TABS}). Website history is retained.`,
@@ -280,18 +471,9 @@ export function createGeminiWebService(deps = {}) {
       accountFingerprint: state.accountFingerprint,
     }
     state.tabs.push(entry)
-    await save(state)
     session.geminiWebTabId = entry.tabId
     session.geminiWebOwnerId = entry.ownerId
-    const deadline = now() + 60000
-    while (now() < deadline) {
-      const current = await browser.tabs.get(tab.id)
-      if (current.status === 'complete') return entry
-      await delay(300)
-    }
-    throw notSent(
-      'Gemini did not finish loading. Open its dedicated tab and check it before sending again.',
-    )
+    return entry
   }
   const post = (port, packet) => {
     try {
@@ -302,20 +484,17 @@ export function createGeminiWebService(deps = {}) {
   }
 
   async function run({ session, port }) {
-    if (active) {
-      post(port, {
-        error: 'Gemini Web already has an active operation. Requests are not queued.',
-        dispatched: false,
-        done: true,
-        outcome: 'failed',
-      })
-      return
-    }
-    active = true
-    let state,
-      entry,
+    const requestId = uuid()
+    const control = {
       requestId,
+      runId: session.messageId || null,
+      binding: bindingSnapshotKey(session),
+      conversationId: session.conversationId || '',
+      tabId: null,
+    }
+    let entry,
       journaled = false,
+      nativePrepared = false,
       invoked = false
     let stopped = false,
       disconnected = false,
@@ -367,17 +546,47 @@ export function createGeminiWebService(deps = {}) {
         session.question.length > 50000
       )
         throw notSent('Gemini Web accepts a nonempty text prompt of at most 50,000 characters.')
-      state = await load()
-      if (state.hold)
-        throw notSent(
-          'Gemini Web is paused after an uncertain or interrupted operation. Inspect Gemini, then use “Allow new requests after checking Gemini” in Settings → Gemini Web. The old request will not be resubmitted.',
-        )
-      if (!state.accountSalt || !/^[a-f0-9]{64}$/.test(state.accountFingerprint || ''))
-        throw notSent(
-          'Check the Gemini page in Settings → Gemini Web first. This binds the selected account without exporting its identity.',
-        )
       if (cancelled()) return
-      entry = await ensureTab(state, session)
+      entry = await mutate(async (state) => {
+        if (maintenance)
+          throw notSent('Wait for the Gemini settings check before starting new work.')
+        if (state.accountPause || observedAccountPause)
+          throw notSent((observedAccountPause || state.accountPause).message)
+        const protectedRuns = holds(state).filter((hold) => !activeRuns.has(hold.requestId))
+        if (activeRuns.size + protectedRuns.length >= GEMINI_WEB_MAX_CONCURRENT)
+          throw notSent(
+            `All ${GEMINI_WEB_MAX_CONCURRENT} Gemini slots have active or unresolved requests. No request was queued.`,
+          )
+        const conflicts = [...activeRuns.values(), ...holds(state)]
+        if (
+          conflicts.some(
+            (other) =>
+              other.binding === control.binding ||
+              (control.conversationId && other.conversationId === control.conversationId) ||
+              (session.geminiWebTabId && other.tabId === session.geminiWebTabId) ||
+              (control.conversationId && !other.conversationId && state.holds[other.requestId]),
+          )
+        )
+          throw notSent(
+            'This Gemini conversation has an active or unresolved request. Inspect that execution before appending.',
+          )
+        if (!state.accountSalt || !/^[a-f0-9]{64}$/.test(state.accountFingerprint || ''))
+          throw notSent(
+            'Check the Gemini page in Settings → Gemini Web first. This binds the selected account without exporting its identity.',
+          )
+        activeRuns.set(requestId, control)
+        const allocated = await ensureTab(state, session)
+        control.tabId = allocated.tabId
+        return allocated
+      })
+      const loadingDeadline = now() + 60000
+      while ((await browser.tabs.get(entry.tabId)).status !== 'complete') {
+        if (now() >= loadingDeadline)
+          throw notSent(
+            'Gemini did not finish loading. Check its dedicated tab before sending again.',
+          )
+        await delay(300)
+      }
       post(port, { session }) // binding only: not provider acceptance
       if (cancelled()) return
       const continuation = {
@@ -387,7 +596,7 @@ export function createGeminiWebService(deps = {}) {
       }
       const currentDocument = { ...entry, documentId: undefined }
       const inspected = await invoke(currentDocument, 'inspect')
-      if (!inspected.ok) throw notSent(inspected.message)
+      if (!inspected.ok) throw nativeError(inspected, true)
       const documentChanged = entry.documentId !== currentDocument.documentId
       if (
         session.conversationId &&
@@ -406,38 +615,43 @@ export function createGeminiWebService(deps = {}) {
       if (documentChanged) {
         entry.documentId = currentDocument.documentId
         entry.writerEpoch = (entry.writerEpoch || 0) + 1
-        if (!inspected.ok) throw notSent(inspected.message)
-        await save(state)
+        await persistEntry(entry)
         if (cancelled()) return
         const configured = await invoke(entry, 'configure', continuation)
-        if (!configured.ok) throw notSent(configured.message)
-        await save(state)
+        if (!configured.ok) throw nativeError(configured, true)
         if (cancelled()) return
       }
       const connected = await invoke(entry, 'connect', continuation)
-      if (!connected.ok) throw notSent(connected.message)
+      if (!connected.ok) throw nativeError(connected, true)
       session.geminiWebDocumentId = entry.documentId
-      await save(state)
+      await persistEntry(entry)
       if (cancelled()) return
       await enabled()
-      requestId = uuid()
       session.geminiWebRequestId = requestId
       // The previous server head is a continuation input, never this run's
       // recovery evidence. Only a newly observed response can create that proof.
       delete session.geminiWebOutputIdentity
       delete session.geminiWebResponseTimestamp
-      state.hold = {
-        requestId,
-        tabId: entry.tabId,
-        documentId: entry.documentId,
-        ownerId: entry.ownerId,
-        writerEpoch: entry.writerEpoch || 0,
-        phase: 'possibly-sent',
-        at: now(),
-      }
-      await save(state) // must be acknowledged BEFORE native draft/submission
+      await mutate((state) => {
+        if (state.accountPause || observedAccountPause)
+          throw notSent((observedAccountPause || state.accountPause).message)
+        checkedEntry(state, entry)
+        state.holds[requestId] = {
+          requestId,
+          runId: control.runId,
+          binding: control.binding,
+          conversationId: control.conversationId,
+          tabId: entry.tabId,
+          documentId: entry.documentId,
+          ownerId: entry.ownerId,
+          writerEpoch: entry.writerEpoch || 0,
+          phase: 'possibly-sent',
+          at: now(),
+        }
+      }) // acknowledged BEFORE native draft/submission
       journaled = true
       if (cancelled()) return
+      nativePrepared = true
       const prepared = await invoke(entry, 'prepare', {
         requestId,
         question: session.question,
@@ -448,18 +662,16 @@ export function createGeminiWebService(deps = {}) {
       })
       if (!prepared.ok) {
         if (prepared.dispatched === false) {
-          state.hold = null
-          await save(state)
+          await clearHold(entry, requestId)
           journaled = false
         }
-        throw Object.assign(
-          new Error(prepared.message),
-          prepared.dispatched === false ? { dispatched: false } : {},
-        )
+        throw nativeError(prepared)
       }
       await delay(100) // allow the native control to render; no network polling
       if (cancelled()) return
       await enabled()
+      if (cancelled()) return
+      await checkAccountPause()
       if (cancelled()) return
       invoked = true // executeScript failure cannot prove the native call was unsent
       let result = await invoke(entry, 'send', { requestId })
@@ -467,22 +679,24 @@ export function createGeminiWebService(deps = {}) {
       while (!cancelled()) {
         if (!result.ok) {
           if (result.dispatched === false) {
-            state.hold = null
-            await save(state)
+            await clearHold(entry, requestId)
             journaled = false
           }
-          throw Object.assign(
-            new Error(result.message),
-            result.dispatched === false ? { dispatched: false } : {},
-          )
+          throw nativeError(result)
         }
         if (result.nativeId) {
           session.geminiWebLastNativeId = result.nativeId
-          if (state.hold && state.hold.nativeId !== result.nativeId) {
-            state.hold.nativeId = result.nativeId
-            state.hold.conversationId = result.conversationId || ''
-            await save(state)
+          if (
+            control.nativeId !== result.nativeId ||
+            (result.conversationId && control.conversationId !== result.conversationId)
+          ) {
+            await updateHold(entry, requestId, (_state, hold) => {
+              hold.nativeId = result.nativeId
+              if (result.conversationId) hold.conversationId = result.conversationId
+            })
+            control.nativeId = result.nativeId
           }
+          if (result.conversationId) control.conversationId = result.conversationId
         }
         if (result.serverTurnId && result.accepted && result.nativeId) {
           if (result.serverTurnId === continuation.lastServerTurnId)
@@ -498,14 +712,16 @@ export function createGeminiWebService(deps = {}) {
             responseId: result.responseId || null,
           }
           if (
-            state.hold &&
-            (state.hold.serverTurnId !== result.serverTurnId ||
-              state.hold.responseId !== result.responseId)
+            control.serverTurnId !== result.serverTurnId ||
+            control.responseId !== (result.responseId || null)
           ) {
-            state.hold.serverTurnId = result.serverTurnId
-            state.hold.responseId = result.responseId || null
-            state.hold.outputIdentity = outputIdentity
-            await save(state)
+            await updateHold(entry, requestId, (_state, hold) => {
+              hold.serverTurnId = result.serverTurnId
+              hold.responseId = result.responseId || null
+              hold.outputIdentity = outputIdentity
+            })
+            control.serverTurnId = result.serverTurnId
+            control.responseId = result.responseId || null
           }
           session.geminiWebOutputIdentity = outputIdentity
         }
@@ -527,8 +743,17 @@ export function createGeminiWebService(deps = {}) {
           // journal cleanup. Stop wins until this point; after it, shared port
           // guards and this owner both suppress another terminal outcome.
           finish({ answer, finalContent: answer, outcome: 'completed', done: true, session })
-          state.hold = null
-          await save(state)
+          await updateHold(entry, requestId, (state) => {
+            const current = checkedEntry(state, entry)
+            Object.assign(current, {
+              completed: true,
+              conversationId: session.conversationId || '',
+              serverTurnId: session.geminiWebServerTurnId || null,
+              responseId: session.geminiWebResponseId || null,
+              completedAt: now(),
+            })
+            delete state.holds[requestId]
+          })
           journaled = false
           return
         }
@@ -540,6 +765,11 @@ export function createGeminiWebService(deps = {}) {
         if (!cancelled()) result = await invoke(entry, 'observe', { requestId })
       }
     } catch (error) {
+      try {
+        await pauseAccount(error)
+      } catch {
+        /* storage failure cannot release protection */
+      }
       if (!cancelled())
         finish({
           error: error.message || 'Gemini Web could not complete the request.',
@@ -552,18 +782,20 @@ export function createGeminiWebService(deps = {}) {
     } finally {
       // Stop is explicit. A disconnected UI only detaches; it must not create
       // an unrelated abort write or release an uncertain submission record.
+      if (observedAccountPause)
+        await pauseAccount({ ...observedAccountPause, accountBlocked: true }).catch(() => {})
       if (stopped && invoked && entry && requestId)
         await invoke(entry, 'stop', { requestId }).catch(() => {})
-      if (entry && requestId) await invoke(entry, 'close', { requestId }).catch(() => {})
+      if (entry && nativePrepared) await invoke(entry, 'close', { requestId }).catch(() => {})
       port.onMessage?.removeListener(onMessage)
       port.onDisconnect?.removeListener(onDisconnect)
-      active = false
+      activeRuns.delete(requestId)
     }
   }
 
   async function inspectImpl() {
     await enabled()
-    const state = await load()
+    let state = await stateAction((value) => value)
     const tabs = await browser.tabs.query({ url: 'https://gemini.google.com/app*' })
     const tab =
       tabs.find((item) => item.active && isGeminiPage(item.url)) ||
@@ -573,13 +805,15 @@ export function createGeminiWebService(deps = {}) {
       return {
         ok: false,
         ready: false,
-        hold: !!state.hold,
+        hold: holds(state).length > 0,
         message: 'Open Gemini in this browser, sign in, and select 4 Hydrogen / Medium.',
       }
     }
     if (!state.accountSalt) {
-      state.accountSalt = uuid()
-      await save(state)
+      state = await mutate((value) => {
+        value.accountSalt ||= uuid()
+        return value
+      })
     }
     const owned = state.tabs.find((item) => item.tabId === tab.id)
     const result = await invoke(
@@ -592,36 +826,38 @@ export function createGeminiWebService(deps = {}) {
           },
       'inspect',
     )
+    if (result.accountBlocked) await pauseAccount(nativeError(result))
     if (result.ok && result.ready && !state.accountFingerprint) {
       if (!/^[a-f0-9]{64}$/.test(result.accountFingerprint || ''))
         throw new Error('The Gemini account check returned no verifiable identity.')
-      state.accountFingerprint = result.accountFingerprint
-      await save(state)
+      await mutate((value) => {
+        value.accountFingerprint = result.accountFingerprint
+      })
     }
     await setConfig({ geminiWebReady: result.ok && result.ready === true })
     const { accountFingerprint: _privateIdentity, ...publicResult } = result
     void _privateIdentity
-    return { ...publicResult, hold: !!state.hold }
+    return { ...publicResult, hold: holds(state).length > 0 }
   }
   async function inspect() {
-    if (active)
+    if (maintenance || reading || activeRuns.size)
       return {
         ok: false,
         ready: false,
         active: true,
         message: 'Wait for the active Gemini operation before checking the account.',
       }
-    active = true
+    maintenance = true
     try {
       return await inspectImpl()
     } finally {
-      active = false
+      maintenance = false
     }
   }
   async function open() {
     await enabled()
-    const state = await load()
-    const entry = state.hold || state.tabs.at(-1)
+    const state = await stateAction((value) => value)
+    const entry = holds(state)[0] || state.tabs.at(-1)
     const tab = entry && (await browser.tabs.get(entry.tabId).catch(() => null))
     if (tab && isGeminiPage(tab.url)) {
       await browser.tabs.update(tab.id, { active: true })
@@ -630,12 +866,12 @@ export function createGeminiWebService(deps = {}) {
     await browser.tabs.create({ url: 'https://gemini.google.com/app', active: true })
     return { ok: true }
   }
-  async function review({ acknowledgeUnverified = false } = {}) {
-    if (active)
+  async function review({ acknowledgeUnverified = false, protectedRuns = [] } = {}) {
+    if (maintenance || reading || activeRuns.size)
       throw new Error(
         'Wait for the active Gemini operation to finish before allowing new requests.',
       )
-    active = true
+    maintenance = true
     try {
       const checked = await inspectImpl()
       if (!checked.ok || !checked.ready)
@@ -643,9 +879,41 @@ export function createGeminiWebService(deps = {}) {
           checked.message ||
             'Check Gemini, its model/Medium setting, draft and active generation before allowing new requests.',
         )
-      const state = await load()
-      if (state.hold) {
-        const entry = state.tabs.find((item) => item.tabId === state.hold.tabId)
+      const state = await stateAction((value) => value)
+      const reviewed = []
+      const targets = holds(state).map((hold) => ({ hold, native: true }))
+      for (const record of protectedRuns) {
+        const session = record.nativeRef?.session || {}
+        if (
+          targets.some(
+            ({ hold }) =>
+              hold.runId === record.runId ||
+              (session.geminiWebRequestId &&
+                hold.requestId === session.geminiWebRequestId &&
+                (!hold.ownerId || hold.ownerId === session.geminiWebOwnerId) &&
+                (!hold.documentId || hold.documentId === session.geminiWebDocumentId)),
+          )
+        )
+          continue
+        targets.push({
+          native: false,
+          hold: {
+            requestId: session.geminiWebRequestId || `unconfirmed:${record.runId}`,
+            runId: record.runId,
+            tabId: session.geminiWebTabId,
+            ownerId: session.geminiWebOwnerId,
+            documentId: session.geminiWebDocumentId,
+          },
+        })
+      }
+      for (const { hold, native } of targets) {
+        const tracked = state.tabs.find(
+          (item) => item.tabId === hold.tabId && (!hold.ownerId || item.ownerId === hold.ownerId),
+        )
+        const entry = tracked && {
+          ...tracked,
+          ...(hold.documentId ? { documentId: hold.documentId } : {}),
+        }
         const tab = entry && (await browser.tabs.get(entry.tabId).catch(() => null))
         let unverified = true
         if (tab && isGeminiPage(tab.url)) {
@@ -658,15 +926,11 @@ export function createGeminiWebService(deps = {}) {
           if (result?.ok) unverified = false
           else {
             if (result && !['GEMINI_DOCUMENT_CHANGED', 'GEMINI_TURN_CHANGED'].includes(result.code))
-              throw new Error(result.message)
+              throw nativeError(result)
             // Read the CURRENT document only; never retarget a writer or Stop.
             // Missing ownership cannot establish the old request's outcome.
             const current = await invoke({ ...entry, documentId: undefined }, 'inspect')
-            if (!current.ok || !current.ready)
-              throw new Error(
-                current.message ||
-                  'Finish the active Gemini turn and inspect its draft before allowing new work.',
-              )
+            if (!current.ok || !current.ready) throw nativeError(current)
           }
         }
         if (unverified && acknowledgeUnverified !== true) {
@@ -679,18 +943,47 @@ export function createGeminiWebService(deps = {}) {
               'The original Gemini document is unavailable or was reloaded. Inspect the old result on the website, then explicitly acknowledge that its outcome remains unconfirmed.',
           }
         }
-        state.lastReviewed = {
-          requestId: state.hold.requestId,
-          at: now(),
-          outcome: unverified ? 'unconfirmed-user-reviewed' : 'document-reviewed',
-        }
-        if (unverified) state.tabs = state.tabs.filter((item) => item.tabId !== state.hold.tabId)
-        state.hold = null
-        await save(state)
+        reviewed.push({ hold, unverified, native })
       }
+      await submissionAction(async () => {
+        await mutate((value) => {
+          for (const { hold, unverified, native } of reviewed) {
+            const current = value.holds[hold.requestId]
+            if (native && (!current || JSON.stringify(current) !== JSON.stringify(hold)))
+              throw new Error(
+                'A Gemini protection changed during review. Check the original executions again.',
+              )
+            value.lastReviewed = {
+              requestId: hold.requestId,
+              at: now(),
+              outcome: unverified ? 'unconfirmed-user-reviewed' : 'document-reviewed',
+            }
+            // Retire the uncertain writer binding, retaining its website page
+            // for inspection. A later append must read a fresh verified head.
+            value.tabs = value.tabs.filter(
+              (item) =>
+                item.tabId !== hold.tabId || (hold.ownerId && item.ownerId !== hold.ownerId),
+            )
+            delete value.holds[hold.requestId]
+          }
+          value.lastReview = {
+            at: now(),
+            requests: reviewed.map(({ hold, unverified }) => ({
+              requestId: hold.requestId,
+              runId: hold.runId || null,
+              outcome: unverified ? 'unconfirmed-user-reviewed' : 'document-reviewed',
+            })),
+          }
+          value.accountPause = null
+        })
+        observedAccountPause = null
+      })
       return { ok: true, ready: true, hold: false }
+    } catch (error) {
+      await pauseAccount(error)
+      throw error
     } finally {
-      active = false
+      maintenance = false
     }
   }
   async function listModels() {
@@ -701,7 +994,7 @@ export function createGeminiWebService(deps = {}) {
   }
   async function readImpl(action, query = {}) {
     await enabled()
-    const state = await load()
+    const state = await stateAction((value) => value)
     if (!state.accountFingerprint)
       throw notSent('Check the Gemini account in Settings before reading history.')
     let entry
@@ -726,8 +1019,9 @@ export function createGeminiWebService(deps = {}) {
         accountSalt: state.accountSalt,
         accountFingerprint: state.accountFingerprint,
       }
-      state.readTab = entry
-      await save(state)
+      await mutate((value) => {
+        value.readTab = entry
+      })
       const deadline = now() + 60000
       while ((await browser.tabs.get(tab.id)).status !== 'complete') {
         if (now() >= deadline) throw notSent('Gemini history page did not finish loading.')
@@ -735,6 +1029,7 @@ export function createGeminiWebService(deps = {}) {
       }
     }
     const result = await invoke(entry, action, query)
+    if (result.accountBlocked) await pauseAccount(nativeError(result))
     if (!result.ok)
       throw new EngineError(
         result.code === 'GEMINI_HISTORY_INVALID'
@@ -755,16 +1050,16 @@ export function createGeminiWebService(deps = {}) {
     }
   }
   async function exclusiveRead(action) {
-    if (active)
+    if (maintenance || reading)
       throw new EngineError(
         'ENGINE_BUSY',
-        'Wait for the active Gemini operation before reading history.',
+        'Wait for the active Gemini history or settings check before another read.',
       )
-    active = true
+    reading = true
     try {
       return await action()
     } finally {
-      active = false
+      reading = false
     }
   }
   async function listConversations(query = {}) {
@@ -805,6 +1100,7 @@ export function createGeminiWebService(deps = {}) {
     return exclusiveRead(async () => {
       const ids = reference.session || reference
       const produced = ids.geminiWebOutputIdentity
+      if (activeRuns.has(ids.geminiWebRequestId)) return { outcome: 'unknown' }
       if (
         !produced?.requestId ||
         produced.requestId !== ids.geminiWebRequestId ||
@@ -832,15 +1128,34 @@ export function createGeminiWebService(deps = {}) {
         cursor = detail.nextCursor
       }
       if (!message?.completed || !message.content) return { outcome: 'unknown' }
-      const state = await load()
-      if (
-        state.hold?.requestId === ids.geminiWebRequestId &&
-        state.hold.serverTurnId === ids.geminiWebServerTurnId &&
-        (!state.hold.responseId || state.hold.responseId === message.nativeResponseId)
-      ) {
-        state.hold = null
-        await save(state)
-      }
+      await mutate((state) => {
+        const hold = state.holds[ids.geminiWebRequestId]
+        if (
+          hold &&
+          hold.serverTurnId === ids.geminiWebServerTurnId &&
+          (!hold.runId || hold.runId === produced.runId) &&
+          (!hold.conversationId || hold.conversationId === produced.conversationId) &&
+          (!hold.ownerId || hold.ownerId === ids.geminiWebOwnerId) &&
+          (!hold.documentId || hold.documentId === ids.geminiWebDocumentId) &&
+          (!hold.responseId || hold.responseId === message.nativeResponseId)
+        ) {
+          delete state.holds[ids.geminiWebRequestId]
+          const entry = state.tabs.find(
+            (item) =>
+              item.tabId === ids.geminiWebTabId &&
+              item.ownerId === ids.geminiWebOwnerId &&
+              item.documentId === ids.geminiWebDocumentId,
+          )
+          if (entry && !reservedWriter(state, entry.tabId))
+            Object.assign(entry, {
+              completed: true,
+              conversationId: produced.conversationId,
+              serverTurnId: produced.serverTurnId,
+              responseId: produced.responseId,
+              completedAt: now(),
+            })
+        }
+      })
       return {
         outcome: 'completed',
         finalOutput: {
@@ -859,7 +1174,18 @@ export function createGeminiWebService(deps = {}) {
       }
     })
   }
-  return { run, inspect, open, review, listModels, listConversations, readConversation, recover }
+  const reservations = () => stateAction((state) => holds(state))
+  return {
+    run,
+    inspect,
+    open,
+    review,
+    listModels,
+    listConversations,
+    readConversation,
+    recover,
+    reservations,
+  }
 }
 
 export const geminiWebService = createGeminiWebService()

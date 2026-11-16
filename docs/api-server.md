@@ -505,11 +505,15 @@ waiting. Stop, partial output and disconnection are errors rather than successfu
 final completions. The extended thinking deadline applies.
 
 The [Gemini account and recovery contract](gemini-web.md) also applies here:
-one extension native invocation, website-owned transport recovery, one active
-Gemini operation, and a durable hold after uncertain or interrupted work. Check
+one extension native invocation per request, website-owned transport recovery,
+three independent active or unresolved Gemini slots, and a durable hold for each
+uncertain or interrupted request. Same-native-conversation appends remain exclusive.
+One unknown run consumes one slot; a fourth request is refused without queuing.
+Known account notices or challenges pause new writes across all slots. Check
 the existing result on Gemini before explicitly allowing new requests. Do not
 change the dedicated tab's model during submission. At most three owned tabs
-are retained; close finished tabs before starting more independent completions.
+are retained. New work may retire a hidden, unchanged completed writer after fresh
+account/head/idle/no-draft checks; otherwise close a finished tab explicitly.
 No successful local test guarantees future account safety or live compatibility.
 
 ### At-most-once writes and bounded recovery

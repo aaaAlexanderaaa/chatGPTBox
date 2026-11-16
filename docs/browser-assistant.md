@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-14
+last_reconciled: 2026-11-16
 projection_of: ["docs/product/browser-assistant.md", "docs/product/contracts.md"]
 ---
 
@@ -85,6 +85,8 @@ YouTube 视频的“当前正文”和原有视频摘要现在共用字幕材料
 重发本地历史，网页和 agent 新会话只接收下一条问题；模型菜单在选择前说明。
 同一提供商内换模型保留合法绑定。
 Gemini Web 按本轮选择支持 4 Hydrogen / Medium，需先在设置中启用并检查官网页面。
+最多运行三个独立请求，同一原生会话仍串行；未确认的请求只占自己的名额，
+其他会话可用剩余名额。三个名额全占用时拒绝新提交，不自动排队。
 它保留原生提交校验；已有服务端轮次标识的对话可在刷新或重新打开后核对原对话头，
 再明确追问。原生历史列表、对话读取和精确轮次恢复用于公共接口及 Gemini Drafts
 动作，不自动导入全部历史到扩展。旧的仅记录客户端标识的绑定不能猜测恢复；

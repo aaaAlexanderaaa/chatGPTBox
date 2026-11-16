@@ -8,7 +8,7 @@
 | 编译、指纹、语义字段、模型选择符 | `src/config/gemini-web.mjs` |
 | MAIN 输入、准备、action、history 与输出 | `src/services/clients/gemini-web/native-runtime.mjs` |
 | 自动重命名等价、公开资源与文档绑定 | `code-equivalence.mjs`、`namespace-receivers.mjs`、`automatic-contract.mjs`、`runtime-inspection.mjs`（同目录）；`tests/gemini-code-equivalence.test.mjs` |
-| 专用 tab、持久 hold、单路与只读恢复 | `src/background/gemini-web-service.mjs`；`tests/gemini-web-service.test.mjs` |
+| 专用 tab、三个独立名额、逐请求 hold、同会话排他与只读恢复 | `src/background/gemini-web-service.mjs`；`tests/gemini-web-service.test.mjs` |
 | provider / 统一引擎投影 | `src/background/providers/gemini-web.mjs`、`src/engines/adapters.mjs`、`runtime.mjs` |
 | 模型就绪与界面 | `src/config/engine-selection.mjs`、`src/popup/components/GeminiWebTab.jsx`、`src/options/SettingsCenter.jsx` |
 | HTTP、MCP 等待与恢复 | `scripts/api-server.mjs`、`scripts/lib/engine-gateway.mjs`、`scripts/mcp-server.mjs` |
@@ -30,6 +30,10 @@
   不能将旧同文 DOM 或父回答与新 terminal action 拼成成功。Stop/最终发布竞态只结束一次。
 - **历史/续聊**：覆盖 pinned 与普通列表、分页、刷新/重开、过期 head、缺 produced proof；
   只读 busy/失败保留原 run，读操作不导航 writer 或释放活跃 lease。
+- **并发与迁移**：三笔独立发送同时运行，第四笔发送前拒绝；一笔 unknown 后另两笔仍可使用。
+  检查同原生会话的别名、共同保护与原生 hold 的身份合并、v1 迁移及旧 reader 拒绝 v2，
+  整个读改写队列、完成/Stop/恢复只清本笔、只读页隔离、审查与准入竞态及账号级暂停。
+  回收只能关闭隐藏、无草稿且原文档/head 未变化的已完成 writer，不碰活跃或未决页。
 - **Drafts**：先落完整 request/key 再 HTTP；丢失 202 后按原 key 找原 run；
   pending 时 Send 只观察。Get/Load Older 保留 Waiting Reply 与生成区外备注，编辑冲突保留全文。
 - **时间/输出**：同一响应身份上的内容与终态一致；live/history 时间来源可不同。

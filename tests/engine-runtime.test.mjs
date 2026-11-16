@@ -17,6 +17,7 @@ function fixture({
   failure = false,
   delayedAcceptance = false,
   conversationScope = false,
+  maxConcurrent,
 } = {}) {
   let serial = 0,
     writes = 0,
@@ -32,7 +33,10 @@ function fixture({
     defaultEnabled: false,
     operations: { [Op.Generate]: { implemented: true }, [Op.Append]: { implemented: true } },
     legacyExternalOperations: [Op.Generate, Op.Append],
-    execution: { concurrencyScope: conversationScope ? 'conversation' : 'engine' },
+    execution: {
+      concurrencyScope: conversationScope ? 'conversation' : 'engine',
+      ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
+    },
   }
   let nativeHead = 'head-zero'
   const adapter = {
@@ -107,6 +111,155 @@ function fixture({
 }
 
 describe('common engine runtime', () => {
+  it('reconciles three worker orphans to reviewable unknown runs and releases them only after native review', async () => {
+    const f = fixture({ maxConcurrent: 3 })
+    for (const runId of ['orphan-A', 'orphan-B', 'orphan-C']) {
+      await f.store.claim({
+        runId,
+        fingerprint: runId,
+        engineId: 'fourth',
+        modelId: 'chosen-model',
+        operation: Op.Generate,
+        principal: 'gateway-api',
+        capacity: { key: 'engine:fourth', limit: 3 },
+      })
+      await f.store.update(runId, { submission: 'possibly_submitted' })
+    }
+    f.adapter.review = vi.fn(async () => ({ ok: true }))
+    const restarted = createEngineRuntime({
+      adapters: [f.adapter],
+      store: createEngineStore(f.dependencies),
+      getConfig: async () => f.config,
+      setConfig: async (patch) => Object.assign(f.config, patch),
+    })
+    await expect(restarted.invoke(request('New work'), api)).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    for (const runId of ['orphan-A', 'orphan-B', 'orphan-C'])
+      expect(await restarted.read(runId, api)).toMatchObject({
+        phase: 'settled',
+        outcome: 'unknown',
+        submission: 'possibly_submitted',
+      })
+    await restarted.review('fourth', {}, internal)
+    expect(f.adapter.review.mock.calls[0][1].protectedRuns.map((run) => run.runId)).toEqual([
+      'orphan-A',
+      'orphan-B',
+      'orphan-C',
+    ])
+    const receipt = await restarted.invoke(request('New work'), api)
+    expect(await restarted.wait(receipt.runId, api)).toMatchObject({ outcome: 'completed' })
+    expect(f.writes()).toBe(1)
+  })
+
+  it.each([0, 1.5, 33, NaN])(
+    'refuses invalid concurrency %s instead of changing its meaning',
+    (maxConcurrent) => {
+      expect(() => fixture({ maxConcurrent })).toThrow('positive bounded integer')
+    },
+  )
+
+  it('keeps one unknown execution while two other slots run and releases only a completed slot', async () => {
+    const f = fixture({ maxConcurrent: 3 })
+    const started = new Set()
+    const releases = new Map()
+    f.adapter.generate = async (value, context) => {
+      started.add(value.input.prompt)
+      await context.report({
+        type: 'accepted',
+        evidence: { kind: 'controlled-turn' },
+        nativeRef: { session: { conversationId: value.input.prompt }, head: 'head' },
+      })
+      if (value.input.prompt === 'A') throw new Error('Uncertain A')
+      if (['B', 'C'].includes(value.input.prompt))
+        await new Promise((resolve) => releases.set(value.input.prompt, resolve))
+      return {
+        outcome: 'completed',
+        submission: 'accepted',
+        finalOutput: { format: 'markdown', content: `Final ${value.input.prompt}` },
+      }
+    }
+    const a = await f.runtime.invoke(request('A'), api)
+    expect(await f.runtime.wait(a.runId, api)).toMatchObject({ outcome: 'unknown' })
+    const b = await f.runtime.invoke(request('B'), api)
+    const c = await f.runtime.invoke(request('C'), api)
+    try {
+      await vi.waitFor(() => expect(started.size).toBe(3))
+      await expect(f.runtime.invoke(request('D'), api)).rejects.toMatchObject({
+        code: 'ENGINE_BUSY',
+        dispatched: false,
+      })
+      releases.get('B')()
+      await f.runtime.wait(b.runId, api)
+      const d = await f.runtime.invoke(request('D'), api)
+      expect(await f.runtime.wait(d.runId, api)).toMatchObject({ outcome: 'completed' })
+      expect(await f.store.get(a.runId)).toMatchObject({ outcome: 'unknown', resolved: false })
+      expect((await f.store.snapshot()).leases[`engine:fourth#${a.runId}`]).toEqual({
+        runId: a.runId,
+      })
+    } finally {
+      for (const release of releases.values()) release()
+      await f.runtime.wait(c.runId, api)
+    }
+    expect([...started]).toEqual(['A', 'B', 'C', 'D'])
+  })
+
+  it('blocks new admissions during review and never releases an execution outside the captured review set', async () => {
+    const f = fixture({ failure: true })
+    const old = await f.runtime.invoke(request(), api)
+    await f.runtime.wait(old.runId, api)
+    let release
+    f.adapter.review = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true })
+        }),
+    )
+    const reviewing = f.runtime.review('fourth', {}, internal)
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    await expect(f.runtime.invoke(request('Race during review'), api)).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+      dispatched: false,
+    })
+    await f.store.claim({
+      runId: 'late-record',
+      fingerprint: 'late-hash',
+      engineId: 'fourth',
+      modelId: 'chosen-model',
+      principal: 'gateway-api',
+      operation: Op.Generate,
+    })
+    await f.store.update('late-record', {
+      phase: 'settled',
+      submission: 'possibly_submitted',
+      outcome: 'unknown',
+    })
+    release()
+    await reviewing
+    expect(await f.store.get(old.runId)).toMatchObject({ resolved: true, outcome: 'unknown' })
+    expect(await f.store.get('late-record')).toMatchObject({ resolved: false, outcome: 'unknown' })
+    expect(f.writes()).toBe(1)
+  })
+
+  it('refuses review while a capacity admission is still awaiting its native reservation read', async () => {
+    const f = fixture({ maxConcurrent: 3 })
+    let release
+    f.adapter.capacityReservations = () =>
+      new Promise((resolve) => {
+        release = () => resolve([])
+      })
+    f.adapter.review = vi.fn(async () => ({ ok: true }))
+    const admitting = f.runtime.invoke(request(), api)
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    await expect(f.runtime.review('fourth', {}, internal)).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    release()
+    const receipt = await admitting
+    await f.runtime.wait(receipt.runId, api)
+    expect(f.adapter.review).not.toHaveBeenCalled()
+  })
+
   it('keeps an active writer authoritative when a client asks to recover its run', async () => {
     const f = fixture({ paused: true })
     f.adapter.recover = vi.fn(async () => ({
@@ -136,39 +289,42 @@ describe('common engine runtime', () => {
       result: { content: 'Verified final' },
     })
   })
-  it('reserves the actual native ID before POST even when two refs race and accepted is delayed', async () => {
-    const f = fixture({ delayedAcceptance: true, conversationScope: true })
-    const [left, right] = await Promise.all(
-      ['left', 'right'].map((sessionId) =>
-        f.runtime.importBinding(
-          'fourth',
-          {
-            session: {
-              conversationId: 'same-native-conversation',
-              sessionId,
-              modelName: 'fourth/chosen-model',
+  it.each([{ conversationScope: true }, { maxConcurrent: 3 }])(
+    'reserves the actual native ID before POST under %j, even when accepted is delayed',
+    async (scope) => {
+      const f = fixture({ delayedAcceptance: true, ...scope })
+      const [left, right] = await Promise.all(
+        ['left', 'right'].map((sessionId) =>
+          f.runtime.importBinding(
+            'fourth',
+            {
+              session: {
+                conversationId: 'same-native-conversation',
+                sessionId,
+                modelName: 'fourth/chosen-model',
+              },
+              head: 'head-zero',
             },
-            head: 'head-zero',
-          },
-          api,
+            api,
+          ),
         ),
-      ),
-    )
-    const append = (conversation) => ({
-      ...request('Append exactly once'),
-      operation: Op.Append,
-      conversation,
-    })
-    const first = await f.runtime.invoke(append(left), api)
-    await vi.waitFor(() => expect(f.writes()).toBe(1))
-    await expect(f.runtime.invoke(append(right), api)).rejects.toMatchObject({
-      code: 'ENGINE_BUSY',
-      dispatched: false,
-    })
-    f.accept()
-    expect(await f.runtime.wait(first.runId, api)).toMatchObject({ outcome: 'completed' })
-    expect(f.writes()).toBe(1)
-  })
+      )
+      const append = (conversation) => ({
+        ...request('Append exactly once'),
+        operation: Op.Append,
+        conversation,
+      })
+      const first = await f.runtime.invoke(append(left), api)
+      await vi.waitFor(() => expect(f.writes()).toBe(1))
+      await expect(f.runtime.invoke(append(right), api)).rejects.toMatchObject({
+        code: 'ENGINE_BUSY',
+        dispatched: false,
+      })
+      f.accept()
+      expect(await f.runtime.wait(first.runId, api)).toMatchObject({ outcome: 'completed' })
+      expect(f.writes()).toBe(1)
+    },
+  )
   it('does not send after cancellation while native preparation is still waiting', async () => {
     const f = fixture()
     let release,

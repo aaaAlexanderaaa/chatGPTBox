@@ -98,6 +98,7 @@ describe('native engine UI selection', () => {
     const adapters = createNativeEngineAdapters({
       geminiService: {
         ...gemini,
+        reservations: async () => [],
         readConversation: async () => ({
           headCompleted: true,
           serverHead: 'server-A',

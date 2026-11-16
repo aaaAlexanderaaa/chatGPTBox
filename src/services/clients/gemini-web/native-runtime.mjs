@@ -6,10 +6,11 @@ export async function runGeminiNativeOperation(options) {
   const KEY = '__chatgptboxGeminiNativeV1'
   const { action, ownerId, requestId, question, contracts = [] } = options
   let context = window[KEY]
-  const fail = (code, message) => ({
+  const fail = (code, message, details = {}) => ({
     ok: false,
     code,
     message,
+    ...details,
     ...(context?.turn?.invoked || context?.turn?.externalSubmission ? {} : { dispatched: false }),
   })
   const visible = (element) =>
@@ -348,6 +349,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_SIGN_IN_REQUIRED',
         'Sign in to Gemini in this browser. No login or account switch is automated.',
+        { accountBlocked: true },
       )
     // Keep this identity inside MAIN; never return the label/email to callers.
     const accountIdentity =
@@ -356,6 +358,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_ACCOUNT_CHANGED',
         'The Google account could not be confirmed or changed. Check Gemini before continuing.',
+        { accountBlocked: true },
       )
     if (
       typeof options.accountSalt !== 'string' ||
@@ -381,6 +384,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_ACCOUNT_CHANGED',
         'The Google account or document changed during its readiness check.',
+        { accountBlocked: true },
       )
     if (
       options.expectedAccountFingerprint &&
@@ -389,6 +393,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_ACCOUNT_CHANGED',
         'This Gemini account differs from the connection checked in Settings. No account switch is automated.',
+        { accountBlocked: true },
       )
     if (action !== 'inspect' && !options.expectedAccountFingerprint)
       return fail(
@@ -405,6 +410,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_CHECK_REQUIRED',
         'Gemini requires attention on its website. No confirmation or challenge is handled automatically.',
+        { accountBlocked: true },
       )
     if (
       [...document.querySelectorAll('[role="alert"],.error-message,.response-error')].some(
@@ -414,6 +420,7 @@ export async function runGeminiNativeOperation(options) {
       return fail(
         'GEMINI_CHECK_REQUIRED',
         'Gemini displays an error or account notice. Check its website before another request.',
+        { accountBlocked: true },
       )
     const accountStillMatches = () => {
       if (
@@ -602,6 +609,7 @@ export async function runGeminiNativeOperation(options) {
         accountFingerprint,
         conversationId: state.id || rows(state).at(-1)?.request?.conversationId || '',
         serverHead: rows(state).at(-1)?.response?.turnId || null,
+        responseHead: rows(state).at(-1)?.response?.draft?.id || null,
         clientHead: rows(state).at(-1)?.request?.clientTurnId || null,
       }
     }

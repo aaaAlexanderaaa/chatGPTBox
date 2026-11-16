@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-15
+last_reconciled: 2026-11-16
 ---
 
 # Execution records
@@ -13,6 +13,7 @@ IDs, and task instructions apply only to their original work.
 
 | Record                                                                 | State and remaining limit                                                                                                                                                                   |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Gemini concurrency](2026-11-16-gemini-concurrency.md) | Completed local delivery and Brave Reload: three independent write slots, isolated holds and same-conversation exclusion; live descriptor and v2 migration checked. Three simultaneous real-account generations and native Drafts/device acceptance remain unverified |
 | [Drafts shared settings](2026-11-15-drafts-shared-settings.md) | Completed local source/package delivery: More settings, shared preferences, missing-sync guard and preserved credentials/recovery; 2,182 tests passed. Native Drafts/device/iCloud acceptance remains unverified |
 | [Drafts engine prefixes](2026-11-15-drafts-engine-prefix.md) | Completed local delivery: five common actions, prefix selection, shared credentials and retained v2/v3 recovery; 2,151 tests and production builds passed. Native Drafts/device/iCloud acceptance remains separate |
 | [Gemini automatic compatibility](2026-11-14-gemini-auto-adapt.md) | Completed local source/package delivery: strict complete-compilation rename matching, 2,102 tests, four production packages and serialized MAIN checks. Future live builds and installed extension update remain unclaimed |

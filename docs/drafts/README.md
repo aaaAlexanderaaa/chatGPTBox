@@ -286,6 +286,17 @@ Later edits stay in Waiting Reply. Only a verified final result replaces its
 pending block; explicit unsent proof retains the original text and allows a later
 manual decision. Unknown, expired or missing identities do not authorize replay.
 
+Gemini allows up to three independent active or unresolved requests. A request
+with an unknown result keeps its own slot while other conversations can use
+remaining slots. Same-conversation writes stay exclusive; a fourth write is
+refused before preparation and is not queued. A resource-busy error means the
+target conversation remains occupied or the three slots are full. Inspect the original Gemini
+page. Once generation has ended, use **Settings → Gemini Web → Allow new requests
+after checking Gemini**. Review waits for live writers to finish. Successful
+review releases the inspected native holds and common execution slots for new work, while keeping old outcomes
+unconfirmed. Preserve a pending note and use Get for that original execution;
+allowing new work does not resend it or certify its answer.
+
 Version-3 Gemini document state binds its generated controls to the note. New
 saves place it at the end, while retaining older leading comments on read. Keep
 the state and pending metadata intact. Common Get/Send dispatch version-2 ChatGPT

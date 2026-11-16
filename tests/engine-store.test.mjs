@@ -38,6 +38,86 @@ const args = (runId = 'run-one') => ({
 })
 
 describe('single background engine authority', () => {
+  it('unions orphan native reservations with protected runs and keeps protection even if its lease is missing', async () => {
+    const f = fixture()
+    await f.store.claim({ ...args('old'), leaseKeys: ['engine:synthetic'] })
+    await f.store.update('old', {
+      phase: 'settled',
+      submission: 'possibly_submitted',
+      outcome: 'unknown',
+    })
+    await f.store.transaction((draft) => {
+      draft.leases = {}
+    })
+    const capacity = {
+      key: 'engine:synthetic',
+      limit: 3,
+      reservations: ['run:old', 'native:orphan'],
+    }
+    await f.store.claim({ ...args('new'), capacity })
+    await expect(f.store.claim({ ...args('fourth'), capacity })).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    expect(await f.store.get('old')).toMatchObject({ outcome: 'unknown', resolved: false })
+  })
+
+  it('atomically reserves three independent slots and refuses the fourth without a claim', async () => {
+    const { store } = fixture()
+    const capacity = { key: 'engine:synthetic', limit: 3 }
+    const results = await Promise.allSettled(
+      ['one', 'two', 'three', 'four'].map((id) => store.claim({ ...args(id), capacity })),
+    )
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(3)
+    expect(results[3].reason).toMatchObject({ code: 'ENGINE_BUSY', dispatched: false })
+    expect(await store.get('four')).toBeNull()
+    expect((await store.claim({ ...args('one'), capacity })).existing).toBe(true)
+    expect(Object.keys((await store.snapshot()).leases)).toHaveLength(3)
+  })
+
+  it('counts a legacy root lease as one slot across restart and releases only an exact resolved run', async () => {
+    const f = fixture()
+    await f.store.claim({ ...args('old'), leaseKeys: ['engine:synthetic'] })
+    await f.store.update('old', { submission: 'possibly_submitted' })
+    const restarted = createEngineStore(f.dependencies)
+    const capacity = { key: 'engine:synthetic', limit: 3 }
+    await restarted.claim({ ...args('two'), capacity })
+    await restarted.claim({ ...args('three'), capacity })
+    await expect(restarted.claim({ ...args('four'), capacity })).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    expect(await restarted.get('old')).toMatchObject({ outcome: 'unknown', resolved: false })
+    await restarted.update('two', { phase: 'settled', outcome: 'unknown' })
+    await expect(restarted.claim({ ...args('four'), capacity })).rejects.toMatchObject({
+      code: 'ENGINE_BUSY',
+    })
+    await restarted.update('two', { resolved: true }, { release: true, allowRecovery: true })
+    await restarted.claim({ ...args('four'), capacity })
+    expect((await restarted.snapshot()).leases['engine:synthetic'].runId).toBe('old')
+  })
+
+  it('keeps native conversation exclusion alongside shared engine capacity', async () => {
+    const { store } = fixture()
+    const capacity = { key: 'engine:synthetic', limit: 3 }
+    await store.claim({
+      ...args('one'),
+      capacity,
+      leaseKeys: ['conversation:synthetic:same-native-id'],
+    })
+    await expect(
+      store.claim({
+        ...args('alias'),
+        capacity,
+        leaseKeys: ['conversation:synthetic:same-native-id'],
+      }),
+    ).rejects.toMatchObject({ code: 'ENGINE_BUSY' })
+    await store.claim({
+      ...args('different'),
+      capacity,
+      leaseKeys: ['conversation:synthetic:other-native-id'],
+    })
+    expect(await store.get('alias')).toBeNull()
+  })
+
   it('retains prototype MCP runs, bindings and protection under the shared gateway principal', async () => {
     const f = fixture()
     await f.store.claim({ ...args(), principal: 'gateway-mcp', leaseKeys: ['engine:synthetic'] })

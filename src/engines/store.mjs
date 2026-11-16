@@ -176,6 +176,7 @@ export function createEngineStore({
     operation,
     principal,
     leaseKeys = [],
+    capacity,
     installationId,
     conversation,
     parentRunId,
@@ -237,6 +238,37 @@ export function createEngineStore({
             'This engine resource has an active or unresolved write. Inspect the existing execution.',
           )
       }
+      if (capacity) {
+        if (
+          typeof capacity.key !== 'string' ||
+          !capacity.key ||
+          !Number.isInteger(capacity.limit) ||
+          capacity.limit < 1 ||
+          capacity.limit > ENGINE_MAX_ACTIVE_RUNS ||
+          !Array.isArray(capacity.reservations || []) ||
+          (capacity.reservations || []).some((id) => typeof id !== 'string' || !id)
+        )
+          throw new EngineError('INVALID_REQUEST', 'Invalid engine capacity reservation.')
+        // The unsuffixed v1 lease still occupies one slot. Native holds without
+        // a common lease are included by the adapter; matching stable run IDs
+        // deduplicate the two journals without guessing from prompt text.
+        const occupied = new Set(capacity.reservations || [])
+        for (const record of Object.values(draft.protections))
+          if (
+            record.engineId === engineId &&
+            !record.resolved &&
+            ['generation.start', 'conversation.append'].includes(record.operation)
+          )
+            occupied.add(`run:${record.runId}`)
+        for (const [key, lease] of Object.entries(draft.leases))
+          if (key === capacity.key || key.startsWith(`${capacity.key}#`))
+            occupied.add(`run:${lease.runId}`)
+        if (occupied.size >= capacity.limit)
+          throw new EngineError(
+            'ENGINE_BUSY',
+            `All ${capacity.limit} engine slots have active or unresolved writes. Inspect those executions; no request was queued.`,
+          )
+      }
       const record = {
         runId,
         fingerprint,
@@ -260,6 +292,7 @@ export function createEngineStore({
       draft.runs[runId] = record
       draft.protections[runId] = clone(record)
       for (const key of leaseKeys) if (!draft.leases[key]) draft.leases[key] = { runId }
+      if (capacity) draft.leases[`${capacity.key}#${runId}`] = { runId }
       if (binding) binding.pendingRunId = runId
       return { existing: false, record, binding }
     })
