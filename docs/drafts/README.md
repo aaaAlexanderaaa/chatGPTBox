@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-15
+last_reconciled: 2026-11-16
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -13,15 +13,57 @@ send a question and collect its answer. The [gateway contract](../api-server.md)
 request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
 
-There are five public actions. Maintained provider code and resources live in
+There are five public actions. For frequent updates on a Mac, initialize the
+shared-library installation once, then use the update command below. Maintained
+provider code and resources live in
 [`scripts/drafts`](../../scripts/drafts/); generated JavaScript lives in
 [`scripts`](scripts/). These development files are not additional actions to
 install. Each import package includes its own code and resources.
 
-## Install and configure
+## One-command updates on Mac
 
-Import these five packages into one **ChatGPTBox** action group. List, Get and
-Send are the common text-conversation entries; Preview and More add reading,
+After initialization, run this from the repository whenever the code changes:
+
+```bash
+npm run drafts:update
+```
+
+The five actions load the updated scripts and Preview template the next time
+they run. The command generates and copies code, reusing the Preview build when
+its inputs are unchanged. It retains the existing **ChatGPTBox Gateway**
+Credential and `ChatGPTBox/settings.json`. Routine updates involve no action
+editor, import dialog, key entry, regression suite or provider request.
+
+For the one-time initialization of an existing Mac installation:
+
+```bash
+npm run drafts:update -- --install
+```
+
+Choose **Replace Existing Group** in Drafts. The installer reads existing action
+groups to retain action identities, shortcuts and other preferences, prepares
+native import packages and opens them through Drafts' normal importer. Group
+snapshots are retained with those temporary packages and by native group version
+history. Existing List/Get/Send/More/Preview entries become small launchers in
+one **ChatGPTBox** group. The database is read only; imports remain owned by the
+app. This initialization is already complete on the Mac updated on November 16.
+
+The maintained assets live under
+`iCloud Drive/Drafts/Library/Scripts/ChatGPTBox`. Native
+[`require`](https://scripting.getdrafts.com/functions/require) reads the selected
+version. A pointer is switched after all files have been copied, with the
+preceding version retained. iCloud action, library-file and credential sync have
+their own timing; wait for the library files to download on another device.
+Preview remains offline once its files are present. Missing library files call
+for downloading them or running the update command again. The updater operates
+on its code directory and leaves notes, settings and credentials to their owners.
+
+## Install and configure self-contained packages
+
+Keep List, Get, Send and More in a **ChatGPTBox** action group. Put the large
+offline Preview action in another group, such as an existing personal group, to
+stay within Drafts' action-group size limit. List, Get and Send are the common
+text-conversation entries; Preview and More add reading,
 photos, Projects and older native history. No separate Gemini actions, helper
 actions or resource-file installation is required.
 
@@ -52,11 +94,13 @@ actions or resource-file installation is required.
    conservative RPM for ChatGPT history. ChatGPT List reads that cache; it does
    not synchronize by itself. Gemini setup is described below.
 
-For an upgrade:
+For a manual self-contained upgrade:
 
 1. Retain/export the old actions, their address/token and explicit model or
    thinking options before replacement.
-2. Create or select the **ChatGPTBox** action group, then import the packages.
+2. Create or select the **ChatGPTBox** action group, then import the network
+   action packages. Keep Preview in a separate group to avoid the native
+   **Action Group Size Limit** warning.
    For List/Get/Send/More, choose **Replace** for the intended existing actions
    after retaining their customizations. Disable/rename any backup copies so you
    cannot accidentally run an older action. Preview is unchanged by the shared
@@ -144,8 +188,10 @@ an unreadable file, restore iCloud access/download it and retry. For malformed o
 unsupported settings, **More → 设置** offers **重新设置**; the existing file is
 replaced only after **保存**. Cancel keeps it. A changed file while the window is
 open requires reopening settings. Saving stages and checks the file before
-replacement; a failed or unconfirmed save is reported as an error. The
-[interface contract](../api-server.md#drafts-shared-settings) owns these boundaries.
+overwriting it with the verified staged text and checking the result; one small
+staging file remains for the next save. A failed or unconfirmed save is reported
+as an error. The [interface contract](../api-server.md#drafts-shared-settings)
+owns these boundaries.
 
 ## List, open, send and collect
 
@@ -164,9 +210,11 @@ with an empty Waiting Reply, Send refreshes instead; Get is the direct refresh
 operation. Send refuses a List note before making an HTTP request—open the
 intended conversation with Get first.
 
-The ChatGPT version-2 header binds the generated controls to this document. Transcript,
-titles, thinking and questions remain data. Edit the Waiting Reply text, not the
-header, IDs or operation metadata. Duplicate/damaged controls or conflicting
+The ChatGPT version-2 document state binds the generated controls to this document.
+New notes start with their title and readable content; document state is kept in
+a trailing HTML comment. Older leading comments remain readable and move to the
+end on the next save. Transcript, titles, thinking and questions remain data.
+Edit the Waiting Reply text and retain the state, IDs and operation metadata. Duplicate/damaged controls or conflicting
 pending identities stop before requests and preserve the complete note.
 
 Recognizable legacy lists and unique old conversation notes with a matching
@@ -238,8 +286,9 @@ Later edits stay in Waiting Reply. Only a verified final result replaces its
 pending block; explicit unsent proof retains the original text and allows a later
 manual decision. Unknown, expired or missing identities do not authorize replay.
 
-Version-3 Gemini headers bind their generated controls to the note. Keep these
-headers and pending metadata intact. Common Get/Send dispatch version-2 ChatGPT
+Version-3 Gemini document state binds its generated controls to the note. New
+saves place it at the end, while retaining older leading comments on read. Keep
+the state and pending metadata intact. Common Get/Send dispatch version-2 ChatGPT
 notes to their original adapter. List refuses to replace a conversation, preserving
 its transcript, unsent draft and operation identity. Captured account credentials
 never enter the note or import packages.
@@ -331,6 +380,10 @@ model-generated code. Precise supported shapes belong to the renderer contract.
 
 ## Updating and troubleshooting
 
+For the shared-library installation, run `npm run drafts:update` to deploy the
+current action code and Preview together. The following manual-replacement
+guidance applies to self-contained copies.
+
 An extension update does not replace installed Drafts scripts or Preview copies.
 Replace the affected layer, preserve configuration, then fetch an existing answer
 again when its stored transcript needs regeneration.
@@ -354,6 +407,10 @@ artifacts. Provider fragments are wrapped in separate function scopes, with a
 buffered note and explicit durable saves before writes. The alias/operation
 registry is in [engine-routing.js.txt](../../scripts/drafts/engine-routing.js.txt);
 adding a provider also requires its actual adapter, without capability fallback.
+The [document layout](../../scripts/drafts/document-layout.shared.txt) owns reading
+leading/trailing state and writing a readable title followed by content and
+trailing state. Provider adapters keep their original in-memory envelope; the
+common persistence boundary controls the saved layout.
 
 Maintain `scripts/drafts/chatgptbox-preview.source.html`, shared CSS and the
 chart runtime; `npm run sync-drafts-preview` regenerates the template/package and protects
@@ -361,9 +418,33 @@ script/template delimiters with an exact CSP hash. Extension builds run both
 steps. Import regenerated copies into Drafts separately.
 
 Repository tests cover controlled local capture, exact-request recovery and a
-synthetic HTTP bridge. Browser previews cover rendered output, not native Drafts
-import, camera behavior or device/iCloud sync. These limits remain separate from
-source/build completion; no native-device acceptance is claimed by this guide.
+synthetic HTTP bridge. Browser previews cover rendered output; camera behavior
+and device/iCloud sync require their own native checks.
+
+On November 16, local macOS Drafts 52.0.1 group replacement installed the current
+four network actions and Preview while retaining the existing gateway credential and
+preferences. More's settings editor saved an existing file after the native
+overwrite correction. One List and one Get opened an existing complete answer;
+native Preview displayed its text, tables and official thinking durations. The
+four personal actions and existing notes were retained, and the disposable
+verification note was moved to Trash. No new provider generation was submitted.
+The native group size warning was resolved by keeping Preview with the personal
+actions and the four network actions in ChatGPTBox. This observes local group
+replacement and reading, with phone/tablet, camera, cross-device synchronization
+and individual-package import acceptance remaining separate checks.
+That earlier settings correction passed 148 focused tests across settings,
+engine routing, pending-operation recovery, photos and Gemini on Node.js 22.23.5;
+affected JavaScript lint, generated-artifact checks and documentation checks
+passed. Documentation retained six existing historical-link advisories.
+
+Later on November 16, the user requested readable note beginnings and a simple
+frequent-update command, with regression verification and key automation omitted
+from that workflow. The five installed actions were replaced by shared-library
+launchers in one group. Two existing leading-state notes were converted through
+Drafts after saving native note versions, retaining their original state and
+pending request. Native Preview loaded the shared template and displayed the
+readable title, text and table. The earlier 148-test result belongs to the
+preceding settings change; it is separate from this layout/updater delivery.
 The [November 15 delivery record](../plans/2026-11-15-drafts-engine-prefix.md)
 records prefix routing, common packages, legacy compatibility and actual checks.
 The [shared-settings delivery record](../plans/2026-11-15-drafts-shared-settings.md)

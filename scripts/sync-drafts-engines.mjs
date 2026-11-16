@@ -128,6 +128,8 @@ export async function syncDraftsActions({ check = false } = {}) {
         'const ENGINE_ADAPTERS = { chatgptweb: runChatGPT, geminiweb: runGemini }\n' +
         read('settings.shared.txt') +
         '\n' +
+        read('document-layout.shared.txt') +
+        '\n' +
         read('engine-routing.js.txt') +
         '\n',
       {

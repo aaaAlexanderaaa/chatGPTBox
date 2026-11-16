@@ -39,7 +39,8 @@ const conversation = [
   'Question',
   '<!-- chatgptbox-waiting-reply:end -->',
 ].join('\n')
-const meta = (content) => JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/)[1])
+const meta = (content) =>
+  JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/m)[1])
 
 function run(
   action,
@@ -125,7 +126,7 @@ describe('Drafts More → 设置 across the generated action packages', () => {
       modelOverride: 'model-one',
       includeThinking: true,
     })
-    expect(manager.files.size).toBe(1)
+    expect(manager.files.size).toBe(2)
     expect(manager.files.get(path)).not.toContain('synthetic-token')
 
     const listed = run('list', '', manager, { respond: () => ok({ items: [] }) })
@@ -153,7 +154,7 @@ describe('Drafts More → 设置 across the generated action packages', () => {
     })
     expect(reopened.draft.content).toBe('')
     expect(reopened.requests).toEqual([])
-    expect(manager.files.size).toBe(1)
+    expect(manager.files.size).toBe(2)
   })
 
   it('requires an explicit first save and then retains defaults and existing gateway credentials', () => {
@@ -182,6 +183,24 @@ describe('Drafts More → 设置 across the generated action packages', () => {
     expect(sent.error).toBeUndefined()
     expect(sent.requests[0].url).toBe('http://existing-gateway:18080/chatgpt/conversations')
     expect(sent.requests[0].data).toEqual({ query: 'Question' })
+  })
+
+  it('updates existing native settings when move and copy refuse an occupied destination', () => {
+    const manager = createDraftsFileManager({ modelOverride: 'original' })
+    const cloud = manager.createCloud()
+    cloud.moveItem = vi.fn(() => false)
+    cloud.copyItem = vi.fn(() => false)
+    for (const modelOverride of ['model-two', 'model-three']) {
+      const result = save(manager, { modelOverride })
+      expect(result.error).toBeUndefined()
+      expect(result.app.displaySuccessMessage).toHaveBeenCalledOnce()
+      expect(JSON.parse(manager.files.get(path)).modelOverride).toBe(modelOverride)
+      expect(result.requests).toEqual([])
+      expect(result.draft.update).not.toHaveBeenCalled()
+      expect(manager.files.size).toBe(2)
+    }
+    expect(cloud.moveItem).not.toHaveBeenCalled()
+    expect(cloud.copyItem).not.toHaveBeenCalled()
   })
 
   it('blocks every network action when the shared settings file has not synced to this device', () => {
@@ -340,7 +359,7 @@ describe('Drafts More → 设置 across the generated action packages', () => {
       const cloud = manager.createCloud(),
         original = manager.files.get(path)
       if (failure === 'write') cloud.writeJSON = () => false
-      if (failure === 'replace') cloud.moveItem = () => false
+      if (failure === 'replace') cloud.writeString = () => false
       if (failure === 'readback')
         cloud.readString = (file) => (file === path ? original : undefined)
       const result = save(manager, { modelOverride: 'new-model' })
@@ -375,7 +394,7 @@ describe('Drafts More → 设置 across the generated action packages', () => {
 
   it('does not mistake a missing final file for a successful save of the defaults', () => {
     const manager = createDraftsFileManager(null)
-    manager.createCloud().moveItem = () => true
+    manager.createCloud().writeString = () => true
     const result = save(manager, {})
     expect(result.error?.message).toContain('无法确认共享设置已保存')
     expect(result.app.displaySuccessMessage).not.toHaveBeenCalled()

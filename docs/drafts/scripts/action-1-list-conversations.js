@@ -879,15 +879,19 @@ function savePreferences(value, original) {
     throw new Error('共享设置已被其他操作修改。请重新打开 More → 设置 后再保存。')
   if (!fm.exists('/ChatGPTBox') && !fm.createDirectory('ChatGPTBox', '/'))
     throw new Error('无法创建共享设置目录。请确认 iCloud Drive 可写后重试。')
+  if (!fm.writeJSON(SETTINGS_STAGE_PATH, value))
+    throw new Error('共享设置暂存失败；未替换原设置。请确认 iCloud Drive 可写后重试。')
+  const staged = fm.readString(SETTINGS_STAGE_PATH)
   if (
-    !fm.writeJSON(SETTINGS_STAGE_PATH, value) ||
-    JSON.stringify(preferencesFromSnapshot(fm.readString(SETTINGS_STAGE_PATH))) !==
-      JSON.stringify(value)
+    typeof staged !== 'string' ||
+    JSON.stringify(preferencesFromSnapshot(staged)) !== JSON.stringify(value)
   )
     throw new Error('共享设置暂存失败；未替换原设置。请确认 iCloud Drive 可写后重试。')
   if (settingsSnapshot(fm) !== original)
     throw new Error('共享设置已被其他操作修改。请重新打开 More → 设置 后再保存。')
-  if (!fm.moveItem(SETTINGS_STAGE_PATH, SETTINGS_PATH, true))
+  // Native Drafts can reject moveItem/copyItem when the destination exists,
+  // even with overwrite=true. Write the verified staged text, then read it back.
+  if (!fm.writeString(SETTINGS_PATH, staged))
     throw new Error('无法确认共享设置已保存。请重新打开 More → 设置 检查后重试。')
   const saved = settingsSnapshot(fm)
   if (saved === null || JSON.stringify(preferencesFromSnapshot(saved)) !== JSON.stringify(value))
@@ -956,6 +960,62 @@ function editPreferences() {
     return
   }
 }
+// Stored notes start with their readable title. Older leading metadata remains readable.
+const DOCUMENT_HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
+const DOCUMENT_FOOTER = /\n<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?$/
+
+function splitDraftsDocument(content) {
+  const leading = content.match(DOCUMENT_HEADER)
+  const trailing = content.match(DOCUMENT_FOOTER)
+  if (!leading && !trailing && !content.includes('<!-- chatgptbox-document:')) return null
+  if ((leading && trailing) || (!leading && !trailing))
+    throw new Error(
+      'The ChatGPTBox document metadata is damaged or duplicated. The complete note was kept.',
+    )
+  const match = leading || trailing
+  let meta
+  try {
+    meta = JSON.parse(match[1])
+  } catch {
+    throw new Error('Damaged ChatGPTBox document metadata. The complete note was kept.')
+  }
+  return { meta, body: leading ? content.slice(match[0].length) : content.slice(0, match.index) }
+}
+
+function readableDraftsBody(meta, body) {
+  if (meta.version !== 2) return body
+  if (meta.kind === 'list' && !/^# /.test(body)) return '# ChatGPT conversations\n\n' + body
+  if (meta.kind !== 'conversation') return body
+  const info = body.match(
+    /^(# [^\n]+\n+)(Conversation ID: [A-Za-z0-9-]+\n+(?:(?:Status|Updated|Model): [^\n]*\n+)*)/,
+  )
+  if (!info) return body
+  return (
+    info[1] +
+    body.slice(info[0].length) +
+    '\n<!--\n' +
+    info[2].trimEnd().replace(/-->/g, '--&gt;') +
+    '\n-->\n'
+  )
+}
+
+function storedDraftsDocument(meta, body) {
+  return (
+    readableDraftsBody(meta, body) +
+    '\n<!-- chatgptbox-document:' +
+    JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') +
+    ' -->\n'
+  )
+}
+
+function adapterDraftsDocument(meta, body) {
+  return (
+    '<!-- chatgptbox-document:' +
+    JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') +
+    ' -->\n' +
+    body
+  )
+}
 // Engine aliases and operations have one owner. A new adapter must be registered
 // explicitly; an unknown prefix never falls back to another provider.
 const ENGINE_ALIASES = { c: 'chatgptweb', g: 'geminiweb' }
@@ -963,7 +1023,6 @@ const ENGINE_OPERATIONS = {
   chatgptweb: ['list', 'get', 'send', 'photos', 'project'],
   geminiweb: ['list', 'get', 'send', 'older'],
 }
-const DOCUMENT_HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
 
 function selectEngine(original) {
   const prefix = original.match(/^\uFEFF?:([a-z][a-z0-9_-]*)(?:[ \t]+|\r?\n|$)/i)
@@ -980,17 +1039,13 @@ function selectEngine(original) {
     throw new Error(
       'Unknown engine prefix. Use :c for ChatGPT or :g for Gemini. The note was kept.',
     )
-  const content = prefix ? original.slice(prefix[0].length) : original
-  const header = content.match(DOCUMENT_HEADER)
+  let content = prefix ? original.slice(prefix[0].length) : original
+  const document = splitDraftsDocument(content)
   let meta = null,
     engineId = null,
     legacyKind = null
-  if (header) {
-    try {
-      meta = JSON.parse(header[1])
-    } catch {
-      throw new Error('Damaged ChatGPTBox header. The complete note was kept.')
-    }
+  if (document) {
+    meta = document.meta
     if (
       !meta ||
       !/^[a-z0-9]{16,80}$/.test(meta.id) ||
@@ -1003,6 +1058,7 @@ function selectEngine(original) {
       engineId = 'chatgptweb'
     else if (meta.version === 3 && meta.engineId === 'geminiweb') engineId = 'geminiweb'
     else throw new Error('Unsupported engine binding. The complete note was kept.')
+    content = adapterDraftsDocument(meta, document.body)
   } else {
     if (content.includes('<!-- chatgptbox-document:'))
       throw new Error('The ChatGPTBox header is damaged or misplaced. The complete note was kept.')
@@ -1116,13 +1172,10 @@ function bufferedDraft(originalDraft, route, settings) {
           'The action returned a different engine binding. The original note was kept.',
         )
       meta.gatewayUrl = settings.baseUrl
-      const next =
-        '<!-- chatgptbox-document:' +
-        JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') +
-        ' -->\n' +
-        content.slice(match[0].length)
+      const body = content.slice(match[0].length)
+      const next = adapterDraftsDocument(meta, body)
       const previous = originalDraft.content
-      originalDraft.content = next
+      originalDraft.content = storedDraftsDocument(meta, body)
       try {
         const result = originalDraft.update()
         if (result === false) throw new Error('Draft save failed. No further request was made.')

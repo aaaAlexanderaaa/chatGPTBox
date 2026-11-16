@@ -26,7 +26,7 @@ const sources = Object.fromEntries(
   ]),
 )
 const metadata = (content) =>
-  JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/)[1])
+  JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/m)[1])
 const success = (data) => ({ success: true, statusCode: 200, responseData: data })
 const detail = {
   conversationId: 'c_abcdefgh',
@@ -39,7 +39,7 @@ const detail = {
   ],
 }
 function run(action, content, respond, { failSave = false } = {}) {
-  if (!content.startsWith('<!-- chatgptbox-document:') && !content.startsWith(':'))
+  if (!content.includes('<!-- chatgptbox-document:') && !content.startsWith(':'))
     content = ':g ' + content
   const requests = [],
     draft = {

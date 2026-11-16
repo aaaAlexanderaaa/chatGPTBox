@@ -26,6 +26,10 @@ export function createDraftsFileManager(preferences = {}) {
       files.set(path, JSON.stringify(value))
       return true
     },
+    writeString(path, value) {
+      files.set(path, value)
+      return true
+    },
     moveItem(from, to, overwrite) {
       if (!files.has(from) || (files.has(to) && !overwrite)) return false
       files.set(to, files.get(from))

@@ -5,7 +5,6 @@ const ENGINE_OPERATIONS = {
   chatgptweb: ['list', 'get', 'send', 'photos', 'project'],
   geminiweb: ['list', 'get', 'send', 'older'],
 }
-const DOCUMENT_HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
 
 function selectEngine(original) {
   const prefix = original.match(/^\uFEFF?:([a-z][a-z0-9_-]*)(?:[ \t]+|\r?\n|$)/i)
@@ -15,11 +14,11 @@ function selectEngine(original) {
   const selected = alias && Object.prototype.hasOwnProperty.call(ENGINE_ALIASES, alias) ? ENGINE_ALIASES[alias] : null
   if (prefix && !selected)
     throw new Error('Unknown engine prefix. Use :c for ChatGPT or :g for Gemini. The note was kept.')
-  const content = prefix ? original.slice(prefix[0].length) : original
-  const header = content.match(DOCUMENT_HEADER)
+  let content = prefix ? original.slice(prefix[0].length) : original
+  const document = splitDraftsDocument(content)
   let meta = null, engineId = null, legacyKind = null
-  if (header) {
-    try { meta = JSON.parse(header[1]) } catch { throw new Error('Damaged ChatGPTBox header. The complete note was kept.') }
+  if (document) {
+    meta = document.meta
     if (!meta || !/^[a-z0-9]{16,80}$/.test(meta.id) ||
         (meta.version === 2 && (!Array.isArray(meta.controls) || !['note', 'list', 'conversation'].includes(meta.kind))) ||
         (meta.version === 3 && !['new', 'list', 'conversation'].includes(meta.kind)))
@@ -27,6 +26,7 @@ function selectEngine(original) {
     if (meta.version === 2 && (meta.engineId === undefined || meta.engineId === 'chatgptweb')) engineId = 'chatgptweb'
     else if (meta.version === 3 && meta.engineId === 'geminiweb') engineId = 'geminiweb'
     else throw new Error('Unsupported engine binding. The complete note was kept.')
+    content = adapterDraftsDocument(meta, document.body)
   } else {
     if (content.includes('<!-- chatgptbox-document:'))
       throw new Error('The ChatGPTBox header is damaged or misplaced. The complete note was kept.')
@@ -84,9 +84,10 @@ function bufferedDraft(originalDraft, route, settings) {
           (route.engineId === 'geminiweb' && (meta.version !== 3 || meta.engineId !== route.engineId)))
         throw new Error('The action returned a different engine binding. The original note was kept.')
       meta.gatewayUrl = settings.baseUrl
-      const next = '<!-- chatgptbox-document:' + JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') + ' -->\n' + content.slice(match[0].length)
+      const body = content.slice(match[0].length)
+      const next = adapterDraftsDocument(meta, body)
       const previous = originalDraft.content
-      originalDraft.content = next
+      originalDraft.content = storedDraftsDocument(meta, body)
       try {
         const result = originalDraft.update()
         if (result === false) throw new Error('Draft save failed. No further request was made.')

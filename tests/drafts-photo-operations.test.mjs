@@ -25,7 +25,7 @@ const sources = Object.fromEntries(
 
 function visible(content) {
   return content
-    .replace(/^<!-- chatgptbox-document:.* -->\n?/, '')
+    .replace(/^<!-- chatgptbox-document:.* -->\n?/m, '')
     .replace(/chatgptbox-[a-z0-9]{16,80}-/g, 'chatgptbox-')
 }
 // A trusted fixture produced by the new Attach Photos/Project actions. Bare

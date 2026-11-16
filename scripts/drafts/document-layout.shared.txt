@@ -1,0 +1,34 @@
+// Stored notes start with their readable title. Older leading metadata remains readable.
+const DOCUMENT_HEADER = /^<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?/
+const DOCUMENT_FOOTER = /\n<!-- chatgptbox-document:(\{[^\n]*\}) -->\n?$/
+
+function splitDraftsDocument(content) {
+  const leading = content.match(DOCUMENT_HEADER)
+  const trailing = content.match(DOCUMENT_FOOTER)
+  if (!leading && !trailing && !content.includes('<!-- chatgptbox-document:')) return null
+  if ((leading && trailing) || (!leading && !trailing))
+    throw new Error('The ChatGPTBox document metadata is damaged or duplicated. The complete note was kept.')
+  const match = leading || trailing
+  let meta
+  try { meta = JSON.parse(match[1]) }
+  catch { throw new Error('Damaged ChatGPTBox document metadata. The complete note was kept.') }
+  return { meta, body: leading ? content.slice(match[0].length) : content.slice(0, match.index) }
+}
+
+function readableDraftsBody(meta, body) {
+  if (meta.version !== 2) return body
+  if (meta.kind === 'list' && !/^# /.test(body)) return '# ChatGPT conversations\n\n' + body
+  if (meta.kind !== 'conversation') return body
+  const info = body.match(/^(# [^\n]+\n+)(Conversation ID: [A-Za-z0-9-]+\n+(?:(?:Status|Updated|Model): [^\n]*\n+)*)/)
+  if (!info) return body
+  return info[1] + body.slice(info[0].length) + '\n<!--\n' + info[2].trimEnd().replace(/-->/g, '--&gt;') + '\n-->\n'
+}
+
+function storedDraftsDocument(meta, body) {
+  return readableDraftsBody(meta, body) + '\n<!-- chatgptbox-document:' +
+    JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') + ' -->\n'
+}
+
+function adapterDraftsDocument(meta, body) {
+  return '<!-- chatgptbox-document:' + JSON.stringify(meta).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') + ' -->\n' + body
+}

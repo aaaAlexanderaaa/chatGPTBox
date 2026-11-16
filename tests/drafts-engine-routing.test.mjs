@@ -19,7 +19,8 @@ const sources = Object.fromEntries(
   ]),
 )
 const ok = (responseData) => ({ success: true, statusCode: 200, responseData })
-const meta = (content) => JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/)[1])
+const meta = (content) =>
+  JSON.parse(content.match(/^<!-- chatgptbox-document:(\{[^\n]*\}) -->/m)[1])
 const geminiDetail = {
   conversationId: 'c_abcdefgh',
   conversationRef: 'native-conversation',

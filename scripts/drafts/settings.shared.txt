@@ -54,12 +54,17 @@ function savePreferences(value, original) {
     throw new Error('共享设置已被其他操作修改。请重新打开 More → 设置 后再保存。')
   if (!fm.exists('/ChatGPTBox') && !fm.createDirectory('ChatGPTBox', '/'))
     throw new Error('无法创建共享设置目录。请确认 iCloud Drive 可写后重试。')
-  if (!fm.writeJSON(SETTINGS_STAGE_PATH, value) ||
-      JSON.stringify(preferencesFromSnapshot(fm.readString(SETTINGS_STAGE_PATH))) !== JSON.stringify(value))
+  if (!fm.writeJSON(SETTINGS_STAGE_PATH, value))
+    throw new Error('共享设置暂存失败；未替换原设置。请确认 iCloud Drive 可写后重试。')
+  const staged = fm.readString(SETTINGS_STAGE_PATH)
+  if (typeof staged !== 'string' ||
+      JSON.stringify(preferencesFromSnapshot(staged)) !== JSON.stringify(value))
     throw new Error('共享设置暂存失败；未替换原设置。请确认 iCloud Drive 可写后重试。')
   if (settingsSnapshot(fm) !== original)
     throw new Error('共享设置已被其他操作修改。请重新打开 More → 设置 后再保存。')
-  if (!fm.moveItem(SETTINGS_STAGE_PATH, SETTINGS_PATH, true))
+  // Native Drafts can reject moveItem/copyItem when the destination exists,
+  // even with overwrite=true. Write the verified staged text, then read it back.
+  if (!fm.writeString(SETTINGS_PATH, staged))
     throw new Error('无法确认共享设置已保存。请重新打开 More → 设置 检查后重试。')
   const saved = settingsSnapshot(fm)
   if (saved === null || JSON.stringify(preferencesFromSnapshot(saved)) !== JSON.stringify(value))

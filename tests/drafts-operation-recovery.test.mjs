@@ -22,7 +22,7 @@ const listSource = fs.readFileSync(
 
 function visible(content) {
   return content
-    .replace(/^<!-- chatgptbox-document:.* -->\n?/, '')
+    .replace(/^<!-- chatgptbox-document:.* -->\n?/m, '')
     .replace(/chatgptbox-[a-z0-9]{16,80}-/g, 'chatgptbox-')
 }
 const receipt = {
@@ -328,7 +328,7 @@ it('treats transcript control examples as text through Get and Send, and rejects
   )
   expect(fetched.error).toBeUndefined()
   expect(fetched.draft.content).toContain(example)
-  const header = JSON.parse(fetched.draft.content.match(/^<!-- chatgptbox-document:(.*) -->/)[1])
+  const header = JSON.parse(fetched.draft.content.match(/^<!-- chatgptbox-document:(.*) -->/m)[1])
   const end = `<!-- chatgptbox-${header.id}-waiting-reply:end -->`
   const edited = fetched.draft.content.replace(end, 'Real next question\n' + end)
   const sent = run(edited, { success: true, statusCode: 200, responseData: receipt })
@@ -389,7 +389,7 @@ it.each([
 
 it('rejects incomplete v2 openers with the current document identity', () => {
   const first = run(note('Original question'), uncertain)
-  const id = JSON.parse(first.draft.content.match(/^<!-- chatgptbox-document:(.*) -->/)[1]).id
+  const id = JSON.parse(first.draft.content.match(/^<!-- chatgptbox-document:(.*) -->/m)[1]).id
   const content = first.draft.content + '\n<!-- chatgptbox-' + id + '-new-operation:damaged --'
   const result = run(content, { success: true, responseData: receipt })
   expect(result.requests).toEqual([])
@@ -585,10 +585,10 @@ it('Get keeps the complete legacy note when an operation and another pending mes
   expect(visible(result.draft.content)).toBe(content)
 })
 function appendManagedControl(content, name, data) {
-  const header = JSON.parse(content.match(/^<!-- chatgptbox-document:(.*) -->/)[1])
+  const header = JSON.parse(content.match(/^<!-- chatgptbox-document:(.*) -->/m)[1])
   const json = (value) => JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
   const marker = '<!-- chatgptbox-' + header.id + '-' + name + ':' + json(data) + ' -->'
-  const body = content.replace(/^<!-- chatgptbox-document:.* -->\n?/, '') + '\n' + marker + '\n'
+  const body = content.replace(/^<!-- chatgptbox-document:.* -->\n?/m, '') + '\n' + marker + '\n'
   header.controls.push(marker)
   return '<!-- chatgptbox-document:' + json(header) + ' -->\n' + body
 }

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-15
+last_reconciled: 2026-11-16
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -211,6 +211,25 @@ field. New saves also retain the nonsecret `gatewayUrl`; a different configured
 URL is rejected before recovery or sending. Legacy copies require keeping their
 original gateway address and token during installation.
 
+On 2026-11-16 the user requested readable note beginnings and a single command
+for frequent updates after initialization. New saves put the document's versioned
+state in a trailing HTML comment; the title, list and transcript remain first.
+The common router reads both the former leading comment and the trailing form,
+normalizing only its in-memory adapter input. Pending identities, complete
+original payloads and provider bindings retain their meaning. Duplicate or
+misplaced document-state comments stop processing and preserve the note.
+
+The optional macOS shared-library installation keeps five small actions that load
+maintained code from Drafts' iCloud script library using native `require`.
+`npm run drafts:update` regenerates and copies scripts and the offline Preview
+template, then switches a local version pointer after all assets are written.
+An unchanged Preview input set reuses its generated template. Each execution
+loads one version; the updater retains the preceding code version. This command
+updates code and templates only. Existing Credential and shared settings remain
+the owners of authentication and preferences. Routine updates run no regression
+suite or provider requests and require no action-import UI after initialization.
+The [Drafts guide](drafts/README.md) owns the initial import and operator command.
+
 Common entry names do not equalize capabilities: photos and Projects remain
 ChatGPT-only, with Project selection limited to a note before its first send;
 older native pages remain Gemini-only. Get observes the original operation and
@@ -255,7 +274,13 @@ Unreadable, malformed or unsupported settings also stop network actions visibly;
 they cannot silently choose another address/model. The settings window can
 explicitly replace malformed settings, and cancellation retains the file.
 Saving validates all fields, stages and reads back one bounded temporary file,
-checks that the original file has not changed, then replaces the settings file.
+checks that the original file has not changed, then writes the verified staged
+text over the settings file and reads it back. The bounded staging file remains
+for the next save. Native macOS Drafts 52.0.1 on November 16 rejected `moveItem`
+and `copyItem` with an existing destination despite passing `true` for overwrite;
+settings replacement uses the documented
+[`writeString` overwrite behavior](https://scripting.getdrafts.com/classes/FileManager#writeString)
+instead.
 Failed or unconfirmed storage does not report success. These are local file
 checks: iCloud synchronization and replacement atomicity are not guaranteed by
 the Drafts scripting API. Wait for file sync on another device; concurrent
