@@ -29,9 +29,6 @@ const gpt6Contract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
 const generationContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
   (entry) => entry.filename === '633146.4de433ac01.js',
 )
-const novemberContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
-  (entry) => entry.filename === '633146.6428a93122.js',
-)
 // All identities, tokens, IDs and message content below are synthetic fixtures.
 // Never replace them with values copied from a browser capture or real account.
 let page, modules, transport, events, identity
@@ -161,37 +158,44 @@ it('keeps a failed attempted nativeFetch uncertain and does not replay it', asyn
 })
 
 describe('ChatGPT native page transport with auth generation', () => {
-  it('uses the reviewed November network export with native identity, cancellation and no-retry controls', async () => {
-    useGenerationRuntime()
-    modules.Kwur = modules.Kwu
-    modules.QdUF = modules.Qd
-    modules.lXEa = modules.lXE
-    modules.wl0r = {
-      d: modules.wl.c,
-      e: vi.fn(() => {
-        throw new Error('Unrelated project action')
-      }),
-      f: vi.fn(() => {
-        throw new Error('Unrelated error classifier')
-      }),
-    }
-    await connect(novemberContract)
-    await send()
-    expect(modules.wl0r.d).toHaveBeenCalledTimes(1)
-    expect(modules.wl0r.d).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        expectedIdentity: { accountId: 'account', userId: 'user' },
-        retry: 'never',
-        signal: expect.any(AbortSignal),
-      }),
-      undefined,
-      expect.any(Function),
-      'stream',
-    )
-    expect(modules.wl0r.e).not.toHaveBeenCalled()
-    expect(modules.wl0r.f).not.toHaveBeenCalled()
-  })
+  it.each(['633146.6428a93122.js', '633146.7f86ed336a.js', '633146.af31399bc4.js'])(
+    'uses the reviewed %s network export with native identity, cancellation and no-retry controls',
+    async (filename) => {
+      const novemberContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
+        (entry) => entry.filename === filename,
+      )
+      expect(novemberContract).toBeDefined()
+      useGenerationRuntime()
+      modules.Kwur = modules.Kwu
+      modules.QdUF = modules.Qd
+      modules.lXEa = modules.lXE
+      modules.wl0r = {
+        d: modules.wl.c,
+        e: vi.fn(() => {
+          throw new Error('Unrelated project action')
+        }),
+        f: vi.fn(() => {
+          throw new Error('Unrelated error classifier')
+        }),
+      }
+      await connect(novemberContract)
+      await send()
+      expect(modules.wl0r.d).toHaveBeenCalledTimes(1)
+      expect(modules.wl0r.d).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          expectedIdentity: { accountId: 'account', userId: 'user' },
+          retry: 'never',
+          signal: expect.any(AbortSignal),
+        }),
+        undefined,
+        expect.any(Function),
+        'stream',
+      )
+      expect(modules.wl0r.e).not.toHaveBeenCalled()
+      expect(modules.wl0r.f).not.toHaveBeenCalled()
+    },
+  )
 
   it('pins a salted account identity across separate engine requests without exporting credentials', async () => {
     useGenerationRuntime()
