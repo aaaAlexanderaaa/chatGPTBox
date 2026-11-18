@@ -158,7 +158,13 @@ it('keeps a failed attempted nativeFetch uncertain and does not replay it', asyn
 })
 
 describe('ChatGPT native page transport with auth generation', () => {
-  it.each(['633146.6428a93122.js', '633146.7f86ed336a.js', '633146.af31399bc4.js'])(
+  it.each([
+    '633146.6428a93122.js',
+    '633146.7f86ed336a.js',
+    '633146.af31399bc4.js',
+    '633146.fca4831b46.js',
+    '633146.332c5da428.js',
+  ])(
     'uses the reviewed %s network export with native identity, cancellation and no-retry controls',
     async (filename) => {
       const novemberContract = CHATGPT_WEB_INTEGRITY_RUNTIMES.find(
@@ -312,11 +318,12 @@ describe('ChatGPT native page transport', () => {
       expect(modules.n9O.f).not.toHaveBeenCalled()
     },
   )
-  it.each(['tracking', 'diagnostics'])(
+  it.each(['tracking', 'diagnostics', 'telemetryRoutes'])(
     'refuses %s replaced after connection before any request is sent',
     async (changed) => {
       modules.tracking = { trace: () => {} }
       modules.diagnostics = { send: () => {} }
+      modules.telemetryRoutes = { match: () => {} }
       const dynamic = {
         ...contract,
         filename: '633146.discovered-wrapper.js',
@@ -338,13 +345,20 @@ describe('ChatGPT native page transport', () => {
               source: String(modules.diagnostics.send),
               moduleSource: '() => {}',
             },
+            {
+              module: 'telemetryRoutes',
+              export: 'match',
+              source: String(modules.telemetryRoutes.match),
+              moduleSource: '() => {}',
+            },
           ],
           preflight: false,
         },
       }
       await connect(dynamic, 'preload', [dynamic])
       if (changed === 'tracking') modules.tracking.trace = () => 'changed'
-      else modules.diagnostics.send = () => 'changed'
+      else if (changed === 'diagnostics') modules.diagnostics.send = () => 'changed'
+      else modules.telemetryRoutes.match = () => 'changed'
       await expect(send()).rejects.toThrow()
       expect(modules.xb.b).not.toHaveBeenCalled()
       expect(modules.n9O.f).not.toHaveBeenCalled()

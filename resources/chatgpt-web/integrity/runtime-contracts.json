@@ -107,5 +107,31 @@
     "integrityHeadersExport": "b",
     "fetchModule": "wl0r",
     "fetchExport": "d"
+  },
+  {
+    "filename": "633146.fca4831b46.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "Kwur",
+    "authModule": "QdUF",
+    "authContext": "generation",
+    "integrityModule": "lXEa",
+    "integrityPrepareExport": "f",
+    "integrityHeadersExport": "b",
+    "fetchModule": "wl0r",
+    "fetchExport": "d"
+  },
+  {
+    "filename": "633146.332c5da428.js",
+    "kind": "rspack",
+    "profile": "codex-webview",
+    "requestModule": "Kwur",
+    "authModule": "QdUF",
+    "authContext": "generation",
+    "integrityModule": "lXEa",
+    "integrityPrepareExport": "f",
+    "integrityHeadersExport": "b",
+    "fetchModule": "wl0r",
+    "fetchExport": "d"
   }
 ]

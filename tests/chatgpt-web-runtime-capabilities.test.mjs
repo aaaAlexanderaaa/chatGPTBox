@@ -12,6 +12,7 @@ import {
   getChatgptWebFetchWrappers,
   hasCompatibleChatgptWebFetchDelegate,
   hasCompatibleChatgptWebFetchWrapper,
+  hasCompatibleChatgptWebTelemetryRoute,
 } from '../src/services/clients/chatgpt-web/runtime-fetch-capabilities.mjs'
 
 // Public-code shapes with synthetic names. These functions are inspected, never
@@ -244,6 +245,68 @@ function inlineDelegatedFixture() {
   return data
 }
 
+const telemetryRoute = `function(pathname) {
+  return pathname === rgstr ? 'rgstr' : pathname === encodedRgstr ? 'encoded_rgstr' : void 0;
+}`
+const telemetryRouteFactory = `function(module, exports, load) {
+  let rgstr = '/ces/v1/rgstr', encodedRgstr = '/ces/v1/%72gstr';
+  load.d(exports, {}, { match: ${telemetryRoute} });
+}`
+const splitDiagnosticDelegate = `async function(e, t, r) {
+  let s, o = arguments.length > 3 && void 0 !== arguments[3] ? arguments[3] : 'initial',
+    u = activeState,
+    f = u ? function(e, t, r) {
+      try {
+        if (!canReport(e, 'request') || e.attemptsInWindow >= limits.request) return;
+        let n = checkPost(t, r);
+        if (!n || n.url.searchParams.has(diagParam)) return;
+        let s = crypto.randomUUID(), u = null, p = null;
+        try { u = r.keepalive ?? !1, p = r.signal ?? void 0; } catch {}
+        return e.attemptsInWindow++, { url: t + '?ces_diag_id=' + s, id: s, route: n.route, keepalive: u, signal: p };
+      } catch { return; }
+    }(u, e, t) : void 0;
+  if ('pending' === phase && 'initial' === o && (void 0 !== f || function(e, t) {
+    try { return void 0 !== checkPost(e, t); } catch { return !1; }
+  }(e, t)) && (phase = 'before_diagnostics', u && f && reportEvent(u, 'first_request_start', () => ({ diagnostic_id: f.id })) && (phase = 'observed')), !u || !f)
+    return r(e, t);
+  let w = () => ({ diagnostic_id: f.id, request_attempt: o });
+  try { s = await r(f.url, t); }
+  catch (err) { throw reportEvent(u, 'request', () => ({ ...w(), native_failure_kind: 'other' })), err; }
+  return reportEvent(u, 'request', () => ({ ...w(), http_status: s.status })), s;
+}`
+const splitDiagnosticFactory = `function(module, exports, load) {
+  let activeState, phase = 'unarmed', diagParam = 'ces_diag_id', limits = { request: 29 };
+  var routes = load('telemetryRoutes');
+  function checkPost(e, t) {
+    if (!(t.method?.toUpperCase() !== 'POST' || '' === e || e.startsWith('#')) && e.trim() === e)
+      return checkUrl(e);
+  }
+  function checkUrl(e) {
+    let t = new URL(e, window.location.href),
+      r = (0, routes.match)(t.pathname);
+    return t.origin === window.location.origin && void 0 !== r && '' === t.username && '' === t.password
+      ? { url: t, route: r }
+      : void 0;
+  }
+  function canReport() { return false; }
+  function reportEvent() { return false; }
+  load.d(exports, {}, { send: ${splitDiagnosticDelegate} });
+}`
+
+function splitDelegatedFixture() {
+  const data = inlineDelegatedFixture()
+  const diagnostics = data.modules.find((module) => module.id === 'diagnostics')
+  diagnostics.source = splitDiagnosticFactory
+  diagnostics.functions = { send: splitDiagnosticDelegate }
+  data.modules.push({
+    id: 'telemetryRoutes',
+    source: telemetryRouteFactory,
+    functions: { match: telemetryRoute },
+  })
+  data.graph.diagnostics = ['telemetryRoutes']
+  return data
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -392,6 +455,150 @@ describe('ChatGPT capability discovery', () => {
       expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
     },
   )
+
+  it('recognizes the November 16 split telemetry delegate and pins tracking, diagnostics and route modules', () => {
+    const result = resolveChatgptWebRuntimeCapabilities([splitDelegatedFixture()])
+    expect(result).toMatchObject({
+      fetchModule: 'relocated',
+      fetchExport: 'send',
+      capabilityCheck: {
+        fetchWrappers: [
+          { module: 'tracking', export: 'trace' },
+          { module: 'diagnostics', export: 'send', source: splitDiagnosticDelegate },
+          { module: 'telemetryRoutes', export: 'match', source: telemetryRoute },
+        ],
+      },
+    })
+    expect(hasCompatibleChatgptWebTelemetryRoute(telemetryRoute, telemetryRouteFactory)).toBe(true)
+    expect(
+      hasCompatibleChatgptWebFetchDelegate(splitDiagnosticDelegate, splitDiagnosticFactory),
+    ).toBe(false)
+  })
+
+  it('recognizes the unminified six-statement split telemetry delegate form', () => {
+    const data = splitDelegatedFixture()
+    const diagnostics = data.modules.find((module) => module.id === 'diagnostics')
+    const unminified = splitDiagnosticDelegate.replace(
+      "&& (phase = 'observed')), !u || !f)",
+      "&& (phase = 'observed'))); if (!u || !f)",
+    )
+    diagnostics.source = diagnostics.source.replace(splitDiagnosticDelegate, unminified)
+    diagnostics.functions.send = unminified
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toMatchObject({
+      fetchModule: 'relocated',
+      capabilityCheck: {
+        fetchWrappers: [
+          { module: 'tracking', export: 'trace' },
+          { module: 'diagnostics', export: 'send', source: unminified },
+          { module: 'telemetryRoutes', export: 'match' },
+        ],
+      },
+    })
+  })
+
+  it.each([
+    telemetryRouteFactory.replace('/ces/v1/rgstr', '/backend-api/f/conversation'),
+    telemetryRouteFactory.replace('/ces/v1/%72gstr', '/backend-api/f/conversation'),
+    telemetryRouteFactory.replace('void 0', "'fallback'"),
+    telemetryRouteFactory.replace('pathname === rgstr', "pathname !== ''"),
+    telemetryRouteFactory.replace('let rgstr', "fetch('/other'); let rgstr"),
+    telemetryRouteFactory.replace(
+      'load.d(exports',
+      "rgstr = '/backend-api/f/conversation'; load.d(exports",
+    ),
+    telemetryRouteFactory
+      .replace('function(pathname)', 'function(rgstr)')
+      .replaceAll('pathname', 'rgstr'),
+  ])(
+    'rejects split telemetry route modules that allow non-telemetry paths or side effects',
+    (factorySource) => {
+      const data = splitDelegatedFixture()
+      const routeModule = data.modules.find((module) => module.id === 'telemetryRoutes')
+      const fnMatch =
+        factorySource.match(/match:\s*(function[\s\S]*?)\s*\}\)/)?.[1] || telemetryRoute
+      expect(hasCompatibleChatgptWebTelemetryRoute(fnMatch, factorySource)).toBe(false)
+      routeModule.source = factorySource
+      routeModule.functions.match = fnMatch
+      expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+    },
+  )
+
+  it.each([
+    [
+      'drop POST check',
+      splitDiagnosticFactory.replace("t.method?.toUpperCase() !== 'POST' || ", ''),
+    ],
+    [
+      'drop origin check',
+      splitDiagnosticFactory.replace('t.origin === window.location.origin && ', ''),
+    ],
+    ['drop username check', splitDiagnosticFactory.replace("'' === t.username && ", '')],
+    ['drop password check', splitDiagnosticFactory.replace("'' === t.password", 'true')],
+    ['drop route match check', splitDiagnosticFactory.replace('void 0 !== r && ', '')],
+    [
+      'mutate parsed URL pathname',
+      splitDiagnosticFactory.replace(
+        '{ url: t, route: r }',
+        "{ url: (t.pathname = '/backend-api/f/conversation', t), route: r }",
+      ),
+    ],
+    [
+      'mutate options in firstRequestGate',
+      splitDiagnosticFactory.replace("phase = 'before_diagnostics'", "t.body = 'changed'"),
+    ],
+    [
+      'mutate options in metadata arrow',
+      splitDiagnosticFactory.replace(
+        '{ diagnostic_id: f.id, request_attempt: o }',
+        '(t.signal = undefined, { diagnostic_id: f.id })',
+      ),
+    ],
+    [
+      'mutate init in gate',
+      splitDiagnosticFactory.replace('u = r.keepalive ?? !1', 'r.signal = undefined, u = !1'),
+    ],
+    [
+      'reassign route import binding',
+      splitDiagnosticFactory.replace(
+        "var routes = load('telemetryRoutes');",
+        "var routes = load('telemetryRoutes'); routes = other;",
+      ),
+    ],
+    [
+      'extra fetch call in gate',
+      splitDiagnosticFactory.replace(
+        'let s = crypto.randomUUID()',
+        'fetch(t, r); let s = crypto.randomUUID()',
+      ),
+    ],
+    [
+      'extra send call in delegate',
+      splitDiagnosticFactory.replace('let w = () =>', 'await r(e, t); let w = () =>'),
+    ],
+    [
+      'extra send call in firstRequestGate',
+      splitDiagnosticFactory.replace("phase = 'before_diagnostics'", 'r(e, t)'),
+    ],
+    [
+      'alter passthrough options',
+      splitDiagnosticFactory.replace('return r(e, t);', 'return r(e, {});'),
+    ],
+    [
+      'alter attempt options',
+      splitDiagnosticFactory.replace('await r(f.url, t)', 'await r(f.url, {})'),
+    ],
+    ['alter response', splitDiagnosticFactory.replace('), s;', '), s.json();')],
+    ['alter thrown error', splitDiagnosticFactory.replace('), err;', '), new Error("changed");')],
+  ])('rejects split telemetry delegate mutation: %s', (_label, factorySource) => {
+    expect(factorySource).not.toBe(splitDiagnosticFactory)
+    const data = splitDelegatedFixture()
+    const diagnostics = data.modules.find((module) => module.id === 'diagnostics')
+    const fnMatch = factorySource.match(/send:\s*(async function[\s\S]*?)\s*\}\);\s*\}\s*$/)?.[1]
+    expect(fnMatch).toBeTruthy()
+    diagnostics.source = factorySource
+    diagnostics.functions.send = fnMatch
+    expect(resolveChatgptWebRuntimeCapabilities([data])).toBeNull()
+  })
 
   it('recognizes the October 30 transport shape through its four-hop request path', () => {
     expect(resolveChatgptWebRuntimeCapabilities([octoberFixture()])).toMatchObject({
@@ -727,11 +934,13 @@ describe('ChatGPT capability discovery', () => {
     network.functions.anotherSend = network.functions.send
     expect(resolveChatgptWebRuntimeCapabilities([ambiguous])).toBeNull()
   })
-  it.each(['legacy', 'browser', 'delegated'])(
+  it.each(['legacy', 'browser', 'delegated', 'split-delegated'])(
     'inspects a renamed runtime with the %s profile without a release mapping',
     async (profile) => {
       const data =
-        profile === 'delegated'
+        profile === 'split-delegated'
+          ? splitDelegatedFixture()
+          : profile === 'delegated'
           ? delegatedFixture()
           : profile === 'browser'
           ? browserFixture()
@@ -795,7 +1004,8 @@ describe('ChatGPT capability discovery', () => {
           'account',
           'relocated',
           'tracking',
-          ...(profile === 'delegated' ? ['diagnostics'] : []),
+          ...(['delegated', 'split-delegated'].includes(profile) ? ['diagnostics'] : []),
+          ...(profile === 'split-delegated' ? ['telemetryRoutes'] : []),
         ]),
       )
       expect(resolveChatgptWebRuntimeCapabilities(inspected)).toMatchObject({
@@ -805,7 +1015,12 @@ describe('ChatGPT capability discovery', () => {
         capabilityCheck: {
           fetchWrappers: [
             { module: 'tracking', export: 'trace' },
-            ...(profile === 'delegated' ? [{ module: 'diagnostics', export: 'send' }] : []),
+            ...(['delegated', 'split-delegated'].includes(profile)
+              ? [{ module: 'diagnostics', export: 'send' }]
+              : []),
+            ...(profile === 'split-delegated'
+              ? [{ module: 'telemetryRoutes', export: 'match' }]
+              : []),
           ],
         },
       })

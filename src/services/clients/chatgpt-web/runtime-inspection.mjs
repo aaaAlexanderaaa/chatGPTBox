@@ -121,7 +121,7 @@ export async function inspectChatgptWebRuntimeInPage(
         ].every((name) => source.includes(name))
         const fetchRole = source.includes('.expectedIdentity') && source.includes('.retry')
         const wrapperRole = source.includes('new WeakMap') && /\bfetch\s*[(,)]/.test(source)
-        const delegateRole = source.includes('ces_diag_id') && source.includes('/ces/v1/rgstr')
+        const delegateRole = source.includes('ces_diag_id') || source.includes('/ces/v1/rgstr')
         if (
           !requestRole &&
           !authRole &&

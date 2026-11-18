@@ -5,6 +5,45 @@
 37 条用户交互。原文和工具输出只用于本机分析，不随 skill 保存。
 历史中的操作许可不授权未来任务；以下版本事实需要在下一次适配时重新核实。
 
+## 2026-11-18：补齐拆分诊断路由的自动能力发现与最新映射
+
+11-16 留下的精确映射在工作区又被补充了 `633146.fca4831b46.js` 与当前首页公开资产
+`633146.332c5da428.js`；但未知构建自动发现仍会失败，因为官网从 11-16 起将遥测路由从
+`maGL` 拆入 `KZHh`。核对 `633146.af31399bc4.js`、`633146.fca4831b46.js` 与
+`633146.332c5da428.js` 公开启动 chunk 后确认：
+
+- `Kwur` 与 `lXEa` 位于 `7078.*`，`QdUF` 与 `KZHh` 位于 `337882.*`，`y3uJ` 与
+  `maGL` 位于 `646436.611d2d0d1b.js`（旧版在 `7078.f7d405f05f.js`），`HFSu` 与
+  `wl0r` 位于 `76629.*`；两份新版的 `Kwur`、`QdUF`、`lXEa`、`wl0r.d`（仅 `auth_retry`
+  变量名重命名为 `G`/`K`）保持原有身份、取消和 `retry: never` 行为。
+- `maGL` 只含 `ces_diag_id` 而不再含 `/ces/v1/rgstr`；`KZHh` 只导出同源遥测路径匹配
+  `c(pathname)`（仅允许 `/ces/v1/rgstr` 与 `/ces/v1/%72gstr`）。此外 Rspack 将
+  `maGL.c` 的首次请求观察门控与 `!u || !f` 合并为一条 `IfStatement` 的 `SequenceExpression`
+  （共 5 条顶层语句），且局部 `let s`、`let u` 遮蔽了外层 `KZHh` 导入和 `u(url)` 守卫函数。
+
+本次修复同时覆盖自动发现与快速路径：
+
+1. [runtime-inspection.mjs](../../../../src/services/clients/chatgpt-web/runtime-inspection.mjs)
+   的 `delegateRole` 改为匹配 `'ces_diag_id'` 或 `'/ces/v1/rgstr'`，继续作为候选线索。
+2. [runtime-fetch-capabilities.mjs](../../../../src/services/clients/chatgpt-web/runtime-fetch-capabilities.mjs)
+   新增 `hasCompatibleChatgptWebTelemetryRoute` 与拆分代理校验，支持 5/6 语句形态与词法作用域
+   遮蔽检查（`mutatesScoped`），保留 10-31 合并形态并拒绝放宽路径、源站、POST 门控、
+   参数/选项/响应/异常篡改或额外 `fetch`/`send` 调用的变体。
+3. [runtime-capabilities.mjs](../../../../src/services/clients/chatgpt-web/runtime-capabilities.mjs)
+   将 `y3uJ`、`maGL`、`KZHh` 三层一起写入 `capabilityCheck.fetchWrappers`，由 MAIN 在连接前和
+   每次请求前继续比对三者工厂与导出源码。
+
+在从 `633146.332c5da428.js` 公开启动资源静态提取的全部 8,121 个模块上运行
+`resolveChatgptWebRuntimeCapabilities` 可唯一解析整套角色与三层包装。核心运行时回归 210 项、
+ChatGPT Web 与适配器相关 23 个文件 704 项通过；四个生产压缩包构建后提取的两段序列化 MAIN
+函数在无外部辅助函数的 VM 中通过源站拒绝与拆分遥测发现。随后执行 `npm run build:extension`
+替换本机 Chromium 安装目录（29 个文件逐一与 `build/chromium` SHA-256 一致，`background.js`
+哈希为 `b2bc7e731b71a831da044b217c3682558451f8521917f755cb37f256e4ec90b0`），用户在 Brave 重载扩展并刷新代理页与桥接页后，通过既有 `18081` 网关完成只读核验：`GET /health` 为 `200`（`healthy`、`websocket`、`pending_requests: 0`）、`GET /engines` 为 `200`、`GET /v1/models` 为 `200`（770 ms，刷新返回 25 个 `chatgptweb` 模型）、`GET /chatgpt/projects` 为 `200`（2,341 ms，3 条）。本次未向真实 ChatGPT 账号发送正式提问。
+
+来源：[版本映射](../../../../resources/chatgpt-web/integrity/runtime-contracts.json)、
+[能力识别](../../../../src/services/clients/chatgpt-web/runtime-fetch-capabilities.mjs)、
+[能力回归](../../../../tests/chatgpt-web-runtime-capabilities.test.mjs)。
+
 ## 2026-11-16：诊断职责拆分后，分别核对刷新前后的版本
 
 发送前兼容拒绝复现于 `633146.7f86ed336a.js`。其原生请求、认证和完整性职责仍在
