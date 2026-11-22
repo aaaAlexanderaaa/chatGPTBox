@@ -32,9 +32,13 @@ that limitation rather than changing the project's supported version.
 | Search engine tables | `npm run verify` | Search integration configuration checks |
 | Development build/watch | `npm run dev` | Unpacked browser builds with watch mode |
 | Production bundles | `npm run build` | Normal and reduced Chromium/Firefox archives |
-| Installed extension update | `npm run build:extension` | Builds and replaces the Chromium install at `../browser-extensions/chatgptbox`; use when an installed extension update is intended |
+| Installed extension update | `npm run build:extension` | Builds all four archives and replaces the Chromium install at `../browser-extensions/chatgptbox`; use when an installed extension update is intended |
+| Fast Chromium install update | `npm run build:extension:fast` | Single-pass Chromium-only production build and install to `../browser-extensions/chatgptbox` (skips Firefox/reduced ZIPs) |
+| Gemini build adaptation | `npm run gemini:adapt -- <m=_b> <m=vLefie> [--write]` | Offline static AST extraction, core-invariant verification, cohort/memoizer audit and reference rebuild for public `gemini.gstatic.com` bundles |
+| Release preparation check | `npm run release:prepare -- <version> --check-only` | Validates semver, synced manifests/lockfile, absent tag, and bilingual unreleased changelogs; see [RELEASING.md](RELEASING.md) |
 | API gateway | `npm run api-server` | Local gateway process; see its authentication and bridge prerequisites |
 | MCP server | `npm run mcp-server` | Local MCP process; requires the API gateway |
+| macOS login services | `npm run services -- install` | Installs and starts API/MCP LaunchAgents; see [service setup and management](docs/api-server.md#macos-login-services) |
 | Initialized local Drafts update | `npm run drafts:update` | Regenerates and syncs shared scripts/templates; existing actions load them on their next run, retaining credentials and preferences |
 | Existing source formatting | `npm run pretty` | Writes JS/MJS/JSX/JSON/CSS formatting; does not format Markdown |
 

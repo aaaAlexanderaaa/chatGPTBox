@@ -224,7 +224,8 @@ ChatGPTBox 运行在浏览器中，也可配合本地网关和 MCP 进程使用�
 
 ### 尚未发布
 
-- Gemini 支持构建 ID 与已验证内部混淆名的自动兼容，比较完整公开 runtime/app 代码；逻辑变化、映射不唯一或证据不完整仍在发送前拒绝。详见[兼容边界](docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
+- 将 Gemini Web 默认模型切换为 **4 Neon / High**（`gemini-4-neon-high`、`THINKING_LEVEL_EXTENDED`），适配登录态 `en.rF38EnUYaoQ.2018.O`、`en.NcE3BnbhJwQ.2018.O`、`en.c3ZkJFn_XPs.2018.O` 及公开 `en_US` `/_/mss/` 编译；新增两层自动兼容（Tier 1 完整 Format-4 与面向登录态多模块页面的 Tier 2 `structural-core` 核心静态不变量校验）、设置页公开构建诊断、旧只读标签页自动退换、`npm run gemini:adapt` 一键离线适配与 `npm run build:extension:fast` 单目标快速构建。详见[兼容边界](docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
+- 新增本地 API 网关与 MCP 的 macOS LaunchAgent 管理命令（`npm run services`），改进 Gemini Drafts 未发出草稿与过期会话引用的只读恢复提示，并新增手动触发的 [GitHub Release 发版流程](RELEASING.md)（`scripts/release-prepare.mjs` 与 `.github/workflows/release.yml`）。
 - 修复将公共运行编号直接作为原生消息 UUID 导致的 ChatGPT Web 请求体拒绝；保留公共运行保护，历史索引与恢复使用原生消息身份。
 - ChatGPT 原生改写结果按纯正文预览与回填，保留段落及字面 HTML 源码。已安装 Brave 返回 HTTP 200 并成功应用，官网 Cmd+Z 恢复原文；扩展 Undo 在该富文本编辑器上仍拒绝撤销。详见[验收记录](docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。
 

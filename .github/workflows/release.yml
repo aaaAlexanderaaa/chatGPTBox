@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v prefix, e.g. 4.3.6"
+        required: true
+        type: string
+      dry_run:
+        description: "Run preparation, all gates, and production builds without committing, tagging, pushing, or creating a GitHub Release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release ChatGPTBox
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    # Route dispatch input through env instead of inline shell expansion so a
+    # crafted version string can never be interpreted as shell syntax.
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Print release plan
+        run: |
+          echo "Release version: v$VERSION"
+          echo "Dry run: ${{ inputs.dry_run }}"
+
+      - name: Checkout master
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare release (bump manifests/lockfile, fold bilingual changelogs)
+        run: node scripts/release-prepare.mjs "$VERSION"
+
+      - name: Verify documentation checker fixtures
+        run: npm run docs:test
+
+      - name: Check documentation integrity
+        run: npm run docs:check
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Build all four production extension archives
+        run: npm run build
+
+      - name: Verify archives and frozen manifest versions
+        run: |
+          for archive in \
+            build/chromium.zip \
+            build/firefox.zip \
+            build/chromium-without-katex-and-tiktoken.zip \
+            build/firefox-without-katex-and-tiktoken.zip; do
+            unzip -tq "$archive"
+          done
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs"
+            const expected = process.env.VERSION
+            for (const file of ["build/chromium/manifest.json", "build/firefox/manifest.json"]) {
+              const actual = JSON.parse(readFileSync(file, "utf8")).version
+              if (actual !== expected) {
+                console.error(`${file} is ${actual}, expected ${expected}`)
+                process.exit(1)
+              }
+            }
+            console.log(`verified built manifest version ${expected}`)
+          '
+
+      - name: Extract release notes from README.md
+        run: node scripts/release-prepare.mjs "$VERSION" --extract-notes /tmp/release-notes.md
+
+      - name: Preview dry-run release output
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "=== Built release archives ==="
+          ls -lh build/*.zip
+          echo "=== Release notes preview (v$VERSION) ==="
+          cat /tmp/release-notes.md
+
+      - name: Finalize release (commit, tag, push, GitHub Release)
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json \
+            package-lock.json \
+            src/manifest.json \
+            src/manifest.v2.json \
+            README.md \
+            README_CN.md
+          git commit -m "chore: release v$VERSION"
+          git tag "v$VERSION"
+          # HEAD:master works whether checkout left a local branch or detached HEAD.
+          git push origin HEAD:master && git push origin "v$VERSION"
+          gh release create "v$VERSION" \
+            build/chromium.zip \
+            build/firefox.zip \
+            build/chromium-without-katex-and-tiktoken.zip \
+            build/firefox-without-katex-and-tiktoken.zip \
+            --title "v$VERSION" \
+            --notes-file /tmp/release-notes.md
