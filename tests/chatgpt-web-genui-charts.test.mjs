@@ -297,6 +297,17 @@ describe('portable GenUI charts', () => {
     expect(JSON.stringify(protectedContext.result)).toBe(JSON.stringify(original.result))
     expect(protectedCode).not.toMatch(/\[\[|%%|<\/script/)
   })
+  it('preserves Mermaid regex delimiters, character classes, flags and literal braces', () => {
+    const source =
+      'globalThis.result = {text:"{{source}}", a:/^%%[^\\n]+$/gm.test("%% comment"), b:/[[a]%%/i.source, c:/%%/.flags};'
+    const protectedCode = protectDraftsScript(source)
+    const original = {},
+      protectedContext = {}
+    vm.runInNewContext(source, original)
+    vm.runInNewContext(protectedCode, protectedContext)
+    expect(JSON.stringify(protectedContext.result)).toBe(JSON.stringify(original.result))
+    expect(protectedCode).not.toMatch(/\[\[|\{\{|%%|<\/script/)
+  })
   it('ships a single offline script with an exact CSP hash and no unexpected template tags', () => {
     const template = fs.readFileSync(
       new URL('../docs/drafts/templates/chatgptbox-preview.html', import.meta.url),

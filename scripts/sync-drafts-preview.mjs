@@ -21,7 +21,7 @@ export function createDraftsPreviewAction(html) {
     name: 'ChatGPTBox Preview',
     shortName: 'Preview',
     actionDescription:
-      'Offline ChatGPTBox conversation preview with LaTeX math and local interactive charts.',
+      'Offline ChatGPTBox preview with LaTeX math, charts, SVG and Mermaid code diagrams.',
     steps: [
       {
         uuid: '49892222-6483-4DC2-927B-51AB0A3EF399',
@@ -44,6 +44,11 @@ export function createDraftsPreviewAction(html) {
   }
 }
 
+function protectChars(literal, braces) {
+  const next = literal.replace(/\[/g, '\\x5b').replace(/%/g, '\\x25').replace(/</g, '\\x3c')
+  return braces === 'all' ? next.replace(/\{/g, '\\x7b') : next.replace(/\{\{/g, '\\x7b\\x7b')
+}
+
 // Drafts scans [[tags]] and %%Markdown%% even inside script elements. Preserve
 // JavaScript semantics while making those delimiters impossible in the bundle.
 export function protectDraftsScript(source) {
@@ -51,26 +56,23 @@ export function protectDraftsScript(source) {
   let previous
   for (const token of tokenizer(source, { ecmaVersion: 'latest' })) {
     const raw = source.slice(token.start, token.end)
-    if (['string', 'template'].includes(token.type.label)) {
-      const literal = token.type.label === 'string' ? JSON.stringify(token.value) : raw
-      const replacement =
-        token.type.label === 'string'
-          ? literal
-              .replace(/\[/g, '\\x5b')
-              .replace(/\{/g, '\\x7b')
-              .replace(/%/g, '\\x25')
-              .replace(/</g, '\\x3c')
-          : literal
-              .replace(/\[/g, '\\x5b')
-              .replace(/\{\{/g, '\\x7b\\x7b')
-              .replace(/%/g, '\\x25')
-              .replace(/</g, '\\x3c')
+    if (token.type.label === 'string') {
+      const replacement = protectChars(JSON.stringify(token.value), 'all')
       if (replacement !== raw) changes.push([token.start, token.end, replacement])
-    } else if (token.type.label === 'regexp') {
-      let replacement = raw.replace(/%%/g, '%\\x25').replace(/<\/script/gi, '\\x3c\\/script')
-      while (/\[\[/.test(replacement)) replacement = replacement.replace(/\[\[/g, '[\\x5b')
-      while (/\{\{/.test(replacement)) replacement = replacement.replace(/\{\{/g, '{\\x7b')
+    } else if (token.type.label === 'template') {
+      // Keep `${` interpolations; only paired braces are Drafts template tags.
+      const replacement = protectChars(raw, 'pairs')
       if (replacement !== raw) changes.push([token.start, token.end, replacement])
+    } else if (token.type.label === 'regexp' && /\[\[|\{\{|%%|<\/script/i.test(raw)) {
+      // Reconstruct affected regexes from protected strings so character
+      // classes and flags stay intact (Mermaid uses literal %% in parsers).
+      changes.push([
+        token.start,
+        token.end,
+        `(new RegExp(${protectChars(JSON.stringify(token.value.pattern), 'all')},${JSON.stringify(
+          token.value.flags,
+        )}))`,
+      ])
     } else if (
       ['[', '{'].includes(token.type.label) &&
       previous?.type.label === token.type.label &&
@@ -86,9 +88,47 @@ export function protectDraftsScript(source) {
   return source
 }
 
+function bundledNotices(modules) {
+  const packages = new Set()
+  function visit(module) {
+    if (module.resource?.includes('/node_modules/')) {
+      let directory = path.dirname(module.resource.split('?')[0])
+      while (directory.includes('/node_modules/')) {
+        if (fs.existsSync(path.join(directory, 'package.json'))) {
+          packages.add(directory)
+          break
+        }
+        directory = path.dirname(directory)
+      }
+    }
+    for (const child of module.modules || []) visit(child)
+  }
+  for (const module of modules) visit(module)
+  return [...packages]
+    .sort()
+    .flatMap((directory) => {
+      const pkg = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'))
+      return fs
+        .readdirSync(directory)
+        .filter((file) => /^(licen[cs]e|notice|copying)(\.|$)/i.test(file))
+        .filter((file) => fs.statSync(path.join(directory, file)).isFile())
+        .sort()
+        .map(
+          (file) =>
+            `${pkg.name}@${pkg.version} — ${file}\n${fs.readFileSync(
+              path.join(directory, file),
+              'utf8',
+            )}`,
+        )
+    })
+    .join('\n\n')
+    .replace(/\r\n?/g, '\n')
+}
+
 async function bundleRuntime() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'chatgptbox-preview-'))
   try {
+    let licenses
     await new Promise((resolve, reject) => {
       const compiler = webpack({
         context: root,
@@ -97,10 +137,11 @@ async function bundleRuntime() {
         devtool: false,
         entry: './src/components/MarkdownRender/drafts-preview-runtime.mjs',
         output: { path: directory, filename: 'preview.js', iife: true },
+        plugins: [new webpack.optimize.LimitChunkCountPlugin({ maxChunks: 1 })],
         optimization: {
           minimizer: [
             new TerserPlugin({
-              extractComments: false,
+              extractComments: { filename: 'preview.LICENSE.txt', banner: false },
               terserOptions: { format: { ascii_only: true, comments: false } },
             }),
           ],
@@ -110,21 +151,21 @@ async function bundleRuntime() {
         compiler.close((closeError) => {
           if (error || closeError || stats?.hasErrors())
             reject(error || closeError || new Error(stats.toString({ all: false, errors: true })))
-          else resolve()
+          else {
+            licenses = bundledNotices(stats.compilation.modules)
+            resolve()
+          }
         }),
       )
     })
-    const licenses = [
-      'echarts/NOTICE',
-      'echarts/LICENSE',
-      'zrender/LICENSE',
-      'tslib/LICENSE.txt',
-      'katex/LICENSE',
-    ]
-      .map((name) =>
-        fs.readFileSync(path.join(root, 'node_modules', name), 'utf8').replace(/\r\n?/g, '\n'),
-      )
-      .join('\n\n')
+    if (
+      fs
+        .readdirSync(directory)
+        .some((file) => !['preview.js', 'preview.LICENSE.txt'].includes(file))
+    )
+      throw new Error('Preview runtime must be one self-contained script')
+    const extracted = path.join(directory, 'preview.LICENSE.txt')
+    if (fs.existsSync(extracted)) licenses += '\n\n' + fs.readFileSync(extracted, 'utf8')
     return `/* Bundled third-party notices and licenses\n${licenses.replace(
       /\*\//g,
       '* /',

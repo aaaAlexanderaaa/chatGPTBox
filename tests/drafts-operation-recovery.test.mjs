@@ -296,7 +296,11 @@ describe('Drafts operation recovery', () => {
 
   it('recovers a new-conversation receipt without losing the edited prompt', () => {
     const first = run('Original question', uncertain)
-    const edited = first.draft.content.replace(/(^|\n)Original question\n/, '$1Edited question\n')
+    const edited = first.draft.content.replace(
+      /(^|\n)Original question(?=\n|$)/,
+      '$1Edited question',
+    )
+    expect(edited).toContain('Edited question')
     expect(edited).not.toBe(first.draft.content)
     const result = run(edited, completedConflict)
     expect(result.error).toBeUndefined()

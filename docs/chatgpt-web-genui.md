@@ -41,11 +41,35 @@ HTML，网关转发同一文本，Drafts Action 2/3 把它写入 transcript。
 
 修改 CSS 或预览脚本后运行 `npm run sync-drafts-preview`；`node scripts/sync-drafts-preview.mjs --check`
 检查模板是否过期。模板保持单文件，不依赖远程脚本、样式或字体。维护
-`scripts/drafts/chatgptbox-preview.source.html`、`src/components/MarkdownRender/drafts-math-runtime.mjs`
-与 `drafts-preview-runtime.mjs`，不要手动修改生成的 HTML 或 `.draftsAction`。
-构建内嵌按需打包的 ECharts、KaTeX（离线 MathML 输出，`trust: false`，不嵌入外部字体）、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
+`scripts/drafts/chatgptbox-preview.source.html`、`src/components/MarkdownRender/drafts-math-runtime.mjs`、
+`drafts-code-diagrams.mjs` 与 `drafts-preview-runtime.mjs`，不要手动修改生成的 HTML 或 `.draftsAction`。
+构建内嵌按需打包的 ECharts、KaTeX（离线 MathML 输出，`trust: false`，不嵌入外部字体）、Mermaid、DOMPurify、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
 JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前提下处理，避免导入
 模板后脚本被模板引擎改写。
+
+## Drafts 代码块图形
+
+用户于 2026-11-17 要求在 Drafts HTML Preview 中渲染 SVG、Mermaid 围栏代码。
+预览识别 `svg`、`mermaid`，兼容 Markdown 输出中代码或 pre 上的裸语言名、
+`language-` 和 `lang-` 类名。维护入口为
+`src/components/MarkdownRender/drafts-code-diagrams.mjs`，由 Drafts 运行库调用。
+这条路径处理笔记中已有的代码块，保留网关与 Get/Send 的原文传递语义。
+
+图形显示在可展开的源码上方；宽图在自身区域横向滚动，保留文字大小。
+图片加载成功后收起源码。单个图形格式错误、加载失败
+或超过限制时显示原因并展开原文，其余图形继续处理；停用 JavaScript 时保留原代码块。
+每页最多处理 64 个图形，单个 SVG 最多 131072 字符，Mermaid 最多 50000 字符、
+500 条边。主题切换顺序重绘，过期结果丢弃，临时测量节点与旧视图随生命周期清理。
+
+Mermaid 及其图类型内嵌在唯一离线脚本中，采用固定的 strict、纯 SVG 标签、主题和
+资源上限，源代码中的配置声明由 secure 配置隔离。SVG 先校验并通过 DOMPurify
+清理，图形以 data URL 图片显示，CSS 与 ID 在各自图形内作用。页面正文颜色与字体
+补入图片，支持 `currentColor` 与 viewBox 比例，保留作者显式字体和颜色。
+`use` 可引用当前图形已有的 `#id`；外部引用和含 foreignObject 的图形显示源码回退，
+保留完整内容。脚本、事件和动画内容清理；图片上下文隔离图形脚本与外部资源。
+图形中的链接按静态图形呈现。运行库加载时即关闭 Mermaid 自动启动，保留 Markdown
+解析器输出的原始代码，由同一顺序渲染入口管理图形。
+唯一脚本继续使用精确 CSP 哈希；预览资源随模板离线提供。
 
 ## 当前适配范围
 
@@ -156,3 +180,18 @@ Drafts 恢复回归在 `chatgpt-web-genui.test.mjs`、`chatgpt-web-stream-handof
 精度及单位页脚均保留；当前 Get/Send 脚本原样写入相同 HTML。桌面、390px 和暗色
 浏览器预览及本地交互已检查；这不证明 Drafts 设备原生导入、WebKit 或 iCloud 同步。
 具体检查、部署层和保留边界见上述交付记录。
+
+2026-11-17 的 Drafts 代码块适配通过 86 项定向回归，范围为
+`tests/drafts-code-diagrams.test.mjs`、`tests/chatgpt-web-genui-charts.test.mjs`
+和 `tests/drafts-operation-recovery.test.mjs`。回归覆盖 SVG 清理及内部引用、
+模板分隔符保护、Mermaid frontmatter/directive 配置隔离、源码回退和清理。
+恢复测试的一处编辑模拟同步支持标题位于首行的笔记布局，先确认编辑实际发生。
+使用一次 Ask ChatGPT 设计判断，结合本地源码和浏览器实测补齐了可选配置保护与
+内部 SVG 引用；该协作属于设计判断，验收依据为本地测试及原生观察。
+
+本机 macOS 15.7.9 / Drafts 52.0.1 原生 Preview 已显示 SVG、流程图、时序图和
+思维导图，错误图形保留源码，其后图形正常呈现。共享脚本更新后重新运行动作，
+已核对部署模板逐字一致、唯一脚本 CSP 哈希和前一版本保留。390px 浅色/深色
+浏览器检查中页面宽度与滚动宽度均为 390px，宽图在自身 358px 视口内滚动；
+连续主题切换后保留五个原始代码块与四幅有效图形，临时节点为零。
+手机、平板和跨设备 iCloud 同步留待各自设备验收。

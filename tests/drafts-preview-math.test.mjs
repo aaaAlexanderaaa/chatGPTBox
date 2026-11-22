@@ -123,7 +123,7 @@ describe('Drafts HTML preview LaTeX math and common rendering', () => {
 
   it('protects Drafts delimiters inside strings, templates, and regexes without altering semantics', () => {
     const src =
-      'globalThis.out = { a: "{{x}}", b: `{{y}} [[z]] %%w%%`, r1: /[[]/.test("["), r2: /[{{]/.test("{"), r3: /%%/.test("%%") };'
+      'const x=3; globalThis.out = { a: "{{x}}", b: `n=${x} {{y}} [[z]] %%w%%`, r1: /[[]/.test("["), r2: /[{{]/.test("{"), r3: /%%/.test("%%") };'
     const safe = protectDraftsScript(src)
     expect(safe).not.toMatch(/\[\[|\{\{|%%|<\/script/i)
     const origCtx = {}

@@ -72,7 +72,7 @@ actions or resource-file installation is required.
 | ChatGPTBox List Conversations | [package](chatgptbox-list.draftsAction), [script](scripts/action-1-list-conversations.js) | List the selected engine's conversations in an empty note |
 | ChatGPTBox Get | [package](chatgptbox-get.draftsAction), [script](scripts/action-2-open-checked-conversation.js) | Open one checked conversation, refresh or collect its answer |
 | ChatGPTBox Send | [package](chatgptbox-send.draftsAction), [script](scripts/action-3-send-waiting-reply.js) | Create a conversation or send its Waiting Reply |
-| ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout, LaTeX math and charts |
+| ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout, LaTeX math, charts, SVG and Mermaid |
 | ChatGPTBox More | [package](chatgptbox-more.draftsAction), [script](scripts/more.js) | Shared settings, supported photos, Project selection and older messages |
 
 1. In the extension, open **Advanced → API Server Bridge → Open API Server Bridge**
@@ -391,7 +391,7 @@ and action sync are separate; download the template before offline use. See the
 [custom-template options](https://docs.getdrafts.com/docs/editor/previews).
 
 The HTML uses `%%[[draft]]%%`, inline styles and the packaged offline script
-(ECharts + KaTeX MathML). Keep HTML enabled in the Markdown parser so the
+(ECharts + KaTeX MathML + Mermaid). Keep HTML enabled in the Markdown parser so the
 gateway's portable HTML survives. The reading view hides gateway metadata and
 supports light/dark appearance, narrow-screen stacking, table-local scrolling
 (including nested Gemini tables), collapsible `<details>` blocks, definition
@@ -405,6 +405,23 @@ table; without JavaScript the table remains open. Missing/negative values retain
 their meaning. Unsupported components/properties use official Markdown fallback
 rather than executing model-generated code. Precise supported shapes belong to
 the renderer contract.
+
+Fenced `svg` and `mermaid` code blocks also render offline, with an expandable
+**SVG 源码** / **Mermaid 源码** section below each image. A format or rendering
+error displays its cause and keeps that source open while later diagrams continue.
+Wide images scroll within their own region and follow the page appearance. Mermaid uses fixed preview
+settings and static labels; source configuration and clickable diagram links
+remain under the renderer's isolation policy. Limits and lifecycle belong to
+[code-block diagrams](../chatgpt-web-genui.md#drafts-代码块图形).
+Run `npm run drafts:update` for the initialized Mac actions; self-contained
+installations import the regenerated Preview package.
+Mermaid's packaged runtime targets Safari 17.4 and newer; see its
+[browser support](https://mermaid.js.org/config/usage.html#supported-browsers-and-runtimes).
+On November 17, native Drafts 52.0.1 on macOS 15.7.9 displayed SVG, flowcharts,
+sequence diagrams and mindmaps through the updated shared action. Narrow light/dark
+layout, source disclosure, configuration isolation and repeated theme changes
+were also checked in a browser. Exact scope and device limits are in the
+[renderer verification](../chatgpt-web-genui.md#验证).
 
 ## Updating and troubleshooting
 
@@ -441,8 +458,9 @@ trailing state. Provider adapters keep their original in-memory envelope; the
 common persistence boundary controls the saved layout.
 
 Maintain `scripts/drafts/chatgptbox-preview.source.html`, shared CSS, the math
-helper (`src/components/MarkdownRender/drafts-math-runtime.mjs`) and the chart
-runtime; `npm run sync-drafts-preview` regenerates the template/package and
+helper (`src/components/MarkdownRender/drafts-math-runtime.mjs`), code-block
+diagrams (`drafts-code-diagrams.mjs`) and the chart runtime;
+`npm run sync-drafts-preview` regenerates the template/package and
 protects script/template delimiters with an exact CSP hash. Extension builds run
 both steps. Import regenerated copies into Drafts separately.
 
