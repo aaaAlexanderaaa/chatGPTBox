@@ -315,9 +315,15 @@ it('preserves the transcript when a user renames the Waiting Reply heading', () 
 
 it('refreshes only the managed history and preserves notes outside it, including after a pending answer', () => {
   const base = waiting(opened(), 'Future question')
-  const headerEnd = base.indexOf('\n') + 1
+  const titleEnd = base.indexOf('\n') + 1
+  const footerStart = base.indexOf('\n<!-- chatgptbox-document:')
+  expect(footerStart).toBeGreaterThan(0)
   const original =
-    base.slice(0, headerEnd) + 'My introduction\n' + base.slice(headerEnd) + '\nMy footer note'
+    base.slice(0, titleEnd) +
+    'My introduction\n' +
+    base.slice(titleEnd, footerStart) +
+    '\nMy footer note' +
+    base.slice(footerStart)
   const refreshed = run('get', original, () => success(detail))
   expect(refreshed.error).toBeUndefined()
   expect(refreshed.draft.content).toContain('My introduction')
