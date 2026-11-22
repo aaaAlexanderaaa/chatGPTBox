@@ -133,6 +133,9 @@ function setup(overrides = {}) {
       await overrides.onDelay?.(ms)
     },
     timeoutMs: overrides.timeoutMs,
+    ...(overrides.hydrationTimeoutMs !== undefined
+      ? { hydrationTimeoutMs: overrides.hydrationTimeoutMs }
+      : {}),
     ...(overrides.resolveAutomatic ? { resolveAutomatic: overrides.resolveAutomatic } : {}),
   }
   const session = {
@@ -750,6 +753,50 @@ describe('Gemini background submission owner', () => {
     expect(f.calls.some((call) => ['prepare', 'send'].includes(call.op))).toBe(false)
     expect(firstHold(f)).toBeNull()
     expect(result.messages.at(-1)).toMatchObject({ dispatched: false, outcome: 'failed' })
+  })
+
+  it('discovers an identifier-only runtime during history.list and history.read', async () => {
+    let resolvedCalls = 0
+    const f = setup({
+      resolveAutomatic: async (inventory) => {
+        resolvedCalls++
+        return {
+          version: inventory.nonce ? 'automatic' : 'bad',
+          automaticProof: { nonce: 'proof' },
+        }
+      },
+      operation: async (op, call) => {
+        if (op === 'inspect-public-compilation') return { ok: true, nonce: 'proof' }
+        if (
+          (op === 'history.list' || op === 'history.read') &&
+          !call.args[0].contracts.some((contract) => contract.automaticProof)
+        )
+          return {
+            ok: false,
+            code: 'GEMINI_RUNTIME_UNSUPPORTED',
+            discoveryNeeded: true,
+            dispatched: false,
+          }
+        if (op === 'history.list')
+          return {
+            ok: true,
+            items: [{ id: 'c_abcdefgh', title: 'Auto history' }],
+            nextCursor: null,
+          }
+        if (op === 'history.read')
+          return {
+            ok: true,
+            conversationId: 'c_abcdefgh',
+            messages: [{ role: 'assistant', content: '<p>OK</p>', completed: true }],
+            headCompleted: true,
+          }
+      },
+    })
+    const listed = await f.service.listConversations({ limit: 5 })
+    expect(listed.items).toEqual([{ id: 'c_abcdefgh', title: 'Auto history' }])
+    const detail = await f.service.readConversation({ conversationId: 'c_abcdefgh' })
+    expect(detail.conversationId).toBe('c_abcdefgh')
+    expect(resolvedCalls).toBe(1)
   })
 
   it('refuses a document change during discovery without invoking or rediscovering a Send', async () => {
@@ -1385,5 +1432,160 @@ describe('Gemini background submission owner', () => {
       'Finish the native generation',
     )
     expect(firstHold(f)).toBeTruthy()
+  })
+
+  it('waits briefly for hydration on newly created background tabs without latching a false account pause', async () => {
+    let listCalls = 0
+    const f = setup({
+      hydrationTimeoutMs: 500,
+      operation(op) {
+        if (op === 'history.list') {
+          listCalls += 1
+          if (listCalls === 1)
+            return {
+              ok: false,
+              code: 'GEMINI_SIGN_IN_REQUIRED',
+              message: 'Sign in pending hydration',
+              accountBlocked: true,
+              hydrating: true,
+              dispatched: false,
+            }
+          return {
+            ok: true,
+            items: [{ id: 'c_abcdefgh', title: 'Hydrated list' }],
+            nextCursor: null,
+          }
+        }
+      },
+    })
+    const listed = await f.service.listConversations({ limit: 5 })
+    expect(listed.items).toHaveLength(1)
+    expect(listCalls).toBe(2)
+    expect(f.stored[GEMINI_WEB_RUNTIME_KEY].accountPause).toBeUndefined()
+    expect(f.config.geminiWebReady).toBe(true)
+
+    const fTimedOut = setup({
+      hydrationTimeoutMs: 250,
+      operation(op) {
+        if (op === 'inspect')
+          return {
+            ok: false,
+            code: 'GEMINI_SIGN_IN_REQUIRED',
+            message: 'Sign in missing after hydration budget',
+            accountBlocked: true,
+            hydrating: true,
+            dispatched: false,
+          }
+      },
+    })
+    const failed = port()
+    await fTimedOut.service.run({ session: fTimedOut.session, port: failed })
+    expect(failed.messages.at(-1)).toMatchObject({
+      dispatched: false,
+      error: 'Sign in missing after hydration budget',
+    })
+    expect(fTimedOut.stored[GEMINI_WEB_RUNTIME_KEY].accountPause).toMatchObject({
+      code: 'GEMINI_SIGN_IN_REQUIRED',
+    })
+    expect(fTimedOut.config.geminiWebReady).toBe(false)
+  })
+
+  it('discovers an identifier-only runtime when reviewing a held tab after restart', async () => {
+    let resolutions = 0
+    const f = setup({
+      timeoutMs: 0,
+      resolveAutomatic: async (inventory) => {
+        resolutions += 1
+        return {
+          version: inventory.nonce ? 'automatic' : 'bad',
+          automaticProof: { nonce: 'proof' },
+        }
+      },
+      operation(op, call) {
+        if (op === 'inspect-public-compilation') return { ok: true, nonce: 'proof' }
+        if (op === 'review' && !call.args[0].contracts.some((contract) => contract.automaticProof))
+          return {
+            ok: false,
+            code: 'GEMINI_RUNTIME_UNSUPPORTED',
+            discoveryNeeded: true,
+            dispatched: false,
+          }
+      },
+    })
+    await f.service.run({ session: f.session, port: port() })
+    expect(firstHold(f)).toBeTruthy()
+    const restarted = createGeminiWebService(f.deps)
+    expect(await restarted.review()).toMatchObject({ ok: true, ready: true, hold: false })
+    expect(resolutions).toBe(1)
+    expect(firstHold(f)).toBeNull()
+  })
+
+  it('surfaces public build diagnostics on inspect failure and retires a stale readTab once on version mismatch', async () => {
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en.futureBuild.2018.O'
+    const urls = [
+      `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}/m=_b`,
+      `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}/exm=_b/m=vLefie`,
+    ]
+    const fDiag = setup({
+      resolveAutomatic: async () => null,
+      operation: async (op) => {
+        if (op === 'inspect')
+          return {
+            ok: false,
+            code: 'GEMINI_RUNTIME_UNSUPPORTED',
+            discoveryNeeded: true,
+            dispatched: false,
+          }
+        if (op === 'inspect-public-compilation')
+          return { ok: true, nonce: 'n', version, sourceUrls: urls, scope: 'core' }
+      },
+    })
+    fDiag.tabs.set(99, {
+      id: 99,
+      url: 'https://gemini.google.com/app',
+      active: true,
+      status: 'complete',
+    })
+    const inspected = await fDiag.service.inspect()
+    expect(inspected).toMatchObject({
+      ok: false,
+      code: 'GEMINI_RUNTIME_UNSUPPORTED',
+      detectedVersion: version,
+      publicCoreUrls: urls,
+    })
+
+    // Stale readTab scenario: reused tab refuses with GEMINI_RUNTIME_UNSUPPORTED, fresh readTab succeeds.
+    const fRead = setup({
+      resolveAutomatic: async () => null,
+      operation: async (op, call) => {
+        if (op === 'inspect-public-compilation') return { ok: false }
+        if (op === 'history.list' && call.target.tabId === 50)
+          return {
+            ok: false,
+            code: 'GEMINI_RUNTIME_UNSUPPORTED',
+            discoveryNeeded: true,
+            dispatched: false,
+          }
+        if (op === 'history.list')
+          return { ok: true, items: [{ id: 'c_fresh1234', title: 'Fresh tab' }], nextCursor: null }
+      },
+    })
+    fRead.tabs.set(50, {
+      id: 50,
+      url: 'https://gemini.google.com/app#chatgptbox-gemini-read-old',
+      active: false,
+      status: 'complete',
+    })
+    fRead.stored[GEMINI_WEB_RUNTIME_KEY].readTab = {
+      tabId: 50,
+      ownerId: 'old',
+      binding: 'readonly-history',
+      accountSalt: fRead.stored[GEMINI_WEB_RUNTIME_KEY].accountSalt,
+      accountFingerprint: fRead.stored[GEMINI_WEB_RUNTIME_KEY].accountFingerprint,
+    }
+    const listed = await fRead.service.listConversations({ limit: 5 })
+    expect(listed.items).toEqual([{ id: 'c_fresh1234', title: 'Fresh tab' }])
+    expect(fRead.tabs.has(50)).toBe(false)
+    expect(fRead.stored[GEMINI_WEB_RUNTIME_KEY].readTab.tabId).not.toBe(50)
   })
 })

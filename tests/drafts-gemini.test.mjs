@@ -177,6 +177,76 @@ it('releases only explicit unsent proof, preserves its text, and permits a later
     return success({ engineId: 'geminiweb', runId: 'run-two' })
   })
   expect(next.error).toBeUndefined()
+  const afterUnsentGet = run('get', refused.draft.content, () => {
+    throw new Error('No HTTP allowed')
+  })
+  expect(afterUnsentGet.requests).toHaveLength(0)
+  expect(afterUnsentGet.error?.message).toBe(
+    'No native conversation exists because the last request was not sent. Write your question in Waiting Reply and run Send.',
+  )
+  const prePatchUnsent = refused.draft.content.replace(/"lastUnsent":\{[^}]*\},?/, '')
+  const afterPrePatchUnsent = run('get', prePatchUnsent, () => {
+    throw new Error('No HTTP allowed')
+  })
+  expect(afterPrePatchUnsent.requests).toHaveLength(0)
+  expect(afterPrePatchUnsent.error?.message).toBe(
+    'No native conversation exists because the last request was not sent. Write your question in Waiting Reply and run Send.',
+  )
+  const afterPrePatchOlder = run('older', prePatchUnsent, () => {
+    throw new Error('No HTTP allowed')
+  })
+  expect(afterPrePatchOlder.requests).toHaveLength(0)
+  expect(afterPrePatchOlder.error?.message).toBe(
+    'No native conversation exists because the last request was not sent. Write your question in Waiting Reply and run Send.',
+  )
+  const recovered = run('get', next.draft.content, () =>
+    success({ ...completed, runId: 'run-two' }),
+  )
+  expect(recovered.error).toBeUndefined()
+  expect(metadata(recovered.draft.content).lastUnsent).toBeUndefined()
+  const strippedIdentity = opened()
+    .replace(/"conversationRef":"[^"]*",?/, '')
+    .replace(/"nativeConversationId":"[^"]*",?/, '')
+  const afterMissingIdentity = run('get', strippedIdentity, () => {
+    throw new Error('No HTTP allowed')
+  })
+  expect(afterMissingIdentity.requests).toHaveLength(0)
+  expect(afterMissingIdentity.error?.message).toBe(
+    'No native conversation identity is available. Keep this note and inspect its original run.',
+  )
+  const staleRef = run('get', opened(), (req) =>
+    req.url.includes('?conversationId=')
+      ? success({ items: [{ id: 'c_abcdefgh', conversationRef: 'conversation-rebound' }] })
+      : req.url.includes('/conversations/conversation-rebound')
+      ? success({ ...detail, conversationRef: 'conversation-rebound' })
+      : {
+          success: false,
+          statusCode: 409,
+          responseData: {
+            error: {
+              code: 'CONTEXT_UNAVAILABLE',
+              message: 'This history reference is unavailable to the caller.',
+            },
+          },
+        },
+  )
+  expect(staleRef.error).toBeUndefined()
+  expect(metadata(staleRef.draft.content).conversationRef).toBe('conversation-rebound')
+  const pendingFail = run('send', 'Keep this question when settled unknown', () =>
+    success({ engineId: 'geminiweb', runId: 'run-fail' }),
+  )
+  const settledFailure = run('get', pendingFail.draft.content, () =>
+    success({
+      engineId: 'geminiweb',
+      runId: 'run-fail',
+      phase: 'settled',
+      outcome: 'unknown',
+      submission: 'possibly_submitted',
+      error: { message: 'Inspect the original Gemini turn before continuing.' },
+    }),
+  )
+  expect(settledFailure.error?.message).toBe('Inspect the original Gemini turn before continuing.')
+  expect(metadata(settledFailure.draft.content).pending.runId).toBe('run-fail')
 })
 
 it('does not submit lists, old ChatGPT notes, damaged controls or an unpersisted request', () => {

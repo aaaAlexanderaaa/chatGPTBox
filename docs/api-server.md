@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-16
+last_reconciled: 2026-11-18
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -114,6 +114,68 @@ npm run api-server
 8. Keep the bridge page open.
 9. Sign in to the websites of the web engines you want to use. The default examples below use ChatGPT Web.
 
+### macOS login services
+
+After pairing the bridge and starting API/MCP once to create their token files,
+install both as per-user LaunchAgents:
+
+```bash
+npm run services -- install --api-port 18081 --mcp-port 18082
+npm run services -- status
+```
+
+New installations bind to `127.0.0.1`. For an explicitly chosen remote-client
+setup, add `--host 0.0.0.0`, following the authentication and trusted-network
+requirements below. Service ports default to 18081/18082, separately from the
+manual server defaults above. Reinstalling without options retains the
+installed host and ports and refreshes the absolute Node and checkout paths.
+Run the installer again after moving the checkout or removing its Node version.
+
+[`scripts/macos-services.mjs`](../scripts/macos-services.mjs) installs
+`local.chatgptbox.api.plist` and `local.chatgptbox.mcp.plist` under
+`~/Library/LaunchAgents`. Both start at user login and launchd restarts exited
+processes, with a ten-second throttle. The services use the existing
+`~/.chatgptbox` token files and ledger; no tokens are embedded in the plists.
+They run directly under the installed Node executable, without a terminal or
+shell startup files. The installer refuses an occupied port rather than
+terminating an unrelated process.
+
+```bash
+npm run services -- restart
+npm run services -- stop
+npm run services -- start
+npm run services -- uninstall
+```
+
+`stop` also disables login startup until `start` or `install` enables it again.
+`uninstall` removes the two LaunchAgents and retains tokens, records and logs.
+Restarting interrupts active connections; observe known runs instead of
+resending an uncertain write. Each service writes private console logs to
+`~/.chatgptbox/<api|mcp>-service.<out|err>.log`; these console logs are not
+automatically rotated. The existing bounded gateway process log remains in use.
+
+These services start after login, not before login. Browser-based operations
+still require the browser, enabled bridge page and logged-in engine websites.
+An API `/health` response of `503` can therefore mean the process is running
+while the browser bridge has not connected yet.
+
+On 2026-11-17, the login services were installed on ports 18081/18082. The user
+explicitly authorized retaining other-device access, so the final bindings are
+`0.0.0.0`. Both jobs were enabled, their plist and console-log modes were `0600`,
+and existing tokens stayed unchanged. Controlled stop/start and reinstall
+checks reloaded both jobs; reinstall without options retained the host and ports.
+The installer now waits for the old registration to disappear before loading
+its replacement. Terminating both final processes with `SIGTERM` produced new
+launchd-owned processes and a reconnected bridge.
+
+Authenticated API health and MCP `initialize`/`tools/list` succeeded through
+loopback, physical LAN and VPN addresses on this host; unauthenticated requests
+returned `401`. One additional virtual-adapter address returned `EADDRNOTAVAIL`;
+it was not part of the successful LAN/VPN check. The two selected API/MCP
+authentication HTTP regressions passed; their all-interface fixture was skipped.
+Lint and documentation checks passed. No model question was sent. Access from
+another physical device and an actual machine reboot/login cycle remain untested.
+
 ### Unexpected exits and bridge disconnections
 
 `Extension bridge disconnected (WebSocket)` means the browser connection closed.
@@ -145,7 +207,8 @@ still accepts connections. `SIGINT`, `SIGTERM` and `SIGHUP` are logged before no
 signal termination. Fatal exceptions remain fatal; diagnostics do not keep a
 possibly damaged process running. `SIGKILL`, power loss and some memory failures
 cannot reliably leave an in-process exit record. A startup with no preceding
-exit record therefore does not identify the cause. There is no automatic restart.
+exit record therefore does not identify the cause. A manually launched process
+does not restart automatically; the optional macOS login services above do.
 
 The [November 6 investigation](evidence/2026-11-06-gateway-process-exits.md)
 records controlled crash reproductions and the limits of the historical diagnosis.
@@ -474,9 +537,9 @@ Common errors:
 #### Gemini Web completions
 
 Enable `Gemini Web` under `Engines`, then use `Check Gemini page` in its settings
-after signing into Gemini and selecting **4 Hydrogen / Medium**. Requests use
-`model: "gemini-4-hydrogen-medium"` (or `geminiweb/gemini-4-hydrogen-medium`). Omit effort,
-or pass `reasoning_effort: "medium"` / `thinking_effort: "medium"`. Other Gemini
+after signing into Gemini and selecting **4 Neon / High**. Requests use
+`model: "gemini-4-neon-high"` (or `geminiweb/gemini-4-neon-high`). Omit effort,
+or pass `reasoning_effort: "high"` / `thinking_effort: "high"`. Other Gemini
 selectors, effort levels, images and Projects are rejected before dispatch.
 
 The originating `ApiServer.html` page forwards this selector through the

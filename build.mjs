@@ -14,6 +14,7 @@ const __dirname = path.resolve()
 const args = process.argv.slice(2)
 const isProduction = !args.includes('--development') // --production and --analyze are both production
 const isAnalyzing = args.includes('--analyze')
+const isChromiumOnly = args.includes('--chromium-only')
 
 async function deleteOldDir() {
   await fs.rm(outdir, { recursive: true, force: true })
@@ -378,7 +379,9 @@ async function finishOutput(outputDirSuffix) {
     [...commonFiles, { src: 'src/manifest.json', dst: 'manifest.json' }],
     chromiumOutputDir,
   )
-  if (isProduction) await zipFolder(chromiumOutputDir)
+  if (isProduction && !isChromiumOnly) await zipFolder(chromiumOutputDir)
+
+  if (isChromiumOnly) return
 
   // firefox
   const firefoxOutputDir = `./${outdir}/firefox${outputDirSuffix}`
@@ -412,7 +415,7 @@ async function build() {
   const { syncDraftsActions } = await import('./scripts/sync-drafts-engines.mjs')
   await syncDraftsActions()
   await deleteOldDir()
-  if (isProduction && !isAnalyzing) {
+  if (isProduction && !isAnalyzing && !isChromiumOnly) {
     // await runWebpack(
     //   true,
     //   false,

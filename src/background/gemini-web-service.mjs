@@ -50,6 +50,7 @@ export function createGeminiWebService(deps = {}) {
   // an automatically learned website version as a new trusted reference.
   const automaticContracts = new Map()
   const activeRuns = new Map()
+  const freshlyCreatedTabs = new Set()
   let maintenance = false
   let reading = false
   let stateQueue = Promise.resolve()
@@ -232,7 +233,7 @@ export function createGeminiWebService(deps = {}) {
       )
     return config
   }
-  async function invoke(entry, action, data = {}, discover = true) {
+  async function invoke(entry, action, data = {}, discover = true, options = {}) {
     let automatic
     const dispatch = async () => {
       const tab = await browser.tabs.get(entry.tabId)
@@ -286,10 +287,13 @@ export function createGeminiWebService(deps = {}) {
     const result = results[0].result
     if (!result || typeof result.ok !== 'boolean')
       throw new Error('The Gemini native operation returned no verifiable result.')
-    if (result.accountBlocked === true)
+    if (
+      result.accountBlocked === true &&
+      !(options.deferHydratingPause === true && result.hydrating === true)
+    )
       observedAccountPause = { code: result.code, message: result.message, at: now() }
     if (result.discoveryNeeded === true && !automatic && automaticContracts.has(entry.documentId))
-      return invoke(entry, action, data, false)
+      return invoke(entry, action, data, false, options)
     if (
       result.ok === false &&
       result.code === 'GEMINI_RUNTIME_UNSUPPORTED' &&
@@ -297,7 +301,7 @@ export function createGeminiWebService(deps = {}) {
       result.dispatched === false &&
       discover &&
       !automatic &&
-      ['inspect', 'configure', 'connect', 'list', 'read'].includes(action)
+      ['inspect', 'configure', 'connect', 'review', 'history.list', 'history.read'].includes(action)
     ) {
       const inspection = await browser.scripting.executeScript({
         target: { tabId: entry.tabId, documentIds: [entry.documentId] },
@@ -312,12 +316,16 @@ export function createGeminiWebService(deps = {}) {
         inspection[0].documentId !== entry.documentId
       )
         return result
-      const contract = await resolveAutomatic(inspection[0].result)
+      const inspected = inspection[0].result
+      const contract = await resolveAutomatic(inspected)
       if (!contract)
         return {
           ...result,
           message:
-            'The Gemini compilation could not be confirmed as an identifier-only change. Update the adapter before sending.',
+            'The Gemini compilation could not be confirmed automatically. Update the adapter before sending.',
+          ...(inspected?.ok === true
+            ? { detectedVersion: inspected.version, publicCoreUrls: inspected.sourceUrls }
+            : {}),
         }
       if (automaticContracts.size >= 8)
         automaticContracts.delete(automaticContracts.keys().next().value)
@@ -325,7 +333,7 @@ export function createGeminiWebService(deps = {}) {
       // The refused preflight performed no native operation. Re-enter once
       // with the proven mapping, in the same exact document, retaining every
       // original account/model/instance/fingerprint and submission guard.
-      return invoke(entry, action, data, false)
+      return invoke(entry, action, data, false, options)
     }
     if (
       (result.nativeId != null &&
@@ -463,6 +471,7 @@ export function createGeminiWebService(deps = {}) {
       active: false,
     })
     if (!Number.isInteger(tab?.id)) throw notSent('A dedicated Gemini tab could not be created.')
+    freshlyCreatedTabs.add(tab.id)
     const entry = {
       tabId: tab.id,
       ownerId,
@@ -474,6 +483,18 @@ export function createGeminiWebService(deps = {}) {
     session.geminiWebTabId = entry.tabId
     session.geminiWebOwnerId = entry.ownerId
     return entry
+  }
+  async function invokeHydrated(entry, action, data = {}, cancelled = () => false) {
+    const isNewTab = freshlyCreatedTabs.delete(entry.tabId)
+    if (!isNewTab) return invoke(entry, action, data)
+    const deadline = now() + (deps.hydrationTimeoutMs ?? 5000)
+    for (;;) {
+      const canRetry = now() < deadline && !cancelled()
+      const result = await invoke(entry, action, data, true, { deferHydratingPause: canRetry })
+      if (result.hydrating !== true || !canRetry) return result
+      await delay(250)
+      if (cancelled()) return result
+    }
   }
   const post = (port, packet) => {
     try {
@@ -538,7 +559,7 @@ export function createGeminiWebService(deps = {}) {
         session.images?.length
       )
         throw notSent(
-          'Gemini Web supports 4 Hydrogen / Medium text chat. Regeneration and attachments are not supported.',
+          'Gemini Web supports 4 Neon / High text chat. Regeneration and attachments are not supported.',
         )
       if (
         typeof session.question !== 'string' ||
@@ -595,7 +616,7 @@ export function createGeminiWebService(deps = {}) {
         lastResponseId: session.geminiWebResponseId || '',
       }
       const currentDocument = { ...entry, documentId: undefined }
-      const inspected = await invoke(currentDocument, 'inspect')
+      const inspected = await invokeHydrated(currentDocument, 'inspect', {}, cancelled)
       if (!inspected.ok) throw nativeError(inspected, true)
       const documentChanged = entry.documentId !== currentDocument.documentId
       if (
@@ -806,7 +827,7 @@ export function createGeminiWebService(deps = {}) {
         ok: false,
         ready: false,
         hold: holds(state).length > 0,
-        message: 'Open Gemini in this browser, sign in, and select 4 Hydrogen / Medium.',
+        message: 'Open Gemini in this browser, sign in, and select 4 Neon / High.',
       }
     }
     if (!state.accountSalt) {
@@ -877,7 +898,7 @@ export function createGeminiWebService(deps = {}) {
       if (!checked.ok || !checked.ready)
         throw new Error(
           checked.message ||
-            'Check Gemini, its model/Medium setting, draft and active generation before allowing new requests.',
+            'Check Gemini, its model/High setting, draft and active generation before allowing new requests.',
         )
       const state = await stateAction((value) => value)
       const reviewed = []
@@ -997,22 +1018,16 @@ export function createGeminiWebService(deps = {}) {
     const state = await stateAction((value) => value)
     if (!state.accountFingerprint)
       throw notSent('Check the Gemini account in Settings before reading history.')
-    let entry
-    // A bounded read tab never navigates or refreshes a writer's document.
-    for (const candidate of [state.readTab].filter(Boolean)) {
-      const tab = await browser.tabs.get(candidate.tabId).catch(() => null)
-      if (tab && isGeminiPage(tab.url)) {
-        entry = { ...candidate, documentId: undefined }
-        break
-      }
-    }
-    if (!entry) {
+    async function createReadTab() {
       const ownerId = uuid()
       const tab = await browser.tabs.create({
         url: `https://gemini.google.com/app#chatgptbox-gemini-read-${ownerId}`,
         active: false,
       })
-      entry = {
+      if (!Number.isInteger(tab?.id))
+        throw notSent('A dedicated Gemini history tab could not be created.')
+      freshlyCreatedTabs.add(tab.id)
+      const created = {
         tabId: tab.id,
         ownerId,
         binding: 'readonly-history',
@@ -1020,15 +1035,44 @@ export function createGeminiWebService(deps = {}) {
         accountFingerprint: state.accountFingerprint,
       }
       await mutate((value) => {
-        value.readTab = entry
+        value.readTab = created
       })
       const deadline = now() + 60000
       while ((await browser.tabs.get(tab.id)).status !== 'complete') {
         if (now() >= deadline) throw notSent('Gemini history page did not finish loading.')
         await delay(300)
       }
+      return created
     }
-    const result = await invoke(entry, action, query)
+    let entry
+    let reusedReadTab = false
+    // A bounded read tab never navigates or refreshes a writer's document.
+    for (const candidate of [state.readTab].filter(Boolean)) {
+      const tab = await browser.tabs.get(candidate.tabId).catch(() => null)
+      if (tab && isGeminiPage(tab.url)) {
+        entry = { ...candidate, documentId: undefined }
+        reusedReadTab = true
+        break
+      }
+    }
+    if (!entry) entry = await createReadTab()
+    let result = await invokeHydrated(entry, action, query)
+    // If a long-lived background read tab still holds an older website build,
+    // retire only that read-only tab once and retry on a fresh read tab.
+    if (
+      reusedReadTab &&
+      !result.ok &&
+      result.code === 'GEMINI_RUNTIME_UNSUPPORTED' &&
+      result.dispatched === false &&
+      result.accountBlocked !== true
+    ) {
+      await browser.tabs.remove(entry.tabId).catch(() => {})
+      await mutate((value) => {
+        if (value.readTab?.tabId === entry.tabId) delete value.readTab
+      })
+      entry = await createReadTab()
+      result = await invokeHydrated(entry, action, query)
+    }
     if (result.accountBlocked) await pauseAccount(nativeError(result))
     if (!result.ok)
       throw new EngineError(

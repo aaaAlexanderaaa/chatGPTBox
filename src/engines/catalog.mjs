@@ -100,7 +100,7 @@ export const WEB_ENGINE_DEFINITIONS = Object.freeze([
   {
     id: 'geminiweb',
     inputSchema: textInput(50000, 0),
-    parameterSchema: object({ thinkingEffort: { type: 'string', enum: ['medium'] } }),
+    parameterSchema: object({ thinkingEffort: { type: 'string', enum: ['high'] } }),
     extensionSchema: object({}),
     legacyModelPrefixes: ['gemini-'],
     label: 'Gemini Web',

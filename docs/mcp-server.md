@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-13
+last_reconciled: 2026-11-17
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -49,6 +49,11 @@ npm run mcp-server -- --host 0.0.0.0 --port 18082 --gateway-port 18081
 ```
 
 Set the remote client's URL to `http://<this-computer's-IP>:18082/mcp` and use the MCP bearer token. The `--host` option (or `CHATGPT_MCP_HOST`) defaults to `127.0.0.1`; it accepts `127.0.0.1` or `0.0.0.0`. The API gateway connection remains local to this computer. Keep the MCP token private and use a trusted network or TLS when connecting across networks; plain HTTP exposes the token to network observers.
+
+For macOS login startup and process recovery, use the shared
+[login service installer](api-server.md#macos-login-services). It manages API and
+MCP together and preserves the existing token files. MCP can listen before the
+browser bridge is ready; service status and engine readiness are separate.
 
 ## Generic tools
 

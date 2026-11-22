@@ -148,7 +148,7 @@ export function createCodeReference(sources, instanceKeys = [], nativeCalls = []
   const exports = new Set(),
     fields = new Set(instanceKeys)
   const protectedNames = Array.from({ length: 4 }, () => new Set())
-  for (const name of ['aa', 'ba', 'ca']) protectedNames[1].add(name)
+  for (const name of ['aa', 'ba', 'ca', 'da']) protectedNames[1].add(name)
   for (const kind of [1, 2]) for (const name of intrinsicKeys) protectedNames[kind].add(name)
   for (const unit of parsed) {
     const scopes = []
@@ -405,17 +405,29 @@ export async function extractNativeHashes(sources, profile) {
           }
       }
       remember(name, node.right)
-      if (
-        node.right.type === 'CallExpression' &&
-        codeSymbol(node.right.callee) === '_.ca' &&
-        node.right.arguments[1]?.type === 'FunctionExpression'
-      ) {
-        const body = node.right.arguments[1]
-        add(deferred, node.right.arguments[0]?.value, { start: body.start, end: body.end, source })
-        remember(name, body)
+      if (node.right.type === 'CallExpression') {
+        const callee = codeSymbol(node.right.callee)
+        if (
+          ['_.ca', '_.da'].includes(callee) &&
+          node.right.arguments.length === 2 &&
+          typeof node.right.arguments[0]?.value === 'number' &&
+          node.right.arguments[1]?.type === 'FunctionExpression'
+        ) {
+          const body = node.right.arguments[1]
+          add(deferred, node.right.arguments[0].value, {
+            start: body.start,
+            end: body.end,
+            source,
+          })
+          remember(name, body)
+        } else if (
+          ['_.ba', '_.ca'].includes(callee) &&
+          node.right.arguments.length === 1 &&
+          typeof node.right.arguments[0]?.value === 'number'
+        ) {
+          stubs.push({ name, id: node.right.arguments[0].value })
+        }
       }
-      if (node.right.type === 'CallExpression' && codeSymbol(node.right.callee) === '_.ba')
-        stubs.push({ name, id: node.right.arguments[0]?.value })
     })
   for (const stub of stubs)
     for (const body of deferred.get(stub.id) || []) add(functions, stub.name, body)

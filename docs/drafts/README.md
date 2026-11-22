@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-16
+last_reconciled: 2026-11-18
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -78,6 +78,10 @@ actions or resource-file installation is required.
 1. In the extension, open **Advanced → API Server Bridge → Open API Server Bridge**
    and enable **Enable API Server Bridge**.
 2. Start the local gateway with `npm run api-server`.
+   On macOS, the optional [login services](../api-server.md#macos-login-services)
+   start API/MCP after login. Their default API address is
+   `http://127.0.0.1:18081`; keep Drafts pointed at the actual installed address.
+   Access from another device requires an explicitly configured remote listener.
 3. First run **More → 设置**, choose your preferences and tap **保存**. The first
    network action then asks for **Gateway URL** and **Gateway API token**.
    Use the token from `~/.chatgptbox/gateway-api-token`. All actions share the

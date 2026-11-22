@@ -1220,6 +1220,7 @@ function runGemini(draft, settings, ACTION) {
           'Gateway request could not be confirmed. Keep this note and use Get.',
       )
       error.detail = body
+      error.statusCode = response.statusCode
       throw error
     }
     if (!body || typeof body !== 'object')
@@ -1369,33 +1370,43 @@ function runGemini(draft, settings, ACTION) {
       )
       .join('\n\n')
   }
-  function detailFor(meta, cursor) {
-    let ref = meta.conversationRef
-    if (!ref) {
-      if (!meta.nativeConversationId)
-        throw new Error(
-          'No native conversation identity is available. Keep this note and inspect its original run.',
-        )
-      const page = request(
-        '/engines/' +
-          ENGINE +
-          '/conversations?conversationId=' +
-          encodeURIComponent(meta.nativeConversationId),
+  function resolveConversationRef(nativeConversationId) {
+    if (!nativeConversationId)
+      throw new Error(
+        'No native conversation identity is available. Keep this note and inspect its original run.',
       )
-      const matches = page.items?.filter((item) => item.id === meta.nativeConversationId)
-      if (matches?.length !== 1 || !matches[0].conversationRef)
-        throw new Error('The original native Gemini conversation could not be identified.')
-      ref = matches[0].conversationRef
-    }
-    return request(
+    const page = request(
       '/engines/' +
         ENGINE +
-        '/conversations/' +
-        encodeURIComponent(ref) +
-        '?limit=' +
-        HISTORY_PAGE_SIZE +
-        (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''),
+        '/conversations?conversationId=' +
+        encodeURIComponent(nativeConversationId),
     )
+    const matches = page.items?.filter((item) => item.id === nativeConversationId)
+    if (matches?.length !== 1 || !matches[0].conversationRef)
+      throw new Error('The original native Gemini conversation could not be identified.')
+    return matches[0].conversationRef
+  }
+  function detailFor(meta, cursor) {
+    let ref = meta.conversationRef || resolveConversationRef(meta.nativeConversationId)
+    const suffix =
+      '?limit=' + HISTORY_PAGE_SIZE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')
+    try {
+      return request('/engines/' + ENGINE + '/conversations/' + encodeURIComponent(ref) + suffix)
+    } catch (error) {
+      if (
+        meta.conversationRef &&
+        meta.nativeConversationId &&
+        (error.detail?.error?.code === 'CONTEXT_UNAVAILABLE' || error.statusCode === 404)
+      ) {
+        ref = resolveConversationRef(meta.nativeConversationId)
+        return request('/engines/' + ENGINE + '/conversations/' + encodeURIComponent(ref) + suffix)
+      }
+      throw error
+    }
+  }
+  function unsentOnlyHistory(meta, body) {
+    const text = span(meta, body, 'history').text.trim()
+    return /^## Unsent request(?:\n|$)/.test(text) && !/(?:^|\n)## USER(?:\n|$)/.test(text)
   }
   function list(meta, body) {
     if (meta.kind === 'conversation')
@@ -1542,12 +1553,21 @@ function runGemini(draft, settings, ACTION) {
         meta.nativeConversationId = run.result.metadata?.conversationId || meta.nativeConversationId
         meta.serverHead = run.result.metadata?.serverTurnId || null
         delete meta.pending
+        delete meta.lastUnsent
         save(meta, body)
         app.displaySuccessMessage('Gemini answer collected. Waiting Reply was preserved.')
       } else if (run.phase === 'settled' && run.submission === 'not_attempted') {
         unsent(meta, body, pending, run.error?.message || 'The request was not submitted.')
         throw new Error(
           'Gemini did not submit this request. Its text was retained above; edit Waiting Reply before another explicit Send.',
+        )
+      } else if (run.phase === 'settled') {
+        save(meta, body)
+        throw new Error(
+          run.error?.message ||
+            'The Gemini request ended without a confirmed answer (' +
+              (run.outcome || 'unknown') +
+              '). Keep this note and inspect its original run.',
         )
       } else {
         save(meta, body)
@@ -1557,6 +1577,14 @@ function runGemini(draft, settings, ACTION) {
       }
       return
     }
+    if (
+      !meta.conversationRef &&
+      !meta.nativeConversationId &&
+      (meta.lastUnsent || unsentOnlyHistory(meta, body))
+    )
+      throw new Error(
+        'No native conversation exists because the last request was not sent. Write your question in Waiting Reply and run Send.',
+      )
     if (older && !meta.historyCursor) {
       app.displaySuccessMessage('All available Gemini turns in this conversation have been loaded.')
       return
@@ -1655,6 +1683,7 @@ function runGemini(draft, settings, ACTION) {
       if (receipt.engineId !== ENGINE || typeof receipt.runId !== 'string')
         throw new Error('The run receipt was invalid. Keep the original request and use Get.')
       pending.runId = receipt.runId
+      delete meta.lastUnsent
       save(meta, body)
       app.displaySuccessMessage(
         'Gemini request registered. Use Get; registration is not a final answer.',

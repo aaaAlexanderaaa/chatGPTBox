@@ -882,7 +882,7 @@ async function handleChatCompletions(req, res) {
     if ((images.length || projectId) && (model.startsWith('grok') || isGeminiRequest))
       throw new Error('Image and Project inputs currently require ChatGPT Web')
     if (isGeminiRequest && ![GEMINI_WEB_MODEL, GEMINI_WEB_SELECTION].includes(model))
-      throw new Error('Gemini Web supports gemini-4-hydrogen-medium only')
+      throw new Error('Gemini Web supports gemini-4-neon-high only')
   } catch (error) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
     res.end(
@@ -922,16 +922,14 @@ async function handleChatCompletions(req, res) {
 
   if (
     thinkingEffort &&
-    (isGeminiRequest
-      ? thinkingEffort !== 'medium'
-      : !SUPPORTED_THINKING_EFFORTS.has(thinkingEffort))
+    (isGeminiRequest ? thinkingEffort !== 'high' : !SUPPORTED_THINKING_EFFORTS.has(thinkingEffort))
   ) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
     res.end(
       JSON.stringify({
         error: {
           message: isGeminiRequest
-            ? 'Gemini Web requires reasoning_effort/thinking_effort medium (or omit it)'
+            ? 'Gemini Web requires reasoning_effort/thinking_effort high (or omit it)'
             : 'reasoning_effort/thinking_effort must be one of: min, standard, extended, xhigh, max',
           type: 'invalid_request_error',
         },

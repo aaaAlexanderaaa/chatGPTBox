@@ -196,41 +196,89 @@ export async function runGeminiNativeOperation(options) {
         ...fail(
           'GEMINI_RUNTIME_UNSUPPORTED',
           'The Gemini adapter needs an update for this website runtime. This local compatibility check did not send a Gemini request.',
+          !runtime ? { hydrating: true } : {},
         ),
         discoveryNeeded: !!runtime && candidates.length === 0 && !context?.turn,
       }
     const contract = candidates[0]
     if (contract.automaticProof) {
       const proof = window.__chatgptboxGeminiCodeProofV1
+      let invalidProofUrl = false
+      const currentVersions = new Set()
       const currentUrls = [
         ...new Set(
           urls.filter((raw) => {
             try {
               const url = new URL(raw)
-              return (
-                url.origin === 'https://gemini.gstatic.com' && url.pathname.startsWith('/_/js/')
+              if (
+                url.origin !== 'https://gemini.gstatic.com' ||
+                (!url.pathname.startsWith('/_/js/') &&
+                  !url.pathname.startsWith('/_/mss/boq-gemini-web-uiserver/_/js/'))
               )
+                return false
+              const version = url.pathname.match(/\/k=([^/]+)\//)?.[1]
+              let decodedPath
+              try {
+                decodedPath = decodeURIComponent(url.pathname)
+              } catch {
+                invalidProofUrl = true
+                return false
+              }
+              if (
+                !version ||
+                url.username ||
+                url.password ||
+                (url.search && !/^\?wli=BardChatUi\.[a-zA-Z0-9_.%:-]{1,200}$/.test(url.search)) ||
+                url.hash ||
+                /(?:^|\/)\.\.?(?:\/|$)/.test(decodedPath)
+              ) {
+                invalidProofUrl = true
+                return false
+              }
+              currentVersions.add(version)
+              return true
             } catch {
               return false
             }
           }),
         ),
       ].sort()
+      let checkedUrls = currentUrls
+      if (contract.automaticProof.mode === 'structural-core') {
+        if (currentVersions.size !== 1 || !currentVersions.has(contract.version))
+          invalidProofUrl = true
+        else if (currentUrls.length > 4) {
+          const runtimeUrls = currentUrls.filter((raw) =>
+            /\/m=_b(?:\/|$)/.test(new URL(raw).pathname),
+          )
+          const appUrls = currentUrls.filter((raw) => {
+            const pathname = new URL(raw).pathname
+            return (
+              !/\/m=_b(?:\/|$)/.test(pathname) &&
+              (/\/m=vLefie(?:\/|$)/.test(pathname) || /\/exm=_b\//.test(pathname))
+            )
+          })
+          if (runtimeUrls.length !== 1 || appUrls.length !== 1) invalidProofUrl = true
+          else checkedUrls = [...runtimeUrls, ...appUrls].sort()
+        }
+      }
       if (
+        invalidProofUrl ||
         !proof ||
         proof.runtime !== runtime ||
         proof.nonce !== contract.automaticProof.nonce ||
         proof.version !== contract.version ||
-        JSON.stringify(proof.sourceUrls) !== JSON.stringify(currentUrls) ||
-        JSON.stringify(contract.automaticProof.sourceUrls) !== JSON.stringify(currentUrls)
+        JSON.stringify(proof.sourceUrls) !== JSON.stringify(checkedUrls) ||
+        JSON.stringify(contract.automaticProof.sourceUrls) !== JSON.stringify(checkedUrls)
       )
         return fail(
           'GEMINI_RUNTIME_UNSUPPORTED',
           'The Gemini code or document changed after automatic compatibility inspection. No automatic retry will be made.',
         )
       if (
-        (contract.automaticProof.requiresNoWizbind && window.wizbind) ||
-        (contract.automaticProof.unavailableExports || []).some((name) => name in runtime)
+        contract.automaticProof.mode !== 'structural-core' &&
+        ((contract.automaticProof.requiresNoWizbind && window.wizbind) ||
+          (contract.automaticProof.unavailableExports || []).some((name) => name in runtime))
       )
         return fail(
           'GEMINI_RUNTIME_UNSUPPORTED',
@@ -252,7 +300,11 @@ export async function runGeminiNativeOperation(options) {
       ...document.querySelectorAll('rich-textarea .ql-editor[contenteditable="true"]'),
     ].filter(visible)
     if (editors.length !== 1)
-      return fail('GEMINI_EDITOR_UNAVAILABLE', 'Gemini has no unique ready editor. Check its tab.')
+      return fail(
+        'GEMINI_EDITOR_UNAVAILABLE',
+        'Gemini has no unique ready editor. Check its tab.',
+        editors.length === 0 ? { hydrating: true } : {},
+      )
     const editor = editors[0],
       host = editor.closest('input-area-v2')
     const inputs = [
@@ -345,11 +397,12 @@ export async function runGeminiNativeOperation(options) {
         return false
       }
     })
-    if (input[fields.eligible || 'kd'] !== true || !account)
+    const eligible = input[fields.eligible || 'kd'] === true
+    if (!eligible || !account)
       return fail(
         'GEMINI_SIGN_IN_REQUIRED',
         'Sign in to Gemini in this browser. No login or account switch is automated.',
-        { accountBlocked: true },
+        eligible ? { accountBlocked: true, hydrating: true } : { accountBlocked: true },
       )
     // Keep this identity inside MAIN; never return the label/email to callers.
     const accountIdentity =
@@ -643,13 +696,13 @@ export async function runGeminiNativeOperation(options) {
       if (mode.description !== contract.modelDescription)
         return fail(
           'GEMINI_MODEL_MISMATCH',
-          'Select 4 Hydrogen in Gemini. No alternate model will be used.',
+          'Select 4 Neon in Gemini. No alternate model will be used.',
         )
       if (thinking !== contract.thinkingLevel) {
         if (!contract.thinkingSetter)
           return fail(
             'GEMINI_MODEL_MISMATCH',
-            'Select Thinking level Medium in Gemini before sending.',
+            'Select Thinking level High in Gemini before sending.',
           )
         // The same native setter as the menu: it selects only from the site's
         // available thinking options and preserves its own preference handling.
@@ -657,7 +710,7 @@ export async function runGeminiNativeOperation(options) {
         if (sample(service.bardModeService.Ca) !== contract.thinkingLevel)
           return fail(
             'GEMINI_MODEL_MISMATCH',
-            'Gemini did not make Thinking level Medium available. No submission was attempted.',
+            'Gemini did not make Thinking level High available. No submission was attempted.',
           )
       }
       return { ok: true }
@@ -665,7 +718,7 @@ export async function runGeminiNativeOperation(options) {
     if (!modelMatches)
       return fail(
         'GEMINI_MODEL_MISMATCH',
-        'Select 4 Hydrogen and Thinking level Medium in the Gemini tab before sending. No model fallback is used.',
+        'Select 4 Neon and Thinking level High in the Gemini tab before sending. No model fallback is used.',
       )
 
     if (action === 'connect') {

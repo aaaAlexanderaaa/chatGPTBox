@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-16
+last_reconciled: 2026-11-21
 ---
 
 # Gemini Web
@@ -13,6 +13,19 @@ For native-runtime maintenance, use the repository's
 [Gemini adaptation skill](../.agents/skills/gemini-web-adapt/SKILL.md).
 This contract owns behavior; the skill routes investigation, regression and
 installation checks without extending account-test authorization.
+
+## November 18 model selection
+
+On 2026-11-18, the user selected **4 Neon / High** as the default Gemini Web
+model alongside adapting the signed-in `en.rF38EnUYaoQ.2018.O`, public
+`en_US.froaSlPXDN0.2018.O`, and subsequent signed-in `en.NcE3BnbhJwQ.2018.O`
+and `en.c3ZkJFn_XPs.2018.O` compilations. The local
+selector is `gemini-4-neon-high` (`geminiweb/gemini-4-neon-high`), expecting
+native model description `4 Neon` and `THINKING_LEVEL_EXTENDED` (High; API/engine
+`thinkingEffort: "high"` or omitted). This replaces the November 14 4 Hydrogen /
+Medium selection for new work; earlier runs retain their recorded model and
+outcomes. Every new request still checks the selected native model and thinking
+level, with no automatic fallback.
 
 ## November 14 model selection
 
@@ -89,23 +102,23 @@ in the website context. A later account mismatch refuses work; this version
 does not switch or automatically rebind accounts. Use the originally checked
 account in the same browser profile.
 
-The local selector `geminiweb/gemini-4-hydrogen-medium` identifies this adapter; it is
+The local selector `geminiweb/gemini-4-neon-high` identifies this adapter; it is
 not a Google API model ID. The adapter reads the selected native model and
-thinking state, verifies `4 Hydrogen` and the observed Medium mapping, and lets the
-website build its actual request. It does not silently downgrade or choose
-another account/model when access changes. Set the requested options on Gemini
-if the readiness check reports a mismatch.
+thinking state, verifies `4 Neon` and the observed High (`THINKING_LEVEL_EXTENDED`)
+mapping, and lets the website build its actual request. It does not silently
+downgrade or choose another account/model when access changes. Set the requested
+options on Gemini if the readiness check reports a mismatch.
 
-In a fresh extension-owned blank tab, the adapter applies Medium through the
+In a fresh extension-owned blank tab, the adapter applies High through the
 inspected native thinking-menu setter when that runtime supports it, then
 checks the selected value. This handles the website resetting thinking to Low
 on a new document. The setter chooses from the site's available options; an
-unavailable Medium remains a refusal. It does not rewrite request fields or
+unavailable High remains a refusal. It does not rewrite request fields or
 change another model to a fallback. Existing manual tabs are not configured.
 
 Keep the dedicated tab's model selection unchanged during a request. Native
 preparation can be asynchronous: the adapter checks before invoking the handler
-and verifies the model/Medium values in the resulting native request. A selection
+and verifies the model/High values in the resulting native request. A selection
 changed during that interval can already affect the native request; it is
 reported and held, without a retry. This is not an atomic lock on Gemini's UI.
 
@@ -128,65 +141,91 @@ security sandbox against the website itself.
 
 ## Automatic compatibility for identifier changes
 
-The November 14 user request authorizes automatic compatibility when only build
-IDs or internal obfuscated names change. A known profile keeps its existing
-path. An unknown build first receives a read-only inspection; it does not gain
-permission merely because eight entry functions look similar.
+The November 14 user request initially authorized automatic compatibility when
+only build IDs or internal obfuscated names changed. On 2026-11-21, after daily
+signed-in Google rollouts repeatedly changed unrelated code across the 6 MiB
+application bundle and loaded dozens of lazy feature chunks, the user authorized
+a two-tier automatic compatibility path plus offline adaptation tooling to lower
+maintenance cost while keeping core submission, attestation, account and
+single-invocation protections in force:
 
-The bundled reference currently covers the complete public runtime and application
-units of the inspected `TX_RV411Rb4.2018.O` compilation. Its generator checks all
-eight native source fingerprints against the existing profile. The reference
-contains code digests, token masks and symbol names, without website sessions,
-account data or captured conversations. Other historical profiles remain available
-through their original explicit mappings.
+1. **Tier 1 (complete compilation equivalence, Format 4)**: When the loaded
+   public compilation has 1–4 total units (`scope` unset) and matches a bundled
+   reference in `src/config/gemini-code-references.json`, the adapter derives a
+   `mode: 'complete'` proof requiring exact token equivalence across every unit,
+   absent deferred exports (`dYc`/`Ywg`/`VAa`, `iZc`/`mzg`/`VAa`,
+   `WZc`/`mAg`/`UAa`, `XZc`/`nAg`/`UAa`, `b_c`/`FAg`/`UAa`, `O4c`/`kFg`/`LAa`),
+   and inactive `window.wizbind`.
+2. **Tier 2 (verified structural core contract, `mode: 'structural-core'`)**:
+   When Tier 1 does not match—including signed-in pages that load more than four
+   same-version lazy `m=...` feature chunks—`inspectGeminiPublicCompilation`
+   validates every observed `gemini.gstatic.com` script URL for single version
+   and safe syntax, selects the unique core pair (`m=_b` runtime and `m=vLefie`
+   or `/exm=_b/` root app bundle, `scope: 'core'`), and
+   `discoverStructuralGeminiContract` statically parses those public bundles
+   without executing website code. It requires every one of the 31 native
+   contract identifiers to resolve unambiguously from semantic/wire anchors,
+   checks all eight core entry ASTs (`submit`, `send`, `prepare`, `attestation`,
+   `thinking`, `historyClass`, `list`, `read`) and the submit-to-`sendRequest`
+   and read-converter helpers for absence of dynamic code (`eval`, `Function`,
+   `with`, `import()`), absence of direct `fetch`/`XMLHttpRequest` in `submit`,
+   reachability from `submit` to native `service.sendRequest`, `bardModeService`
+   model/thinking handling in `prepare`, `botguardResponse`/`botguardSalt` in
+   `attestation`, and `routingVariantId` menu selection in `thinking`, then
+   computes all eight exact SHA-256 fingerprints.
 
-Automatic recognition requires exactly the reference's complete loaded module
-composition, with one build identity and a unique match. It compares the entire
-token stream of every unit, including downstream helpers, guards and converters.
-Only reference-selected internal namespace symbols, wrapper-local helper names
-and inspected obfuscated field names may be renamed. Each of these binding domains
-requires its own consistent, injective mapping; a class export and an unrelated
-same-spelled data string are not conflated. Namespace reflection, computed access
-or shadowing cannot establish a reference. Fixed identifiers and JavaScript
-prototype-control keys cannot collide with renamed names in their domain.
-Reference generation also audits implicit namespace receivers: calling
-`_.method()` passes `_` as `this`, so a method that reads or escapes that receiver
-cannot treat its fields as unrelated instance keys. Unresolved call targets
-refuse. Receiver forwarding requires a resolved, receiver-independent callback;
-the inspected Closure identity memoizer has an exact source-specific certificate.
-Strings, literal spellings, constants, operators, calls, external API names and
-dynamic keys remain exact. Whitespace/comments may vary only with unchanged
-parser semicolon-insertion decisions. This is a conservative syntactic check,
-not a general JavaScript semantic-equivalence claim. Unrecognized names,
-incomplete or extra modules, ambiguous matches and any other code change refuse
-automatic recognition, even if the visible interface still looks the same.
+**Trade-off boundary**: Tier 2 survives ordinary daily Google UI/feature
+rollouts without rebuilding the extension, because changes outside the verified
+core invariants do not invalidate it. Unlike Tier 1, Tier 2 does not prove that
+unrelated modules or lazy feature chunks outside the verified core anchors are
+unchanged. Both tiers remain strictly volatile and document-scoped (never
+persisted into trusted profiles), and MAIN still rechecks the single build
+version across all observed `gemini.gstatic.com` URLs, the core URL inventory,
+document/runtime/nonce identity, real component/service instances, all eight
+exact SHA-256 function fingerprints, `SignOutOptions` account fingerprint,
+`4 Neon` / `THINKING_LEVEL_EXTENDED` (High), draft/busy/challenge checks, and
+single-invocation holds before every native operation.
 
-Public scripts are read only from already observed `gemini.gstatic.com` URLs,
-without credentials, redirects, query parameters or hashes. Reads are bounded
-to four units, 8 MiB total and a 12-second network deadline. Code is parsed, never
-imported or evaluated. A derived mapping is retained only in volatile memory for
-its pinned document. It is not promoted into a persistent trusted profile.
+The bundled Format-4 reference currently covers the complete public runtime and
+application units of the inspected `en.c3ZkJFn_XPs.2018.O` compilation
+(alongside explicit profile mappings for `en.NcE3BnbhJwQ.2018.O`,
+`en.rF38EnUYaoQ.2018.O`, `en_US.froaSlPXDN0.2018.O`,
+`en_US.sVUVnpt2JHE.2018.O`, `TX_RV411Rb4.2018.O` and earlier historical builds).
+Its generator checks all eight native source fingerprints against the existing
+profile. The reference contains code digests, token masks and symbol names,
+without website sessions, account data or captured conversations.
 
-Before native work, the adapter rechecks the original document, runtime object,
-inspection nonce, module inventory, real component/service instances and exact
-new function fingerprints. Original account, model, draft/busy, single-invocation,
-completion and recovery checks remain in force. A changed or unverifiable document
-refuses work; discovery never runs during an existing native turn or automatically
-resends a question. Reload/restart requires a new proof and cannot clear a hold.
+Public scripts are read only from already observed `gemini.gstatic.com`
+`/_/js/...` or `/_/mss/boq-gemini-web-uiserver/_/js/...` URLs without
+credentials, redirects, path traversal or hashes, allowing only an empty query
+string or the boq `?wli=BardChatUi...` WASM-list parameter. Reads are bounded to
+four core units, 8 MiB total and a 12-second network deadline. History
+list/read preflight actions (`history.list`, `history.read`) and held-tab
+`review` share the same unattempted compatibility discovery trigger before
+surfacing `OPERATION_NOT_IMPLEMENTED` or requiring unverified acknowledgement.
+When an already-reused background read tab (`state.readTab`) still holds an
+older build and refuses with `GEMINI_RUNTIME_UNSUPPORTED` (`dispatched: false`),
+`readImpl` retires only that read-only tab once and retries on a fresh
+background read tab without touching any writer tab.
 
-The initial TX composition has three unresolved deferred exports for document
-library routing, video playback and optional wiz initialization. They are recorded
-as unavailable, rather than certified code. Its automatic proof requires those
-exports (`dYc`, `Ywg`, `VAa`, mapped into the candidate namespace) to remain absent
-and `window.wizbind` to be inactive. Loaded deferred code or an expanded resource
-inventory refuses automatic work, including observation after invocation; it
-does not grant permission to resend. Explicit historical profiles keep their
-existing behavior.
+When automatic verification still refuses (for example after a structural
+refactor to core submission or history anchors), `Settings → Gemini Web` shows
+the validated public `Website build` identifier and copy buttons for the two
+public core bundle URLs and the offline adaptation command
+`npm run gemini:adapt -- "<m=_b URL>" "<m=vLefie URL>" --write` (which runs
+`scripts/adapt-gemini-build.mjs`, refuses unknown deferred exports without
+manual audit, updates `gemini-web.mjs` and `namespace-receivers.mjs`, rebuilds
+and verifies `gemini-code-references.json`, and deletes temporary files). For
+local Chromium refreshes, `npm run build:extension:fast` builds and installs
+only `build/chromium` without waiting for all four release archives; full
+packaging still uses `npm run build` / `npm run build:extension`.
 
 The [automatic-adaptation delivery record](plans/2026-11-14-gemini-auto-adapt.md)
-owns the current verification evidence and its limits. Reference maintenance uses
-`scripts/build-gemini-code-reference.mjs` with explicitly inspected public files;
-matching eight root hashes alone is not authorization to add a new reference.
+owns the earlier Tier-1 verification evidence and its limits. Reference
+maintenance uses `scripts/adapt-gemini-build.mjs` and
+`scripts/build-gemini-code-reference.mjs` with explicitly inspected public
+files; matching eight root hashes alone is not authorization to add a new
+reference.
 
 ## Submission, completion and recovery
 

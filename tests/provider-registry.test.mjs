@@ -41,7 +41,7 @@ const SESSION_BY_ROUTE = {
     config: { grokWebEnabled: true },
   },
   'gemini-web': {
-    session: { modelName: 'geminiweb/gemini-4-hydrogen-medium' },
+    session: { modelName: 'geminiweb/gemini-4-neon-high' },
     config: { geminiWebEnabled: true },
   },
   'claude-api': {

@@ -11,8 +11,18 @@ export function GeminiWebTab({ config, updateConfig }) {
   const [status, setStatus] = useState(null)
   const [pending, setPending] = useState(false)
   const [acknowledgeUnverified, setAcknowledgeUnverified] = useState(false)
+  const [copiedDiagnostic, setCopiedDiagnostic] = useState('')
+  const copyDiagnostic = async (kind, text) => {
+    try {
+      await navigator.clipboard?.writeText(text)
+      setCopiedDiagnostic(kind)
+    } catch {
+      setCopiedDiagnostic('')
+    }
+  }
   const action = async (type) => {
     setPending(true)
+    setCopiedDiagnostic('')
     try {
       const result = await Browser.runtime.sendMessage({
         type,
@@ -34,10 +44,10 @@ export function GeminiWebTab({ config, updateConfig }) {
         title={t('Account and model')}
         description={t('Uses your signed-in Gemini website and its native submission checks.')}
       >
-        <p className="text-sm">4 Hydrogen · {t('Thinking level')}: Medium</p>
+        <p className="text-sm">4 Neon · {t('Thinking level')}: High</p>
         <p className="text-xs text-muted-foreground">
           {t(
-            'Open Gemini, select 4 Hydrogen and Medium, then check the page. The adapter refuses other models and unknown website versions.',
+            'Open Gemini, select 4 Neon and High, then check the page. The adapter refuses other models and unknown website versions.',
           )}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -73,14 +83,50 @@ export function GeminiWebTab({ config, updateConfig }) {
             <p>
               {status.message ||
                 (status.ready
-                  ? t('Gemini is ready: 4 Hydrogen / Medium.')
-                  : t('Gemini is open. Select 4 Hydrogen / Medium, then check the page.'))}
+                  ? t('Gemini is ready: 4 Neon / High.')
+                  : t('Gemini is open. Select 4 Neon / High, then check the page.'))}
             </p>
             {status.model && !status.ready && (
               <p>
                 {t('Current model')}: {status.model}
               </p>
             )}
+            {status.detectedVersion && !status.ready && (
+              <p className="break-all text-muted-foreground">
+                {t('Website build')}: <code>{status.detectedVersion}</code>
+              </p>
+            )}
+            {Array.isArray(status.publicCoreUrls) &&
+              status.publicCoreUrls.length > 0 &&
+              !status.ready && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    className={buttonClass}
+                    onClick={() =>
+                      copyDiagnostic('urls', JSON.stringify(status.publicCoreUrls, null, 2))
+                    }
+                  >
+                    {copiedDiagnostic === 'urls' ? t('Copied') : t('Copy public bundle URLs')}
+                  </button>
+                  {status.publicCoreUrls.length === 2 && (
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      onClick={() =>
+                        copyDiagnostic(
+                          'cmd',
+                          `npm run gemini:adapt -- ${status.publicCoreUrls
+                            .map((url) => JSON.stringify(url))
+                            .join(' ')} --write`,
+                        )
+                      }
+                    >
+                      {copiedDiagnostic === 'cmd' ? t('Copied') : t('Copy adapt command')}
+                    </button>
+                  )}
+                </div>
+              )}
             {status.hold && (
               <p>
                 {t(

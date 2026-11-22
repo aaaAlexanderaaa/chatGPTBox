@@ -29,11 +29,15 @@ description: 维护本项目的 Gemini Web 原生网页适配，在官网运行�
 1. 沿当前公开脚本核对真实输入组件、非 mock 会话服务、提交处理器、准备与 attestation、
    模型/思考状态、原生 action 和响应行。版本字符串、类名或方法存在只能定位，
    需与当前方法指纹及实际字段职责一起核实。
-2. 在 `src/config/gemini-web.mjs` 的已检查 profile 中维护语义映射。未知编译仅在契约规定的
-   完整代码重命名等价检查通过后自动派生映射；逻辑改变、映射不唯一或无法确认仍拒绝。
-   不用八个入口的去名称 hash 替代完整依赖代码校验。参考生成器先核对全部原始指纹，
-   再为明确检查过的公开编译生成 `src/config/gemini-code-references.json`；不在线自学习信任。
-   不用泛化 DOM 点击、相似函数或直接 root-service 调用替代完整输入链路。
+2. 在 `src/config/gemini-web.mjs` 的已检查 profile 中维护语义映射。未知编译按契约走两层只读
+   自动验证（不执行网站代码、不在线持久化信任）：优先全量 Format-4 重命名等价；若命中日常非核心
+   改动或登录态多模块懒加载（>4 个同版本 `m=...` 单元），则对核心对（`m=_b` 与 `m=vLefie`/`/exm=_b/`）
+   运行 `structural-contract.mjs` 的 31 项唯一锚点与 8 项核心入口 AST 安全不变量校验并提取精确
+   SHA-256 指纹；任何不唯一、缺锚点或违背核心不变量仍拒绝。需固化新版本时优先用
+   `npm run gemini:adapt -- "<m=_b URL>" "<m=vLefie URL>" --write` 离线提取、审计延迟导出与
+   memoizer 并重建校验 `src/config/gemini-code-references.json`，再用 `npm run build:extension:fast`
+   （或发布/全检时用 `npm run build:extension`）更新本机扩展。不用泛化 DOM 点击、相似函数或直接
+   root-service 调用替代完整输入链路。
 3. 使用同一顶层 MAIN 文档中已存在的输入实例和原生提交处理器。保留网站输入门控、
    请求组装、内容校验和 transport；不重建 Google HTTP 请求，不搬运 cookie、token 或 attestation。
    一次扩展 handler 调用不保证网站只发一个 HTTP 请求，原生恢复仍由网站拥有。

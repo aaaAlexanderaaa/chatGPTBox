@@ -16,15 +16,26 @@ export function inspectGeminiPublicCompilation() {
     .concat(performance.getEntriesByType('resource').map((entry) => entry.name))) {
     try {
       const url = new URL(raw)
-      if (url.origin !== 'https://gemini.gstatic.com' || !url.pathname.startsWith('/_/js/'))
+      if (
+        url.origin !== 'https://gemini.gstatic.com' ||
+        (!url.pathname.startsWith('/_/js/') &&
+          !url.pathname.startsWith('/_/mss/boq-gemini-web-uiserver/_/js/'))
+      )
         continue
       const version = url.pathname.match(/\/k=([^/]+)\//)?.[1]
+      let decodedPath
+      try {
+        decodedPath = decodeURIComponent(url.pathname)
+      } catch {
+        return { ok: false }
+      }
       if (
         !version ||
         !/^boq-gemini-web-uiserver\.BardChatUi\.[a-zA-Z0-9_.-]{1,180}$/.test(version) ||
+        /(?:^|\/)\.\.?(?:\/|$)/.test(decodedPath) ||
         url.username ||
         url.password ||
-        url.search ||
+        (url.search && !/^\?wli=BardChatUi\.[a-zA-Z0-9_.%:-]{1,200}$/.test(url.search)) ||
         url.hash
       )
         return { ok: false }
@@ -34,10 +45,29 @@ export function inspectGeminiPublicCompilation() {
       /* unrelated resources */
     }
   }
-  if (versions.size !== 1 || !urls.size || urls.size > 4) return { ok: false }
+  if (versions.size !== 1 || !urls.size) return { ok: false }
+  const allUrls = [...urls].sort()
+  let sourceUrls = allUrls
+  let scope
+  if (allUrls.length > 4) {
+    const runtimeUrls = allUrls.filter((raw) => /\/m=_b(?:\/|$)/.test(new URL(raw).pathname))
+    const appUrls = allUrls.filter((raw) => {
+      const pathname = new URL(raw).pathname
+      return (
+        !/\/m=_b(?:\/|$)/.test(pathname) &&
+        (/\/m=vLefie(?:\/|$)/.test(pathname) || /\/exm=_b\//.test(pathname))
+      )
+    })
+    if (runtimeUrls.length !== 1 || appUrls.length !== 1) return { ok: false }
+    sourceUrls = [...runtimeUrls, ...appUrls].sort()
+    scope = 'core'
+  }
   const nonce = crypto.randomUUID(),
-    version = [...versions][0],
-    sourceUrls = [...urls].sort()
-  window.__chatgptboxGeminiCodeProofV1 = { runtime, nonce, version, sourceUrls }
-  return { ok: true, nonce, version, sourceUrls }
+    version = [...versions][0]
+  window.__chatgptboxGeminiCodeProofV1 = scope
+    ? { runtime, nonce, version, sourceUrls, scope }
+    : { runtime, nonce, version, sourceUrls }
+  return scope
+    ? { ok: true, nonce, version, sourceUrls, scope }
+    : { ok: true, nonce, version, sourceUrls }
 }

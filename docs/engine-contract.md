@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-16
+last_reconciled: 2026-11-18
 ---
 
 # 统一引擎语义、接口与功能开放
@@ -518,9 +518,9 @@ ChatGPT。`conversation.append` 的引用、版本、追加输入都须显式；
   "contractVersion": 1,
   "engineId": "geminiweb",
   "operation": "generation.start",
-  "modelId": "gemini-4-hydrogen-medium",
+  "modelId": "gemini-4-neon-high",
   "input": { "prompt": "解释这段论证中的假设。" },
-  "parameters": { "thinkingEffort": "medium" }
+  "parameters": { "thinkingEffort": "high" }
 }
 ```
 
@@ -582,7 +582,7 @@ nextAction`，以及经过脱敏的 provider cause。下表为公共 HTTP 映射
 | --- | --- | --- |
 | ChatGPT | `generate / append / readConversation / listConversations / recover` 包装现有服务 | 账号目录、模型默认、原生校验、图片/Projects、完整可视化、精确 turn 与 resume；逐项核验取消保证，不从 abort 推断远端已停 |
 | Grok | 包装现有 writer 和 control，声明 `generate / append / readConversation / listConversations` | 全局单路写、GET 硬确认、原 conversation/response 父节点；取消初版仅本地断流，恢复尚未实现。统一准入、持久占用、人工处置与终态归约已接入，不把 EOF、无条件 `pending: false` 或一页 `total` 当证据 |
-| Gemini | 包装后台 native service，声明 `generate / append / listConversations / readConversation / recover` | 11 月 13 日新增原生历史映射及按服务器 turn 身份恢复；追加在新文档重新核对原生会话、head 和响应身份。11 月 14 日用户改选 4 Hydrogen / Medium；保留 Chromium、账号指纹、三个独立并发名额、同会话排他、每请求单次原生 handler 与独立持久 hold；未记录服务器身份的旧运行仍不确定 |
+| Gemini | 包装后台 native service，声明 `generate / append / listConversations / readConversation / recover` | 11 月 13 日新增原生历史映射及按服务器 turn 身份恢复；追加在新文档重新核对原生会话、head 和响应身份。11 月 18 日用户改选 4 Neon / High（此前 11 月 14 日为 4 Hydrogen / Medium）；保留 Chromium、账号指纹、三个独立并发名额、同会话排他、每请求单次原生 handler 与独立持久 hold；未记录服务器身份的旧运行仍不确定 |
 
 这些映射已通过受控原生样本和公共入口测试；不据此声称真实账号的能力完全对等。Grok 现有 `modelResponse` /
 `[DONE]` 判断必须以自身协议证据验证；不能照抄 ChatGPT 的结束标志。历史快照

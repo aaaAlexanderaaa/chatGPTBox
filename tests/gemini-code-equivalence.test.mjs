@@ -98,6 +98,7 @@ describe('complete Gemini compilation renaming equivalence', () => {
       '_.read=function(){return this.AM};_.read()',
       'var readAlias=function(){return this.AM};_.read=readAlias;_.read()',
       '_.read=_.ca(91,function(){return this.AM});_.read()',
+      '_.read=_.da(91,function(){return this.AM});_.read()',
       '_.factory=function(){return function(){return this.AM}};_.read=_.factory();_.read()',
     ])
       expect(() => createCodeReference([prefix + body + suffix])).toThrow(/namespace this/)
@@ -294,13 +295,57 @@ describe('automatic Gemini contract resolution', () => {
     expect(await resolveAutomaticGeminiContract(inventory(), options)).toBeNull()
   })
 
+  it('accepts a shifted _.ca stub and _.da module installer pair', async () => {
+    const shifted = [
+      units[0]
+        .replace('_.ba=function(a){};', '')
+        .replace('_.ca=function(a,b){return b}', '_.ca=function(a){};_.da=function(a,b){return b}'),
+      units[1].replaceAll('_.ca(', '_.da(').replaceAll('_.ba(', '_.ca('),
+    ]
+    const shiftedRef = { referenceVersion: version, ...createCodeReference(shifted, keys) }
+    const renamedShifted = renameReferenceCode(
+      shifted,
+      shiftedRef,
+      (kind, index) => `alt${kind}_${index}`,
+    )
+    const mssUrls = ['_b', 'vLefie'].map(
+      (name) =>
+        `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${nextVersion}/m=${name}?wli=BardChatUi.l5EF44GVmg0.mediaIntentWasm.O%3A%3B`,
+    )
+    const resolved = await resolveAutomaticGeminiContract(inventory({ sourceUrls: mssUrls }), {
+      references: [shiftedRef],
+      contracts: [profile],
+      fetch: vi.fn(async (url) => new Response(renamedShifted[url.includes('/m=_b?') ? 0 : 1])),
+    })
+    expect(resolved?.version).toBe(nextVersion)
+    expect(resolved.hashes).toEqual(await extractNativeHashes(renamedShifted, resolved))
+    expect(resolved.automaticProof.sourceUrls).toEqual([...mssUrls].sort())
+  })
+
   it.each([
     ['foreign host', ['https://example.com/_/js/k=x/m=app']],
+    ['unknown mss app', [`https://gemini.gstatic.com/_/mss/other/_/js/k=${nextVersion}/m=app`]],
+    [
+      'path traversal',
+      [`https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/../x/k=${nextVersion}/m=app`],
+    ],
+    [
+      'encoded path traversal',
+      [
+        `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/%2e%2e/k=${nextVersion}/m=app`,
+      ],
+    ],
     [
       'credential-bearing URL',
       [`https://user:pass@gemini.gstatic.com/_/js/k=${nextVersion}/m=app`],
     ],
     ['query', [`https://gemini.gstatic.com/_/js/k=${nextVersion}/m=app?token=private`]],
+    [
+      'non-BardChatUi wli query',
+      [
+        `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${nextVersion}/m=app?wli=OtherUi.foo`,
+      ],
+    ],
     ['other build', [`https://gemini.gstatic.com/_/js/k=${version}/m=app`]],
   ])('refuses %s before fetching public code', async (_, sourceUrls) => {
     const options = resolverOptions()
@@ -321,5 +366,152 @@ describe('automatic Gemini contract resolution', () => {
       async () => new Response('', { headers: { 'content-length': String(9 * 1024 * 1024) } }),
     )
     expect(await resolveAutomaticGeminiContract(inventory(), options)).toBeNull()
+  })
+
+  it('derives a verified structural-core contract on signed-in multi-chunk inventories and refuses core tampering', async () => {
+    const structuralVersion = 'boq-gemini-web-uiserver.BardChatUi.en.syntheticStruct.2018.O'
+    const coreUrls = [
+      `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${structuralVersion}/d=1/excm=_b/m=_b?wli=BardChatUi.abc.mediaIntentWasm.O%3A%3B`,
+      `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${structuralVersion}/d=1/exm=_b/excm=_b/m=vLefie?wli=BardChatUi.abc.mediaIntentWasm.O%3A%3B`,
+    ]
+    const runtimeSrc = `(function(_){_.aa={};_.ca=function(a){return a};_.da=function(a,b){return b};}).call(this,this.default_BardChatUi);`
+    const appSrc = `(function(_){
+      var bindView=function(b){_.vMap.set(b[19],b)};
+      var sendChain=function(a,b,c,d){return a.Ta.sendRequest({textQuery:a.Ml.value})};
+      _.svcTok=new _.Mv("ConversationService",{tb:"root",hb:()=>{_.u(_.x);return _.fe(_.ee("CVUPx"),!1)?_.u(_.fakeSvc):_.u(_.RealSvc)}});
+      _.apiTok=_.xC("ConversationApi",_.RealApi,_.fakeApi);
+      _.RealApi=class{
+        constructor(){this.Aa=_.u(_.x);this.Ba={z:1};this.requestSource=1}
+        Lst(a,b,c){var d=Ble(Ale(new _.Yxc,\na.pinned),a.exF);a.conversationId&&_.lg(d,6,a.conversationId);return _.gt(()=>this.Aa.fetch(bme.getInstance(d))).pipe(_.r(f=>({itF:_.Af(f,_.Vy,3,void 0).map(_.lle),nextPageToken:_.m(f,2)})))}
+      };
+      _.aa=_.RealApi.prototype;
+      _.aa.RdM=_.ca(780);
+      _.aa.AtM=_.ca(777);
+      var readConv=function(a,b){return Object.assign({},{rwF:f,nextPageToken:_.m(a,2)})};
+      _.aa.RdM=_.da(780,function(a,b,c,d){var e=this.requestSource;return _.gt(()=>this.Aa.fetch(wHe.getInstance(e))).pipe(_.r(f=>{f=readConv(f,a,this.Ba.x);return f}))});
+      _.aa.AtM=_.da(777,function(a){return _.AttFn(this.mb,a)});
+      _.AttFn=function(a,b){return a.Ba.pipe(_.r(d=>({request:b,botguardResponse:d.botguardResponse,botguardSalt:d.botguardSalt})))};
+      _.ThinkFn=function(a,b,c){a.Teb(b)&&a.Rb.pipe(_.tt(1)).subscribe(d=>{d.length!==0&&(d=a.Zed(d,b,c))&&_.uie(a,b,d.routingVariantId)})};
+      _.PrepFn=function(a,b,c){return _.Ws({oa:a.bardModeService.oa,Ca:a.bardModeService.Ca}).pipe(_.r(({oa:je,Ca:jj})=>{var yk={clientTurnId:b.clientTurnId,conversationId:"",textQuery:b.textQuery,reqPar:Ze||"",parentResponseId:"",reqMode:je==null?void 0:je.id,thinkingLevel:jj};return{request:yk}}))};
+      _.RealSvc=class{
+        constructor(){this.Po=_.u(_.apiTok);this.Pb=_.u(_.mF);this.Ve=this.store.select(_.sel);this.hasRows=this.Ve.pipe(_.r(h=>!!fn(h.rwF)))}
+        sendRequest(a,b){var c=Object.assign({},a,{clientTurnId:a.clientTurnId});var d=void 0;this.Pb.pipe(_.yF(_.Xme),_.mt(x=>x));this.store.dispatch(c);return _.PrepFn(this,c,d)}
+      };
+      _.SendAct=_.UB(rK("Send Request"),_.VB());
+      _.FailAct=_.UB(rK("Generate Response Failure"),_.VB());
+      var emitActs=function(a,b,c,v){(0,_.SendAct)({request:c,dispF:{Nd:b,request:c}});(0,_.FailAct)({failF:Object.assign({},{error:a}),metaF:v})};
+      var renderMath=function(a){return{nodeType:12,mathF:_.m(a,1)}};
+      var renderDef=function(a){return{nodeType:6,entries:a.map(c=>Object.assign({},(d==null?void 0:d.nodeType)===18&&{defF:d}))}};
+      _.RealInp=class{
+        constructor(){
+          this.Ta=_.u(_.svcTok);
+          this.Ml=new _.YO("",{yk:!0});this.z=this.Ml.wl.pipe(_.r(x=>x));
+          this.qd=_.ie(_.he("Lz8rbb"),!1);
+          this.Lb=this.Kla.oa;
+          this.Ke=_.Y(()=>0);
+          this.BWe=_.Y(()=>({featureMode:this.Ke()}));
+          this.B6=_.Q(!1);
+          this.DQ=this.Ca.Aa?_.Z(this.Ca.Ca.pipe(_.Wv(S=>S.Ia)),{initialValue:!1}):_.Q(!1).asReadonly();
+          this.Gv=_.Y(()=>this.Toe()||this.Bxf()||this.B6());
+          this.ufa=_.Y(()=>!1);
+          this.lbl=_.Y(()=>this.ufa()?"Stop response":this.B6()?"Cancel send":"Send message");
+          this.KIc=_.Y(()=>this.To().some(S=>!(S==null?0:S.Wi)));
+          this.Aue=_.Y(()=>this.XNc()||this.ifa().size>0||this.lDa());
+        }
+        SubM(a,b,c,d){if(a)return;else if(!this.DQ())if(this.B6())return;else{var x=this.Ml.value;if(this.Ga.Ha(_.op)&&!this.Lb&&a&&this.Df()){}sendChain(this,b,c,d)}}
+      };
+      _.RealInp.Xa=_.Bw({type:_.RealInp,Sa:[["input-area-v2"]],inputs:{Toe:[1,"disableInput"]}});
+    }).call(this,this.default_BardChatUi);`
+
+    const resolved = await resolveAutomaticGeminiContract(
+      {
+        ok: true,
+        nonce: 'core-nonce',
+        version: structuralVersion,
+        sourceUrls: coreUrls,
+        scope: 'core',
+      },
+      {
+        references: [],
+        contracts: [{ modelDescription: '4 Neon', thinkingLevel: 'THINKING_LEVEL_EXTENDED' }],
+        fetch: vi.fn(async (url) => new Response(url.includes('/m=_b?') ? runtimeSrc : appSrc)),
+      },
+    )
+    expect(resolved).toMatchObject({
+      version: structuralVersion,
+      viewMap: 'vMap',
+      inputClass: 'RealInp',
+      serviceClass: 'RealSvc',
+      prepareFunction: 'PrepFn',
+      attestationFunction: 'AttFn',
+      thinkingSetter: 'ThinkFn',
+      history: {
+        apiClass: 'RealApi',
+        serviceField: 'Po',
+        list: 'Lst',
+        read: 'RdM',
+        itemsField: 'itF',
+        exactFilter: 'exF',
+        rowsField: 'rwF',
+      },
+      fields: {
+        service: 'Ta',
+        submit: 'SubM',
+        form: 'Ml',
+        eligible: 'qd',
+        generating: 'ufa',
+        preparing: 'B6',
+        disabled: 'Gv',
+        editing: 'DQ',
+        attachments: 'KIc',
+        references: 'Aue',
+        embedded: 'Lb',
+        feature: 'Ke',
+        state: 'Ve',
+        actions: 'Pb',
+        rows: 'rwF',
+        metadata: 'metaF',
+        dispatch: 'dispF',
+        failure: 'failF',
+        requestMode: 'reqMode',
+        requestParent: 'reqPar',
+        math: 'mathF',
+        definitionTerm: 'defF',
+      },
+      automaticProof: {
+        mode: 'structural-core',
+        nonce: 'core-nonce',
+        version: structuralVersion,
+        sourceUrls: [...coreUrls].sort(),
+      },
+    })
+    expect(resolved.hashes).toEqual(await extractNativeHashes([runtimeSrc, appSrc], resolved))
+
+    for (const mutated of [
+      appSrc.replaceAll('botguardResponse', 'removedGuard'),
+      appSrc.replace('sendChain(this,b,c,d)', 'fetch("/x");sendChain(this,b,c,d)'),
+      appSrc.replace('return{request:yk}', 'eval("x");return{request:yk}'),
+      appSrc.replace('a.Ta.sendRequest', 'a.Ta.otherCall'),
+      appSrc.replace('thinkingLevel:jj', 'otherLevel:jj'),
+    ]) {
+      expect(
+        await resolveAutomaticGeminiContract(
+          {
+            ok: true,
+            nonce: 'core-nonce',
+            version: structuralVersion,
+            sourceUrls: coreUrls,
+            scope: 'core',
+          },
+          {
+            references: [],
+            contracts: [{ modelDescription: '4 Neon', thinkingLevel: 'THINKING_LEVEL_EXTENDED' }],
+            fetch: vi.fn(
+              async (url) => new Response(url.includes('/m=_b?') ? runtimeSrc : mutated),
+            ),
+          },
+        ),
+      ).toBeNull()
+    }
   })
 })

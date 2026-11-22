@@ -437,13 +437,10 @@ export function createNativeEngineAdapters(deps = {}) {
               'This adapter has no provider-specific request options.',
             )
           if (definition.id === 'geminiweb') {
-            if (
-              request.modelId !== GEMINI_WEB_MODEL ||
-              (effort !== undefined && effort !== 'medium')
-            )
+            if (request.modelId !== GEMINI_WEB_MODEL || (effort !== undefined && effort !== 'high'))
               throw new EngineError(
                 'PARAMETER_UNSUPPORTED',
-                'Gemini Web supports 4 Hydrogen / Medium only.',
+                'Gemini Web supports 4 Neon / High only.',
               )
             if (request.input.prompt.length > 50000)
               throw new EngineError(

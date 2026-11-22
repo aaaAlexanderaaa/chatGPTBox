@@ -23,7 +23,11 @@ async function main() {
     }
   }
 
-  const build = spawnSync(process.execPath, ['build.mjs', '--production'], {
+  const isFast = process.argv.includes('--fast')
+  const buildArgs = isFast
+    ? ['build.mjs', '--production', '--chromium-only']
+    : ['build.mjs', '--production']
+  const build = spawnSync(process.execPath, buildArgs, {
     cwd: root,
     stdio: 'inherit',
   })

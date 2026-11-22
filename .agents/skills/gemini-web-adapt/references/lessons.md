@@ -3,6 +3,22 @@
 这些是有条件的历史经验，当前行为以 [Gemini 契约](../../../../docs/gemini-web.md)和代码为准。
 每次新编译、模型、身份或原生事件改变都需重新核对。
 
+## 2026-11-21：登录态多模块两层自动适配、一键离线脚本与旧 `readTab` 自动刷新
+
+1. 11/18–11/21 连续 5 个真实编译表明，Google 几乎每天都在 6 MiB `app.js` 中增改少量非核心代码（甚至在 `prepare`/`history.list` 增减单个字段标志），且登录态页面会懒加载 40+ 个同版本 `m=...` 模块，导致仅支持 ≤4 单元且要求整包逐 token 等价的 Format-4 自动路径在登录态下无法命中。
+2. 经用户授权升级为两层自动验证（均不执行网页代码、均仅内存级 document 绑定）：保留 Tier 1 全量 Format-4 证明；新增 Tier 2 `structural-core` 路径——`runtime-inspection.mjs` 对 >4 单元同版本页面抽取唯一核心对（`m=_b` 与 `m=vLefie`/`/exm=_b/`），`structural-contract.mjs` 用 31 项语义/协议锚点唯一解析并校验 8 项核心入口 AST 不变量（禁止动态代码、禁止 `submit` 直连网络、验证 `submit → service.sendRequest` 可达、`prepare` 保留 `bardModeService`/`thinkingLevel`、`attestation` 保留 `botguardResponse`/`botguardSalt`、`thinking` 保留 `routingVariantId`）后直接算出 8 项 SHA-256 指纹。离线用 11/18 `rF38EnUYaoQ`、11/19 `NcE3BnbhJwQ`、11/21 `c3ZkJFn_XPs` 三份真实 6 MiB 包验证：均在 ~0.7–0.8s 内 100% 精确还原全部 31 个符号与 8 个指纹，且 4 项对抗篡改均被拒绝。
+3. 配套落地 `Settings → Gemini Web` 公开构建号与 2 URL/命令一键复制、`readImpl` 遇旧 `readTab` 报 `GEMINI_RUNTIME_UNSUPPORTED` 时仅退换一次只读 tab（不碰 writer）、`npm run gemini:adapt` 一键离线适配以及 `npm run build:extension:fast` 单目标 Chromium 快速构建安装。
+来源：[Gemini 契约](../../../../docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
+
+## 2026-11-18：`/_/mss/` 资源路径、`_.da` 延迟注册、`froaSlPXDN0` 升级与 `history.*` / Drafts 状态边界
+
+1. `gemini.google.com/app` 从 `https://gemini.gstatic.com/_/js/...` 迁移到 `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=.../m=...?wli=BardChatUi...` 后，原先仅放行 `/_/js/` 前缀与空 query 的发现及 `automaticProof` 校验都会误拒合法单元；应只放行该已知路径前缀及 `?wli=BardChatUi...` 单参数，继续拒绝任意 query 与 `..` 路径。
+2. 新公开构建 `en_US.sVUVnpt2JHE.2018.O`、`en_US.froaSlPXDN0.2018.O` 与登录态英文构建 `en.rF38EnUYaoQ.2018.O`、`en.NcE3BnbhJwQ.2018.O`、`en.c3ZkJFn_XPs.2018.O` 除符号重命名与逻辑指令变化外，均使用 `_.ca(id)` / `_.da(id, fn)` 延迟注册（`c3ZkJFn_XPs` 起 `history.list` 回到 `ConversationApi` 类体直定义，仅 `read`/`attestation` 仍经 `_.da` 注册）：`sVUVnpt2JHE` 的 Closure identity memoizer 为 `_.jTa`/`hTa`/`_.Fe`/`_.gka`/`iTa`、未加载延迟导出为 `iZc`/`mzg`/`VAa`；`froaSlPXDN0` 与 `rF38EnUYaoQ` 共用 `_.iTa`/`gTa`/`_.Ge`/`_.hka`/`hTa`，未加载延迟导出分别为 `WZc`/`mAg`/`UAa` 与 `XZc`/`nAg`/`UAa`；`NcE3BnbhJwQ` 的 memoizer 为 `_.iTa`/`gTa`/`_.Fe`/`_.hka`/`hTa`，未加载延迟导出为 `b_c`/`FAg`/`UAa`；`c3ZkJFn_XPs` 的 memoizer 为 `_.hTa`/`fTa`/`_.He`/`_.cka`/`gTa`（全局对象别名也随版本变为 `_.ka`，`staticAllows` 须核对 `_.ka.JSON.*`），未加载延迟导出为 `O4c`/`kFg`/`LAa`。**注意**：匿名访问 `gemini.google.com/app` 默认返回 `en_US.*`，而登录态英文 Brave 会话返回的是 `en.*`（且活跃页面会按需加载数十个 `m=...` 延迟单元，超出自动发现 4 单元上限）；排查登录态兼容时必须直接核对浏览器实际加载的公开 `gemini.gstatic.com` 单元（核心入口 `m=_b` 与 `m=vLefie`），不能只以匿名 `en_US` 代替。
+3. 后台 `invoke()` 的自动发现列表写成了 `'list'`/`'read'`，漏掉了 `readImpl()` 实际使用的 `'history.list'` 与 `'history.read'`，导致只读历史接口直接返回 `GEMINI_RUNTIME_UNSUPPORTED`（`422 OPERATION_NOT_IMPLEMENTED`）而不触发发现；同时 `'review'` 也应纳入重启后的只读发现白名单。新建后台 tab（`active: false`）在 `status === 'complete'` 后仍可能短暂处于 Angular / `SignOutOptions` hydration 阶段，需对新 tab 的首次只读探测留出有限等待预算，避免误触发持久账号暂停（`pauseAccount`）。
+4. Drafts 新建 `:g` 笔记若首次 `Send` 以 `dispatched: false`（未提交）失败，笔记已写入 `meta.kind = 'conversation'` 与 `lastUnsent`，但无 `conversationRef` 也无 `nativeConversationId`；随后执行 `Get` / `older`（含升级前已留有 `## Unsent request` 且无 `## USER` / `lastUnsent` 的旧笔记）应提示上一笔请求未发出、尚无原生会话，而不是泛报错 `'No native conversation identity is available...'`；当 `meta.conversationRef` 因绑定过期返回 `CONTEXT_UNAVAILABLE` 且存在 `nativeConversationId` 时，只读刷新可通过 `conversationId` 重新解析引用；当 `Get` 遇到已 settled 但非 `completed` / `not_attempted` 的 run 时应抛出实际错误并保留 `pending`。
+5. 同日用户将 Gemini Web 默认模型切换为 `4 Neon / High`（`gemini-4-neon-high`、`THINKING_LEVEL_EXTENDED`、`thinkingEffort: "high"`）。更新 `scripts/api-server.mjs` 后若使用 macOS LaunchAgents，需按原参数重启本地服务；在活跃 Brave 登录态下实测 `4 Neon` 实际原生 `mode.description`、`SignOutOptions`、历史读取与发送前，不把离线检查当作实盘通过。
+来源：[Gemini 契约](../../../../docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
+
 ## 2026-11-16：保留页数不等于并发容量
 
 原来的三张 writer 保留上限与公共 descriptor 的单路租约、原生全局 hold 并存，

@@ -50,8 +50,8 @@ function fixture({ current = false } = {}) {
       this.Ue = subject({ id: '', Ob: [] })
       this.Mb = subject(undefined, false)
       this.bardModeService = {
-        oa: subject({ id: 'native-hydrogen', description: '4 Hydrogen' }),
-        Ca: subject('THINKING_LEVEL_MEDIUM'),
+        oa: subject({ id: 'native-neon', description: '4 Neon' }),
+        Ca: subject('THINKING_LEVEL_EXTENDED'),
       }
       this.calls = 0
       this.stops = 0
@@ -64,8 +64,8 @@ function fixture({ current = false } = {}) {
         request: {
           clientTurnId: `native-${this.calls}`,
           textQuery: this.input.Fl.value,
-          jj: 'native-hydrogen',
-          thinkingLevel: 'THINKING_LEVEL_MEDIUM',
+          jj: 'native-neon',
+          thinkingLevel: 'THINKING_LEVEL_EXTENDED',
           conversationId: 'c_native',
           Yj: this.Ue.value.Ob.at(-1)?.response?.turnId || '',
           parentResponseId: this.Ue.value.Ob.at(-1)?.response?.draft?.id || '',
@@ -209,8 +209,8 @@ function fixture({ current = false } = {}) {
       viewMap: 'views',
       inputClass: 'Input',
       serviceClass: 'Service',
-      modelDescription: '4 Hydrogen',
-      thinkingLevel: 'THINKING_LEVEL_MEDIUM',
+      modelDescription: '4 Neon',
+      thinkingLevel: 'THINKING_LEVEL_EXTENDED',
       hashes: {
         submit: hash(input.kNa),
         send: hash(service.sendRequest),
@@ -223,6 +223,16 @@ function fixture({ current = false } = {}) {
     const profile = GEMINI_NATIVE_CONTRACTS.find((item) =>
       item.version.includes(
         current === 'latest'
+          ? 'c3ZkJ'
+          : current === 'nov19en'
+          ? 'NcE3B'
+          : current === 'nov18en'
+          ? 'rF38E'
+          : current === 'nov18us'
+          ? 'froaSl'
+          : current === 'nov18early'
+          ? 'sVUVn'
+          : current === 'nov16'
           ? 'K_sMM'
           : current === 'nov13TX'
           ? 'TX_RV'
@@ -231,6 +241,17 @@ function fixture({ current = false } = {}) {
           : 'qGl2D',
       ),
     )
+    if (
+      current === 'latest' ||
+      current === 'nov19en' ||
+      current === 'nov18en' ||
+      current === 'nov18us' ||
+      current === 'nov18early'
+    ) {
+      const mssUrl = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${profile.version}/m=vLefie?wli=BardChatUi.lB0mIvianpU.mediaIntentWasm.O%3A%3B`
+      win.document.scripts[0].src = mssUrl
+      contracts[0].version = profile.version
+    }
     Object.assign(contracts[0], {
       fields: profile.fields,
       prepareFunction: profile.prepareFunction,
@@ -255,7 +276,14 @@ function fixture({ current = false } = {}) {
     }))
       if (profile.fields[key]) input[profile.fields[key]] = input[legacy]
     const request = (value) =>
-      value && Object.assign({}, value, { jj: undefined, [profile.fields.requestMode]: value.jj })
+      value &&
+      Object.assign({}, value, {
+        jj: undefined,
+        [profile.fields.requestMode]: value.jj,
+        ...(profile.fields.requestParent
+          ? { Yj: undefined, [profile.fields.requestParent]: value.Yj }
+          : {}),
+      })
     const row = (value) => value && { ...value, request: request(value.request) }
     service[profile.fields.state] = {
       subscribe(fn) {
@@ -283,7 +311,10 @@ function fixture({ current = false } = {}) {
       modeService.setterCalls = (modeService.setterCalls || 0) + 1
       if (modeService.availableThinking?.includes(level)) modeService.Ca.next(level)
     }
-    service.bardModeService.availableThinking = ['THINKING_LEVEL_STANDARD', 'THINKING_LEVEL_MEDIUM']
+    service.bardModeService.availableThinking = [
+      'THINKING_LEVEL_STANDARD',
+      'THINKING_LEVEL_EXTENDED',
+    ]
     contracts[0].hashes.thinking = hash(runtime[profile.thinkingSetter])
     delete runtime.hEe
     delete runtime.Gce
@@ -382,21 +413,34 @@ function historyFixture(f, overrides = {}) {
 }
 
 describe('Gemini native history boundary', () => {
-  it('uses the renamed current native list shape and its exact-conversation filter without submitting', async () => {
-    const f = fixture({ current: 'latest' })
-    const h = historyFixture(f, { itemsField: 'Fl', exactFilter: 'yV', rowsField: 'Qb' })
-    expect(await f.op('history.list', { conversationId: 'c_abcdefgh' })).toMatchObject({
-      ok: true,
-      items: [{ id: 'c_abcdefgh' }],
-    })
-    expect(h.reads[0][1]).toEqual({ conversationId: 'c_abcdefgh', yV: true })
-    expect(await f.op('history.read', { conversationId: 'c_abcdefgh' })).toMatchObject({
-      ok: true,
-      headCompleted: true,
-      messages: [{ role: 'user' }, { role: 'assistant', completed: true }],
-    })
-    expect(f.service.calls).toBe(0)
-  })
+  it.each([
+    ['nov16', { itemsField: 'Fl', exactFilter: 'yV', rowsField: 'Qb' }],
+    ['nov18early', { itemsField: 'Yk', exactFilter: 'ZV', rowsField: 'Rb' }],
+    ['nov18us', { itemsField: 'Yk', exactFilter: 'hW', rowsField: 'Rb' }],
+    ['nov18en', { itemsField: 'Yk', exactFilter: 'hW', rowsField: 'Rb' }],
+    ['nov19en', { itemsField: 'Xk', exactFilter: 'oW', rowsField: 'Rb' }],
+    ['latest', { itemsField: 'zj', exactFilter: 'tW', rowsField: 'Tb' }],
+  ])(
+    'uses the renamed %s native list shape and its exact-conversation filter without submitting',
+    async (current, shape) => {
+      const f = fixture({ current })
+      const h = historyFixture(f, shape)
+      expect(await f.op('history.list', { conversationId: 'c_abcdefgh' })).toMatchObject({
+        ok: true,
+        items: [{ id: 'c_abcdefgh' }],
+      })
+      expect(h.reads[0][1]).toEqual({
+        conversationId: 'c_abcdefgh',
+        [shape.exactFilter]: true,
+      })
+      expect(await f.op('history.read', { conversationId: 'c_abcdefgh' })).toMatchObject({
+        ok: true,
+        headCompleted: true,
+        messages: [{ role: 'user' }, { role: 'assistant', completed: true }],
+      })
+      expect(f.service.calls).toBe(0)
+    },
+  )
   it('shares the rendering budget across history rows, including empty native nodes', async () => {
     const f = fixture()
     const row = (id) => ({
@@ -583,13 +627,135 @@ describe('Gemini native runtime boundary', () => {
     expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
   })
 
-  it('refuses public compilation URLs with queries and a changed origin', () => {
+  it('accepts /_/mss/boq-gemini-web-uiserver/_/js URLs with an exact BardChatUi wli query in inspection and proof checks', async () => {
     const f = fixture()
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en_US.synthetic.2018.O'
+    const baseUrl = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}/m=_b?wli=BardChatUi.l5EF44GVmg0.mediaIntentWasm.O%3A%3B`
+    const appUrl = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}/m=vLefie?wli=BardChatUi.l5EF44GVmg0.mediaIntentWasm.O%3A%3B`
+    f.win.document.scripts[0].src = baseUrl
+    const extra = f.win.document.createElement('script')
+    extra.src = appUrl
+    f.win.document.head.appendChild(extra)
+    const inspected = inspectGeminiPublicCompilation()
+    expect(inspected).toMatchObject({
+      ok: true,
+      version,
+      sourceUrls: [baseUrl, appUrl].sort(),
+    })
+    f.contracts[0].version = version
+    f.contracts[0].automaticProof = {
+      nonce: inspected.nonce,
+      sourceUrls: inspected.sourceUrls,
+    }
+    expect(await f.op('inspect')).toMatchObject({ ok: true, ready: true })
+  })
+
+  it('refuses public compilation URLs with queries, encoded traversal, invalid post-proof resources, and a changed origin', async () => {
+    const f = fixture()
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en_US.synthetic.2018.O'
+    const valid = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}/m=base?wli=BardChatUi.test`
+    f.win.document.scripts[0].src = valid
+    const inspected = inspectGeminiPublicCompilation()
+    expect(inspected).toMatchObject({ ok: true, version })
+    f.contracts[0].version = version
+    f.contracts[0].automaticProof = { nonce: inspected.nonce, sourceUrls: inspected.sourceUrls }
+    const badExtra = f.win.document.createElement('script')
+    badExtra.src = `https://gemini.gstatic.com/_/js/k=${version}/m=extra?token=private`
+    f.win.document.head.appendChild(badExtra)
+    expect(await f.op('connect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_RUNTIME_UNSUPPORTED',
+      dispatched: false,
+    })
+    badExtra.remove()
+    f.win.document.scripts[0].src =
+      'https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/%2e%2e/k=boq-gemini-web-uiserver.BardChatUi.en.synthetic.2018.O/m=base'
+    expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
     f.win.document.scripts[0].src =
       'https://gemini.gstatic.com/_/js/k=boq-gemini-web-uiserver.BardChatUi.en.synthetic.2018.O/m=base?token=private'
     expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
     vi.stubGlobal('location', { origin: 'https://example.com', pathname: '/app' })
     expect(inspectGeminiPublicCompilation()).toEqual({ ok: false })
+  })
+
+  it('extracts core m=_b and app units on multi-chunk signed-in pages and enforces structural-core proof invariants', async () => {
+    const f = fixture()
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en.multiChunk.2018.O'
+    const base = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}`
+    const wli = '?wli=BardChatUi.4T0bvJC-D_s.mediaIntentWasm.O%3A%3B'
+    const runtimeUrl = `${base}/d=1/excm=_b/m=_b${wli}`
+    const appUrl = `${base}/d=1/exm=_b/excm=_b/m=RenamedApp${wli}`
+    f.win.document.scripts[0].src = runtimeUrl
+    for (const url of [
+      appUrl,
+      `${base}/d=1/exm=_b,RenamedApp/m=mlMvR${wli}`,
+      `${base}/d=1/exm=_b,RenamedApp,mlMvR/m=Z8wCif${wli}`,
+      `${base}/d=1/exm=_b,RenamedApp,mlMvR,Z8wCif/m=UE0P2d${wli}`,
+    ]) {
+      const s = f.win.document.createElement('script')
+      s.src = url
+      f.win.document.head.appendChild(s)
+    }
+    const inspected = inspectGeminiPublicCompilation()
+    expect(inspected).toMatchObject({
+      ok: true,
+      version,
+      scope: 'core',
+      sourceUrls: [runtimeUrl, appUrl].sort(),
+    })
+    f.contracts[0].version = version
+    f.contracts[0].automaticProof = {
+      mode: 'structural-core',
+      nonce: inspected.nonce,
+      version,
+      sourceUrls: inspected.sourceUrls,
+    }
+    expect(await f.op('inspect')).toMatchObject({ ok: true, ready: true })
+    // Another lazy chunk of the same version is permitted under structural-core proof.
+    const extraSameVersion = f.win.document.createElement('script')
+    extraSameVersion.src = `${base}/d=1/exm=_b,RenamedApp/m=HwBxOc${wli}`
+    f.win.document.head.appendChild(extraSameVersion)
+    expect(await f.op('inspect')).toMatchObject({ ok: true, ready: true })
+    // A mixed version script must fail closed.
+    const mixedVersion = f.win.document.createElement('script')
+    mixedVersion.src = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=boq-gemini-web-uiserver.BardChatUi.en.other.2018.O/m=extra${wli}`
+    f.win.document.head.appendChild(mixedVersion)
+    expect(await f.op('inspect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_RUNTIME_UNSUPPORTED',
+    })
+  })
+
+  it('marks pre-hydration runtime, editor and SignOutOptions gaps distinctly from signed-out failures', async () => {
+    const f = fixture()
+    f.win.document.querySelector('a[href*="SignOutOptions"]').remove()
+    expect(await f.op('inspect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_SIGN_IN_REQUIRED',
+      accountBlocked: true,
+      hydrating: true,
+    })
+    f.input.kd = false
+    const signedOut = await f.op('inspect')
+    expect(signedOut).toMatchObject({
+      ok: false,
+      code: 'GEMINI_SIGN_IN_REQUIRED',
+      accountBlocked: true,
+    })
+    expect(signedOut.hydrating).toBeUndefined()
+    f.input.kd = true
+    f.editor.remove()
+    expect(await f.op('inspect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_EDITOR_UNAVAILABLE',
+      hydrating: true,
+    })
+    delete f.win.default_BardChatUi
+    expect(await f.op('inspect')).toMatchObject({
+      ok: false,
+      code: 'GEMINI_RUNTIME_UNSUPPORTED',
+      hydrating: true,
+    })
   })
 
   it('does not classify an editor-only draft as an empty reusable page', async () => {
@@ -669,7 +835,16 @@ describe('Gemini native runtime boundary', () => {
     expect(await f.op('send')).toMatchObject({ ok: false, dispatched: false })
     expect(f.service.calls).toBe(1)
   })
-  it.each(['nov13early', 'nov13TX', 'latest'])(
+  it.each([
+    'nov13early',
+    'nov13TX',
+    'nov16',
+    'nov18early',
+    'nov18us',
+    'nov18en',
+    'nov19en',
+    'latest',
+  ])(
     'uses the observed %s field/event mapping to complete its matching native response',
     async (current) => {
       const f = fixture({ current })
@@ -694,7 +869,7 @@ describe('Gemini native runtime boundary', () => {
     expect(await g.op('inspect')).toMatchObject({ ready: false, busy: true })
     expect(g.service.calls).toBe(0)
   })
-  it('adapts the current compiled field names and applies Medium through the native menu setter without sending', async () => {
+  it('adapts the current compiled field names and applies High through the native menu setter without sending', async () => {
     const f = fixture({ current: true })
     f.service.bardModeService.Ca.next('THINKING_LEVEL_STANDARD')
     expect(await f.op('inspect')).toMatchObject({ ready: false })
@@ -712,7 +887,7 @@ describe('Gemini native runtime boundary', () => {
     expect(f.service.calls).toBe(1)
   })
 
-  it('does not apply thinking settings to a manual tab, switch models, or force unavailable Medium', async () => {
+  it('does not apply thinking settings to a manual tab, switch models, or force unavailable High', async () => {
     const f = fixture({ current: true })
     f.service.bardModeService.Ca.next('THINKING_LEVEL_STANDARD')
     f.win.location.hash = ''
@@ -722,7 +897,7 @@ describe('Gemini native runtime boundary', () => {
     f.service.bardModeService.oa.next({ id: 'other', description: '4 Argon' })
     expect(await f.op('configure')).toMatchObject({ code: 'GEMINI_MODEL_MISMATCH' })
     expect(f.service.bardModeService.setterCalls).toBeUndefined()
-    f.service.bardModeService.oa.next({ id: 'native-hydrogen', description: '4 Hydrogen' })
+    f.service.bardModeService.oa.next({ id: 'native-neon', description: '4 Neon' })
     f.service.bardModeService.availableThinking = ['THINKING_LEVEL_STANDARD']
     expect(await f.op('configure')).toMatchObject({ code: 'GEMINI_MODEL_MISMATCH' })
     expect(f.service.bardModeService.Ca.value).toBe('THINKING_LEVEL_STANDARD')
@@ -734,8 +909,8 @@ describe('Gemini native runtime boundary', () => {
     expect(await f.op('inspect')).toMatchObject({
       ok: true,
       ready: true,
-      model: '4 Hydrogen',
-      thinking: 'THINKING_LEVEL_MEDIUM',
+      model: '4 Neon',
+      thinking: 'THINKING_LEVEL_EXTENDED',
     })
     expect(f.input.Fl.value).toBe('')
     expect(f.service.calls).toBe(0)
@@ -855,7 +1030,7 @@ describe('Gemini native runtime boundary', () => {
       code: 'GEMINI_MODEL_MISMATCH',
       dispatched: false,
     })
-    f.service.bardModeService.Ca.next('THINKING_LEVEL_MEDIUM')
+    f.service.bardModeService.Ca.next('THINKING_LEVEL_EXTENDED')
     f.input.Fl.setValue('Keep this existing draft')
     expect(await f.op('connect')).toMatchObject({
       code: 'GEMINI_OWNED_TAB_REQUIRED',
