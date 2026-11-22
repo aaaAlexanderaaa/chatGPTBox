@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-06
+last_reconciled: 2026-11-22
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -39,10 +39,11 @@ HTML，网关转发同一文本，Drafts Action 2/3 把它写入 transcript。
 新增动态几何属性时，同步调整共用样式校验，避免扩展清理 HTML 后丢失布局。
 固定样式优先使用 CSS 类。
 
-修改 CSS 后运行 `npm run sync-drafts-preview`；`node scripts/sync-drafts-preview.mjs --check`
-检查模板是否过期。模板保持单文件，不依赖远程脚本或样式。维护
-`scripts/drafts/chatgptbox-preview.source.html`，不要手动修改生成的 HTML 或 `.draftsAction`。
-构建内嵌按需打包的 ECharts、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
+修改 CSS 或预览脚本后运行 `npm run sync-drafts-preview`；`node scripts/sync-drafts-preview.mjs --check`
+检查模板是否过期。模板保持单文件，不依赖远程脚本、样式或字体。维护
+`scripts/drafts/chatgptbox-preview.source.html`、`src/components/MarkdownRender/drafts-math-runtime.mjs`
+与 `drafts-preview-runtime.mjs`，不要手动修改生成的 HTML 或 `.draftsAction`。
+构建内嵌按需打包的 ECharts、KaTeX（离线 MathML 输出，`trust: false`，不嵌入外部字体）、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
 JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前提下处理，避免导入
 模板后脚本被模板引擎改写。
 

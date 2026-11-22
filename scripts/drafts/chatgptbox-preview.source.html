@@ -59,8 +59,67 @@
       }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
       :not(pre) > code { background: var(--surface); padding: 2px 5px; border-radius: 4px; }
+      kbd {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .85em;
+        padding: 1px 6px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      mark {
+        background: rgba(250, 204, 21, .35);
+        color: inherit;
+        padding: 0 3px;
+        border-radius: 3px;
+      }
+      del { color: var(--muted); }
+      sub, sup { font-size: .75em; line-height: 0; }
+      dl { margin: 16px 0; }
+      dt { font-weight: 600; margin-top: 12px; }
+      dd { margin: 4px 0 0 20px; }
+      details:not(.chatgptbox-genui-chart-fallback) {
+        margin: 14px 0;
+        padding: 10px 14px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      details:not(.chatgptbox-genui-chart-fallback) > summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      details:not(.chatgptbox-genui-chart-fallback)[open] > summary { margin-bottom: 10px; }
+      li > input[type="checkbox"] {
+        margin: 0 6px 0 0;
+        vertical-align: middle;
+        accent-color: var(--link);
+      }
       hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
       img { max-width: 100%; height: auto; }
+      .chatgptbox-math-display {
+        display: block;
+        margin: 16px 0;
+        padding: 4px 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        text-align: center;
+      }
+      .chatgptbox-math-display > .katex { display: inline-block; }
+      math {
+        font-family: "STIX Two Math", "Cambria Math", "Apple Symbols", math, serif;
+        font-size: 1.05em;
+        line-height: 1.4;
+      }
+      .chatgptbox-math-display math { font-size: 1.12em; }
+      menclose[notation~="box"] {
+        border: 1px solid currentColor;
+        padding: 2px 5px;
+        border-radius: 2px;
+      }
+      .chatgptbox-table-scroll { width: 100%; overflow-x: auto; margin: 16px 0; }
+      .chatgptbox-table-scroll > table { margin: 0; }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -91,14 +150,15 @@
           --surface: #242b35;
           --link: #83baff;
         }
+        mark { background: rgba(250, 204, 21, .28); }
       }
       @media print {
         :root { --page: #fff; --ink: #111; --muted: #555; --line: #ddd; --surface: #f5f5f5; }
         main { max-width: none; padding: 0; }
         a { color: inherit; }
-        .chatgptbox-genui-table-scroll, main > table { overflow: visible; }
+        .chatgptbox-genui-table-scroll, .chatgptbox-table-scroll, .chatgptbox-math-display, main > table { overflow: visible; }
         .chatgptbox-genui-table { min-width: 0; }
-        tr, .chatgptbox-genui-box { break-inside: avoid; }
+        tr, .chatgptbox-genui-box, .chatgptbox-math-display { break-inside: avoid; }
       }
     </style>
   </head>

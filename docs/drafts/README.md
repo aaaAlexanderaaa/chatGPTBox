@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-18
+last_reconciled: 2026-11-22
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -72,7 +72,7 @@ actions or resource-file installation is required.
 | ChatGPTBox List Conversations | [package](chatgptbox-list.draftsAction), [script](scripts/action-1-list-conversations.js) | List the selected engine's conversations in an empty note |
 | ChatGPTBox Get | [package](chatgptbox-get.draftsAction), [script](scripts/action-2-open-checked-conversation.js) | Open one checked conversation, refresh or collect its answer |
 | ChatGPTBox Send | [package](chatgptbox-send.draftsAction), [script](scripts/action-3-send-waiting-reply.js) | Create a conversation or send its Waiting Reply |
-| ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout and charts |
+| ChatGPTBox Preview | [package](chatgptbox-preview.draftsAction) | Read the note with offline layout, LaTeX math and charts |
 | ChatGPTBox More | [package](chatgptbox-more.draftsAction), [script](scripts/more.js) | Shared settings, supported photos, Project selection and older messages |
 
 1. In the extension, open **Advanced → API Server Bridge → Open API Server Bridge**
@@ -390,14 +390,21 @@ in that window. iPhone has no separate live preview window. Template-file sync
 and action sync are separate; download the template before offline use. See the
 [custom-template options](https://docs.getdrafts.com/docs/editor/previews).
 
-The HTML uses `%%[[draft]]%%`, inline styles and the packaged chart script. Keep
-HTML enabled in the Markdown parser so the gateway's portable HTML survives.
-The reading view hides gateway metadata and supports light/dark appearance,
-narrow-screen stacking and table-local scrolling. Supported offline charts have
-values, legends, local navigation and a **图表数据** source table; without JavaScript
-the table remains open. Missing/negative values retain their meaning. Unsupported
-components/properties use official Markdown fallback rather than executing
-model-generated code. Precise supported shapes belong to the renderer contract.
+The HTML uses `%%[[draft]]%%`, inline styles and the packaged offline script
+(ECharts + KaTeX MathML). Keep HTML enabled in the Markdown parser so the
+gateway's portable HTML survives. The reading view hides gateway metadata and
+supports light/dark appearance, narrow-screen stacking, table-local scrolling
+(including nested Gemini tables), collapsible `<details>` blocks, definition
+lists (`<dl>`), task checkboxes, `<kbd>`/`<mark>`, and offline LaTeX math
+rendered to native MathML (`$$...$$`, `\[...\]`, `\(...\)`, currency-guarded
+`$...$`, standalone `equation`/`align`/`gather` environments, MultiMarkdown
+`span.math`/`div.math`, and fenced `` ```math `` blocks, with `<br>` and
+Markdown-mangled subscript `<em>` recovery and `trust: false`). Supported
+offline charts have values, legends, local navigation and a **图表数据** source
+table; without JavaScript the table remains open. Missing/negative values retain
+their meaning. Unsupported components/properties use official Markdown fallback
+rather than executing model-generated code. Precise supported shapes belong to
+the renderer contract.
 
 ## Updating and troubleshooting
 
@@ -433,10 +440,11 @@ leading/trailing state and writing a readable title followed by content and
 trailing state. Provider adapters keep their original in-memory envelope; the
 common persistence boundary controls the saved layout.
 
-Maintain `scripts/drafts/chatgptbox-preview.source.html`, shared CSS and the
-chart runtime; `npm run sync-drafts-preview` regenerates the template/package and protects
-script/template delimiters with an exact CSP hash. Extension builds run both
-steps. Import regenerated copies into Drafts separately.
+Maintain `scripts/drafts/chatgptbox-preview.source.html`, shared CSS, the math
+helper (`src/components/MarkdownRender/drafts-math-runtime.mjs`) and the chart
+runtime; `npm run sync-drafts-preview` regenerates the template/package and
+protects script/template delimiters with an exact CSP hash. Extension builds run
+both steps. Import regenerated copies into Drafts separately.
 
 Repository tests cover controlled local capture, exact-request recovery and a
 synthetic HTTP bridge. Browser previews cover rendered output; camera behavior

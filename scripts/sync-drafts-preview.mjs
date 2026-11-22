@@ -20,7 +20,8 @@ export function createDraftsPreviewAction(html) {
     uuid: '89E9B0C5-1DDC-4E61-A541-BF2C2B0E8D2D',
     name: 'ChatGPTBox Preview',
     shortName: 'Preview',
-    actionDescription: 'Offline ChatGPTBox conversation preview with local interactive charts.',
+    actionDescription:
+      'Offline ChatGPTBox conversation preview with LaTeX math and local interactive charts.',
     steps: [
       {
         uuid: '49892222-6483-4DC2-927B-51AB0A3EF399',
@@ -52,10 +53,23 @@ export function protectDraftsScript(source) {
     const raw = source.slice(token.start, token.end)
     if (['string', 'template'].includes(token.type.label)) {
       const literal = token.type.label === 'string' ? JSON.stringify(token.value) : raw
-      const replacement = literal
-        .replace(/\[/g, '\\x5b')
-        .replace(/%/g, '\\x25')
-        .replace(/</g, '\\x3c')
+      const replacement =
+        token.type.label === 'string'
+          ? literal
+              .replace(/\[/g, '\\x5b')
+              .replace(/\{/g, '\\x7b')
+              .replace(/%/g, '\\x25')
+              .replace(/</g, '\\x3c')
+          : literal
+              .replace(/\[/g, '\\x5b')
+              .replace(/\{\{/g, '\\x7b\\x7b')
+              .replace(/%/g, '\\x25')
+              .replace(/</g, '\\x3c')
+      if (replacement !== raw) changes.push([token.start, token.end, replacement])
+    } else if (token.type.label === 'regexp') {
+      let replacement = raw.replace(/%%/g, '%\\x25').replace(/<\/script/gi, '\\x3c\\/script')
+      while (/\[\[/.test(replacement)) replacement = replacement.replace(/\[\[/g, '[\\x5b')
+      while (/\{\{/.test(replacement)) replacement = replacement.replace(/\{\{/g, '{\\x7b')
       if (replacement !== raw) changes.push([token.start, token.end, replacement])
     } else if (
       ['[', '{'].includes(token.type.label) &&
@@ -100,7 +114,13 @@ async function bundleRuntime() {
         }),
       )
     })
-    const licenses = ['echarts/NOTICE', 'echarts/LICENSE', 'zrender/LICENSE', 'tslib/LICENSE.txt']
+    const licenses = [
+      'echarts/NOTICE',
+      'echarts/LICENSE',
+      'zrender/LICENSE',
+      'tslib/LICENSE.txt',
+      'katex/LICENSE',
+    ]
       .map((name) =>
         fs.readFileSync(path.join(root, 'node_modules', name), 'utf8').replace(/\r\n?/g, '\n'),
       )
