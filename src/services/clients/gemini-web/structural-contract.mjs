@@ -65,13 +65,45 @@ function hasDirectNetworkCall(astNode) {
   return found
 }
 
+function detectDeferredHelpers(parsed) {
+  const stubs = new Map()
+  const regs = new Map()
+  for (const { source, ast } of parsed) {
+    visitCode(ast, (node) => {
+      if (node.type !== 'AssignmentExpression') return
+      const name = codeSymbol(node.left)
+      if (!name || !/^_\.[A-Za-z_$][\w$]*$/.test(name) || node.right.type !== 'FunctionExpression')
+        return
+      const text = source.slice(node.right.start, node.right.end)
+      const stubMatch = text.match(
+        /^function\(([A-Za-z_$][\w$]*)\)\{return function\(\)\{return ([A-Za-z_$][\w$]*)\[\1\]\.apply\(this,arguments\)\}\}$/,
+      )
+      if (stubMatch) stubs.set(name, stubMatch[2])
+      const regMatch = text.match(
+        /^function\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{return ([A-Za-z_$][\w$]*)\[\1\]=\2\}$/,
+      )
+      if (regMatch) regs.set(name, regMatch[3])
+    })
+  }
+  const pairs = []
+  for (const [stub, stubArr] of stubs.entries()) {
+    for (const [reg, regArr] of regs.entries()) {
+      if (stubArr === regArr) pairs.push({ stub, reg })
+    }
+  }
+  if (pairs.length === 1) {
+    return { stubCallees: [pairs[0].stub], regCallees: [pairs[0].reg] }
+  }
+  return { stubCallees: ['_.ba', '_.ca'], regCallees: ['_.ca', '_.da'] }
+}
+
 function indexParsedUnits(parsed) {
   const functions = new Map()
   const localFunctions = new Map()
   const classes = new Map()
   const deferred = new Map()
   const protoStubs = new Map()
-  let alias = null
+  const { stubCallees, regCallees } = detectDeferredHelpers(parsed)
 
   const add = (map, name, entry) => {
     if (!name) return
@@ -82,6 +114,7 @@ function indexParsedUnits(parsed) {
   }
 
   for (const { source, ast } of parsed) {
+    const protoAlias = new Map()
     visitCode(ast, (node) => {
       if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init) {
         if (/Function/.test(node.init.type)) {
@@ -104,8 +137,22 @@ function indexParsedUnits(parsed) {
       if (node.type !== 'AssignmentExpression') return
       let name = codeSymbol(node.left)
       const right = codeSymbol(node.right)
-      if (name === '_.aa' && right?.endsWith('.prototype')) alias = right.slice(0, -10)
-      if (name?.startsWith('_.aa.') && alias) name = alias + name.slice(4)
+      if (name && /^_\.[A-Za-z_$][\w$]*$/.test(name)) {
+        if (right && /^_\.[A-Za-z_$][\w$]*\.prototype$/.test(right)) {
+          protoAlias.set(name, right.slice(0, -10))
+        } else {
+          protoAlias.delete(name)
+        }
+      }
+      if (name) {
+        const aliasMatch = name.match(/^(_\.[A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/)
+        if (aliasMatch && protoAlias.has(aliasMatch[1])) {
+          name = `${protoAlias.get(aliasMatch[1])}.${aliasMatch[2]}`
+        } else {
+          const directProto = name.match(/^(_\.[A-Za-z_$][\w$]*)\.prototype\.([A-Za-z_$][\w$]*)$/)
+          if (directProto) name = `${directProto[1]}.${directProto[2]}`
+        }
+      }
       const remember = (key, value) => {
         if (!value) return
         const entry = { node: value, start: value.start, end: value.end, source }
@@ -136,7 +183,7 @@ function indexParsedUnits(parsed) {
       if (node.right.type === 'CallExpression') {
         const callee = codeSymbol(node.right.callee)
         if (
-          ['_.ca', '_.da'].includes(callee) &&
+          regCallees.includes(callee) &&
           node.right.arguments.length === 2 &&
           typeof node.right.arguments[0]?.value === 'number' &&
           node.right.arguments[1]?.type === 'FunctionExpression'
@@ -146,7 +193,7 @@ function indexParsedUnits(parsed) {
           add(deferred, node.right.arguments[0].value, entry)
           remember(name, body)
         } else if (
-          ['_.ba', '_.ca'].includes(callee) &&
+          stubCallees.includes(callee) &&
           node.right.arguments.length === 1 &&
           typeof node.right.arguments[0]?.value === 'number'
         ) {
@@ -181,7 +228,7 @@ function entryText(entry) {
 }
 
 function unwrapClosureLines(text) {
-  return text.replace(/([,;({[=:?&|!+\-*/])\r?\n/g, '$1').replace(/\r?\n([,;)}\]=:?&|])/g, '$1')
+  return text.replace(/([,;({[=:?&|!+\-*/<>.])\r?\n/g, '$1').replace(/\r?\n([,;)}\]=:?&|.])/g, '$1')
 }
 
 async function sha256Hex(text) {
@@ -242,6 +289,226 @@ function reachesServiceSendRequest(submitEntry, serviceField, localFunctions) {
   return false
 }
 
+function parsePositiveInt(raw) {
+  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null
+  const value = Number(raw)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function uniqueNodeType(text, regex) {
+  return parsePositiveInt(uniqueRegex(text, regex, 1))
+}
+
+function discoverStructuredContentContract(index) {
+  const requiredCases = [2, 4, 11, 12, 13, 14, 15, 16, 17, 20, 22, 24, 35, 39, 60, 84, 91]
+  const dispatchers = []
+  for (const list of index.localFunctions.values()) {
+    if (list.length !== 1) continue
+    const entry = list[0]
+    let found = null
+    visitCode(entry.node, (node) => {
+      if (node.type !== 'SwitchStatement') return
+      const caseMap = new Map()
+      let defaultCase = null
+      for (const item of node.cases) {
+        if (item.test === null) defaultCase = item
+        else if (item.test.type === 'Literal' && typeof item.test.value === 'number')
+          caseMap.set(item.test.value, item)
+      }
+      if (defaultCase && requiredCases.every((num) => caseMap.has(num))) {
+        found = { entry, caseMap, defaultCase }
+      }
+    })
+    if (found) dispatchers.push(found)
+  }
+  if (dispatchers.length !== 1) return null
+  const { entry: dispatcherEntry, caseMap, defaultCase } = dispatchers[0]
+  if (!assertNoDynamicCode(dispatcherEntry.node)) return null
+
+  const callNamesIn = (astNode) => {
+    const names = new Set()
+    visitCode(astNode, (node) => {
+      if (node.type === 'CallExpression' && node.callee?.type === 'Identifier')
+        names.add(node.callee.name)
+    })
+    return [...names]
+  }
+  const resolveLocal = (name) => {
+    const matches = (index.localFunctions.get(name) || []).filter(
+      (item) => item.source === dispatcherEntry.source,
+    )
+    if (matches.length !== 1 || !assertNoDynamicCode(matches[0].node)) return null
+    return { name, entry: matches[0], text: unwrapClosureLines(entryText(matches[0])) }
+  }
+
+  const defaultCalls = callNamesIn(defaultCase)
+  if (defaultCalls.length !== 1) return null
+  const emptyConv = resolveLocal(defaultCalls[0])
+  if (!emptyConv) return null
+  const empty = uniqueNodeType(emptyConv.text, /return\{nodeType:(\d+)\}/g)
+  if (!empty) return null
+
+  const caseConverter = (num) => {
+    const names = callNamesIn(caseMap.get(num)).filter((name) => name !== emptyConv.name)
+    if (names.length !== 1) return null
+    return resolveLocal(names[0])
+  }
+
+  const textConv = caseConverter(2)
+  const codeConv = caseConverter(4)
+  const tableConv = caseConverter(11)
+  const ulConv = caseConverter(12)
+  const olConv = caseConverter(13)
+  const paraConv = caseConverter(14)
+  const calloutConv = caseConverter(15)
+  const cont16Conv = caseConverter(16)
+  const cont17Conv = caseConverter(17)
+  const brConv = caseConverter(20)
+  const cont22Conv = caseConverter(22)
+  const mathConv = caseConverter(35)
+  const execCodeConv = caseConverter(39)
+  const cont60Conv = caseConverter(60)
+  const layoutDispatch = caseConverter(84)
+  const defConv = caseConverter(91)
+  if (
+    !textConv ||
+    !codeConv ||
+    !tableConv ||
+    !ulConv ||
+    !olConv ||
+    !paraConv ||
+    !calloutConv ||
+    !cont16Conv ||
+    !cont17Conv ||
+    !brConv ||
+    !cont22Conv ||
+    !mathConv ||
+    !execCodeConv ||
+    !cont60Conv ||
+    !layoutDispatch ||
+    !defConv
+  )
+    return null
+
+  const text = uniqueNodeType(textConv.text, /\{nodeType:(\d+),text:[A-Za-z_$][\w$]*\.getText\(\)/g)
+  const code = uniqueNodeType(
+    codeConv.text,
+    /\{nodeType:(\d+),code:[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(\),info:[A-Za-z_$][\w$]*\.getInfo\(\)\}/g,
+  )
+  const execCode =
+    execCodeConv.text.includes('"code_reference"') &&
+    execCodeConv.text.includes('"code_stdout"') &&
+    execCodeConv.text.includes('"code_stderr"')
+      ? uniqueNodeType(
+          execCodeConv.text,
+          /\{nodeType:(\d+),type:[A-Za-z_$][\w$]*,code:[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(\),language:[A-Za-z_$][\w$]*\.getLanguage\(\)/g,
+        )
+      : null
+  const mathHit = uniqueMatchObject(
+    mathConv.text,
+    /\{nodeType:(\d+),([A-Za-z_$][\w$]*):_\.[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*,1\)\}/g,
+  )
+  const math = mathHit ? parsePositiveInt(mathHit[1]) : null
+  const mathField = mathHit?.[2] || null
+
+  const hrCase = caseMap.get(24)
+  const hrText = unwrapClosureLines(dispatcherEntry.source.slice(hrCase.start, hrCase.end))
+  const hr = uniqueNodeType(hrText, /return\{nodeType:(\d+)\}/g)
+
+  const lineBreak = !/\b(?:children|text|code|items|rows|entries):/.test(brConv.text)
+    ? uniqueNodeType(brConv.text, /\{nodeType:(\d+)\}/g)
+    : null
+  const callout =
+    text &&
+    calloutConv.text.includes(`.nodeType!==${text}`) &&
+    calloutConv.text.includes('children:')
+      ? uniqueNodeType(calloutConv.text, /\{nodeType:(\d+),title:/g)
+      : null
+  const paragraph = uniqueNodeType(paraConv.text, /\{nodeType:(\d+),children:/g)
+  const containers = [cont60Conv, cont16Conv, cont17Conv, cont22Conv].map((conv) =>
+    uniqueNodeType(conv.text, /\{nodeType:(\d+),children:/g),
+  )
+
+  const layoutSubNames = callNamesIn(layoutDispatch.entry.node).filter(
+    (name) => name !== emptyConv.name,
+  )
+  if (layoutSubNames.length !== 3) return null
+  const layouts = []
+  for (const name of layoutSubNames) {
+    const sub = resolveLocal(name)
+    if (!sub) return null
+    const nt = uniqueNodeType(sub.text, /\{nodeType:(\d+),children:/g)
+    if (!nt) return null
+    layouts.push(nt)
+  }
+
+  const orderedList = uniqueNodeType(
+    olConv.text,
+    /\{nodeType:(\d+),[A-Za-z_$][\w$]*:[^}]*?,items:/g,
+  )
+  const unorderedList = uniqueNodeType(ulConv.text, /\{nodeType:(\d+),items:/g)
+  const table =
+    text && tableConv.text.includes(`nodeType)===${text}&&{caption:`)
+      ? uniqueNodeType(tableConv.text, /\{nodeType:(\d+),rows:/g)
+      : null
+  const definitionList = defConv.text.includes('description:')
+    ? uniqueNodeType(defConv.text, /\{nodeType:(\d+),entries:/g)
+    : null
+  const definitionTerm = text
+    ? uniqueRegex(
+        defConv.text,
+        new RegExp(`nodeType\\)===${text}&&\\{([A-Za-z_$][\\w$]*):[A-Za-z_$][\\w$]*\\}`, 'g'),
+      )
+    : null
+
+  const allTypes = [
+    text,
+    code,
+    execCode,
+    math,
+    hr,
+    lineBreak,
+    empty,
+    callout,
+    paragraph,
+    ...containers,
+    ...layouts,
+    orderedList,
+    unorderedList,
+    table,
+    definitionList,
+  ]
+  if (
+    !mathField ||
+    !definitionTerm ||
+    allTypes.some((item) => !Number.isSafeInteger(item) || item <= 0) ||
+    new Set(allTypes).size !== allTypes.length
+  )
+    return null
+
+  return {
+    math: mathField,
+    definitionTerm,
+    nodeTypes: {
+      text,
+      code,
+      execCode,
+      math,
+      hr,
+      lineBreak,
+      empty,
+      callout,
+      paragraph,
+      containers: [...containers].sort((a, b) => a - b),
+      layouts: [...layouts].sort((a, b) => a - b),
+      orderedList,
+      unorderedList,
+      table,
+      definitionList,
+    },
+  }
+}
+
 export async function discoverStructuralGeminiContract(sources, version, options = {}) {
   const fail = (reason) => {
     if (options.returnDetails) return { contract: null, reason }
@@ -280,10 +547,11 @@ export async function discoverStructuralGeminiContract(sources, version, options
   )
   const convSvcHit = uniqueMatchObject(
     combined,
-    /_\.([A-Za-z_$][\w$]*)=new _\.[A-Za-z_$][\w$]*\("ConversationService",\{tb:"root",hb:\(\)=>\{_\.u\(_\.[A-Za-z_$][\w$]*\);return _\.[A-Za-z_$][\w$]*\(_\.[A-Za-z_$][\w$]*\("CVUPx"\),!1\)\?_\.u\(_\.([A-Za-z_$][\w$]*)\):_\.u\(_\.([A-Za-z_$][\w$]*)\)\}\}\)/g,
+    /_\.([A-Za-z_$][\w$]*)=new _\.[A-Za-z_$][\w$]*\("ConversationService",\{tb:"root",hb:\(\)=>\{_\.([A-Za-z_$][\w$]*)\(_\.[A-Za-z_$][\w$]*\);return _\.[A-Za-z_$][\w$]*\(_\.[A-Za-z_$][\w$]*\("CVUPx"\),!1\)\?_\.\2\(_\.([A-Za-z_$][\w$]*)\):_\.\2\(_\.([A-Za-z_$][\w$]*)\)\}\}\)/g,
   )
   const convSvcToken = convSvcHit?.[1] || null
-  const serviceClass = convSvcHit?.[3] || null
+  const injectFn = convSvcHit?.[2] || null
+  const serviceClass = convSvcHit?.[4] || null
 
   const convApiHit = uniqueMatchObject(
     combined,
@@ -292,9 +560,18 @@ export async function discoverStructuralGeminiContract(sources, version, options
   const convApiToken = convApiHit?.[1] || null
   const apiClass = convApiHit?.[2] || null
 
-  if (!viewMap || !inputClass || !convSvcToken || !serviceClass || !convApiToken || !apiClass)
+  if (
+    !viewMap ||
+    !inputClass ||
+    !convSvcToken ||
+    !injectFn ||
+    !serviceClass ||
+    !convApiToken ||
+    !apiClass
+  )
     return fail('Missing core Gemini class or token anchors.')
 
+  const esc = (name) => name.replaceAll('$', '\\$')
   const inputCls = getUniqueEntry(index.classes, `_.${inputClass}`)
   const serviceCls = getUniqueEntry(index.classes, `_.${serviceClass}`)
   const apiCls = getUniqueEntry(index.classes, `_.${apiClass}`)
@@ -308,7 +585,7 @@ export async function discoverStructuralGeminiContract(sources, version, options
   const historyServiceField = uniqueRegex(
     serviceText,
     new RegExp(
-      `this\\.([A-Za-z_$][\\w$]*)=_\\.u\\(_\\.${convApiToken.replace('$', '\\$')}\\)`,
+      `this\\.([A-Za-z_$][\\w$]*)=_\\.${esc(injectFn)}\\(_\\.${esc(convApiToken)}\\)`,
       'g',
     ),
   )
@@ -360,7 +637,7 @@ export async function discoverStructuralGeminiContract(sources, version, options
     ) {
       listMatches.push([methodName, entry, text])
     } else if (text.includes('this.requestSource') && text.includes('.fetch(')) {
-      const helperName = uniqueRegex(text, /f=([A-Za-z_$][\w$]*)\(f,a,this\.Ba/g)
+      const helperName = uniqueRegex(text, /f=([A-Za-z_$][\w$]*)\(f,a,this\.[A-Za-z_$][\w$]*/g)
       if (helperName) readMatches.push([methodName, entry, text, helperName])
     } else {
       const m = text.match(
@@ -415,7 +692,7 @@ export async function discoverStructuralGeminiContract(sources, version, options
   const service = uniqueRegex(
     inputText,
     new RegExp(
-      `this\\.([A-Za-z_$][\\w$]*)=_\\.u\\(_\\.${convSvcToken.replace('$', '\\$')}\\)`,
+      `this\\.([A-Za-z_$][\\w$]*)=_\\.${esc(injectFn)}\\(_\\.${esc(convSvcToken)}\\)`,
       'g',
     ),
   )
@@ -546,18 +823,11 @@ export async function discoverStructuralGeminiContract(sources, version, options
   if (!dispatch || !failure || !metadata)
     return fail('Missing Gemini NgRx dispatch, failure, or metadata field anchors.')
 
-  // 8. Structured content rendering fields (math, definitionTerm)
-  const math = uniqueRegex(combined, /\{nodeType:12,([A-Za-z_$][\w$]*):_\.m\(a,1\)\}/g)
-  const defIdx = combined.indexOf('nodeType:6,entries:')
-  const definitionTerm =
-    defIdx >= 0
-      ? uniqueRegex(
-          combined.slice(defIdx, defIdx + 360),
-          /nodeType\)===18&&\{([A-Za-z_$][\w$]*):d\}/g,
-        )
-      : null
-  if (!math || !definitionTerm)
-    return fail('Missing structured content math or definitionTerm field anchors.')
+  // 8. Structured content rendering fields (math, definitionTerm) and exact nodeType map
+  const structuredContent = discoverStructuredContentContract(index)
+  if (!structuredContent)
+    return fail('Missing or ambiguous structured content nodeType or field anchors.')
+  const { math, definitionTerm, nodeTypes } = structuredContent
 
   // 9. Validate every discovered identifier is syntactically safe
   const fields = {
@@ -663,6 +933,7 @@ export async function discoverStructuralGeminiContract(sources, version, options
     dictationIndicator: 'native-button-label',
     history,
     fields,
+    nodeTypes,
     hashes,
     modelDescription: options.modelDescription || GEMINI_WEB_MODEL_DESCRIPTION,
     thinkingLevel: options.thinkingLevel || GEMINI_WEB_THINKING_LEVEL,

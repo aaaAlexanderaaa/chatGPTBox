@@ -3,6 +3,16 @@
 这些是有条件的历史经验，当前行为以 [Gemini 契约](../../../../docs/gemini-web.md)和代码为准。
 每次新编译、模型、身份或原生事件改变都需重新核对。
 
+## 2026-11-21 晚间：Closure 原型别名漂移、`=>\n` 断行与 `structuredContent` `nodeType` 枚举整体 +1 移位
+
+1. 同日晚间 Google 推出新构建（公开 `en_US.t2_00FiRTFM.2018.O` 及对应登录态更新）后，Tier 2 `structural-core` 在一次真实的未发出发送（`dispatched: false`）前拒绝了该编译，同时暴露出 4 处耦合假设：
+   - Closure 原型别名变量从 `_.aa` 漂移为 `_.ba`（`_.ba=_.SK.prototype; _.ba.WEa=_.ca(781)`），使 `structural-contract.mjs` 与 `code-equivalence.mjs` 中硬编码 `_.aa` 的方法索引漏掉延迟注册的 `history.read` / `attestation`；改为按单元动态跟踪 `_.<alias>=_.<Class>.prototype` 并从运行时 AST 自动识别延迟 stub/registrar 对。
+   - `unwrapClosureLines()` 漏掉了 `>` / `<` / `.`，遇到 Closure 在 `()=>\nthis.Ofa()?"Stop response"` 处断行时导致 `generating`/`preparing` 锚点失配。
+   - `structuredContent` 转换器新增 `case 97 -> {nodeType: 16}`，导致原有 `nodeType >= 16` 全部 +1（容器 `16→17`、表格 `17→18`、文本 `18→19`、换行 `19→20`、无序列表 `20→21`、空占位 `21→22`）；若仅放宽正则而保留旧 `renderAnswer()` 硬编码 `switch`，会把文本误渲染成 `<br>` 或把新 `nodeType: 16` 误当作容器。现改为从 protobuf 稳定字段号 `switch`（`case 2..91` + `default`）静态唯一抽取并交叉校验全部 20 个 `nodeTypes`（无碰撞、无动态代码），由 `renderAnswer()` 按 `contract.nodeTypes` 渲染并继续拒绝未知 `nodeType: 16`。
+   - `runtime-inspection.mjs` / `automatic-contract.mjs` / `native-runtime.mjs` 优先精确匹配唯一 `m=vLefie`（仅在缺失时回退唯一 `/exm=_b/`），并在 `structural-core` 模式下始终比对核心对 URL，避免新 writer tab 在自动发现期间懒加载同版本 chunk 导致误报文档变化。
+2. 同次故障同时复现了客户端版本差：若 Drafts 端仍运行旧版 `Get` 脚本（`307ce87` 之前，第 1157 行第 24 列），在包含 `## Unsent request` 且无原生会话 ID 的笔记上再次运行 `Get` 仍会报 `No native conversation identity is available...`；需在安装了 Drafts 的设备上同步更新共享脚本或动作包。
+来源：[Gemini 契约](../../../../docs/gemini-web.md#automatic-compatibility-for-identifier-changes)。
+
 ## 2026-11-21：登录态多模块两层自动适配、一键离线脚本与旧 `readTab` 自动刷新
 
 1. 11/18–11/21 连续 5 个真实编译表明，Google 几乎每天都在 6 MiB `app.js` 中增改少量非核心代码（甚至在 `prepare`/`history.list` 增减单个字段标志），且登录态页面会懒加载 40+ 个同版本 `m=...` 模块，导致仅支持 ≤4 单元且要求整包逐 token 等价的 Format-4 自动路径在登录态下无法命中。

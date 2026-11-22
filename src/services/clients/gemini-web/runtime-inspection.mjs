@@ -51,13 +51,17 @@ export function inspectGeminiPublicCompilation() {
   let scope
   if (allUrls.length > 4) {
     const runtimeUrls = allUrls.filter((raw) => /\/m=_b(?:\/|$)/.test(new URL(raw).pathname))
-    const appUrls = allUrls.filter((raw) => {
+    const vLefieUrls = allUrls.filter((raw) => {
       const pathname = new URL(raw).pathname
-      return (
-        !/\/m=_b(?:\/|$)/.test(pathname) &&
-        (/\/m=vLefie(?:\/|$)/.test(pathname) || /\/exm=_b\//.test(pathname))
-      )
+      return !/\/m=_b(?:\/|$)/.test(pathname) && /\/m=vLefie(?:\/|$)/.test(pathname)
     })
+    const appUrls =
+      vLefieUrls.length === 1
+        ? vLefieUrls
+        : allUrls.filter((raw) => {
+            const pathname = new URL(raw).pathname
+            return !/\/m=_b(?:\/|$)/.test(pathname) && /\/exm=_b\//.test(pathname)
+          })
     if (runtimeUrls.length !== 1 || appUrls.length !== 1) return { ok: false }
     sourceUrls = [...runtimeUrls, ...appUrls].sort()
     scope = 'core'

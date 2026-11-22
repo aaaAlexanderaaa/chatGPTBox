@@ -161,18 +161,26 @@ single-invocation protections in force:
    same-version lazy `m=...` feature chunks—`inspectGeminiPublicCompilation`
    validates every observed `gemini.gstatic.com` script URL for single version
    and safe syntax, selects the unique core pair (`m=_b` runtime and `m=vLefie`
-   or `/exm=_b/` root app bundle, `scope: 'core'`), and
+   preferentially, falling back to unique `/exm=_b/` root app bundle when
+   `m=vLefie` is absent, `scope: 'core'`), and
    `discoverStructuralGeminiContract` statically parses those public bundles
-   without executing website code. It requires every one of the 31 native
-   contract identifiers to resolve unambiguously from semantic/wire anchors,
-   checks all eight core entry ASTs (`submit`, `send`, `prepare`, `attestation`,
-   `thinking`, `historyClass`, `list`, `read`) and the submit-to-`sendRequest`
-   and read-converter helpers for absence of dynamic code (`eval`, `Function`,
-   `with`, `import()`), absence of direct `fetch`/`XMLHttpRequest` in `submit`,
-   reachability from `submit` to native `service.sendRequest`, `bardModeService`
-   model/thinking handling in `prepare`, `botguardResponse`/`botguardSalt` in
-   `attestation`, and `routingVariantId` menu selection in `thinking`, then
-   computes all eight exact SHA-256 fingerprints.
+   without executing website code. It dynamically resolves Closure prototype
+   aliases (`_.aa`/`_.ba` etc.) and deferred registration helpers (`_.ba`/`_.ca`/`_.da`),
+   requires every one of the 31 native contract identifiers and all 20 supported
+   `structuredContent` `nodeType` codes (from the native protobuf converter switch)
+   to resolve unambiguously without collision, checks all eight core entry ASTs
+   (`submit`, `send`, `prepare`, `attestation`, `thinking`, `historyClass`,
+   `list`, `read`) plus the submit-to-`sendRequest`, read-converter, and
+   `structuredContent` converter helpers for absence of dynamic code (`eval`,
+   `Function`, `with`, `import()`), absence of direct `fetch`/`XMLHttpRequest`
+   in `submit`, reachability from `submit` to native `service.sendRequest`,
+   `bardModeService` model/thinking handling in `prepare`,
+   `botguardResponse`/`botguardSalt` in `attestation`, and `routingVariantId`
+   menu selection in `thinking`, then computes all eight exact SHA-256
+   fingerprints. `renderAnswer` uses the contract's verified `nodeTypes` map
+   (defaulting to the legacy `1..21` enum for older static profiles) and still
+   refuses any unknown `nodeType` (such as the `nodeType: 16` block added in
+   `en_US.t2_00FiRTFM.2018.O`).
 
 **Trade-off boundary**: Tier 2 survives ordinary daily Google UI/feature
 rollouts without rebuilding the extension, because changes outside the verified
@@ -180,16 +188,18 @@ core invariants do not invalidate it. Unlike Tier 1, Tier 2 does not prove that
 unrelated modules or lazy feature chunks outside the verified core anchors are
 unchanged. Both tiers remain strictly volatile and document-scoped (never
 persisted into trusted profiles), and MAIN still rechecks the single build
-version across all observed `gemini.gstatic.com` URLs, the core URL inventory,
-document/runtime/nonce identity, real component/service instances, all eight
-exact SHA-256 function fingerprints, `SignOutOptions` account fingerprint,
-`4 Neon` / `THINKING_LEVEL_EXTENDED` (High), draft/busy/challenge checks, and
+version across all observed `gemini.gstatic.com` URLs, the core URL inventory
+(tolerating additional same-version lazy chunks that load during hydration while
+still failing closed on mixed versions or invalid URLs), document/runtime/nonce
+identity, real component/service instances, all eight exact SHA-256 function
+fingerprints, `SignOutOptions` account fingerprint, `4 Neon` /
+`THINKING_LEVEL_EXTENDED` (High), draft/busy/challenge checks, and
 single-invocation holds before every native operation.
 
 The bundled Format-4 reference currently covers the complete public runtime and
 application units of the inspected `en.c3ZkJFn_XPs.2018.O` compilation
-(alongside explicit profile mappings for `en.NcE3BnbhJwQ.2018.O`,
-`en.rF38EnUYaoQ.2018.O`, `en_US.froaSlPXDN0.2018.O`,
+(alongside explicit profile mappings for `en_US.t2_00FiRTFM.2018.O`,
+`en.NcE3BnbhJwQ.2018.O`, `en.rF38EnUYaoQ.2018.O`, `en_US.froaSlPXDN0.2018.O`,
 `en_US.sVUVnpt2JHE.2018.O`, `TX_RV411Rb4.2018.O` and earlier historical builds).
 Its generator checks all eight native source fingerprints against the existing
 profile. The reference contains code digests, token masks and symbol names,

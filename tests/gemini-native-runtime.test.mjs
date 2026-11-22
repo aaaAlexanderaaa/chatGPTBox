@@ -222,7 +222,9 @@ function fixture({ current = false } = {}) {
   if (current) {
     const profile = GEMINI_NATIVE_CONTRACTS.find((item) =>
       item.version.includes(
-        current === 'latest'
+        current === 'nov21us'
+          ? 't2_00FiR'
+          : current === 'latest'
           ? 'c3ZkJ'
           : current === 'nov19en'
           ? 'NcE3B'
@@ -242,6 +244,7 @@ function fixture({ current = false } = {}) {
       ),
     )
     if (
+      current === 'nov21us' ||
       current === 'latest' ||
       current === 'nov19en' ||
       current === 'nov18en' ||
@@ -257,6 +260,7 @@ function fixture({ current = false } = {}) {
       prepareFunction: profile.prepareFunction,
       attestationFunction: profile.attestationFunction,
       thinkingSetter: profile.thinkingSetter,
+      ...(profile.nodeTypes ? { nodeTypes: profile.nodeTypes } : {}),
       ...(profile.dictationIndicator ? { dictationIndicator: profile.dictationIndicator } : {}),
     })
     for (const [key, legacy] of Object.entries({
@@ -724,6 +728,101 @@ describe('Gemini native runtime boundary', () => {
       ok: false,
       code: 'GEMINI_RUNTIME_UNSUPPORTED',
     })
+  })
+
+  it('prefers unique m=vLefie over parallel /exm=_b/ chunks and tolerates post-inspection hydration chunks under structural-core', async () => {
+    const f = fixture()
+    const version = 'boq-gemini-web-uiserver.BardChatUi.en.hydrate.2018.O'
+    const base = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${version}`
+    const wli = '?wli=BardChatUi.4T0bvJC-D_s.mediaIntentWasm.O%3A%3B'
+    const runtimeUrl = `${base}/d=1/excm=_b/m=_b${wli}`
+    const appUrl = `${base}/d=1/exm=_b/excm=_b/m=vLefie${wli}`
+    f.win.document.scripts[0].src = runtimeUrl
+    const appScript = f.win.document.createElement('script')
+    appScript.src = appUrl
+    f.win.document.head.appendChild(appScript)
+    const inspected = inspectGeminiPublicCompilation()
+    expect(inspected).toMatchObject({
+      ok: true,
+      version,
+      sourceUrls: [runtimeUrl, appUrl].sort(),
+    })
+    f.contracts[0].version = version
+    f.contracts[0].automaticProof = {
+      mode: 'structural-core',
+      nonce: inspected.nonce,
+      version,
+      sourceUrls: [runtimeUrl, appUrl].sort(),
+    }
+    // Simulate a fresh writer tab lazy-loading 1..5 same-version chunks (including a parallel /exm=_b/ chunk) after inspection.
+    for (const url of [
+      `${base}/d=1/exm=_b/m=parallelChunk${wli}`,
+      `${base}/d=1/exm=_b,vLefie/m=chunk2${wli}`,
+      `${base}/d=1/exm=_b,vLefie,chunk2/m=chunk3${wli}`,
+    ]) {
+      const extra = f.win.document.createElement('script')
+      extra.src = url
+      f.win.document.head.appendChild(extra)
+      expect(await f.op('inspect')).toMatchObject({ ok: true, ready: true })
+    }
+    // Re-inspecting on the 5-chunk page uniquely prefers m=vLefie over the parallel /exm=_b/ chunk.
+    expect(inspectGeminiPublicCompilation()).toMatchObject({
+      ok: true,
+      scope: 'core',
+      sourceUrls: [runtimeUrl, appUrl].sort(),
+    })
+  })
+
+  it('renders shifted structuredContent nodeTypes and refuses unknown nodeType 16', async () => {
+    const f = fixture({ current: 'nov21us' })
+    const shiftedTree = {
+      children: [
+        {
+          nodeType: 17,
+          children: [
+            { nodeType: 11, children: [{ nodeType: 19, text: 'Hello' }, { nodeType: 20 }] },
+            { nodeType: 21, items: [{ children: [{ nodeType: 19, text: 'Bullet' }] }] },
+            {
+              nodeType: 18,
+              caption: { nodeType: 19, text: 'Cap' },
+              rows: [{ cells: [{ children: [{ nodeType: 19, text: 'Cell' }] }] }],
+            },
+            { nodeType: 22 },
+          ],
+        },
+      ],
+    }
+    await prepare(f)
+    await f.op('send')
+    f.service.receive('ignored', { final: true, success: true, content: shiftedTree })
+    expect(await f.op('observe')).toMatchObject({
+      ok: true,
+      completed: true,
+      answer:
+        '<div><p>Hello<br></p><ul><li>Bullet</li></ul><p>Cap</p><table><tr><td>Cell</td></tr></table></div>',
+    })
+    await f.op('close')
+    historyFixture(f, {
+      itemsField: 'zj',
+      exactFilter: 'FW',
+      rowsField: 'Sb',
+      rows: [
+        {
+          request: { conversationId: 'c_abcdefgh', textQuery: 'Unknown node 16' },
+          response: {
+            turnId: 'server-unknown-16',
+            isFinal: true,
+            draft: {
+              id: 'response-unknown-16',
+              completeness: 'COMPLETE',
+              structuredContent: { children: [{ nodeType: 16, APi: 'opaque' }] },
+            },
+          },
+        },
+      ],
+    })
+    const detail = await f.op('history.read', { conversationId: 'c_abcdefgh' })
+    expect(detail.messages[1]).toMatchObject({ supported: false, completed: false, content: '' })
   })
 
   it('marks pre-hydration runtime, editor and SignOutOptions gaps distinctly from signed-out failures', async () => {

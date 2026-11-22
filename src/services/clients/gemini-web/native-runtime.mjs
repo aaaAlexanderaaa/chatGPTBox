@@ -45,7 +45,26 @@ export async function runGeminiNativeOperation(options) {
     for (const subscription of turn?.subscriptions || []) subscription?.unsubscribe()
     if (turn) turn.subscriptions = []
   }
-  function renderAnswer(tree, fields, budget = { count: 0, characters: 0 }) {
+  function renderAnswer(tree, fields, nodeTypes, budget = { count: 0, characters: 0 }) {
+    const nt = nodeTypes || {
+      text: 18,
+      code: 1,
+      execCode: 9,
+      math: 12,
+      hr: 13,
+      lineBreak: 19,
+      empty: 21,
+      callout: 2,
+      paragraph: 11,
+      containers: [7, 8, 15, 16],
+      layouts: [3, 4, 5],
+      orderedList: 14,
+      unorderedList: 20,
+      table: 17,
+      definitionList: 6,
+    }
+    const containers = Array.isArray(nt.containers) ? nt.containers : []
+    const layouts = Array.isArray(nt.layouts) ? nt.layouts : []
     const node = () => {
       if (++budget.count > 50000) throw new Error('Native output exceeded the supported limit.')
     }
@@ -77,76 +96,54 @@ export async function runGeminiNativeOperation(options) {
     const render = (node, parent, depth) => {
       if (++budget.count > 50000 || depth > 64 || !node)
         throw new Error('Unsupported native output.')
-      switch (node.nodeType) {
-        case 18:
-          text(node.text, parent)
-          break
-        case 1:
-        case 9:
-          text(node.code, element('code', element('pre', parent)))
-          break
-        case 12:
-          text(node[fields.math || 'GXa'], element('code', parent))
-          break
-        case 13:
-          element('hr', parent)
-          break
-        case 19:
-          element('br', parent)
-          break
-        case 21:
-          break // native empty/unsupported placeholder, has no content
-        case 2: {
-          const block = element('div', parent)
-          text(node.title, element('strong', block))
-          children(node.children, block, depth)
-          break
+      const type = node.nodeType
+      if (typeof type !== 'number' || !Number.isInteger(type) || type <= 0)
+        throw new Error('Unsupported native output block. Inspect the result on Gemini.')
+      if (type === nt.text) {
+        text(node.text, parent)
+      } else if (type === nt.code || type === nt.execCode) {
+        text(node.code, element('code', element('pre', parent)))
+      } else if (type === nt.math) {
+        text(node[fields.math || 'GXa'], element('code', parent))
+      } else if (type === nt.hr) {
+        element('hr', parent)
+      } else if (type === nt.lineBreak) {
+        element('br', parent)
+      } else if (type === nt.empty) {
+        // native empty/unsupported placeholder, has no content
+      } else if (type === nt.callout) {
+        const block = element('div', parent)
+        text(node.title, element('strong', block))
+        children(node.children, block, depth)
+      } else if (type === nt.paragraph || containers.includes(type)) {
+        children(node.children, element(type === nt.paragraph ? 'p' : 'div', parent), depth)
+      } else if (layouts.includes(type)) {
+        if (!Array.isArray(node.children)) throw new Error('Unsupported native layout.')
+        const block = element('div', parent)
+        for (const item of node.children) render(item.child, block, depth + 1)
+      } else if (type === nt.orderedList || type === nt.unorderedList) {
+        if (!Array.isArray(node.items)) throw new Error('Unsupported native list.')
+        const list = element(type === nt.orderedList ? 'ol' : 'ul', parent)
+        for (const item of node.items) children(item.children, element('li', list), depth)
+      } else if (type === nt.table) {
+        if (!Array.isArray(node.rows)) throw new Error('Unsupported native table.')
+        if (node.caption) render(node.caption, element('p', parent), depth + 1)
+        const table = element('table', parent)
+        for (const row of node.rows) {
+          if (!Array.isArray(row.cells)) throw new Error('Unsupported native table row.')
+          const tr = element('tr', table)
+          for (const cell of row.cells) children(cell.children, element('td', tr), depth)
         }
-        case 7:
-        case 8:
-        case 11:
-        case 15:
-        case 16:
-          children(node.children, element(node.nodeType === 11 ? 'p' : 'div', parent), depth)
-          break
-        case 3:
-        case 4:
-        case 5: {
-          if (!Array.isArray(node.children)) throw new Error('Unsupported native layout.')
-          const block = element('div', parent)
-          for (const item of node.children) render(item.child, block, depth + 1)
-          break
+      } else if (type === nt.definitionList) {
+        if (!Array.isArray(node.entries)) throw new Error('Unsupported native definitions.')
+        const list = element('dl', parent)
+        for (const item of node.entries) {
+          if (item[fields.definitionTerm || 'jw'])
+            render(item[fields.definitionTerm || 'jw'], element('dt', list), depth + 1)
+          children(item.description, element('dd', list), depth)
         }
-        case 14:
-        case 20: {
-          if (!Array.isArray(node.items)) throw new Error('Unsupported native list.')
-          const list = element(node.nodeType === 14 ? 'ol' : 'ul', parent)
-          for (const item of node.items) children(item.children, element('li', list), depth)
-          break
-        }
-        case 17: {
-          if (!Array.isArray(node.rows)) throw new Error('Unsupported native table.')
-          if (node.caption) render(node.caption, element('p', parent), depth + 1)
-          const table = element('table', parent)
-          for (const row of node.rows) {
-            if (!Array.isArray(row.cells)) throw new Error('Unsupported native table row.')
-            const tr = element('tr', table)
-            for (const cell of row.cells) children(cell.children, element('td', tr), depth)
-          }
-          break
-        }
-        case 6: {
-          if (!Array.isArray(node.entries)) throw new Error('Unsupported native definitions.')
-          const list = element('dl', parent)
-          for (const item of node.entries) {
-            if (item[fields.definitionTerm || 'jw'])
-              render(item[fields.definitionTerm || 'jw'], element('dt', list), depth + 1)
-            children(item.description, element('dd', list), depth)
-          }
-          break
-        }
-        default:
-          throw new Error('Unsupported native output block. Inspect the result on Gemini.')
+      } else {
+        throw new Error('Unsupported native output block. Inspect the result on Gemini.')
       }
     }
     const result = document.createElement('div')
@@ -244,22 +241,36 @@ export async function runGeminiNativeOperation(options) {
         ),
       ].sort()
       let checkedUrls = currentUrls
+      let proofUrls = proof?.sourceUrls
       if (contract.automaticProof.mode === 'structural-core') {
+        const selectCoreUrls = (list) => {
+          const runtimeUrls = list.filter((raw) => /\/m=_b(?:\/|$)/.test(new URL(raw).pathname))
+          const vLefieUrls = list.filter((raw) => {
+            const pathname = new URL(raw).pathname
+            return !/\/m=_b(?:\/|$)/.test(pathname) && /\/m=vLefie(?:\/|$)/.test(pathname)
+          })
+          const appUrls =
+            vLefieUrls.length === 1
+              ? vLefieUrls
+              : list.filter((raw) => {
+                  const pathname = new URL(raw).pathname
+                  return !/\/m=_b(?:\/|$)/.test(pathname) && /\/exm=_b\//.test(pathname)
+                })
+          return runtimeUrls.length === 1 && appUrls.length === 1
+            ? [...runtimeUrls, ...appUrls].sort()
+            : null
+        }
         if (currentVersions.size !== 1 || !currentVersions.has(contract.version))
           invalidProofUrl = true
-        else if (currentUrls.length > 4) {
-          const runtimeUrls = currentUrls.filter((raw) =>
-            /\/m=_b(?:\/|$)/.test(new URL(raw).pathname),
-          )
-          const appUrls = currentUrls.filter((raw) => {
-            const pathname = new URL(raw).pathname
-            return (
-              !/\/m=_b(?:\/|$)/.test(pathname) &&
-              (/\/m=vLefie(?:\/|$)/.test(pathname) || /\/exm=_b\//.test(pathname))
-            )
-          })
-          if (runtimeUrls.length !== 1 || appUrls.length !== 1) invalidProofUrl = true
-          else checkedUrls = [...runtimeUrls, ...appUrls].sort()
+        else {
+          const coreCurrent = selectCoreUrls(currentUrls)
+          if (currentUrls.length > 4 && !coreCurrent) invalidProofUrl = true
+          else if (coreCurrent) {
+            checkedUrls = coreCurrent
+            proofUrls =
+              (Array.isArray(proof?.sourceUrls) && selectCoreUrls(proof.sourceUrls)) ||
+              proof?.sourceUrls
+          }
         }
       }
       if (
@@ -268,7 +279,7 @@ export async function runGeminiNativeOperation(options) {
         proof.runtime !== runtime ||
         proof.nonce !== contract.automaticProof.nonce ||
         proof.version !== contract.version ||
-        JSON.stringify(proof.sourceUrls) !== JSON.stringify(checkedUrls) ||
+        JSON.stringify(proofUrls) !== JSON.stringify(checkedUrls) ||
         JSON.stringify(contract.automaticProof.sourceUrls) !== JSON.stringify(checkedUrls)
       )
         return fail(
@@ -602,7 +613,12 @@ export async function runGeminiNativeOperation(options) {
         let answer = '',
           supported = true
         try {
-          answer = renderAnswer(row.response?.draft?.structuredContent, fields, renderBudget)
+          answer = renderAnswer(
+            row.response?.draft?.structuredContent,
+            fields,
+            contract.nodeTypes,
+            renderBudget,
+          )
         } catch {
           supported = false
         }
@@ -982,7 +998,7 @@ export async function runGeminiNativeOperation(options) {
       if (final) throw new Error('The final native answer has no supported content.')
       return snapshot
     }
-    snapshot.answer = renderAnswer(tree, fields)
+    snapshot.answer = renderAnswer(tree, fields, contract.nodeTypes)
     if (!snapshot.answer && final)
       throw new Error('The final native answer is empty or unsupported.')
     snapshot.completed = final

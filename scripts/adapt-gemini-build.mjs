@@ -73,6 +73,17 @@ async function loadInputs(inputs, explicitVersion) {
   return { version: inferredVersion, sources: loaded.map((item) => item.text) }
 }
 
+function formatNodeTypesBlock(nodeTypes) {
+  if (!nodeTypes) return []
+  return [
+    '    nodeTypes: {',
+    ...Object.entries(nodeTypes).map(([k, v]) =>
+      Array.isArray(v) ? `      ${k}: [${v.join(', ')}],` : `      ${k}: ${v},`,
+    ),
+    '    },',
+  ]
+}
+
 function formatContractBlock(contract) {
   const kv = (obj, indent) =>
     Object.entries(obj)
@@ -94,6 +105,7 @@ function formatContractBlock(contract) {
     '    fields: {',
     kv(contract.fields, '      '),
     '    },',
+    ...formatNodeTypesBlock(contract.nodeTypes),
     '    hashes: {',
     kv(contract.hashes, '      '),
     '    },',
@@ -152,6 +164,16 @@ function diffContract(next, previous) {
   for (const [key, val] of Object.entries(next.fields)) {
     if (val !== previous.fields?.[key])
       changes.push(`fields.${key}: ${previous.fields?.[key]} -> ${val}`)
+  }
+  if (next.nodeTypes && JSON.stringify(next.nodeTypes) !== JSON.stringify(previous.nodeTypes)) {
+    for (const [key, val] of Object.entries(next.nodeTypes)) {
+      if (JSON.stringify(val) !== JSON.stringify(previous.nodeTypes?.[key]))
+        changes.push(
+          `nodeTypes.${key}: ${JSON.stringify(previous.nodeTypes?.[key])} -> ${JSON.stringify(
+            val,
+          )}`,
+        )
+    }
   }
   return changes
 }

@@ -142,16 +142,41 @@ export async function resolveAutomaticGeminiContract(inventory, options = {}) {
     if (canTryStructural) {
       const targetModel = known[0]?.modelDescription || GEMINI_WEB_MODEL_DESCRIPTION
       const targetThinking = known[0]?.thinkingLevel || GEMINI_WEB_THINKING_LEVEL
-      const structural = await discoverStructuralGeminiContract(sources, inventory.version, {
-        modelDescription: targetModel,
-        thinkingLevel: targetThinking,
-      })
+      let structuralSources = sources
+      let structuralUrls = [...inventory.sourceUrls].sort()
+      if (inventory.sourceUrls.length > 2) {
+        const runtimeIndices = []
+        const vLefieIndices = []
+        const exmIndices = []
+        inventory.sourceUrls.forEach((raw, idx) => {
+          const pathname = new URL(raw).pathname
+          if (/\/m=_b(?:\/|$)/.test(pathname)) runtimeIndices.push(idx)
+          else {
+            if (/\/m=vLefie(?:\/|$)/.test(pathname)) vLefieIndices.push(idx)
+            if (/\/exm=_b\//.test(pathname)) exmIndices.push(idx)
+          }
+        })
+        const appIndices = vLefieIndices.length === 1 ? vLefieIndices : exmIndices
+        if (runtimeIndices.length === 1 && appIndices.length === 1) {
+          const pair = [runtimeIndices[0], appIndices[0]]
+          structuralSources = pair.map((idx) => sources[idx])
+          structuralUrls = pair.map((idx) => inventory.sourceUrls[idx]).sort()
+        }
+      }
+      const structural = await discoverStructuralGeminiContract(
+        structuralSources,
+        inventory.version,
+        {
+          modelDescription: targetModel,
+          thinkingLevel: targetThinking,
+        },
+      )
       if (structural) {
         structural.automaticProof = {
           mode: 'structural-core',
           nonce: inventory.nonce,
           version: inventory.version,
-          sourceUrls: [...inventory.sourceUrls].sort(),
+          sourceUrls: structuralUrls,
         }
         return structural
       }

@@ -374,37 +374,87 @@ describe('automatic Gemini contract resolution', () => {
       `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${structuralVersion}/d=1/excm=_b/m=_b?wli=BardChatUi.abc.mediaIntentWasm.O%3A%3B`,
       `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${structuralVersion}/d=1/exm=_b/excm=_b/m=vLefie?wli=BardChatUi.abc.mediaIntentWasm.O%3A%3B`,
     ]
-    const runtimeSrc = `(function(_){_.aa={};_.ca=function(a){return a};_.da=function(a,b){return b};}).call(this,this.default_BardChatUi);`
-    const appSrc = `(function(_){
+    const buildStructuredConverters = (shift = 0) => {
+      const text = 18 + shift
+      const br = 19 + shift
+      const ul = 20 + shift
+      const empty = 21 + shift
+      const table = 17 + shift
+      const cont22 = 16 + shift
+      return `
+      var emptyC=function(){return{nodeType:${empty}}};
+      var textC=function(a,b){return a?Object.assign({},{nodeType:${text},text:a.getText()}):emptyC()};
+      var codeC=function(a){return a?{nodeType:1,code:a.Vg(),info:a.getInfo()}:emptyC()};
+      var execC=function(a){var b;switch(a.getType()){case 0:b="code_reference";break;case 1:b="code_stdout";break;case 2:b="code_stderr";break}return b?{nodeType:9,type:b,code:a.Vg(),language:a.getLanguage()}:emptyC()};
+      var mathC=function(a){return a?{nodeType:12,mathF:_.m(a,1)}:emptyC()};
+      var brC=function(a){return a?{nodeType:${br}}:emptyC()};
+      var callC=function(a,b){var c=a[0];if(!c||c.nodeType!==${text})return emptyC();return{nodeType:2,title:c.text,children:a}};
+      var paraC=function(a,b){return a?{nodeType:11,children:a}:emptyC()};
+      var flexC=function(a,b,c){return a?Object.assign({},{nodeType:7,children:a}):emptyC()};
+      var cont16C=function(a,b){return a?{nodeType:8,children:a}:emptyC()};
+      var cont17C=function(a,b){return a?{nodeType:15,children:a}:emptyC()};
+      var cont22C=function(a,b){return a?{nodeType:${cont22},children:a}:emptyC()};
+      var lay3C=function(a,b,c){return a?{nodeType:3,children:a}:emptyC()};
+      var lay4C=function(a,b,c){return a?{nodeType:4,children:a}:emptyC()};
+      var lay5C=function(a,b,c){return a?{nodeType:5,children:a}:emptyC()};
+      var layDispatch=function(a,b,c){return a?_.of(a,5,_.YH)?lay5C(a,b,c):_.of(a,6,_.YH)?lay4C(a,b,c):_.of(a,7,_.YH)?lay3C(a,b,c):emptyC():emptyC()};
+      var olC=function(a,b){return a?Object.assign({},{nodeType:14,DRa:1,items:a.map(x=>x)}):emptyC()};
+      var ulC=function(a,b){return a?Object.assign({},{nodeType:${ul},items:a.map(x=>x)}):emptyC()};
+      var tblC=function(a,b){return a?Object.assign({},{nodeType:${table},rows:a.map(x=>x)},(a==null?void 0:a.nodeType)===${text}&&{caption:a}):emptyC()};
+      var defC=function(a,b){return a?{nodeType:6,entries:a.map(c=>Object.assign({},(d==null?void 0:d.nodeType)===${text}&&{defF:d},{description:[]}))}:emptyC()};
+      var dispatchNode=function(a,b,c){switch(_.wf(a,_.iH)){
+        case 2:return textC(a.getText(),b);
+        case 4:return codeC(a.Vg());
+        case 11:return tblC(a,b);
+        case 12:return ulC(a,b);
+        case 13:return olC(a,b);
+        case 14:return paraC(a,b);
+        case 15:return callC(a,b);
+        case 16:return cont16C(a,b);
+        case 17:return cont17C(a,b);
+        case 20:return brC(a);
+        case 22:return cont22C(a,b);
+        case 24:return{nodeType:13};
+        ${shift ? 'case 97:return Object.assign({},{nodeType:16},{APi:"x"});' : ''}
+        case 35:return mathC(a);
+        case 39:return execC(a);
+        case 60:return _.Fv()?flexC(a,b,c):emptyC();
+        case 84:return layDispatch(a,b,c);
+        case 91:return defC(a,b);
+        default:return emptyC();
+      }};`
+    }
+    const runtimeSrc = `(function(_){var aaa=[];_.ca=function(a){return function(){return aaa[a].apply(this,arguments)}};_.da=function(a,b){return aaa[a]=b};}).call(this,this.default_BardChatUi);`
+    const buildApp = ({ protoVar = '_.aa', inject = 'u', shift = 0, wrapArrow = false } = {}) =>
+      `(function(_){
       var bindView=function(b){_.vMap.set(b[19],b)};
       var sendChain=function(a,b,c,d){return a.Ta.sendRequest({textQuery:a.Ml.value})};
-      _.svcTok=new _.Mv("ConversationService",{tb:"root",hb:()=>{_.u(_.x);return _.fe(_.ee("CVUPx"),!1)?_.u(_.fakeSvc):_.u(_.RealSvc)}});
+      _.svcTok=new _.Mv("ConversationService",{tb:"root",hb:()=>{_.${inject}(_.x);return _.fe(_.ee("CVUPx"),!1)?_.${inject}(_.fakeSvc):_.${inject}(_.RealSvc)}});
       _.apiTok=_.xC("ConversationApi",_.RealApi,_.fakeApi);
       _.RealApi=class{
-        constructor(){this.Aa=_.u(_.x);this.Ba={z:1};this.requestSource=1}
+        constructor(){this.Aa=_.${inject}(_.x);this.Ba={z:1};this.requestSource=1}
         Lst(a,b,c){var d=Ble(Ale(new _.Yxc,\na.pinned),a.exF);a.conversationId&&_.lg(d,6,a.conversationId);return _.gt(()=>this.Aa.fetch(bme.getInstance(d))).pipe(_.r(f=>({itF:_.Af(f,_.Vy,3,void 0).map(_.lle),nextPageToken:_.m(f,2)})))}
       };
-      _.aa=_.RealApi.prototype;
-      _.aa.RdM=_.ca(780);
-      _.aa.AtM=_.ca(777);
+      ${protoVar}=_.RealApi.prototype;
+      ${protoVar}.RdM=_.ca(780);
+      ${protoVar}.AtM=_.ca(777);
       var readConv=function(a,b){return Object.assign({},{rwF:f,nextPageToken:_.m(a,2)})};
-      _.aa.RdM=_.da(780,function(a,b,c,d){var e=this.requestSource;return _.gt(()=>this.Aa.fetch(wHe.getInstance(e))).pipe(_.r(f=>{f=readConv(f,a,this.Ba.x);return f}))});
-      _.aa.AtM=_.da(777,function(a){return _.AttFn(this.mb,a)});
+      ${protoVar}.RdM=_.da(780,function(a,b,c,d){var e=this.requestSource;return _.gt(()=>this.Aa.fetch(wHe.getInstance(e))).pipe(_.r(f=>{f=readConv(f,a,this.Ba.x);return f}))});
+      ${protoVar}.AtM=_.da(777,function(a){return _.AttFn(this.mb,a)});
       _.AttFn=function(a,b){return a.Ba.pipe(_.r(d=>({request:b,botguardResponse:d.botguardResponse,botguardSalt:d.botguardSalt})))};
       _.ThinkFn=function(a,b,c){a.Teb(b)&&a.Rb.pipe(_.tt(1)).subscribe(d=>{d.length!==0&&(d=a.Zed(d,b,c))&&_.uie(a,b,d.routingVariantId)})};
       _.PrepFn=function(a,b,c){return _.Ws({oa:a.bardModeService.oa,Ca:a.bardModeService.Ca}).pipe(_.r(({oa:je,Ca:jj})=>{var yk={clientTurnId:b.clientTurnId,conversationId:"",textQuery:b.textQuery,reqPar:Ze||"",parentResponseId:"",reqMode:je==null?void 0:je.id,thinkingLevel:jj};return{request:yk}}))};
       _.RealSvc=class{
-        constructor(){this.Po=_.u(_.apiTok);this.Pb=_.u(_.mF);this.Ve=this.store.select(_.sel);this.hasRows=this.Ve.pipe(_.r(h=>!!fn(h.rwF)))}
+        constructor(){this.Po=_.${inject}(_.apiTok);this.Pb=_.${inject}(_.mF);this.Ve=this.store.select(_.sel);this.hasRows=this.Ve.pipe(_.r(h=>!!fn(h.rwF)))}
         sendRequest(a,b){var c=Object.assign({},a,{clientTurnId:a.clientTurnId});var d=void 0;this.Pb.pipe(_.yF(_.Xme),_.mt(x=>x));this.store.dispatch(c);return _.PrepFn(this,c,d)}
       };
       _.SendAct=_.UB(rK("Send Request"),_.VB());
       _.FailAct=_.UB(rK("Generate Response Failure"),_.VB());
       var emitActs=function(a,b,c,v){(0,_.SendAct)({request:c,dispF:{Nd:b,request:c}});(0,_.FailAct)({failF:Object.assign({},{error:a}),metaF:v})};
-      var renderMath=function(a){return{nodeType:12,mathF:_.m(a,1)}};
-      var renderDef=function(a){return{nodeType:6,entries:a.map(c=>Object.assign({},(d==null?void 0:d.nodeType)===18&&{defF:d}))}};
+      ${buildStructuredConverters(shift)}
       _.RealInp=class{
         constructor(){
-          this.Ta=_.u(_.svcTok);
+          this.Ta=_.${inject}(_.svcTok);
           this.Ml=new _.YO("",{yk:!0});this.z=this.Ml.wl.pipe(_.r(x=>x));
           this.qd=_.ie(_.he("Lz8rbb"),!1);
           this.Lb=this.Kla.oa;
@@ -414,7 +464,9 @@ describe('automatic Gemini contract resolution', () => {
           this.DQ=this.Ca.Aa?_.Z(this.Ca.Ca.pipe(_.Wv(S=>S.Ia)),{initialValue:!1}):_.Q(!1).asReadonly();
           this.Gv=_.Y(()=>this.Toe()||this.Bxf()||this.B6());
           this.ufa=_.Y(()=>!1);
-          this.lbl=_.Y(()=>this.ufa()?"Stop response":this.B6()?"Cancel send":"Send message");
+          this.lbl=_.Y(()=>${
+            wrapArrow ? '\n' : ''
+          }this.ufa()?"Stop response":this.B6()?"Cancel send":"Send message");
           this.KIc=_.Y(()=>this.To().some(S=>!(S==null?0:S.Wi)));
           this.Aue=_.Y(()=>this.XNc()||this.ifa().size>0||this.lDa());
         }
@@ -422,6 +474,7 @@ describe('automatic Gemini contract resolution', () => {
       };
       _.RealInp.Xa=_.Bw({type:_.RealInp,Sa:[["input-area-v2"]],inputs:{Toe:[1,"disableInput"]}});
     }).call(this,this.default_BardChatUi);`
+    const appSrc = buildApp()
 
     const resolved = await resolveAutomaticGeminiContract(
       {
@@ -478,6 +531,23 @@ describe('automatic Gemini contract resolution', () => {
         math: 'mathF',
         definitionTerm: 'defF',
       },
+      nodeTypes: {
+        text: 18,
+        code: 1,
+        execCode: 9,
+        math: 12,
+        hr: 13,
+        lineBreak: 19,
+        empty: 21,
+        callout: 2,
+        paragraph: 11,
+        containers: [7, 8, 15, 16],
+        layouts: [3, 4, 5],
+        orderedList: 14,
+        unorderedList: 20,
+        table: 17,
+        definitionList: 6,
+      },
       automaticProof: {
         mode: 'structural-core',
         nonce: 'core-nonce',
@@ -487,12 +557,62 @@ describe('automatic Gemini contract resolution', () => {
     })
     expect(resolved.hashes).toEqual(await extractNativeHashes([runtimeSrc, appSrc], resolved))
 
+    // Handles shifted prototype alias (_.ba), renamed inject helper (_.v), arrow newline wrap,
+    // shifted structuredContent nodeTypes (+1 at >=16), and narrowing a 3-unit inventory to the core pair.
+    const shiftedApp = buildApp({ protoVar: '_.ba', inject: 'v', shift: 1, wrapArrow: true })
+    const lazyUrl = `https://gemini.gstatic.com/_/mss/boq-gemini-web-uiserver/_/js/k=${structuralVersion}/d=1/exm=_b,vLefie/m=extraChunk?wli=BardChatUi.abc.mediaIntentWasm.O%3A%3B`
+    const shiftedResolved = await resolveAutomaticGeminiContract(
+      {
+        ok: true,
+        nonce: 'shifted-nonce',
+        version: structuralVersion,
+        sourceUrls: [...coreUrls, lazyUrl],
+      },
+      {
+        references: [],
+        contracts: [{ modelDescription: '4 Neon', thinkingLevel: 'THINKING_LEVEL_EXTENDED' }],
+        fetch: vi.fn(
+          async (url) =>
+            new Response(
+              url.includes('/m=_b?')
+                ? runtimeSrc
+                : url.includes('/m=vLefie?')
+                ? shiftedApp
+                : '(function(_){}).call(this,this.default_BardChatUi);',
+            ),
+        ),
+      },
+    )
+    expect(shiftedResolved?.nodeTypes).toEqual({
+      text: 19,
+      code: 1,
+      execCode: 9,
+      math: 12,
+      hr: 13,
+      lineBreak: 20,
+      empty: 22,
+      callout: 2,
+      paragraph: 11,
+      containers: [7, 8, 15, 17],
+      layouts: [3, 4, 5],
+      orderedList: 14,
+      unorderedList: 21,
+      table: 18,
+      definitionList: 6,
+    })
+    expect(shiftedResolved?.automaticProof.sourceUrls).toEqual([...coreUrls].sort())
+    expect(shiftedResolved?.hashes).toEqual(
+      await extractNativeHashes([runtimeSrc, shiftedApp], shiftedResolved),
+    )
+
     for (const mutated of [
       appSrc.replaceAll('botguardResponse', 'removedGuard'),
       appSrc.replace('sendChain(this,b,c,d)', 'fetch("/x");sendChain(this,b,c,d)'),
       appSrc.replace('return{request:yk}', 'eval("x");return{request:yk}'),
       appSrc.replace('a.Ta.sendRequest', 'a.Ta.otherCall'),
       appSrc.replace('thinkingLevel:jj', 'otherLevel:jj'),
+      appSrc.replace('{nodeType:17,rows:', '{nodeType:18,rows:'),
+      appSrc.replace('var textC=function(a,b){', 'var textC=function(a,b){eval("x");'),
     ]) {
       expect(
         await resolveAutomaticGeminiContract(

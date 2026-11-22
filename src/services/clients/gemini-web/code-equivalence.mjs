@@ -373,23 +373,63 @@ export function renameReferenceCode(
 }
 
 export async function extractNativeHashes(sources, profile) {
+  const parsed = sources.map((source) => ({
+    source,
+    ast: parse(source, { ecmaVersion: 'latest' }),
+  }))
+  const deferredStubs = new Map(),
+    deferredRegs = new Map()
+  for (const { source, ast } of parsed)
+    visitCode(ast, (node) => {
+      if (node.type !== 'AssignmentExpression') return
+      const name = codeSymbol(node.left)
+      if (!name || !/^_\.[A-Za-z_$][\w$]*$/.test(name) || node.right.type !== 'FunctionExpression')
+        return
+      const text = source.slice(node.right.start, node.right.end)
+      const stubMatch = text.match(
+        /^function\(([A-Za-z_$][\w$]*)\)\{return function\(\)\{return ([A-Za-z_$][\w$]*)\[\1\]\.apply\(this,arguments\)\}\}$/,
+      )
+      if (stubMatch) deferredStubs.set(name, stubMatch[2])
+      const regMatch = text.match(
+        /^function\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{return ([A-Za-z_$][\w$]*)\[\1\]=\2\}$/,
+      )
+      if (regMatch) deferredRegs.set(name, regMatch[3])
+    })
+  const helperPairs = []
+  for (const [stub, stubArr] of deferredStubs.entries())
+    for (const [reg, regArr] of deferredRegs.entries())
+      if (stubArr === regArr) helperPairs.push({ stub, reg })
+  const stubCallees = helperPairs.length === 1 ? [helperPairs[0].stub] : ['_.ba', '_.ca']
+  const regCallees = helperPairs.length === 1 ? [helperPairs[0].reg] : ['_.ca', '_.da']
   const functions = new Map(),
     deferred = new Map(),
     stubs = []
-  let alias = null
   const add = (map, name, node) => {
     if (!name) return
     if (!map.has(name)) map.set(name, [])
     if (!map.get(name).some((entry) => entry.source === node.source && entry.start === node.start))
       map.get(name).push(node)
   }
-  for (const source of sources)
-    visitCode(parse(source, { ecmaVersion: 'latest' }), (node) => {
+  for (const { source, ast } of parsed) {
+    const protoAlias = new Map()
+    visitCode(ast, (node) => {
       if (node.type !== 'AssignmentExpression') return
       let name = codeSymbol(node.left)
       const right = codeSymbol(node.right)
-      if (name === '_.aa' && right?.endsWith('.prototype')) alias = right.slice(0, -10)
-      if (name?.startsWith('_.aa.') && alias) name = alias + name.slice(4)
+      if (name && /^_\.[A-Za-z_$][\w$]*$/.test(name)) {
+        if (right && /^_\.[A-Za-z_$][\w$]*\.prototype$/.test(right))
+          protoAlias.set(name, right.slice(0, -10))
+        else protoAlias.delete(name)
+      }
+      if (name) {
+        const aliasMatch = name.match(/^(_\.[A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/)
+        if (aliasMatch && protoAlias.has(aliasMatch[1]))
+          name = `${protoAlias.get(aliasMatch[1])}.${aliasMatch[2]}`
+        else {
+          const directProto = name.match(/^(_\.[A-Za-z_$][\w$]*)\.prototype\.([A-Za-z_$][\w$]*)$/)
+          if (directProto) name = `${directProto[1]}.${directProto[2]}`
+        }
+      }
       const remember = (key, value) => {
         if (!value) return
         const entry = { start: value.start, end: value.end, source }
@@ -408,7 +448,7 @@ export async function extractNativeHashes(sources, profile) {
       if (node.right.type === 'CallExpression') {
         const callee = codeSymbol(node.right.callee)
         if (
-          ['_.ca', '_.da'].includes(callee) &&
+          regCallees.includes(callee) &&
           node.right.arguments.length === 2 &&
           typeof node.right.arguments[0]?.value === 'number' &&
           node.right.arguments[1]?.type === 'FunctionExpression'
@@ -421,7 +461,7 @@ export async function extractNativeHashes(sources, profile) {
           })
           remember(name, body)
         } else if (
-          ['_.ba', '_.ca'].includes(callee) &&
+          stubCallees.includes(callee) &&
           node.right.arguments.length === 1 &&
           typeof node.right.arguments[0]?.value === 'number'
         ) {
@@ -429,6 +469,7 @@ export async function extractNativeHashes(sources, profile) {
         }
       }
     })
+  }
   for (const stub of stubs)
     for (const body of deferred.get(stub.id) || []) add(functions, stub.name, body)
   const roles = {
