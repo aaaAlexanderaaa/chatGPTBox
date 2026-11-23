@@ -16,6 +16,9 @@ function mount(html) {
   return { dom, main }
 }
 
+const recurrentFormula = String.raw`h^{(r+1)}=F\_\theta(h^{(r)},x)`
+const escapedFormulaParagraph = String.raw`<p>简化数学表达：\\[${recurrentFormula}\\]其中 \\(\theta\\) 是共享权重，\\(r\\) 是循环轮次，\\(h\\) 是模型内部的隐状态。</p>`
+
 describe('Drafts HTML preview LaTeX math and common rendering', () => {
   it('renders inline and display LaTeX delimiters to native MathML', () => {
     const { dom, main } = mount(`
@@ -33,6 +36,61 @@ describe('Drafts HTML preview LaTeX math and common rendering', () => {
     expect(main.textContent).not.toContain('\\[')
     expect(main.textContent).not.toContain('\\(')
     dom.window.close()
+  })
+
+  it('renders Markdown-escaped delimiters preserved in raw HTML while retaining TeX escapes', () => {
+    const { dom, main } = mount(escapedFormulaParagraph)
+    expect(renderDraftsMath(main)).toBe(4)
+    expect(main.querySelectorAll('math')).toHaveLength(4)
+    expect(main.querySelectorAll('math[display="block"]')).toHaveLength(1)
+    expect([...main.querySelectorAll('annotation')].map((el) => el.textContent)).toEqual([
+      recurrentFormula,
+      String.raw`\theta`,
+      'r',
+      'h',
+    ])
+    expect(main.textContent).toContain('简化数学表达：')
+    expect(main.textContent).toContain('是模型内部的隐状态。')
+    expect(renderDraftsMath(main)).toBe(0)
+    dom.window.close()
+  })
+
+  it('strips doubled outer delimiters in explicit math and preserves matrix row separators', () => {
+    const { dom, main } = mount(String.raw`
+      <span class="math">\\[${recurrentFormula}\\]</span>
+      <code class="math">\\(\theta\\)</code>
+      <pre><code class="language-math">\\[\begin{pmatrix}1 &amp; 2 \\ 3 &amp; 4\end{pmatrix}\\]</code></pre>
+      <p><code>\\[literal\\]</code></p>
+      <pre><code>\\(literal\\)</code></pre>
+    `)
+    expect(renderDraftsMath(main)).toBe(3)
+    expect(main.querySelectorAll('math[display="block"]')).toHaveLength(2)
+    expect(main.querySelectorAll('math mtr')).toHaveLength(2)
+    expect(main.querySelector('annotation')?.textContent).toBe(recurrentFormula)
+    expect([...main.querySelectorAll('code')].map((el) => el.textContent)).toEqual([
+      String.raw`\\[literal\\]`,
+      String.raw`\\(literal\\)`,
+    ])
+    dom.window.close()
+  })
+
+  it('requires matching delimiter widths and leaves longer slash runs and incomplete math intact', () => {
+    for (const source of [
+      String.raw`\\[x\]`,
+      String.raw`\[x\\]`,
+      String.raw`\\(x\)`,
+      String.raw`\(x\\)`,
+      String.raw`\\\[x\\\]`,
+      String.raw`\\\\(x\\\\)`,
+      String.raw`\\[ \\]`,
+      String.raw`\\(unfinished`,
+    ]) {
+      expect(scanMathSegments(source)).toEqual([])
+    }
+    expect(scanMathSegments(String.raw`\\[x\\] and \(y\)`)).toMatchObject([
+      { start: 0, end: 7, tex: 'x', display: true },
+      { start: 12, end: 17, tex: 'y', display: false },
+    ])
   })
 
   it('renders MultiMarkdown span.math, div.math, fenced ```math, and chatgptbox-math while leaving code blocks untouched', () => {
@@ -146,7 +204,8 @@ describe('Drafts HTML preview LaTeX math and common rendering', () => {
       .replace(
         '%%[[draft]]%%',
         () =>
-          '<p>Inline $a^2 + b^2 = c^2$</p><p>$$\\frac{1}{2}$$</p><div><table><tr><td>T</td></tr></table></div>',
+          '<p>Inline $a^2 + b^2 = c^2$</p><p>$$\\frac{1}{2}$$</p><div><table><tr><td>T</td></tr></table></div>' +
+          escapedFormulaParagraph,
       )
     const dom = new JSDOM(renderedHtml, { url: 'https://example.invalid/' })
     dom.window.matchMedia = () => ({ matches: false, addEventListener() {} })
@@ -167,8 +226,8 @@ describe('Drafts HTML preview LaTeX math and common rendering', () => {
     vm.runInContext(match[1], context)
     dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'))
     const main = dom.window.document.querySelector('main')
-    expect(main.querySelectorAll('math')).toHaveLength(2)
-    expect(main.querySelectorAll('.chatgptbox-math-display')).toHaveLength(1)
+    expect(main.querySelectorAll('math')).toHaveLength(6)
+    expect(main.querySelectorAll('.chatgptbox-math-display')).toHaveLength(2)
     expect(main.querySelectorAll('.chatgptbox-table-scroll')).toHaveLength(1)
     dom.window.close()
   })

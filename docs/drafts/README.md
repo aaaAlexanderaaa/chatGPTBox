@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-22
+last_reconciled: 2026-11-23
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -399,8 +399,12 @@ lists (`<dl>`), task checkboxes, `<kbd>`/`<mark>`, and offline LaTeX math
 rendered to native MathML (`$$...$$`, `\[...\]`, `\(...\)`, currency-guarded
 `$...$`, standalone `equation`/`align`/`gather` environments, MultiMarkdown
 `span.math`/`div.math`, and fenced `` ```math `` blocks, with `<br>` and
-Markdown-mangled subscript `<em>` recovery and `trust: false`). Supported
-offline charts have values, legends, local navigation and a **图表数据** source
+Markdown-mangled subscript `<em>` recovery and `trust: false`). The
+backslash delimiters also include the Markdown-escaped `\\[...\\]` and
+`\\(...\\)` forms retained in raw HTML; their opening and closing widths match,
+and the formula's internal TeX escapes and row separators retain their meaning.
+Run `npm run drafts:update` to apply the updated shared Preview template.
+Supported offline charts have values, legends, local navigation and a **图表数据** source
 table; without JavaScript the table remains open. Missing/negative values retain
 their meaning. Unsupported components/properties use official Markdown fallback
 rather than executing model-generated code. Precise supported shapes belong to

@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-22
+last_reconciled: 2026-11-23
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -46,6 +46,19 @@ HTML，网关转发同一文本，Drafts Action 2/3 把它写入 transcript。
 构建内嵌按需打包的 ECharts、KaTeX（离线 MathML 输出，`trust: false`，不嵌入外部字体）、Mermaid、DOMPurify、共用运行库和第三方许可，使用精确 CSP 哈希允许该脚本。
 JavaScript 中的 Drafts 标签与 Markdown 分隔符在保留代码语义的前提下处理，避免导入
 模板后脚本被模板引擎改写。
+
+## Drafts 数学公式
+
+用户于 2026-11-23 报告循环隐状态公式在 HTML Preview 中保留了公式源码。
+预览同时识别 `\[...\]`、`\(...\)` 和 Markdown 转义形式
+`\\[...\\]`、`\\(...\\)`。原始 HTML 中的文字会保留双反斜杠，普通
+MultiMarkdown 数学节点则使用单反斜杠；这两种输入都由数学运行库渲染成离线 MathML。
+起止分隔符的反斜杠数量须匹配。处理只剥离外层分隔符，保留公式内部的
+LaTeX 命令、`\_` 字符转义和矩阵 `\\` 换行语义。
+
+显式 `span.math`、`div.math` 和数学代码块沿用同一外层分隔符规则。
+普通代码保留源码，残缺或混用分隔符的正文保留原文；现有货币保护、
+`trust: false` 和渲染数量/长度上限继续由数学运行库执行。
 
 ## Drafts 代码块图形
 
@@ -195,3 +208,15 @@ Drafts 恢复回归在 `chatgpt-web-genui.test.mjs`、`chatgpt-web-stream-handof
 浏览器检查中页面宽度与滚动宽度均为 390px，宽图在自身 358px 视口内滚动；
 连续主题切换后保留五个原始代码块与四幅有效图形，临时节点为零。
 手机、平板和跨设备 iCloud 同步留待各自设备验收。
+
+2026-11-23 的公式分隔符修复通过 55 项定向回归，范围为
+`tests/drafts-preview-math.test.mjs`、`tests/drafts-code-diagrams.test.mjs`
+和 `tests/chatgpt-web-genui-charts.test.mjs`。新增用例覆盖用户给出的循环隐状态
+公式及三处行内变量、显式数学节点、矩阵换行、混用/残缺分隔符和实际离线包执行。
+本机 Drafts 附带的 MultiMarkdown 6.7.0 确认原始 HTML 会保留双反斜杠；
+将该输出注入完整生成模板后，独立 WKWebView 在 1000px 浅色和 390px 浅色/深色
+环境均显示四处公式，包含一处块级公式，渲染错误为零，页面宽度与视口相同。
+已通过 `npm run drafts:update` 更新共享模板，核对部署文件、导入包和生成文件逐字
+一致、脚本 CSP 哈希匹配及前一版本保留。文档检查、受影响文件 lint 和生成文件
+时效检查通过。本轮视觉检查使用独立 WKWebView；Drafts 原生动作界面、
+手机/平板及跨设备同步保留为各自环境的验收项。

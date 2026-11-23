@@ -54,6 +54,19 @@ function normalizeDisplayMarkdownBreaks(tex) {
   return tex.replace(/(^|[^\\])((?:\\\\)*)\\([ \t]*\n)/g, '$1$2\\\\$3')
 }
 
+function backslashDelimiterAt(text, index) {
+  if (text[index] !== '\\' || text[index - 1] === '\\') return null
+  // Markdown prose consumes an escape; raw HTML retains both backslashes.
+  const slashes = text[index + 1] === '\\' ? 2 : 1
+  const marker = text[index + slashes]
+  if (marker !== '[' && marker !== '(') return null
+  return {
+    length: slashes + 1,
+    closing: '\\'.repeat(slashes) + (marker === '[' ? ']' : ')'),
+    display: marker === '[',
+  }
+}
+
 function renderTexNode(doc, tex, { display = false, strict = false, state } = {}) {
   if (state.count >= state.maxExpressions) return null
   const trimmed = String(tex || '').trim()
@@ -128,35 +141,35 @@ export function scanMathSegments(text) {
       continue
     }
 
-    // 2. Display \[ ... \] and inline \( ... \)
+    // 2. Display \[ ... \] and inline \( ... \), including doubled delimiters.
     if (text[index] === '\\' && !isEscaped(text, index)) {
-      const next = text[index + 1]
-      if (next === '[' || next === '(') {
-        const closing = next === '[' ? '\\]' : '\\)'
-        let close = index + 2
+      const delimiter = backslashDelimiterAt(text, index)
+      if (delimiter) {
+        const { length, closing, display } = delimiter
+        let close = index + length
         let found = -1
-        while (close < len - 1) {
-          if (text[close] === '\\' && text[close + 1] === closing[1] && !isEscaped(text, close)) {
+        while (close <= len - length) {
+          if (text.startsWith(closing, close) && text[close - 1] !== '\\') {
             found = close
             break
           }
           close++
         }
-        if (found > index + 2) {
-          const inner = text.slice(index + 2, found)
+        if (found > index + length) {
+          const inner = text.slice(index + length, found)
           if (inner.trim()) {
             segments.push({
               start: index,
-              end: found + 2,
+              end: found + length,
               tex: inner,
-              display: next === '[',
+              display,
               strict: false,
             })
-            index = found + 2
+            index = found + length
             continue
           }
         }
-        index += 2
+        index += length
         continue
       }
 
@@ -233,10 +246,14 @@ function stripOuterDelimiters(raw, defaultDisplay) {
   const trimmed = raw.trim()
   if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4)
     return { tex: trimmed.slice(2, -2), display: true }
-  if (trimmed.startsWith('\\[') && trimmed.endsWith('\\]') && trimmed.length > 4)
-    return { tex: trimmed.slice(2, -2), display: true }
-  if (trimmed.startsWith('\\(') && trimmed.endsWith('\\)') && trimmed.length > 4)
-    return { tex: trimmed.slice(2, -2), display: false }
+  const delimiter = backslashDelimiterAt(trimmed, 0)
+  if (
+    delimiter &&
+    trimmed.endsWith(delimiter.closing) &&
+    trimmed.length > delimiter.length * 2 &&
+    trimmed[trimmed.length - delimiter.length - 1] !== '\\'
+  )
+    return { tex: trimmed.slice(delimiter.length, -delimiter.length), display: delimiter.display }
   if (
     trimmed.startsWith('$') &&
     trimmed.endsWith('$') &&
