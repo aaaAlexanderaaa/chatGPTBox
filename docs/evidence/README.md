@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-12
+last_reconciled: 2026-11-24
 ---
 
 # Verification evidence
@@ -12,6 +12,9 @@ They support decisions without redefining them. Temporary captures and account
 data stay in ignored local locations; commit only material appropriate for the
 repository's audience.
 
+- [2026-11-24 ChatGPT continuation and models](2026-11-24-chatgpt-continuation-models.md)
+  records the merged-answer parent mismatch, GPT-6.2 catalog and effort facts,
+  regression checks, and the installed-version verification boundary.
 - [2026-11-12 unified engines](2026-11-12-engine-runtime-review.md) records design and
   completion review, common-runtime/legacy/transport tests, local packaging and
   installation observations, and the limits of live-provider verification.

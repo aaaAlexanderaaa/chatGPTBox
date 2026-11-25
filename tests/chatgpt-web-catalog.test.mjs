@@ -53,6 +53,29 @@ const WORK_TPP = {
 }
 
 describe('chatgpt-web model catalogs', () => {
+  it('keeps GPT-6.2 Chat and Work slugs in their native catalog families', () => {
+    const catalog = mergeChatgptWebModelCatalogs(
+      {
+        title: 'Latest',
+        default_model_slug: 'gpt-6-2',
+        models: [
+          { slug: 'gpt-6-2', is_work_mode_model: false },
+          { slug: 'gpt-6-2-instant', is_work_mode_model: false },
+          { slug: 'gpt-6-2-thinking', is_work_mode_model: false },
+          { slug: 'gpt-6.2-astra-wm', is_work_mode_model: true },
+        ],
+      },
+      {
+        models: [
+          { slug: 'gpt-6.2-astra-wm', is_work_mode_model: true },
+          { slug: 'gpt-6.2-sol-wm', is_work_mode_model: true },
+        ],
+      },
+    )
+    expect(catalog.chatSlugs).toEqual(['gpt-6-2', 'gpt-6-2-instant', 'gpt-6-2-thinking'])
+    expect(catalog.workSlugs).toEqual(['gpt-6.2-astra-wm', 'gpt-6.2-sol-wm'])
+  })
+
   it('recognizes the new GPT-6 Chat default and Thinking rows without treating them as Work', () => {
     const catalog = classifyChatgptWebModelsPayload({
       title: 'Latest',

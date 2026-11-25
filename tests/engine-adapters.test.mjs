@@ -8,6 +8,105 @@ import { createGeminiWebService } from '../src/background/gemini-web-service.mjs
 import { GEMINI_WEB_MODEL, GEMINI_WEB_SELECTION } from '../src/config/gemini-web.mjs'
 import { buildChatgptWebConversationRequestBody } from '../src/services/clients/chatgpt-web/request-wire.mjs'
 
+describe('ChatGPT merged-answer continuation', () => {
+  const detail = () => ({
+    conversationId: 'merged-conversation',
+    currentNode: 'visible-merged-answer',
+    defaultModel: 'gpt-6-thinking',
+    pending: false,
+    message: {
+      messageId: 'visible-merged-answer',
+      continuationMessageId: 'native-continuation',
+      isFinal: true,
+    },
+    cache: { source: 'network', stale: false },
+  })
+
+  it('imports the native continuation rather than the visible merged node', () => {
+    const [adapter] = createNativeEngineAdapters()
+    expect(adapter.referenceFromHistory(detail())).toMatchObject({
+      head: 'native-continuation',
+      session: { parentMessageId: 'native-continuation' },
+    })
+  })
+
+  it.each(['native-continuation', 'visible-merged-answer'])(
+    'verifies a stored %s head and sends once using the native continuation',
+    async (head) => {
+      const sessions = []
+      const [adapter] = createNativeEngineAdapters({
+        chatgptRead: async () => detail(),
+        providers: {
+          chatgptweb: {
+            async run({ session, port }) {
+              sessions.push({ ...session })
+              port.postMessage({ accepted: true, session })
+              port.postMessage({ done: true, outcome: 'completed', finalContent: 'Answer' })
+            },
+          },
+        },
+      })
+      const context = {
+        runId: 'merged-followup-run',
+        nativeRef: nativeSessionReference({
+          conversationId: 'merged-conversation',
+          parentMessageId: head,
+        }),
+        config: { disableWebModeHistory: true },
+        report: async () => {},
+        onCancel: () => () => {},
+        isCancelled: () => false,
+      }
+      const request = {
+        engineId: 'chatgptweb',
+        operation: Op.Append,
+        modelId: 'gpt-6-thinking',
+        input: { prompt: 'Compare the assumptions in the previous analysis.' },
+      }
+      await adapter.prepare(request, context)
+      await adapter.append(request, context)
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].parentMessageId).toBe('native-continuation')
+      expect(sessions[0].conversationId).toBe('merged-conversation')
+    },
+  )
+
+  it.each([
+    {},
+    { message: { messageId: 'older-answer', continuationMessageId: 'stored-head', isFinal: true } },
+    {
+      pending: true,
+      message: {
+        messageId: 'visible-merged-answer',
+        continuationMessageId: 'stored-head',
+        isFinal: true,
+      },
+    },
+    {
+      message: {
+        messageId: 'visible-merged-answer',
+        continuationMessageId: 'stored-head',
+        isFinal: false,
+      },
+    },
+  ])('still rejects a changed head or unrelated/incomplete answer: %j', async (patch) => {
+    const [adapter] = createNativeEngineAdapters({
+      chatgptRead: async () => ({ ...detail(), ...patch }),
+    })
+    await expect(
+      adapter.prepare(
+        { operation: Op.Append },
+        {
+          nativeRef: nativeSessionReference({
+            conversationId: 'merged-conversation',
+            parentMessageId: 'stored-head',
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
+  })
+})
+
 describe('ChatGPT native message identity', () => {
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

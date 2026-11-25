@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-18
+last_reconciled: 2026-11-24
 ---
 
 # 统一引擎语义、接口与功能开放
@@ -304,6 +304,10 @@ envelope 传到 background；内部请求由 background 分配。外部 body 不
 原生 continuation 和有效范围。它不是鉴权凭据。旧接口的 native conversation ID
 由边缘兼容层解析；tab/document ID、cookie、token 与原生内部实例不进入新公共请求。
 追加前校验引擎、账号、绑定代次、`expectedRevision` 和可用原生父节点。
+ChatGPT 的最终合并回答可以有不同的显示节点与 `continuation_message_id`。
+只有新鲜快照中恰好位于 `currentNode` 的完整最终回答，才能证明二者属于同一
+原生 head；历史导入和追加统一使用其 continuation。旧绑定保存了显示节点时，
+也只接受这次核验的同一对身份；其他轮次、未完成回答或真正变化的 head 仍拒绝。
 网站自己的并发编辑不能被 Box 的本地锁原子阻止，发现变化即拒绝或保留不确定。
 `expectedRevision` 对应最后取得的 `conversationRevision`；旧 run 的只读恢复
 只修复该执行，不得回滚已经推进的会话版本或原生父节点。

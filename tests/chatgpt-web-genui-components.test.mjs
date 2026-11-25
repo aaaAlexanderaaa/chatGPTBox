@@ -408,6 +408,8 @@ describe('static GenUI component adapters', () => {
     },
   )
 
+  // Rebuild/minify the full offline runtime, including Mermaid. Give this
+  // integration check a separate bounded budget for cold/CI builds.
   it('ships the shared stylesheet and packaged runtime inside the standalone Drafts template', async () => {
     expect(await syncDraftsPreview({ check: true })).toBe(false)
     const template = fs.readFileSync(
@@ -418,5 +420,5 @@ describe('static GenUI component adapters', () => {
     expect(template).not.toMatch(/<script[^>]+src=|<link/i)
     expect(template).toContain("script-src 'sha256-")
     expect(template).toContain("default-src 'none'")
-  }, 30000)
+  }, 120000)
 })

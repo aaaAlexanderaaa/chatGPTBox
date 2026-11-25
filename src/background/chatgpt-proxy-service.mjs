@@ -20,6 +20,7 @@ import { initSession } from '../services/init-session.mjs'
 import { getChatgptWebThinkingEffortOverride } from '../services/clients/chatgpt-web/thinking.mjs'
 import { saveChatgptWebSessionSnapshot } from '../services/clients/chatgpt-web/thread-state.mjs'
 import { recordChatgptWebTurnStatus } from '../services/clients/chatgpt-web/turn-status.mjs'
+import { getChatgptWebConversationContinuationId } from '../services/clients/chatgpt-web/conversation-state.mjs'
 import { createChatgptWebTurnRecovery } from '../services/clients/chatgpt-web/turn-recovery.mjs'
 import {
   createPendingProxyCancellation,
@@ -625,7 +626,7 @@ export async function sendChatgptWebConversationMessageThroughProxy(payload = {}
     session.chatgptWebImagePointers = payload.images || []
     session.chatgptWebProjectId = payload.projectId || conversation.projectId || null
     session.messageId = messageId
-    session.parentMessageId = conversation.currentNode
+    session.parentMessageId = getChatgptWebConversationContinuationId(conversation)
     session.chatgptWebModelSlugOverride = model || conversation.defaultModel || undefined
     session.chatgptWebThinkingEffortOverride = thinkingEffort
   } catch (error) {

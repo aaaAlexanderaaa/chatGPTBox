@@ -911,6 +911,21 @@ export function extractChatgptWebConversationListItems(response) {
   return []
 }
 
+// The visible merged answer and the native continuation may have different IDs.
+// Only the completed answer at currentNode can identify that node's alias; an
+// anchored older answer or an in-progress fragment cannot authorize an append.
+export function getChatgptWebConversationContinuationId(snapshot) {
+  const message = snapshot?.message
+  return snapshot?.currentNode &&
+    snapshot.pending !== true &&
+    message?.isFinal === true &&
+    message.messageId === snapshot.currentNode &&
+    typeof message.continuationMessageId === 'string' &&
+    message.continuationMessageId.trim()
+    ? message.continuationMessageId
+    : snapshot?.currentNode || null
+}
+
 export function formatChatgptWebConversationSnapshot(
   conversation = {},
   { userMessageId, assistantMessageId, think = false } = {},

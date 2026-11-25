@@ -46,6 +46,25 @@ describe('pickDefaultChatgptWebKey', () => {
     ).toBe('chatgptweb/gpt-6-thinking')
   })
 
+  it.each(['chatgptweb/gpt-6-thinking', 'chatgptweb/missing'])(
+    'keeps GPT-6 Thinking as the default when the account adds GPT-6.2 (%s)',
+    (currentKey) => {
+      expect(
+        pickDefaultChatgptWebKey({
+          currentKey,
+          availableSlugs: [
+            'gpt-6-2',
+            'gpt-6-2-thinking',
+            'gpt-6-2-instant',
+            'gpt-6.2-astra-wm',
+            'gpt-6.2-sol-wm',
+            'gpt-6-thinking',
+          ],
+        }),
+      ).toBe('chatgptweb/gpt-6-thinking')
+    },
+  )
+
   it('unknown catalog keeps the current key', () => {
     expect(
       pickDefaultChatgptWebKey({

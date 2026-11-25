@@ -4,7 +4,7 @@ status: current
 authority: normative
 implementation: implemented
 verification_status: partial
-last_reconciled: 2026-11-18
+last_reconciled: 2026-11-24
 ---
 
 > The 2026-10-22 review classified this existing interface document and
@@ -843,6 +843,10 @@ select its current parent. A failed background network read tries the dedicated
 proxy page even when a cached snapshot preserved that read's error. If the fresh
 read still fails or only stale cached evidence is available, it reports an unsent
 failure instead of branching from an old parent.
+For a completed merged answer at `currentNode`, its native
+`continuationMessageId` is the send parent. That visible node and its verified
+continuation identify the same head; an older anchored answer cannot authorize
+this substitution. A genuinely changed head still fails before submission.
 This does not lock the conversation against simultaneous changes by another client.
 
 Sends a follow-up user message into an existing ChatGPT conversation and returns as soon as ChatGPT acknowledges it. The answer keeps generating in the browser after the HTTP response returns. Collect its final answer with the local turn-status endpoint below.

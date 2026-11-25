@@ -314,3 +314,20 @@ HTTPS、官网域名、JS 路径、唯一职责、身份、取消与单次请求
 需要临时拦截请求，检查观察器是否影响原生识别，并在结束时清理。
 
 来源：[原生改写修复与安装验收](../../../../docs/plans/2026-10-30-chatgpt-native-input.md#november-14-request-body-repair-and-installed-rewrite-verification)。
+
+## 2026-11-24：合并回答的显示节点与续聊节点不同
+
+新鲜 GET 中的最终可视化回答，其 `currentNode` / `messageId` 可以与
+`continuationMessageId` 不同。流客户端已保存后者，统一适配器只与前者比较，
+因此同一 head 也会误报 `BINDING_CHANGED`。历史导入和旧续聊入口还会选错发送父节点。
+
+统一从当前显示节点上完整的最终回答取得 continuation。只在这次新鲜核验中
+证明的两个身份之间兼容旧绑定；不能用旧轮次的锚定结果或未完成回答解除冲突。
+用合成样本同时验证误报消失、发送使用原生父节点、真实变化仍被拒绝。
+原故障会话只读核验即可，不为验证父节点关系向用户会话追加临时问题。
+
+本次新目录加入 GPT-6.2 Chat / Work，保留现有默认。新模型不仅要检查 slug，
+还要分别读取 Chat 与 Work 的思考档位；同一 Work slug 在嵌入的 Chat 目录中
+可以只有四档，而 `/tpp/models/` 仍有含 `xhigh` 的五档。
+
+来源：[11 月 24 日修复与验证](../../../../docs/evidence/2026-11-24-chatgpt-continuation-models.md)。

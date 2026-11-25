@@ -98,6 +98,24 @@ it('reads the current remote parent before a follow-up instead of trusting an ol
   expect(result).toMatchObject({ conversationId: 'thread', messageId: 'synthetic-operation' })
 })
 
+it('uses the final merged answer continuation for the retained follow-up transport', async () => {
+  state.read.mockResolvedValue({
+    ...fresh(),
+    pending: false,
+    message: {
+      messageId: 'newest-parent',
+      continuationMessageId: 'native-fragment-parent',
+      isFinal: true,
+    },
+  })
+  await sendChatgptWebConversationMessageThroughProxy({
+    conversationId: 'thread',
+    query: 'Compare the assumptions in the previous analysis.',
+  })
+  expect(execute).toHaveBeenCalledTimes(1)
+  expect(execute.mock.calls[0][0].parentMessageId).toBe('native-fragment-parent')
+})
+
 it.each(['Failed to fetch', 'NetworkError when attempting to fetch'])(
   'uses a fresh proxy read when a cached snapshot absorbs a background %s',
   async (refreshError) => {

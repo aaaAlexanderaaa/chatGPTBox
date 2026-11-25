@@ -2,7 +2,7 @@
 doc_type: guide
 status: current
 authority: guidance
-last_reconciled: 2026-11-23
+last_reconciled: 2026-11-24
 projection_of: ["docs/api-server.md", "docs/chatgpt-web-genui.md"]
 ---
 
@@ -12,6 +12,11 @@ Use the same Drafts actions for ChatGPT and Gemini: list conversations, open one
 send a question and collect its answer. The [gateway contract](../api-server.md) owns authentication,
 request identity and recovery; the [renderer contract](../chatgpt-web-genui.md)
 owns portable answer HTML and supported components.
+
+The November 24 ChatGPT update resolves merged-answer continuation in the
+extension. It preserves the existing default model and requires no replacement
+of Drafts actions; explicit model overrides and conversation-model inheritance
+remain available. See the [verification record](../evidence/2026-11-24-chatgpt-continuation-models.md).
 
 There are five public actions. For frequent updates on a Mac, initialize the
 shared-library installation once, then use the update command below. Maintained

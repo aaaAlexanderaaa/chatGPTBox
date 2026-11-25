@@ -39,6 +39,7 @@ import {
   needsChatgptWebThinkingEffort,
 } from '../services/clients/chatgpt-web/thinking.mjs'
 import { validateChatgptImagePointer } from '../services/clients/chatgpt-web/image-content.mjs'
+import { getChatgptWebConversationContinuationId } from '../services/clients/chatgpt-web/conversation-state.mjs'
 import { deleteConversation, sendMessageFeedback } from '../services/apis/chatgpt-web'
 import { getChatGptAccessToken } from '../services/wrappers.mjs'
 import {
@@ -362,7 +363,10 @@ export function createNativeEngineAdapters(deps = {}) {
           modelName: `${definition.id}/${modelId || detail.defaultModel || ''}`,
           conversationId: detail.conversationId,
           ...(definition.id === 'chatgptweb'
-            ? { parentMessageId: detail.currentNode, chatgptWebProjectId: detail.projectId || null }
+            ? {
+                parentMessageId: getChatgptWebConversationContinuationId(detail),
+                chatgptWebProjectId: detail.projectId || null,
+              }
             : definition.id === 'geminiweb'
             ? {
                 modelName: `geminiweb/${modelId || GEMINI_WEB_MODEL}`,
@@ -484,7 +488,11 @@ export function createNativeEngineAdapters(deps = {}) {
               'CONTEXT_UNAVAILABLE',
               'The current ChatGPT head could not be freshly verified.',
             )
-          if (context.nativeRef.head && detail.currentNode !== context.nativeRef.head)
+          const continuationId = getChatgptWebConversationContinuationId(detail)
+          if (
+            context.nativeRef.head !== detail.currentNode &&
+            context.nativeRef.head !== continuationId
+          )
             throw new EngineError(
               'BINDING_CHANGED',
               'The native ChatGPT conversation changed. Inspect it before appending.',
@@ -495,7 +503,7 @@ export function createNativeEngineAdapters(deps = {}) {
               'BINDING_CHANGED',
               'The original conversation does not belong to the selected Project.',
             )
-          original.parentMessageId = detail.currentNode
+          original.parentMessageId = continuationId
         } else if (definition.id === 'grokweb') {
           const detail = await grokControl(GrokProxyControlAction.GetConversation, {
             conversationId: original.conversationId,
